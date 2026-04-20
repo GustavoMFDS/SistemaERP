@@ -8,22 +8,16 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/common"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type SalesHandler struct {
-	svc      *salesapp.SalesService
-	logger   *slog.Logger
-	pool     *pgxpool.Pool
+	svc    *salesapp.SalesService
+	logger *slog.Logger
 }
 
 func NewSalesHandler(svc *salesapp.SalesService, logger *slog.Logger) *SalesHandler {
 	return &SalesHandler{svc: svc, logger: logger}
-}
-
-func (h *SalesHandler) BindDB(pool *pgxpool.Pool) {
-	h.pool = pool
 }
 
 func (h *SalesHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -48,10 +42,6 @@ func (h *SalesHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		http.Error(w, "db not configured", http.StatusInternalServerError)
-		return
-	}
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -63,7 +53,7 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	saleID, total, err := h.svc.CreateAndFinalize(r.Context(), h.pool, au.UserID, req)
+	saleID, total, err := h.svc.CreateAndFinalize(r.Context(), au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch err {
@@ -83,10 +73,6 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		http.Error(w, "db not configured", http.StatusInternalServerError)
-		return
-	}
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -98,7 +84,7 @@ func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := h.svc.Cancel(r.Context(), h.pool, au.UserID, saleID, req); err != nil {
+	if err := h.svc.Cancel(r.Context(), au.UserID, saleID, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
 		case common.ErrNotFound:

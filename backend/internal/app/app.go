@@ -36,7 +36,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	}
 
 	mods := modules.New(cfg, pool, logger)
-	router := httpapi.NewRouter(cfg, mods, pool, logger)
+	router := httpapi.NewRouter(cfg, mods, logger)
 
 	return &App{DB: pool, Router: router, logger: logger}, nil
 }

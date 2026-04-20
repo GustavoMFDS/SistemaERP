@@ -6,7 +6,6 @@ import (
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 
 	"github.com/go-chi/chi/v5"
@@ -15,15 +14,10 @@ import (
 type ProductsHandler struct {
 	svc    *invapp.ProductsService
 	logger *slog.Logger
-	pool   *pgxpool.Pool
 }
 
 func NewProductsHandler(svc *invapp.ProductsService, logger *slog.Logger) *ProductsHandler {
 	return &ProductsHandler{svc: svc, logger: logger}
-}
-
-func (h *ProductsHandler) BindDB(pool *pgxpool.Pool) {
-	h.pool = pool
 }
 
 func (h *ProductsHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -49,64 +43,36 @@ func (h *ProductsHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		http.Error(w, "db not configured", http.StatusInternalServerError)
-		return
-	}
 	var req invapp.ProductCreateRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	tx, err := h.pool.Begin(r.Context())
-	if err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
-		return
-	}
-	defer func() { _ = tx.Rollback(r.Context()) }()
-	id, err := h.svc.Create(r.Context(), tx, req)
+	id, err := h.svc.Create(r.Context(), req)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity
 		}
 		http.Error(w, err.Error(), status)
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
 func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		http.Error(w, "db not configured", http.StatusInternalServerError)
-		return
-	}
 	id := chi.URLParam(r, "id")
 	var req invapp.ProductUpdateRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	tx, err := h.pool.Begin(r.Context())
-	if err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
-		return
-	}
-	defer func() { _ = tx.Rollback(r.Context()) }()
-	if err := h.svc.Update(r.Context(), tx, id, req); err != nil {
+	if err := h.svc.Update(r.Context(), id, req); err != nil {
 		status := http.StatusBadRequest
 		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity
 		}
 		http.Error(w, err.Error(), status)
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})

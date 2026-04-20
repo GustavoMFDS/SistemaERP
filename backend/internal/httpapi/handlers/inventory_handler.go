@@ -7,22 +7,16 @@ import (
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type InventoryHandler struct {
 	svc    *invapp.InventoryService
 	logger *slog.Logger
-	pool   *pgxpool.Pool
 }
 
 func NewInventoryHandler(svc *invapp.InventoryService, logger *slog.Logger) *InventoryHandler {
 	return &InventoryHandler{svc: svc, logger: logger}
-}
-
-func (h *InventoryHandler) BindDB(pool *pgxpool.Pool) {
-	h.pool = pool
 }
 
 func (h *InventoryHandler) LowStock(w http.ResponseWriter, r *http.Request) {
@@ -48,10 +42,6 @@ func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		http.Error(w, "db not configured", http.StatusInternalServerError)
-		return
-	}
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -62,7 +52,7 @@ func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := h.svc.Adjust(r.Context(), h.pool, au.UserID, req); err != nil {
+	if err := h.svc.Adjust(r.Context(), au.UserID, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
 		case common.ErrValidation:

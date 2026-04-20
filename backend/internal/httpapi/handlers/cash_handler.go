@@ -7,29 +7,19 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/common"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type CashHandler struct {
 	svc    *salesapp.CashService
 	logger *slog.Logger
-	pool   *pgxpool.Pool
 }
 
 func NewCashHandler(svc *salesapp.CashService, logger *slog.Logger) *CashHandler {
 	return &CashHandler{svc: svc, logger: logger}
 }
 
-func (h *CashHandler) BindDB(pool *pgxpool.Pool) {
-	h.pool = pool
-}
-
 func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		http.Error(w, "db not configured", http.StatusInternalServerError)
-		return
-	}
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -40,7 +30,7 @@ func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	id, err := h.svc.OpenSession(r.Context(), h.pool, au.UserID, req)
+	id, err := h.svc.OpenSession(r.Context(), au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err == common.ErrValidation {
@@ -53,10 +43,6 @@ func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		http.Error(w, "db not configured", http.StatusInternalServerError)
-		return
-	}
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -68,7 +54,7 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := h.svc.CloseSession(r.Context(), h.pool, au.UserID, sessionID, req); err != nil {
+	if err := h.svc.CloseSession(r.Context(), au.UserID, sessionID, req); err != nil {
 		status := http.StatusBadRequest
 		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity

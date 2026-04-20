@@ -9,14 +9,14 @@ import (
 	fin "github.com/example/sistemaemgo/internal/modules/finance/domain"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
+	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type SalesService struct {
 	cfg      config.Config
+	uow      db.UnitOfWork
 	sales    SalesRepository
 	inv      InventoryRepository
 	fin      FinanceRepository
@@ -27,9 +27,9 @@ type SalesService struct {
 }
 
 type SaleCreateRequest struct {
-	CashSessionID string              `json:"cash_session_id" validate:"required"`
-	CustomerID    *string             `json:"customer_id"`
-	DiscountValue float64             `json:"discount_value" validate:"min=0"`
+	CashSessionID string               `json:"cash_session_id" validate:"required"`
+	CustomerID    *string              `json:"customer_id"`
+	DiscountValue float64              `json:"discount_value" validate:"min=0"`
 	Items         []SaleItemRequest    `json:"items" validate:"required,min=1,dive"`
 	Payments      []SalePaymentRequest `json:"payments" validate:"required,min=1,dive"`
 }
@@ -50,8 +50,8 @@ type SaleCancelRequest struct {
 	Reason string `json:"reason" validate:"required,min=3,max=250"`
 }
 
-func NewSalesService(cfg config.Config, salesRepo SalesRepository, invRepo InventoryRepository, finRepo FinanceRepository, cashRepo CashRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *SalesService {
-	return &SalesService{cfg: cfg, sales: salesRepo, inv: invRepo, fin: finRepo, cash: cashRepo, products: productsRepo, validate: v, logger: logger}
+func NewSalesService(cfg config.Config, uow db.UnitOfWork, salesRepo SalesRepository, invRepo InventoryRepository, finRepo FinanceRepository, cashRepo CashRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *SalesService {
+	return &SalesService{cfg: cfg, uow: uow, sales: salesRepo, inv: invRepo, fin: finRepo, cash: cashRepo, products: productsRepo, validate: v, logger: logger}
 }
 
 func (s *SalesService) List(ctx context.Context, limit, offset int) ([]sales.Sale, int, error) {
@@ -62,12 +62,12 @@ func (s *SalesService) Get(ctx context.Context, id string) (sales.Sale, []sales.
 	return s.sales.GetSale(ctx, id)
 }
 
-func (s *SalesService) CreateAndFinalize(ctx context.Context, pool *pgxpool.Pool, actorUserID string, req SaleCreateRequest) (string, float64, error) {
+func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string, req SaleCreateRequest) (string, float64, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, common.ErrValidation
 	}
 	// Validate cash session
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return "", 0, err
 	}
@@ -216,11 +216,11 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, pool *pgxpool.Pool
 	return saleID, sale.Total, nil
 }
 
-func (s *SalesService) Cancel(ctx context.Context, pool *pgxpool.Pool, actorUserID string, saleID string, req SaleCancelRequest) error {
+func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID string, req SaleCancelRequest) error {
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return err
 	}

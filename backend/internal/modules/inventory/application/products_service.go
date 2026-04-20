@@ -11,6 +11,7 @@ import (
 )
 
 type ProductsService struct {
+	uow      db.UnitOfWork
 	repo     ProductsRepository
 	validate *validator.Validate
 	logger   *slog.Logger
@@ -32,8 +33,8 @@ type ProductCreateRequest struct {
 
 type ProductUpdateRequest = ProductCreateRequest
 
-func NewProductsService(r ProductsRepository, v *validator.Validate, logger *slog.Logger) *ProductsService {
-	return &ProductsService{repo: r, validate: v, logger: logger}
+func NewProductsService(uow db.UnitOfWork, r ProductsRepository, v *validator.Validate, logger *slog.Logger) *ProductsService {
+	return &ProductsService{uow: uow, repo: r, validate: v, logger: logger}
 }
 
 func (s *ProductsService) List(ctx context.Context, query string, limit, offset int) ([]inv.Product, int, error) {
@@ -44,10 +45,15 @@ func (s *ProductsService) Get(ctx context.Context, id string) (inv.Product, erro
 	return s.repo.Get(ctx, id)
 }
 
-func (s *ProductsService) Create(ctx context.Context, tx db.DBTX, req ProductCreateRequest) (string, error) {
+func (s *ProductsService) Create(ctx context.Context, req ProductCreateRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
 	}
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	p := inv.Product{
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
@@ -61,13 +67,25 @@ func (s *ProductsService) Create(ctx context.Context, tx db.DBTX, req ProductCre
 		MinStock:    req.MinStock,
 		Active:      req.Active,
 	}
-	return s.repo.Create(ctx, tx, p)
+	id, err := s.repo.Create(ctx, tx, p)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
-func (s *ProductsService) Update(ctx context.Context, tx db.DBTX, id string, req ProductUpdateRequest) error {
+func (s *ProductsService) Update(ctx context.Context, id string, req ProductUpdateRequest) error {
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	p := inv.Product{
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
@@ -81,5 +99,8 @@ func (s *ProductsService) Update(ctx context.Context, tx db.DBTX, id string, req
 		MinStock:    req.MinStock,
 		Active:      req.Active,
 	}
-	return s.repo.Update(ctx, tx, id, p)
+	if err := s.repo.Update(ctx, tx, id, p); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

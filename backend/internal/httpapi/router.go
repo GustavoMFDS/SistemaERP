@@ -11,10 +11,9 @@ import (
 	"github.com/example/sistemaemgo/internal/modules"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func NewRouter(cfg config.Config, mods *modules.Modules, pool *pgxpool.Pool, logger *slog.Logger) http.Handler {
+func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimw.RealIP)
@@ -30,11 +29,6 @@ func NewRouter(cfg config.Config, mods *modules.Modules, pool *pgxpool.Pool, log
 	})
 
 	h := handlers.New(cfg, mods, logger)
-	h.Products.BindDB(pool)
-	h.Inventory.BindDB(pool)
-	h.Cash.BindDB(pool)
-	h.Sales.BindDB(pool)
-	h.Fiscal.BindDB(pool)
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Post("/auth/login", h.Auth.Login)

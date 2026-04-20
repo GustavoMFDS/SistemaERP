@@ -14,6 +14,7 @@ import (
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
+	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -30,6 +31,7 @@ type Modules struct {
 
 func New(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *Modules {
 	v := validator.New()
+	uow := db.NewPgxUnitOfWork(pool)
 
 	// infrastructure
 	usersRepo := authinfra.NewUsersRepo(pool)
@@ -45,12 +47,12 @@ func New(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *Modules {
 
 	// application services
 	authSvc := authapp.NewAuthService(cfg, usersRepo, logger)
-	productsSvc := invapp.NewProductsService(productsRepo, v, logger)
-	inventorySvc := invapp.NewInventoryService(cfg, inventoryRepo, productsRepo, v, logger)
-	cashSvc := salesapp.NewCashService(cashRepo, v, logger)
-	salesSvc := salesapp.NewSalesService(cfg, salesRepo, inventoryRepo, financeRepo, cashRepo, productsRepo, v, logger)
+	productsSvc := invapp.NewProductsService(uow, productsRepo, v, logger)
+	inventorySvc := invapp.NewInventoryService(cfg, uow, inventoryRepo, productsRepo, v, logger)
+	cashSvc := salesapp.NewCashService(uow, cashRepo, v, logger)
+	salesSvc := salesapp.NewSalesService(cfg, uow, salesRepo, inventoryRepo, financeRepo, cashRepo, productsRepo, v, logger)
 	financeSvc := finapp.NewFinanceService(financeRepo, v, logger)
-	fiscalSvc := fiscapp.NewFiscalService(fiscalRepo, salesRepo, productsRepo, v, logger)
+	fiscalSvc := fiscapp.NewFiscalService(uow, fiscalRepo, salesRepo, productsRepo, v, logger)
 
 	return &Modules{
 		Auth:      authSvc,

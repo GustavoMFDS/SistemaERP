@@ -14,11 +14,10 @@ import (
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type FiscalService struct {
+	uow      db.UnitOfWork
 	fiscal   FiscalRepository
 	sales    SalesRepository
 	products ProductsRepository
@@ -30,15 +29,15 @@ type GenerateXMLRequest struct {
 	SaleID string `json:"sale_id" validate:"required"`
 }
 
-func NewFiscalService(fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *FiscalService {
-	return &FiscalService{fiscal: fiscal, sales: salesRepo, products: productsRepo, validate: v, logger: logger}
+func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *FiscalService {
+	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, validate: v, logger: logger}
 }
 
-func (s *FiscalService) GenerateNFeXML(ctx context.Context, pool *pgxpool.Pool, actorUserID string, req GenerateXMLRequest) (invoiceID, xmlID string, err error) {
+func (s *FiscalService) GenerateNFeXML(ctx context.Context, actorUserID string, req GenerateXMLRequest) (invoiceID, xmlID string, err error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", "", common.ErrValidation
 	}
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return "", "", err
 	}

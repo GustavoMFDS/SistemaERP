@@ -8,12 +8,13 @@ import (
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
+	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
-	"github.com/jackc/pgx/v5"
 )
 
 type InventoryService struct {
 	cfg      config.Config
+	uow      db.UnitOfWork
 	inv      InventoryRepository
 	products ProductsRepository
 	validate *validator.Validate
@@ -27,8 +28,8 @@ type InventoryAdjustRequest struct {
 	Type      string  `json:"type" validate:"required,oneof=purchase adjustment loss damage return"`
 }
 
-func NewInventoryService(cfg config.Config, invRepo InventoryRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *InventoryService {
-	return &InventoryService{cfg: cfg, inv: invRepo, products: productsRepo, validate: v, logger: logger}
+func NewInventoryService(cfg config.Config, uow db.UnitOfWork, invRepo InventoryRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *InventoryService {
+	return &InventoryService{cfg: cfg, uow: uow, inv: invRepo, products: productsRepo, validate: v, logger: logger}
 }
 
 func (s *InventoryService) LowStock(ctx context.Context, limit int) ([]inv.Product, error) {
@@ -39,7 +40,7 @@ func (s *InventoryService) ListMovements(ctx context.Context, productID string, 
 	return s.inv.ListMovements(ctx, productID, limit, offset)
 }
 
-func (s *InventoryService) Adjust(ctx context.Context, pool PgxBeginner, actorUserID string, req InventoryAdjustRequest) error {
+func (s *InventoryService) Adjust(ctx context.Context, actorUserID string, req InventoryAdjustRequest) error {
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
@@ -49,7 +50,7 @@ func (s *InventoryService) Adjust(ctx context.Context, pool PgxBeginner, actorUs
 		return common.ErrValidation
 	}
 
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -89,10 +90,4 @@ func (s *InventoryService) Adjust(ctx context.Context, pool PgxBeginner, actorUs
 		return err
 	}
 	return nil
-}
-
-// PgxBeginner is satisfied by *pgxpool.Pool.
-// Etapa 4 will replace this with a Unit of Work.
-type PgxBeginner interface {
-	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
 }

@@ -8,29 +8,19 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type FiscalHandler struct {
 	svc    *fiscapp.FiscalService
 	logger *slog.Logger
-	pool   *pgxpool.Pool
 }
 
 func NewFiscalHandler(svc *fiscapp.FiscalService, logger *slog.Logger) *FiscalHandler {
 	return &FiscalHandler{svc: svc, logger: logger}
 }
 
-func (h *FiscalHandler) BindDB(pool *pgxpool.Pool) {
-	h.pool = pool
-}
-
 func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		http.Error(w, "db not configured", http.StatusInternalServerError)
-		return
-	}
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -41,7 +31,7 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	invoiceID, xmlID, err := h.svc.GenerateNFeXML(r.Context(), h.pool, au.UserID, req)
+	invoiceID, xmlID, err := h.svc.GenerateNFeXML(r.Context(), au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch err {

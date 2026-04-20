@@ -5,12 +5,12 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
+	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type CashService struct {
+	uow      db.UnitOfWork
 	cash     CashRepository
 	validate *validator.Validate
 	logger   *slog.Logger
@@ -26,11 +26,11 @@ type CashCloseRequest struct {
 	Notes         *string `json:"notes"`
 }
 
-func NewCashService(cash CashRepository, v *validator.Validate, logger *slog.Logger) *CashService {
-	return &CashService{cash: cash, validate: v, logger: logger}
+func NewCashService(uow db.UnitOfWork, cash CashRepository, v *validator.Validate, logger *slog.Logger) *CashService {
+	return &CashService{uow: uow, cash: cash, validate: v, logger: logger}
 }
 
-func (s *CashService) OpenSession(ctx context.Context, pool *pgxpool.Pool, userID string, req CashOpenRequest) (string, error) {
+func (s *CashService) OpenSession(ctx context.Context, userID string, req CashOpenRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
 	}
@@ -38,7 +38,7 @@ func (s *CashService) OpenSession(ctx context.Context, pool *pgxpool.Pool, userI
 	if err != nil {
 		return "", err
 	}
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -54,11 +54,11 @@ func (s *CashService) OpenSession(ctx context.Context, pool *pgxpool.Pool, userI
 	return id, nil
 }
 
-func (s *CashService) CloseSession(ctx context.Context, pool *pgxpool.Pool, userID, sessionID string, req CashCloseRequest) error {
+func (s *CashService) CloseSession(ctx context.Context, userID, sessionID string, req CashCloseRequest) error {
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return err
 	}
