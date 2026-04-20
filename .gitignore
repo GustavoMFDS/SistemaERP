@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.*.example
+
+# Go
+backend/bin/
+backend/tmp/
+backend/*.exe
+backend/*.test
+backend/*.out
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/extensions.json
+
+# Node
+web/node_modules/
+web/dist/
+web/dist-ssr/
+web/*.local

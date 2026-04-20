@@ -1,0 +1,114 @@
+package handlers
+
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/example/sistemaemgo/internal/httpapi/middleware"
+	"github.com/example/sistemaemgo/internal/service"
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"log/slog"
+)
+
+type SalesHandler struct {
+	svc      *service.SalesService
+	logger   *slog.Logger
+	pool     *pgxpool.Pool
+}
+
+func NewSalesHandler(svc *service.SalesService, logger *slog.Logger) *SalesHandler {
+	return &SalesHandler{svc: svc, logger: logger}
+}
+
+func (h *SalesHandler) BindDB(pool *pgxpool.Pool) {
+	h.pool = pool
+}
+
+func (h *SalesHandler) List(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	items, total, err := h.svc.List(r.Context(), limit, offset)
+	if err != nil {
+		http.Error(w, "error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
+}
+
+func (h *SalesHandler) Get(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	sale, items, pays, err := h.svc.Get(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sale": sale, "items": items, "payments": pays})
+}
+
+func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request) {
+	if h.pool == nil {
+		http.Error(w, "db not configured", http.StatusInternalServerError)
+		return
+	}
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req service.SaleCreateRequest
+	if err := readJSON(r, &req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	saleID, total, err := h.svc.CreateAndFinalize(r.Context(), h.pool, au.UserID, req)
+	if err != nil {
+		status := http.StatusBadRequest
+		switch err {
+		case service.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case service.ErrInsufficientStock:
+			status = http.StatusConflict
+		case service.ErrCashSessionClosed:
+			status = http.StatusConflict
+		case service.ErrPaymentsMismatch:
+			status = http.StatusConflict
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": saleID, "status": "finalized", "total": total})
+}
+
+func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+	if h.pool == nil {
+		http.Error(w, "db not configured", http.StatusInternalServerError)
+		return
+	}
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	saleID := chi.URLParam(r, "id")
+	var req service.SaleCancelRequest
+	if err := readJSON(r, &req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := h.svc.Cancel(r.Context(), h.pool, au.UserID, saleID, req); err != nil {
+		status := http.StatusBadRequest
+		switch err {
+		case service.ErrNotFound:
+			status = http.StatusNotFound
+		case service.ErrSaleNotFinalized, service.ErrSaleAlreadyCancelled:
+			status = http.StatusConflict
+		case service.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled"})
+}

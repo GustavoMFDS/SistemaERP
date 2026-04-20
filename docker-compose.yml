@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sistemaemgo}
+      POSTGRES_USER: ${POSTGRES_USER:-sistemaemgo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sistemaemgo}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sistemaemgo} -d ${POSTGRES_DB:-sistemaemgo}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations:/migrations
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://${POSTGRES_USER:-sistemaemgo}:${POSTGRES_PASSWORD:-sistemaemgo}@db:5432/${POSTGRES_DB:-sistemaemgo}?sslmode=disable"
+      - up
+
+  seed:
+    image: postgres:16
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./backend/seed:/seed
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        echo "seeding";
+        psql "postgres://${POSTGRES_USER:-sistemaemgo}:${POSTGRES_PASSWORD:-sistemaemgo}@db:5432/${POSTGRES_DB:-sistemaemgo}" -v ON_ERROR_STOP=1 -f /seed/seed.sql
+
+volumes:
+  pgdata:
