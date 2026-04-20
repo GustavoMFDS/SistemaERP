@@ -4,19 +4,20 @@ import (
 	"net/http"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/service"
+	"github.com/example/sistemaemgo/internal/modules/common"
+	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type CashHandler struct {
-	svc    *service.CashService
+	svc    *salesapp.CashService
 	logger *slog.Logger
 	pool   *pgxpool.Pool
 }
 
-func NewCashHandler(svc *service.CashService, logger *slog.Logger) *CashHandler {
+func NewCashHandler(svc *salesapp.CashService, logger *slog.Logger) *CashHandler {
 	return &CashHandler{svc: svc, logger: logger}
 }
 
@@ -34,14 +35,18 @@ func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	var req service.CashOpenRequest
+	var req salesapp.CashOpenRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 	id, err := h.svc.OpenSession(r.Context(), h.pool, au.UserID, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		status := http.StatusBadRequest
+		if err == common.ErrValidation {
+			status = http.StatusUnprocessableEntity
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
@@ -58,13 +63,17 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID := chi.URLParam(r, "id")
-	var req service.CashCloseRequest
+	var req salesapp.CashCloseRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 	if err := h.svc.CloseSession(r.Context(), h.pool, au.UserID, sessionID, req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		status := http.StatusBadRequest
+		if err == common.ErrValidation {
+			status = http.StatusUnprocessableEntity
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})

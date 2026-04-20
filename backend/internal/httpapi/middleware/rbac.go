@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/example/sistemaemgo/internal/service"
+	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
@@ -13,7 +13,7 @@ type ctxPermKey string
 
 const permsKey ctxPermKey = "permissions"
 
-func LoadPermissions(auth *service.AuthService, logger *slog.Logger) func(http.Handler) http.Handler {
+func LoadPermissions(auth *authapp.AuthService, logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			au, ok := GetAuthUser(r.Context())

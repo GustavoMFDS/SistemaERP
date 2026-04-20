@@ -5,16 +5,16 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/example/sistemaemgo/internal/service"
+	finapp "github.com/example/sistemaemgo/internal/modules/finance/application"
 	"log/slog"
 )
 
 type FinanceHandler struct {
-	svc    *service.FinanceService
+	svc    *finapp.FinanceService
 	logger *slog.Logger
 }
 
-func NewFinanceHandler(svc *service.FinanceService, logger *slog.Logger) *FinanceHandler {
+func NewFinanceHandler(svc *finapp.FinanceService, logger *slog.Logger) *FinanceHandler {
 	return &FinanceHandler{svc: svc, logger: logger}
 }
 

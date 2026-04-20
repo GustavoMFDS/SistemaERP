@@ -8,8 +8,7 @@ import (
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/httpapi"
-	"github.com/example/sistemaemgo/internal/repo"
-	"github.com/example/sistemaemgo/internal/service"
+	"github.com/example/sistemaemgo/internal/modules"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -36,9 +35,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return nil, err
 	}
 
-	repos := repo.New(pool)
-	svcs := service.New(cfg, repos, logger)
-	router := httpapi.NewRouter(cfg, svcs, repos, pool, logger)
+	mods := modules.New(cfg, pool, logger)
+	router := httpapi.NewRouter(cfg, mods, pool, logger)
 
 	return &App{DB: pool, Router: router, logger: logger}, nil
 }

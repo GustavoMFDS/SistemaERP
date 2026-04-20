@@ -5,19 +5,20 @@ import (
 	"strconv"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/service"
+	"github.com/example/sistemaemgo/internal/modules/common"
+	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type SalesHandler struct {
-	svc      *service.SalesService
+	svc      *salesapp.SalesService
 	logger   *slog.Logger
 	pool     *pgxpool.Pool
 }
 
-func NewSalesHandler(svc *service.SalesService, logger *slog.Logger) *SalesHandler {
+func NewSalesHandler(svc *salesapp.SalesService, logger *slog.Logger) *SalesHandler {
 	return &SalesHandler{svc: svc, logger: logger}
 }
 
@@ -56,7 +57,7 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	var req service.SaleCreateRequest
+	var req salesapp.SaleCreateRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
@@ -66,13 +67,13 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch err {
-		case service.ErrValidation:
+		case common.ErrValidation:
 			status = http.StatusUnprocessableEntity
-		case service.ErrInsufficientStock:
+		case common.ErrInsufficientStock:
 			status = http.StatusConflict
-		case service.ErrCashSessionClosed:
+		case common.ErrCashSessionClosed:
 			status = http.StatusConflict
-		case service.ErrPaymentsMismatch:
+		case common.ErrPaymentsMismatch:
 			status = http.StatusConflict
 		}
 		http.Error(w, err.Error(), status)
@@ -92,7 +93,7 @@ func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	saleID := chi.URLParam(r, "id")
-	var req service.SaleCancelRequest
+	var req salesapp.SaleCancelRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
@@ -100,11 +101,11 @@ func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.Cancel(r.Context(), h.pool, au.UserID, saleID, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
-		case service.ErrNotFound:
+		case common.ErrNotFound:
 			status = http.StatusNotFound
-		case service.ErrSaleNotFinalized, service.ErrSaleAlreadyCancelled:
+		case common.ErrSaleNotFinalized, common.ErrSaleAlreadyCancelled:
 			status = http.StatusConflict
-		case service.ErrValidation:
+		case common.ErrValidation:
 			status = http.StatusUnprocessableEntity
 		}
 		http.Error(w, err.Error(), status)

@@ -5,19 +5,20 @@ import (
 	"strconv"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/service"
+	"github.com/example/sistemaemgo/internal/modules/common"
+	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type FiscalHandler struct {
-	svc    *service.FiscalService
+	svc    *fiscapp.FiscalService
 	logger *slog.Logger
 	pool   *pgxpool.Pool
 }
 
-func NewFiscalHandler(svc *service.FiscalService, logger *slog.Logger) *FiscalHandler {
+func NewFiscalHandler(svc *fiscapp.FiscalService, logger *slog.Logger) *FiscalHandler {
 	return &FiscalHandler{svc: svc, logger: logger}
 }
 
@@ -35,7 +36,7 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	var req service.GenerateXMLRequest
+	var req fiscapp.GenerateXMLRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
@@ -44,13 +45,13 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status := http.StatusBadRequest
 		switch err {
-		case service.ErrValidation:
+		case common.ErrValidation:
 			status = http.StatusUnprocessableEntity
-		case service.ErrInvoiceAlreadyExists:
+		case common.ErrInvoiceAlreadyExists:
 			status = http.StatusConflict
-		case service.ErrNotFound:
+		case common.ErrNotFound:
 			status = http.StatusNotFound
-		case service.ErrSaleNotFinalized:
+		case common.ErrSaleNotFinalized:
 			status = http.StatusConflict
 		}
 		http.Error(w, err.Error(), status)

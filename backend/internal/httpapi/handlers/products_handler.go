@@ -4,7 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/example/sistemaemgo/internal/service"
+	"github.com/example/sistemaemgo/internal/modules/common"
+	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 
@@ -12,12 +13,12 @@ import (
 )
 
 type ProductsHandler struct {
-	svc    *service.ProductsService
+	svc    *invapp.ProductsService
 	logger *slog.Logger
 	pool   *pgxpool.Pool
 }
 
-func NewProductsHandler(svc *service.ProductsService, logger *slog.Logger) *ProductsHandler {
+func NewProductsHandler(svc *invapp.ProductsService, logger *slog.Logger) *ProductsHandler {
 	return &ProductsHandler{svc: svc, logger: logger}
 }
 
@@ -52,7 +53,7 @@ func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "db not configured", http.StatusInternalServerError)
 		return
 	}
-	var req service.ProductCreateRequest
+	var req invapp.ProductCreateRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
@@ -66,7 +67,7 @@ func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	id, err := h.svc.Create(r.Context(), tx, req)
 	if err != nil {
 		status := http.StatusBadRequest
-		if err == service.ErrValidation {
+		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity
 		}
 		http.Error(w, err.Error(), status)
@@ -85,7 +86,7 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
-	var req service.ProductUpdateRequest
+	var req invapp.ProductUpdateRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
@@ -98,7 +99,7 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = tx.Rollback(r.Context()) }()
 	if err := h.svc.Update(r.Context(), tx, id, req); err != nil {
 		status := http.StatusBadRequest
-		if err == service.ErrValidation {
+		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity
 		}
 		http.Error(w, err.Error(), status)

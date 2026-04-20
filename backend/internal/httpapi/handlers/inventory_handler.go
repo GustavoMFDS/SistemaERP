@@ -5,18 +5,19 @@ import (
 	"strconv"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/service"
+	"github.com/example/sistemaemgo/internal/modules/common"
+	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 )
 
 type InventoryHandler struct {
-	svc    *service.InventoryService
+	svc    *invapp.InventoryService
 	logger *slog.Logger
 	pool   *pgxpool.Pool
 }
 
-func NewInventoryHandler(svc *service.InventoryService, logger *slog.Logger) *InventoryHandler {
+func NewInventoryHandler(svc *invapp.InventoryService, logger *slog.Logger) *InventoryHandler {
 	return &InventoryHandler{svc: svc, logger: logger}
 }
 
@@ -56,7 +57,7 @@ func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	var req service.InventoryAdjustRequest
+	var req invapp.InventoryAdjustRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
@@ -64,9 +65,9 @@ func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.Adjust(r.Context(), h.pool, au.UserID, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
-		case service.ErrValidation:
+		case common.ErrValidation:
 			status = http.StatusUnprocessableEntity
-		case service.ErrInsufficientStock:
+		case common.ErrInsufficientStock:
 			status = http.StatusConflict
 		}
 		http.Error(w, err.Error(), status)

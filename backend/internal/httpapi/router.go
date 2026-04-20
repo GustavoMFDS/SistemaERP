@@ -8,14 +8,13 @@ import (
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/httpapi/handlers"
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/repo"
-	"github.com/example/sistemaemgo/internal/service"
+	"github.com/example/sistemaemgo/internal/modules"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func NewRouter(cfg config.Config, svcs *service.Services, repos *repo.Repositories, pool *pgxpool.Pool, logger *slog.Logger) http.Handler {
+func NewRouter(cfg config.Config, mods *modules.Modules, pool *pgxpool.Pool, logger *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimw.RealIP)
@@ -30,7 +29,7 @@ func NewRouter(cfg config.Config, svcs *service.Services, repos *repo.Repositori
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	h := handlers.New(cfg, svcs, repos, logger)
+	h := handlers.New(cfg, mods, logger)
 	h.Products.BindDB(pool)
 	h.Inventory.BindDB(pool)
 	h.Cash.BindDB(pool)
@@ -40,11 +39,11 @@ func NewRouter(cfg config.Config, svcs *service.Services, repos *repo.Repositori
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Post("/auth/login", h.Auth.Login)
 		api.Post("/auth/refresh", h.Auth.Refresh)
-		api.With(middleware.AuthJWT(cfg, svcs.Auth, logger)).Get("/auth/me", h.Auth.Me)
+		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/auth/me", h.Auth.Me)
 
 		api.Group(func(pr chi.Router) {
-			pr.Use(middleware.AuthJWT(cfg, svcs.Auth, logger))
-			pr.Use(middleware.LoadPermissions(svcs.Auth, logger))
+			pr.Use(middleware.AuthJWT(cfg, mods.Auth, logger))
+			pr.Use(middleware.LoadPermissions(mods.Auth, logger))
 
 			pr.Route("/products", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("product:read")).Get("/", h.Products.List)

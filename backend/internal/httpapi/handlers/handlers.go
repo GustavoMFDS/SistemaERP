@@ -4,8 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/config"
-	"github.com/example/sistemaemgo/internal/repo"
-	"github.com/example/sistemaemgo/internal/service"
+	"github.com/example/sistemaemgo/internal/modules"
 )
 
 type Handlers struct {
@@ -18,14 +17,14 @@ type Handlers struct {
 	Fiscal    *FiscalHandler
 }
 
-func New(cfg config.Config, svcs *service.Services, repos *repo.Repositories, logger *slog.Logger) *Handlers {
+func New(cfg config.Config, mods *modules.Modules, logger *slog.Logger) *Handlers {
 	return &Handlers{
-		Auth:      NewAuthHandler(cfg, svcs.Auth, logger),
-		Products:  NewProductsHandler(svcs.Products, logger),
-		Inventory: NewInventoryHandler(svcs.Inventory, logger),
-		Cash:      NewCashHandler(svcs.Cash, logger),
-		Sales:     NewSalesHandler(svcs.Sales, logger),
-		Finance:   NewFinanceHandler(svcs.Finance, logger),
-		Fiscal:    NewFiscalHandler(svcs.Fiscal, logger),
+		Auth:      NewAuthHandler(cfg, mods.Auth, logger),
+		Products:  NewProductsHandler(mods.Products, logger),
+		Inventory: NewInventoryHandler(mods.Inventory, logger),
+		Cash:      NewCashHandler(mods.Cash, logger),
+		Sales:     NewSalesHandler(mods.Sales, logger),
+		Finance:   NewFinanceHandler(mods.Finance, logger),
+		Fiscal:    NewFiscalHandler(mods.Fiscal, logger),
 	}
 }

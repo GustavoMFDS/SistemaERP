@@ -6,13 +6,14 @@ import (
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/service"
+	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
+	"github.com/example/sistemaemgo/internal/modules/common"
 	"log/slog"
 )
 
 type AuthHandler struct {
 	cfg    config.Config
-	auth   *service.AuthService
+	auth   *authapp.AuthService
 	logger *slog.Logger
 }
 
@@ -25,7 +26,7 @@ type refreshRequest struct {
 	Token string `json:"token"`
 }
 
-func NewAuthHandler(cfg config.Config, auth *service.AuthService, logger *slog.Logger) *AuthHandler {
+func NewAuthHandler(cfg config.Config, auth *authapp.AuthService, logger *slog.Logger) *AuthHandler {
 	return &AuthHandler{cfg: cfg, auth: auth, logger: logger}
 }
 
@@ -39,7 +40,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	resp, user, err := h.auth.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		status := http.StatusUnauthorized
-		if err == service.ErrInactiveUser {
+		if err == common.ErrInactiveUser {
 			status = http.StatusForbidden
 		}
 		http.Error(w, "invalid credentials", status)
