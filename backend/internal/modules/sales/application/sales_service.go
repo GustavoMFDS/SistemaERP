@@ -2,7 +2,10 @@ package application
 
 import (
 	"context"
+	"sort"
 	"time"
+
+	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/common"
@@ -11,7 +14,6 @@ import (
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
-	"log/slog"
 )
 
 type SalesService struct {
@@ -150,15 +152,25 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 		return "", 0, err
 	}
 
-	// Stock update per item (with row locks)
-	for _, it := range computedItems {
-		if err := s.inv.EnsureBalanceRow(ctx, tx, it.ProductID); err != nil {
+	// Stock update per item (pessimistic locking)
+	// Important: acquire row locks in a stable order to avoid deadlocks when multiple sales touch the same products.
+	productIDs := uniqueSortedProductIDsFromSaleItems(computedItems)
+	balances := make(map[string]inv.InventoryBalance, len(productIDs))
+	for _, pid := range productIDs {
+		if err := s.inv.EnsureBalanceRow(ctx, tx, pid); err != nil {
 			return "", 0, err
 		}
-		bal, err := s.inv.GetBalanceForUpdate(ctx, tx, it.ProductID)
+	}
+	for _, pid := range productIDs {
+		bal, err := s.inv.GetBalanceForUpdate(ctx, tx, pid)
 		if err != nil {
 			return "", 0, err
 		}
+		balances[pid] = bal
+	}
+
+	for _, it := range computedItems {
+		bal := balances[it.ProductID]
 		after, derr := bal.Baixar(it.Qty, s.cfg.AllowNegativeStock)
 		if derr != nil {
 			if derr == inv.ErrInsufficientStock {
@@ -169,6 +181,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 		if err := s.inv.UpdateBalance(ctx, tx, it.ProductID, after.QtyOnHand); err != nil {
 			return "", 0, err
 		}
+		balances[it.ProductID] = after
 
 		reason := "Venda"
 		refType := "sale"
@@ -246,14 +259,22 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 	}
 
 	// restore stock
-	for _, it := range items {
-		if err := s.inv.EnsureBalanceRow(ctx, tx, it.ProductID); err != nil {
+	productIDs := uniqueSortedProductIDsFromSaleItems(items)
+	balances := make(map[string]inv.InventoryBalance, len(productIDs))
+	for _, pid := range productIDs {
+		if err := s.inv.EnsureBalanceRow(ctx, tx, pid); err != nil {
 			return err
 		}
-		bal, err := s.inv.GetBalanceForUpdate(ctx, tx, it.ProductID)
+	}
+	for _, pid := range productIDs {
+		bal, err := s.inv.GetBalanceForUpdate(ctx, tx, pid)
 		if err != nil {
 			return err
 		}
+		balances[pid] = bal
+	}
+	for _, it := range items {
+		bal := balances[it.ProductID]
 		after, derr := bal.Creditar(it.Qty)
 		if derr != nil {
 			return common.ErrValidation
@@ -261,6 +282,7 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 		if err := s.inv.UpdateBalance(ctx, tx, it.ProductID, after.QtyOnHand); err != nil {
 			return err
 		}
+		balances[it.ProductID] = after
 
 		reason := "Cancelamento de venda"
 		refType := "sale_cancel"
@@ -292,4 +314,22 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 	}
 
 	return tx.Commit(ctx)
+}
+
+func uniqueSortedProductIDsFromSaleItems(items []sales.SaleItem) []string {
+	seen := make(map[string]struct{}, len(items))
+	ids := make([]string, 0, len(items))
+	for _, it := range items {
+		pid := it.ProductID
+		if pid == "" {
+			continue
+		}
+		if _, ok := seen[pid]; ok {
+			continue
+		}
+		seen[pid] = struct{}{}
+		ids = append(ids, pid)
+	}
+	sort.Strings(ids)
+	return ids
 }
