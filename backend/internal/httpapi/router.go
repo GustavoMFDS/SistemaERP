@@ -11,6 +11,7 @@ import (
 	"github.com/example/sistemaemgo/internal/modules"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) http.Handler {
@@ -19,8 +20,11 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 	r.Use(chimw.RealIP)
 	r.Use(middleware.RequestID())
 	r.Use(middleware.AccessLog(logger))
+	r.Use(middleware.Metrics())
 	r.Use(middleware.Recover(logger))
 	r.Use(chimw.Timeout(60 * time.Second))
+
+	r.Handle("/metrics", promhttp.Handler())
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

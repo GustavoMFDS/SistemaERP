@@ -4,15 +4,19 @@ Projeto MVP de um ERP/PDV para o mercado brasileiro (estoque, vendas/PDV, financ
 
 ## Requisitos
 - Node.js 20+ (recomendado) para o frontend
-- Go 1.22+ para o backend
-- Docker + Docker Compose (opcional, recomendado) para subir Postgres/migrations/seed
+- Go 1.24+ para o backend
+- Docker + Docker Compose (opcional, recomendado) para subir Postgres + Redis + migrations/seed
 
 ## Subindo o banco (Docker)
 1) Copie um arquivo de env (NÃO commitar `.env`):
 - `copy .env.dev.example .env`
 
 2) Suba Postgres + migrations + seed:
-- `docker compose --env-file .env up -d db migrate seed`
+- `docker compose --env-file .env up -d db redis migrate seed`
+
+> Observação (Windows): por padrão o Postgres do compose publica em `5433` para evitar conflito com Postgres local na `5432`.
+
+> Observação: o Redis do compose está fixado em `redis:7.4-alpine` para evitar incompatibilidade de volume (formato de dump RDB) ao trocar tags.
 
 > Produção: prefira injetar env vars via Docker/K8s/CI e usar `*_FILE` para secrets.
 
@@ -25,6 +29,10 @@ Gerar um JWT secret forte:
 - `go run ./cmd/gensecret -format base64url -bytes 32`
 
 Servidor: `http://localhost:8080`
+
+Observabilidade:
+- Métricas Prometheus: `http://localhost:8080/metrics`
+- Tracing (OpenTelemetry): habilite com `OTEL_ENABLED=true` e escolha `OTEL_EXPORTER=stdout` (dev) ou `OTEL_EXPORTER=otlp` + `OTEL_EXPORTER_OTLP_ENDPOINT=...`
 
 ## Rodando o frontend
 - `cd web`

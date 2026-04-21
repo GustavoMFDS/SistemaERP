@@ -14,6 +14,7 @@ import (
 
 type Config struct {
 	Env                string
+	ServiceName        string
 	HTTPAddr           string
 	DatabaseURL        string
 	RedisAddr          string
@@ -23,6 +24,9 @@ type Config struct {
 	JWTIssuer          string
 	AccessTokenTTL     time.Duration
 	RefreshTokenTTL    time.Duration
+	OTelEnabled        bool
+	OTelExporter       string
+	OTelOTLPEndpoint   string
 	LogLevel           string
 	AllowNegativeStock bool
 }
@@ -53,6 +57,7 @@ func LoadFromEnv() (Config, error) {
 
 	cfg := Config{
 		Env:                env,
+		ServiceName:        getEnv("SERVICE_NAME", "sistemaemgo-api"),
 		HTTPAddr:           getEnv("HTTP_ADDR", ":8080"),
 		DatabaseURL:        dbURL,
 		RedisAddr:          getEnv("REDIS_ADDR", "localhost:6379"),
@@ -62,6 +67,9 @@ func LoadFromEnv() (Config, error) {
 		JWTIssuer:          getEnv("JWT_ISSUER", "sistemaemgo"),
 		AccessTokenTTL:     time.Duration(getEnvInt("ACCESS_TOKEN_TTL_MINUTES", 30)) * time.Minute,
 		RefreshTokenTTL:    time.Duration(getEnvInt("REFRESH_TOKEN_TTL_MINUTES", 43200)) * time.Minute,
+		OTelEnabled:        getEnvBool("OTEL_ENABLED", !strings.EqualFold(env, "prod") && !strings.EqualFold(env, "production")),
+		OTelExporter:       strings.ToLower(strings.TrimSpace(getEnv("OTEL_EXPORTER", "stdout"))),
+		OTelOTLPEndpoint:   strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		AllowNegativeStock: getEnvBool("ALLOW_NEGATIVE_STOCK", false),
 	}
@@ -120,6 +128,20 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.JWTIssuer) == "" {
 		errs = append(errs, "JWT_ISSUER is required")
+	}
+
+	if c.OTelEnabled {
+		if strings.TrimSpace(c.ServiceName) == "" {
+			errs = append(errs, "SERVICE_NAME is required when OTEL_ENABLED=true")
+		}
+		switch strings.ToLower(strings.TrimSpace(c.OTelExporter)) {
+		case "stdout", "otlp":
+		default:
+			errs = append(errs, "OTEL_EXPORTER must be one of stdout|otlp")
+		}
+		if strings.EqualFold(c.OTelExporter, "otlp") && strings.TrimSpace(c.OTelOTLPEndpoint) == "" {
+			errs = append(errs, "OTEL_EXPORTER_OTLP_ENDPOINT is required when OTEL_EXPORTER=otlp")
+		}
 	}
 
 	if len(errs) > 0 {

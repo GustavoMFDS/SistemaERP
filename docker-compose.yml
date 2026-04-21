@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-sistemaemgo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sistemaemgo}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -16,7 +16,7 @@ services:
       retries: 30
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     ports:
       - "${REDIS_PORT:-6379}:6379"
     healthcheck:
