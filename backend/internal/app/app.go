@@ -5,15 +5,18 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/httpapi"
 	"github.com/example/sistemaemgo/internal/modules"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type App struct {
 	DB     *pgxpool.Pool
+	Redis  *redis.Client
 	Router http.Handler
 	logger *slog.Logger
 }
@@ -35,14 +38,30 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return nil, err
 	}
 
-	mods := modules.New(cfg, pool, logger)
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := rdb.Ping(pingCtx).Err(); err != nil {
+		pool.Close()
+		_ = rdb.Close()
+		return nil, err
+	}
+
+	mods := modules.New(cfg, pool, rdb, logger)
 	router := httpapi.NewRouter(cfg, mods, logger)
 
-	return &App{DB: pool, Router: router, logger: logger}, nil
+	return &App{DB: pool, Redis: rdb, Router: router, logger: logger}, nil
 }
 
 func (a *App) Close() {
 	if a.DB != nil {
 		a.DB.Close()
+	}
+	if a.Redis != nil {
+		_ = a.Redis.Close()
 	}
 }

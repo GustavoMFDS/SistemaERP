@@ -17,6 +17,7 @@ import (
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type Modules struct {
@@ -29,7 +30,7 @@ type Modules struct {
 	Fiscal    *fiscapp.FiscalService
 }
 
-func New(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *Modules {
+func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) *Modules {
 	v := validator.New()
 	uow := db.NewPgxUnitOfWork(pool)
 
@@ -46,7 +47,11 @@ func New(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *Modules {
 	fiscalRepo := fiscinfra.NewFiscalRepo(pool)
 
 	// application services
-	authSvc := authapp.NewAuthService(cfg, usersRepo, logger)
+	var refreshStore authapp.RefreshTokenStore
+	if rdb != nil {
+		refreshStore = authinfra.NewRefreshTokenStore(rdb)
+	}
+	authSvc := authapp.NewAuthService(cfg, usersRepo, refreshStore, logger)
 	productsSvc := invapp.NewProductsService(uow, productsRepo, v, logger)
 	inventorySvc := invapp.NewInventoryService(cfg, uow, inventoryRepo, productsRepo, v, logger)
 	cashSvc := salesapp.NewCashService(uow, cashRepo, v, logger)

@@ -10,21 +10,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	
-
 )
 
 type Config struct {
 	Env                string
 	HTTPAddr           string
 	DatabaseURL        string
+	RedisAddr          string
+	RedisPassword      string
+	RedisDB            int
 	JWTSecret          string
 	JWTIssuer          string
-	JWTTTL             time.Duration
+	AccessTokenTTL     time.Duration
+	RefreshTokenTTL    time.Duration
 	LogLevel           string
 	AllowNegativeStock bool
 }
-
 
 // LoadFromEnv reads configuration only from process env.
 // It does NOT load .env files; use your process manager / Docker / CI to inject vars.
@@ -34,6 +35,10 @@ type Config struct {
 func LoadFromEnv() (Config, error) {
 	env := getEnv("APP_ENV", "dev")
 	jwtSecret, err := getEnvOrFile("JWT_SECRET", "JWT_SECRET_FILE")
+	if err != nil {
+		return Config{}, err
+	}
+	redisPassword, err := getEnvOrFile("REDIS_PASSWORD", "REDIS_PASSWORD_FILE")
 	if err != nil {
 		return Config{}, err
 	}
@@ -50,9 +55,13 @@ func LoadFromEnv() (Config, error) {
 		Env:                env,
 		HTTPAddr:           getEnv("HTTP_ADDR", ":8080"),
 		DatabaseURL:        dbURL,
+		RedisAddr:          getEnv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:      redisPassword,
+		RedisDB:            getEnvInt("REDIS_DB", 0),
 		JWTSecret:          jwtSecret,
 		JWTIssuer:          getEnv("JWT_ISSUER", "sistemaemgo"),
-		JWTTTL:             time.Duration(getEnvInt("JWT_TTL_MINUTES", 720)) * time.Minute,
+		AccessTokenTTL:     time.Duration(getEnvInt("ACCESS_TOKEN_TTL_MINUTES", 30)) * time.Minute,
+		RefreshTokenTTL:    time.Duration(getEnvInt("REFRESH_TOKEN_TTL_MINUTES", 43200)) * time.Minute,
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		AllowNegativeStock: getEnvBool("ALLOW_NEGATIVE_STOCK", false),
 	}
@@ -85,6 +94,10 @@ func (c Config) Validate() error {
 		}
 	}
 
+	if strings.TrimSpace(c.RedisAddr) == "" {
+		errs = append(errs, "REDIS_ADDR is required")
+	}
+
 	sec := strings.TrimSpace(c.JWTSecret)
 	if sec == "" {
 		errs = append(errs, "JWT_SECRET is required")
@@ -99,8 +112,11 @@ func (c Config) Validate() error {
 		}
 	}
 
-	if c.JWTTTL <= 0 {
-		errs = append(errs, "JWT_TTL_MINUTES must be > 0")
+	if c.AccessTokenTTL <= 0 {
+		errs = append(errs, "ACCESS_TOKEN_TTL_MINUTES must be > 0")
+	}
+	if c.RefreshTokenTTL <= 0 {
+		errs = append(errs, "REFRESH_TOKEN_TTL_MINUTES must be > 0")
 	}
 	if strings.TrimSpace(c.JWTIssuer) == "" {
 		errs = append(errs, "JWT_ISSUER is required")
@@ -227,5 +243,3 @@ func getEnvBool(key string, def bool) bool {
 	}
 	return b
 }
-
-

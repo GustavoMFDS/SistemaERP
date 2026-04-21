@@ -10,11 +10,14 @@ type AuthUserInfo struct {
 }
 
 type TokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int64  `json:"expires_in"`
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token,omitempty"`
+	TokenType        string `json:"token_type"`
+	ExpiresIn        int64  `json:"expires_in"`
+	RefreshExpiresIn int64  `json:"refresh_expires_in,omitempty"`
 }
 
 type Claims struct {
 	jwt.RegisteredClaims
+	Type string `json:"typ,omitempty"`
 }

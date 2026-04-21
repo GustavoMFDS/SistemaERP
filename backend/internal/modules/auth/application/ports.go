@@ -15,3 +15,10 @@ type UsersRepository interface {
 	ListUserRoles(ctx context.Context, userID string) ([]string, error)
 	ListUserPermissions(ctx context.Context, userID string) ([]string, error)
 }
+
+// RefreshTokenStore persists refresh token IDs (jti) to allow rotation and revocation.
+// Implementations should guarantee that a refresh token can be consumed only once.
+type RefreshTokenStore interface {
+	Save(ctx context.Context, tokenID string, userID string, ttlSeconds int64) error
+	Consume(ctx context.Context, tokenID string, userID string) (bool, error)
+}
