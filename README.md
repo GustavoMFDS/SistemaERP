@@ -34,6 +34,10 @@ Observabilidade:
 - Métricas Prometheus: `http://localhost:8080/metrics`
 - Tracing (OpenTelemetry): habilite com `OTEL_ENABLED=true` e escolha `OTEL_EXPORTER=stdout` (dev) ou `OTEL_EXPORTER=otlp` + `OTEL_EXPORTER_OTLP_ENDPOINT=...`
 
+Performance (Etapa 8):
+- Cache Redis para produtos: `GET /api/v1/products` (lista padrão) e `GET /api/v1/products/{id}` usam cache best-effort quando Redis está disponível.
+- Baixa de estoque em venda reduz round-trips ao banco (locks/balances em batch quando possível).
+
 ## Rodando o frontend
 - `cd web`
 - `npm install`

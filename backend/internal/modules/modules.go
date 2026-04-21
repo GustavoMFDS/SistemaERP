@@ -37,7 +37,11 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	// infrastructure
 	usersRepo := authinfra.NewUsersRepo(pool)
 
-	productsRepo := invinfra.NewProductsRepo(pool)
+	baseProductsRepo := invinfra.NewProductsRepo(pool)
+	var productsRepo invapp.ProductsRepository = baseProductsRepo
+	if rdb != nil {
+		productsRepo = invinfra.NewCachedProductsRepo(baseProductsRepo, rdb)
+	}
 	inventoryRepo := invinfra.NewInventoryRepo(pool)
 
 	salesRepo := salesinfra.NewSalesRepo(pool)

@@ -156,17 +156,31 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 	// Important: acquire row locks in a stable order to avoid deadlocks when multiple sales touch the same products.
 	productIDs := uniqueSortedProductIDsFromSaleItems(computedItems)
 	balances := make(map[string]inv.InventoryBalance, len(productIDs))
-	for _, pid := range productIDs {
-		if err := s.inv.EnsureBalanceRow(ctx, tx, pid); err != nil {
+	if batch, ok := s.inv.(interface {
+		EnsureBalanceRows(context.Context, db.DBTX, []string) error
+		GetBalancesForUpdate(context.Context, db.DBTX, []string) (map[string]inv.InventoryBalance, error)
+	}); ok {
+		if err := batch.EnsureBalanceRows(ctx, tx, productIDs); err != nil {
 			return "", 0, err
 		}
-	}
-	for _, pid := range productIDs {
-		bal, err := s.inv.GetBalanceForUpdate(ctx, tx, pid)
+		bals, err := batch.GetBalancesForUpdate(ctx, tx, productIDs)
 		if err != nil {
 			return "", 0, err
 		}
-		balances[pid] = bal
+		balances = bals
+	} else {
+		for _, pid := range productIDs {
+			if err := s.inv.EnsureBalanceRow(ctx, tx, pid); err != nil {
+				return "", 0, err
+			}
+		}
+		for _, pid := range productIDs {
+			bal, err := s.inv.GetBalanceForUpdate(ctx, tx, pid)
+			if err != nil {
+				return "", 0, err
+			}
+			balances[pid] = bal
+		}
 	}
 
 	for _, it := range computedItems {

@@ -22,11 +22,57 @@ func (r *InventoryRepo) EnsureBalanceRow(ctx context.Context, tx db.DBTX, produc
 	return err
 }
 
+// EnsureBalanceRows inserts missing inventory_balance rows for a batch of products.
+// This reduces N+1 queries during sale finalization.
+func (r *InventoryRepo) EnsureBalanceRows(ctx context.Context, tx db.DBTX, productIDs []string) error {
+	if len(productIDs) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO inventory_balances(product_id, qty_on_hand)
+		SELECT unnest($1::uuid[]), 0
+		ON CONFLICT DO NOTHING
+	`, productIDs)
+	return err
+}
+
 func (r *InventoryRepo) GetBalanceForUpdate(ctx context.Context, tx db.DBTX, productID string) (inv.InventoryBalance, error) {
 	var b inv.InventoryBalance
 	err := tx.QueryRow(ctx, `SELECT product_id::text, qty_on_hand::float8 FROM inventory_balances WHERE product_id=$1 FOR UPDATE`, productID).
 		Scan(&b.ProductID, &b.QtyOnHand)
 	return b, err
+}
+
+// GetBalancesForUpdate locks and returns balances for all provided product IDs.
+// productIDs should be unique and preferably sorted for stable locking order.
+func (r *InventoryRepo) GetBalancesForUpdate(ctx context.Context, tx db.DBTX, productIDs []string) (map[string]inv.InventoryBalance, error) {
+	if len(productIDs) == 0 {
+		return map[string]inv.InventoryBalance{}, nil
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT product_id::text, qty_on_hand::float8
+		FROM inventory_balances
+		WHERE product_id = ANY($1::uuid[])
+		ORDER BY product_id
+		FOR UPDATE
+	`, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]inv.InventoryBalance, len(productIDs))
+	for rows.Next() {
+		var b inv.InventoryBalance
+		if err := rows.Scan(&b.ProductID, &b.QtyOnHand); err != nil {
+			return nil, err
+		}
+		out[b.ProductID] = b
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *InventoryRepo) UpdateBalance(ctx context.Context, tx db.DBTX, productID string, qty float64) error {

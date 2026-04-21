@@ -74,6 +74,14 @@ func (s *ProductsService) Create(ctx context.Context, req ProductCreateRequest) 
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
+	// Best-effort cache invalidation (after commit).
+	if inv, ok := s.repo.(interface {
+		InvalidateProduct(context.Context, string) error
+		BumpProductsListVersion(context.Context) error
+	}); ok {
+		_ = inv.InvalidateProduct(ctx, id)
+		_ = inv.BumpProductsListVersion(ctx)
+	}
 	return id, nil
 }
 
@@ -102,5 +110,16 @@ func (s *ProductsService) Update(ctx context.Context, id string, req ProductUpda
 	if err := s.repo.Update(ctx, tx, id, p); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	// Best-effort cache invalidation (after commit).
+	if inv, ok := s.repo.(interface {
+		InvalidateProduct(context.Context, string) error
+		BumpProductsListVersion(context.Context) error
+	}); ok {
+		_ = inv.InvalidateProduct(ctx, id)
+		_ = inv.BumpProductsListVersion(ctx)
+	}
+	return nil
 }
