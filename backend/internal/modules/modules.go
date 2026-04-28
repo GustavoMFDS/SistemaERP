@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/config"
@@ -16,6 +17,7 @@ import (
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/example/sistemaemgo/internal/platform/events"
 	"github.com/go-playground/validator/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -29,11 +31,26 @@ type Modules struct {
 	Sales     *salesapp.SalesService
 	Finance   *finapp.FinanceService
 	Fiscal    *fiscapp.FiscalService
+	Events    *events.Bus
 }
 
 func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) *Modules {
 	v := validator.New()
 	uow := db.NewPgxUnitOfWork(pool)
+
+	bus := events.NewBus(logger)
+	bus.Subscribe("sale.created", func(ctx context.Context, ev events.DomainEvent) error {
+		logger.Info("event_sale_created", slog.Any("event", ev))
+		return nil
+	})
+	bus.Subscribe("inventory.debited", func(ctx context.Context, ev events.DomainEvent) error {
+		logger.Info("event_inventory_debited", slog.Any("event", ev))
+		return nil
+	})
+	bus.Subscribe("inventory.low_stock", func(ctx context.Context, ev events.DomainEvent) error {
+		logger.Warn("event_inventory_low_stock", slog.Any("event", ev))
+		return nil
+	})
 
 	// infrastructure
 	usersRepo := authinfra.NewUsersRepo(pool)
@@ -60,7 +77,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	productsSvc := invapp.NewProductsService(uow, productsRepo, v, logger)
 	inventorySvc := invapp.NewInventoryService(cfg, uow, inventoryRepo, productsRepo, v, logger)
 	cashSvc := salesapp.NewCashService(uow, cashRepo, v, logger)
-	salesSvc := salesapp.NewSalesService(cfg, uow, salesRepo, inventoryRepo, financeRepo, cashRepo, productsRepo, v, logger)
+	salesSvc := salesapp.NewSalesService(cfg, uow, salesRepo, inventoryRepo, financeRepo, cashRepo, productsRepo, bus, v, logger)
 	financeSvc := finapp.NewFinanceService(financeRepo, v, logger)
 	nfeProvider := fiscmvp.New()
 	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, v, logger)
@@ -73,5 +90,6 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		Sales:     salesSvc,
 		Finance:   financeSvc,
 		Fiscal:    fiscalSvc,
+		Events:    bus,
 	}
 }

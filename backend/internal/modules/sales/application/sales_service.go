@@ -13,6 +13,7 @@ import (
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/example/sistemaemgo/internal/platform/events"
 	"github.com/go-playground/validator/v10"
 )
 
@@ -24,6 +25,7 @@ type SalesService struct {
 	fin      FinanceRepository
 	cash     CashRepository
 	products ProductsRepository
+	events   *events.Bus
 	validate *validator.Validate
 	logger   *slog.Logger
 }
@@ -52,8 +54,8 @@ type SaleCancelRequest struct {
 	Reason string `json:"reason" validate:"required,min=3,max=250"`
 }
 
-func NewSalesService(cfg config.Config, uow db.UnitOfWork, salesRepo SalesRepository, invRepo InventoryRepository, finRepo FinanceRepository, cashRepo CashRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *SalesService {
-	return &SalesService{cfg: cfg, uow: uow, sales: salesRepo, inv: invRepo, fin: finRepo, cash: cashRepo, products: productsRepo, validate: v, logger: logger}
+func NewSalesService(cfg config.Config, uow db.UnitOfWork, salesRepo SalesRepository, invRepo InventoryRepository, finRepo FinanceRepository, cashRepo CashRepository, productsRepo ProductsRepository, bus *events.Bus, v *validator.Validate, logger *slog.Logger) *SalesService {
+	return &SalesService{cfg: cfg, uow: uow, sales: salesRepo, inv: invRepo, fin: finRepo, cash: cashRepo, products: productsRepo, events: bus, validate: v, logger: logger}
 }
 
 func (s *SalesService) List(ctx context.Context, tenantID string, limit, offset int) ([]sales.Sale, int, error) {
@@ -152,6 +154,8 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		return "", 0, err
 	}
 
+	var pendingEvents []events.DomainEvent
+
 	// Stock update per item (pessimistic locking)
 	// Important: acquire row locks in a stable order to avoid deadlocks when multiple sales touch the same products.
 	productIDs := uniqueSortedProductIDsFromSaleItems(computedItems)
@@ -197,6 +201,29 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		}
 		balances[it.ProductID] = after
 
+		if s.events != nil {
+			ev := events.InventoryDebitedEvent{
+				ProductID:  it.ProductID,
+				TenantID:   tenantID,
+				SaleID:     saleID,
+				QtyDebited: it.Qty,
+				QtyAfter:   after.QtyOnHand,
+				At:         time.Now(),
+			}
+			pendingEvents = append(pendingEvents, ev)
+			p := prodMap[it.ProductID]
+			if p.MinStock > 0 && after.QtyOnHand <= p.MinStock {
+				pendingEvents = append(pendingEvents, events.InventoryLowStockEvent{
+					ProductID:  it.ProductID,
+					TenantID:   tenantID,
+					ProductSKU: p.SKU,
+					QtyOnHand:  after.QtyOnHand,
+					MinStock:   p.MinStock,
+					At:         time.Now(),
+				})
+			}
+		}
+
 		reason := "Venda"
 		refType := "sale"
 		refID := saleID
@@ -239,6 +266,23 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 
 	if err := tx.Commit(ctx); err != nil {
 		return "", 0, err
+	}
+	if s.events != nil {
+		snaps := make([]events.SaleItemSnapshot, 0, len(computedItems))
+		for _, it := range computedItems {
+			snaps = append(snaps, events.SaleItemSnapshot{ProductID: it.ProductID, Qty: it.Qty, UnitPrice: it.UnitPrice, CostUnit: it.CostUnit})
+		}
+		base := []events.DomainEvent{
+			events.SaleCreatedEvent{
+				SaleID:    saleID,
+				TenantID:  tenantID,
+				SessionID: req.CashSessionID,
+				Total:     sale.Total,
+				Items:     snaps,
+				At:        time.Now(),
+			},
+		}
+		s.events.PublishAll(ctx, append(base, pendingEvents...))
 	}
 	return saleID, sale.Total, nil
 }
@@ -327,7 +371,34 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 		return err
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if s.events != nil {
+		out := []events.DomainEvent{
+			events.SaleCancelledEvent{
+				SaleID:         saleID,
+				TenantID:       tenantID,
+				CancelledByID:  actorUserID,
+				AmountReversed: sale.Total,
+				At:             time.Now(),
+			},
+		}
+		for _, it := range items {
+			// Use current balance map as "after" values.
+			bal := balances[it.ProductID]
+			out = append(out, events.InventoryCreditedEvent{
+				ProductID:   it.ProductID,
+				TenantID:    tenantID,
+				SaleID:      saleID,
+				QtyCredited: it.Qty,
+				QtyAfter:    bal.QtyOnHand,
+				At:          time.Now(),
+			})
+		}
+		s.events.PublishAll(ctx, out)
+	}
+	return nil
 }
 
 func uniqueSortedProductIDsFromSaleItems(items []sales.SaleItem) []string {

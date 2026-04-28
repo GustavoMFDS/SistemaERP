@@ -47,6 +47,11 @@ Multi-tenant (Etapa 10):
 - Todas as operações relevantes no banco são filtradas por `tenant_id` para evitar vazamento cross-tenant.
 - Cache Redis de produtos usa chaves/versionamento separados por tenant.
 
+Event-driven (Etapa 11):
+- Bus de eventos in-process em `internal/platform/events`.
+- Publicação acontece após `COMMIT` (mantém consistência) — pronto para evoluir para outbox + Kafka/RabbitMQ.
+- Eventos principais: `sale.created` e `inventory.debited` (com `tenant_id`).
+
 ## Rodando o frontend
 - `cd web`
 - `npm install`

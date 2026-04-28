@@ -203,6 +203,8 @@ Mostre implementação.
 
 Transformar em SaaS
 
+✅ Concluída: tag `etapa-10`
+
 🔧 Tarefas
 tenant_id
 isolamento
@@ -218,6 +220,8 @@ Mostre código completo.
 🎯 Objetivo
 
 Escalabilidade futura
+
+✅ Concluída: tag `etapa-11`
 
 🔧 Tarefas
 eventos de domínio
