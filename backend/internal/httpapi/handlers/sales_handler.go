@@ -4,11 +4,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"log/slog"
+
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
-	"log/slog"
 )
 
 type SalesHandler struct {
@@ -21,9 +22,14 @@ func NewSalesHandler(svc *salesapp.SalesService, logger *slog.Logger) *SalesHand
 }
 
 func (h *SalesHandler) List(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	items, total, err := h.svc.List(r.Context(), limit, offset)
+	items, total, err := h.svc.List(r.Context(), au.TenantID, limit, offset)
 	if err != nil {
 		http.Error(w, "error", http.StatusInternalServerError)
 		return
@@ -32,8 +38,13 @@ func (h *SalesHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SalesHandler) Get(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	id := chi.URLParam(r, "id")
-	sale, items, pays, err := h.svc.Get(r.Context(), id)
+	sale, items, pays, err := h.svc.Get(r.Context(), au.TenantID, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -53,7 +64,7 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	saleID, total, err := h.svc.CreateAndFinalize(r.Context(), au.UserID, req)
+	saleID, total, err := h.svc.CreateAndFinalize(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch err {
@@ -84,7 +95,7 @@ func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := h.svc.Cancel(r.Context(), au.UserID, saleID, req); err != nil {
+	if err := h.svc.Cancel(r.Context(), au.TenantID, au.UserID, saleID, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
 		case common.ErrNotFound:

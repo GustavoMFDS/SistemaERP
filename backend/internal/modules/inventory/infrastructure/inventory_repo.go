@@ -17,45 +17,45 @@ func NewInventoryRepo(dbpool *pgxpool.Pool) *InventoryRepo {
 	return &InventoryRepo{db: dbpool}
 }
 
-func (r *InventoryRepo) EnsureBalanceRow(ctx context.Context, tx db.DBTX, productID string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO inventory_balances(product_id, qty_on_hand) VALUES ($1,0) ON CONFLICT DO NOTHING`, productID)
+func (r *InventoryRepo) EnsureBalanceRow(ctx context.Context, tx db.DBTX, tenantID string, productID string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO inventory_balances(tenant_id, product_id, qty_on_hand) VALUES ($1,$2,0) ON CONFLICT (product_id) DO NOTHING`, tenantID, productID)
 	return err
 }
 
 // EnsureBalanceRows inserts missing inventory_balance rows for a batch of products.
 // This reduces N+1 queries during sale finalization.
-func (r *InventoryRepo) EnsureBalanceRows(ctx context.Context, tx db.DBTX, productIDs []string) error {
+func (r *InventoryRepo) EnsureBalanceRows(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) error {
 	if len(productIDs) == 0 {
 		return nil
 	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO inventory_balances(product_id, qty_on_hand)
-		SELECT unnest($1::uuid[]), 0
-		ON CONFLICT DO NOTHING
-	`, productIDs)
+		INSERT INTO inventory_balances(tenant_id, product_id, qty_on_hand)
+		SELECT $1::uuid, unnest($2::uuid[]), 0
+		ON CONFLICT (product_id) DO NOTHING
+	`, tenantID, productIDs)
 	return err
 }
 
-func (r *InventoryRepo) GetBalanceForUpdate(ctx context.Context, tx db.DBTX, productID string) (inv.InventoryBalance, error) {
+func (r *InventoryRepo) GetBalanceForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productID string) (inv.InventoryBalance, error) {
 	var b inv.InventoryBalance
-	err := tx.QueryRow(ctx, `SELECT product_id::text, qty_on_hand::float8 FROM inventory_balances WHERE product_id=$1 FOR UPDATE`, productID).
+	err := tx.QueryRow(ctx, `SELECT product_id::text, qty_on_hand::float8 FROM inventory_balances WHERE tenant_id=$1 AND product_id=$2 FOR UPDATE`, tenantID, productID).
 		Scan(&b.ProductID, &b.QtyOnHand)
 	return b, err
 }
 
 // GetBalancesForUpdate locks and returns balances for all provided product IDs.
 // productIDs should be unique and preferably sorted for stable locking order.
-func (r *InventoryRepo) GetBalancesForUpdate(ctx context.Context, tx db.DBTX, productIDs []string) (map[string]inv.InventoryBalance, error) {
+func (r *InventoryRepo) GetBalancesForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) (map[string]inv.InventoryBalance, error) {
 	if len(productIDs) == 0 {
 		return map[string]inv.InventoryBalance{}, nil
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT product_id::text, qty_on_hand::float8
 		FROM inventory_balances
-		WHERE product_id = ANY($1::uuid[])
+		WHERE tenant_id=$1 AND product_id = ANY($2::uuid[])
 		ORDER BY product_id
 		FOR UPDATE
-	`, productIDs)
+	`, tenantID, productIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -75,20 +75,20 @@ func (r *InventoryRepo) GetBalancesForUpdate(ctx context.Context, tx db.DBTX, pr
 	return out, nil
 }
 
-func (r *InventoryRepo) UpdateBalance(ctx context.Context, tx db.DBTX, productID string, qty float64) error {
-	_, err := tx.Exec(ctx, `UPDATE inventory_balances SET qty_on_hand=$2, updated_at=now() WHERE product_id=$1`, productID, qty)
+func (r *InventoryRepo) UpdateBalance(ctx context.Context, tx db.DBTX, tenantID string, productID string, qty float64) error {
+	_, err := tx.Exec(ctx, `UPDATE inventory_balances SET qty_on_hand=$3, updated_at=now() WHERE tenant_id=$1 AND product_id=$2`, tenantID, productID, qty)
 	return err
 }
 
-func (r *InventoryRepo) InsertMovement(ctx context.Context, tx db.DBTX, m inv.InventoryMovement) error {
+func (r *InventoryRepo) InsertMovement(ctx context.Context, tx db.DBTX, tenantID string, m inv.InventoryMovement) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO inventory_movements(product_id, movement_type, delta, qty_before, qty_after, reason, reference_type, reference_id, actor_user_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-	`, m.ProductID, m.MovementType, m.Delta, m.QtyBefore, m.QtyAfter, m.Reason, m.ReferenceType, m.ReferenceID, m.ActorUserID)
+		INSERT INTO inventory_movements(tenant_id, product_id, movement_type, delta, qty_before, qty_after, reason, reference_type, reference_id, actor_user_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+	`, tenantID, m.ProductID, m.MovementType, m.Delta, m.QtyBefore, m.QtyAfter, m.Reason, m.ReferenceType, m.ReferenceID, m.ActorUserID)
 	return err
 }
 
-func (r *InventoryRepo) LowStock(ctx context.Context, limit int) ([]inv.Product, error) {
+func (r *InventoryRepo) LowStock(ctx context.Context, tenantID string, limit int) ([]inv.Product, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -97,11 +97,11 @@ func (r *InventoryRepo) LowStock(ctx context.Context, limit int) ([]inv.Product,
 		       p.cost_price::float8, p.price_cash::float8, p.promo_price::float8, p.min_stock::float8, p.active,
 		       COALESCE(b.qty_on_hand, 0)::float8
 		FROM products p
-		LEFT JOIN inventory_balances b ON b.product_id=p.id
-		WHERE p.active=true AND COALESCE(b.qty_on_hand,0) <= p.min_stock
+		LEFT JOIN inventory_balances b ON b.product_id=p.id AND b.tenant_id=p.tenant_id
+		WHERE p.tenant_id=$1 AND p.active=true AND COALESCE(b.qty_on_hand,0) <= p.min_stock
 		ORDER BY (p.min_stock - COALESCE(b.qty_on_hand,0)) DESC
-		LIMIT $1
-	`, limit)
+		LIMIT $2
+	`, tenantID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -126,17 +126,17 @@ func (r *InventoryRepo) LowStock(ctx context.Context, limit int) ([]inv.Product,
 	return items, rows.Err()
 }
 
-func (r *InventoryRepo) ListMovements(ctx context.Context, productID string, limit, offset int) ([]inv.InventoryMovement, int, error) {
+func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, productID string, limit, offset int) ([]inv.InventoryMovement, int, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	where := "WHERE 1=1"
-	args := []any{}
+	where := "WHERE tenant_id=$1"
+	args := []any{tenantID}
 	if productID != "" {
-		where += " AND product_id=$1"
+		where += " AND product_id=$2"
 		args = append(args, productID)
 	}
 

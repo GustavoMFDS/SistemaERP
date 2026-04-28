@@ -4,10 +4,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"log/slog"
+
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
-	"log/slog"
 )
 
 type InventoryHandler struct {
@@ -20,8 +21,13 @@ func NewInventoryHandler(svc *invapp.InventoryService, logger *slog.Logger) *Inv
 }
 
 func (h *InventoryHandler) LowStock(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	items, err := h.svc.LowStock(r.Context(), limit)
+	items, err := h.svc.LowStock(r.Context(), au.TenantID, limit)
 	if err != nil {
 		http.Error(w, "error", http.StatusInternalServerError)
 		return
@@ -30,10 +36,15 @@ func (h *InventoryHandler) LowStock(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	productID := r.URL.Query().Get("product_id")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	items, total, err := h.svc.ListMovements(r.Context(), productID, limit, offset)
+	items, total, err := h.svc.ListMovements(r.Context(), au.TenantID, productID, limit, offset)
 	if err != nil {
 		http.Error(w, "error", http.StatusInternalServerError)
 		return
@@ -52,7 +63,7 @@ func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := h.svc.Adjust(r.Context(), au.UserID, req); err != nil {
+	if err := h.svc.Adjust(r.Context(), au.TenantID, au.UserID, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
 		case common.ErrValidation:

@@ -32,15 +32,15 @@ func NewInventoryService(cfg config.Config, uow db.UnitOfWork, invRepo Inventory
 	return &InventoryService{cfg: cfg, uow: uow, inv: invRepo, products: productsRepo, validate: v, logger: logger}
 }
 
-func (s *InventoryService) LowStock(ctx context.Context, limit int) ([]inv.Product, error) {
-	return s.inv.LowStock(ctx, limit)
+func (s *InventoryService) LowStock(ctx context.Context, tenantID string, limit int) ([]inv.Product, error) {
+	return s.inv.LowStock(ctx, tenantID, limit)
 }
 
-func (s *InventoryService) ListMovements(ctx context.Context, productID string, limit, offset int) ([]inv.InventoryMovement, int, error) {
-	return s.inv.ListMovements(ctx, productID, limit, offset)
+func (s *InventoryService) ListMovements(ctx context.Context, tenantID string, productID string, limit, offset int) ([]inv.InventoryMovement, int, error) {
+	return s.inv.ListMovements(ctx, tenantID, productID, limit, offset)
 }
 
-func (s *InventoryService) Adjust(ctx context.Context, actorUserID string, req InventoryAdjustRequest) error {
+func (s *InventoryService) Adjust(ctx context.Context, tenantID string, actorUserID string, req InventoryAdjustRequest) error {
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
@@ -56,10 +56,10 @@ func (s *InventoryService) Adjust(ctx context.Context, actorUserID string, req I
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := s.inv.EnsureBalanceRow(ctx, tx, req.ProductID); err != nil {
+	if err := s.inv.EnsureBalanceRow(ctx, tx, tenantID, req.ProductID); err != nil {
 		return err
 	}
-	bal, err := s.inv.GetBalanceForUpdate(ctx, tx, req.ProductID)
+	bal, err := s.inv.GetBalanceForUpdate(ctx, tx, tenantID, req.ProductID)
 	if err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func (s *InventoryService) Adjust(ctx context.Context, actorUserID string, req I
 			return derr
 		}
 	}
-	if err := s.inv.UpdateBalance(ctx, tx, req.ProductID, after.QtyOnHand); err != nil {
+	if err := s.inv.UpdateBalance(ctx, tx, tenantID, req.ProductID, after.QtyOnHand); err != nil {
 		return err
 	}
 
@@ -82,7 +82,7 @@ func (s *InventoryService) Adjust(ctx context.Context, actorUserID string, req I
 	refType := "manual_adjust"
 	actor := actorUserID
 	m := inv.NewMovement(req.ProductID, mt, delta, bal, after, &reason, &refType, nil, &actor, time.Now().Format(time.RFC3339))
-	if err := s.inv.InsertMovement(ctx, tx, m); err != nil {
+	if err := s.inv.InsertMovement(ctx, tx, tenantID, m); err != nil {
 		return err
 	}
 

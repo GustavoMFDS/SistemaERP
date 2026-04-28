@@ -3,11 +3,12 @@ package handlers
 import (
 	"net/http"
 
+	"log/slog"
+
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
-	"log/slog"
 )
 
 type CashHandler struct {
@@ -30,7 +31,7 @@ func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	id, err := h.svc.OpenSession(r.Context(), au.UserID, req)
+	id, err := h.svc.OpenSession(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err == common.ErrValidation {
@@ -54,7 +55,7 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := h.svc.CloseSession(r.Context(), au.UserID, sessionID, req); err != nil {
+	if err := h.svc.CloseSession(r.Context(), au.TenantID, au.UserID, sessionID, req); err != nil {
 		status := http.StatusBadRequest
 		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity

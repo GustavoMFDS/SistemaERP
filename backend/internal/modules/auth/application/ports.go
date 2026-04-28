@@ -12,6 +12,7 @@ type UsersRepository interface {
 	GetByEmail(ctx context.Context, email string) (authdomain.User, error)
 	GetByID(ctx context.Context, id string) (authdomain.User, error)
 	UpdateLastLogin(ctx context.Context, id string) error
+	GetDefaultTenantID(ctx context.Context, userID string) (string, error)
 	ListUserRoles(ctx context.Context, userID string) ([]string, error)
 	ListUserPermissions(ctx context.Context, userID string) ([]string, error)
 }

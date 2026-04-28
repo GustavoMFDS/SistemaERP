@@ -44,7 +44,7 @@ func NewFiscalServiceWithProvider(
 	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nfeProvider, validate: v, logger: logger}
 }
 
-func (s *FiscalService) GenerateNFeXML(ctx context.Context, actorUserID string, req GenerateXMLRequest) (invoiceID, xmlID string, err error) {
+func (s *FiscalService) GenerateNFeXML(ctx context.Context, tenantID string, actorUserID string, req GenerateXMLRequest) (invoiceID, xmlID string, err error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", "", common.ErrValidation
 	}
@@ -54,7 +54,7 @@ func (s *FiscalService) GenerateNFeXML(ctx context.Context, actorUserID string, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	exists, err := s.fiscal.ExistsInvoiceForSale(ctx, tx, req.SaleID)
+	exists, err := s.fiscal.ExistsInvoiceForSale(ctx, tx, tenantID, req.SaleID)
 	if err != nil {
 		return "", "", err
 	}
@@ -62,7 +62,7 @@ func (s *FiscalService) GenerateNFeXML(ctx context.Context, actorUserID string, 
 		return "", "", common.ErrInvoiceAlreadyExists
 	}
 
-	sale, items, _, err := s.sales.GetSale(ctx, req.SaleID)
+	sale, items, _, err := s.sales.GetSale(ctx, tenantID, req.SaleID)
 	if err != nil {
 		return "", "", common.ErrNotFound
 	}
@@ -70,16 +70,13 @@ func (s *FiscalService) GenerateNFeXML(ctx context.Context, actorUserID string, 
 		return "", "", common.ErrSaleNotFinalized
 	}
 
-	companyID, err := s.fiscal.GetCompanyID(ctx, tx)
-	if err != nil {
-		return "", "", err
-	}
+	companyID := tenantID
 	if s.nfe == nil {
 		return "", "", fmt.Errorf("nfe provider not configured")
 	}
 
 	prodIDs := uniqueProductIDs(items)
-	prodMap, err := s.products.GetManyByIDs(ctx, tx, prodIDs)
+	prodMap, err := s.products.GetManyByIDs(ctx, tx, tenantID, prodIDs)
 	if err != nil {
 		return "", "", err
 	}
@@ -92,7 +89,7 @@ func (s *FiscalService) GenerateNFeXML(ctx context.Context, actorUserID string, 
 	sha := sha256.Sum256(xmlBytes)
 	shaHex := hex.EncodeToString(sha[:])
 	actor := actorUserID
-	invID, xmlFileID, err := s.fiscal.CreateInvoiceWithXML(ctx, tx, req.SaleID, companyID, &actor, fileName, xmlBytes, shaHex)
+	invID, xmlFileID, err := s.fiscal.CreateInvoiceWithXML(ctx, tx, tenantID, req.SaleID, companyID, &actor, fileName, xmlBytes, shaHex)
 	if err != nil {
 		return "", "", err
 	}
@@ -103,12 +100,12 @@ func (s *FiscalService) GenerateNFeXML(ctx context.Context, actorUserID string, 
 	return invID, xmlFileID, nil
 }
 
-func (s *FiscalService) ListXML(ctx context.Context, limit, offset int) ([]fisc.XMLFile, int, error) {
-	return s.fiscal.ListXML(ctx, limit, offset)
+func (s *FiscalService) ListXML(ctx context.Context, tenantID string, limit, offset int) ([]fisc.XMLFile, int, error) {
+	return s.fiscal.ListXML(ctx, tenantID, limit, offset)
 }
 
-func (s *FiscalService) DownloadXML(ctx context.Context, id string) (string, []byte, error) {
-	return s.fiscal.GetXMLContent(ctx, id)
+func (s *FiscalService) DownloadXML(ctx context.Context, tenantID string, id string) (string, []byte, error) {
+	return s.fiscal.GetXMLContent(ctx, tenantID, id)
 }
 
 func uniqueProductIDs(items []sales.SaleItem) []string {

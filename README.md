@@ -42,6 +42,11 @@ Fiscal (Etapa 9):
 - Geração de XML NF-e fica atrás de uma interface (`NFeProvider`), com implementação MVP em `internal/modules/fiscal/providers/mvp`.
 - Objetivo: manter o fluxo/armazenamento funcionando hoje e permitir evolução futura (assinatura, transmissão SEFAZ, protocolo, DANFE) sem refatorar o serviço/API.
 
+Multi-tenant (Etapa 10):
+- `tenant_id` é derivado do JWT via middleware (não é aceito via request).
+- Todas as operações relevantes no banco são filtradas por `tenant_id` para evitar vazamento cross-tenant.
+- Cache Redis de produtos usa chaves/versionamento separados por tenant.
+
 ## Rodando o frontend
 - `cd web`
 - `npm install`

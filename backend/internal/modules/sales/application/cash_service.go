@@ -30,11 +30,11 @@ func NewCashService(uow db.UnitOfWork, cash CashRepository, v *validator.Validat
 	return &CashService{uow: uow, cash: cash, validate: v, logger: logger}
 }
 
-func (s *CashService) OpenSession(ctx context.Context, userID string, req CashOpenRequest) (string, error) {
+func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
 	}
-	registerID, err := s.cash.EnsureDefaultRegister(ctx)
+	registerID, err := s.cash.EnsureDefaultRegister(ctx, tenantID)
 	if err != nil {
 		return "", err
 	}
@@ -44,7 +44,7 @@ func (s *CashService) OpenSession(ctx context.Context, userID string, req CashOp
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	id, err := s.cash.OpenSession(ctx, tx, registerID, userID, req.OpeningAmount, req.Notes)
+	id, err := s.cash.OpenSession(ctx, tx, tenantID, registerID, userID, req.OpeningAmount, req.Notes)
 	if err != nil {
 		return "", err
 	}
@@ -54,7 +54,7 @@ func (s *CashService) OpenSession(ctx context.Context, userID string, req CashOp
 	return id, nil
 }
 
-func (s *CashService) CloseSession(ctx context.Context, userID, sessionID string, req CashCloseRequest) error {
+func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID, sessionID string, req CashCloseRequest) error {
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
@@ -64,7 +64,7 @@ func (s *CashService) CloseSession(ctx context.Context, userID, sessionID string
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	err = s.cash.CloseSession(ctx, tx, sessionID, userID, req.ClosingAmount, req.Notes)
+	err = s.cash.CloseSession(ctx, tx, tenantID, sessionID, userID, req.ClosingAmount, req.Notes)
 	if err != nil {
 		return err
 	}

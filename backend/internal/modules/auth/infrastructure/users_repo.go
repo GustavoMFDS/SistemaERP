@@ -2,8 +2,11 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 
 	authdomain "github.com/example/sistemaemgo/internal/modules/auth/domain"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -32,6 +35,36 @@ func (r *UsersRepo) GetByID(ctx context.Context, id string) (authdomain.User, er
 func (r *UsersRepo) UpdateLastLogin(ctx context.Context, id string) error {
 	_, err := r.db.Exec(ctx, `UPDATE users SET last_login_at=now(), updated_at=now() WHERE id=$1`, id)
 	return err
+}
+
+func (r *UsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (string, error) {
+	var tenantID string
+	err := r.db.QueryRow(ctx, `
+		SELECT tenant_id::text
+		FROM user_tenants
+		WHERE user_id=$1
+		ORDER BY created_at
+		LIMIT 1
+	`, userID).Scan(&tenantID)
+	if err == nil {
+		return tenantID, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		// legacy fallback: first company
+		return r.fallbackCompanyTenantID(ctx)
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		// relation does not exist (migration not applied yet)
+		return r.fallbackCompanyTenantID(ctx)
+	}
+	return "", err
+}
+
+func (r *UsersRepo) fallbackCompanyTenantID(ctx context.Context) (string, error) {
+	var tenantID string
+	err := r.db.QueryRow(ctx, `SELECT id::text FROM companies ORDER BY created_at LIMIT 1`).Scan(&tenantID)
+	return tenantID, err
 }
 
 func (r *UsersRepo) ListUserRoles(ctx context.Context, userID string) ([]string, error) {

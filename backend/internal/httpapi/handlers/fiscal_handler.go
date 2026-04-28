@@ -4,11 +4,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"log/slog"
+
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/go-chi/chi/v5"
-	"log/slog"
 )
 
 type FiscalHandler struct {
@@ -31,7 +32,7 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	invoiceID, xmlID, err := h.svc.GenerateNFeXML(r.Context(), au.UserID, req)
+	invoiceID, xmlID, err := h.svc.GenerateNFeXML(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch err {
@@ -51,9 +52,14 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *FiscalHandler) ListXML(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	items, total, err := h.svc.ListXML(r.Context(), limit, offset)
+	items, total, err := h.svc.ListXML(r.Context(), au.TenantID, limit, offset)
 	if err != nil {
 		http.Error(w, "error", http.StatusInternalServerError)
 		return
@@ -62,8 +68,13 @@ func (h *FiscalHandler) ListXML(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *FiscalHandler) DownloadXML(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	id := chi.URLParam(r, "id")
-	name, content, err := h.svc.DownloadXML(r.Context(), id)
+	name, content, err := h.svc.DownloadXML(r.Context(), au.TenantID, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return

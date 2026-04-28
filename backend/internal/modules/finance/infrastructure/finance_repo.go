@@ -16,23 +16,23 @@ func NewFinanceRepo(dbpool *pgxpool.Pool) *FinanceRepo {
 	return &FinanceRepo{db: dbpool}
 }
 
-func (r *FinanceRepo) InsertLedgerEntry(ctx context.Context, tx db.DBTX, e fin.LedgerEntry, createdByUserID *string) (string, error) {
+func (r *FinanceRepo) InsertLedgerEntry(ctx context.Context, tx db.DBTX, tenantID string, e fin.LedgerEntry, createdByUserID *string) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `
-		INSERT INTO ledger_entries(entry_type, sale_id, cash_session_id, amount_gross, amount_discount, amount_net, profit_estimated, notes, created_by_user_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		INSERT INTO ledger_entries(tenant_id, entry_type, sale_id, cash_session_id, amount_gross, amount_discount, amount_net, profit_estimated, notes, created_by_user_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING id::text
-	`, e.EntryType, e.SaleID, e.CashSessionID, e.AmountGross, e.AmountDiscount, e.AmountNet, e.ProfitEstimated, e.Notes, createdByUserID).Scan(&id)
+	`, tenantID, e.EntryType, e.SaleID, e.CashSessionID, e.AmountGross, e.AmountDiscount, e.AmountNet, e.ProfitEstimated, e.Notes, createdByUserID).Scan(&id)
 	return id, err
 }
 
-func (r *FinanceRepo) Dashboard(ctx context.Context, from, to string) (map[string]float64, error) {
+func (r *FinanceRepo) Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]float64, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT entry_type, COALESCE(SUM(amount_net),0)::float8
 		FROM ledger_entries
-		WHERE created_at >= $1::timestamptz AND created_at < ($2::timestamptz + interval '1 day')
+		WHERE tenant_id=$1 AND created_at >= $2::timestamptz AND created_at < ($3::timestamptz + interval '1 day')
 		GROUP BY entry_type
-	`, from, to)
+	`, tenantID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func (r *FinanceRepo) Dashboard(ctx context.Context, from, to string) (map[strin
 	return out, rows.Err()
 }
 
-func (r *FinanceRepo) ListLedger(ctx context.Context, limit, offset int) ([]fin.LedgerEntry, int, error) {
+func (r *FinanceRepo) ListLedger(ctx context.Context, tenantID string, limit, offset int) ([]fin.LedgerEntry, int, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -59,7 +59,7 @@ func (r *FinanceRepo) ListLedger(ctx context.Context, limit, offset int) ([]fin.
 	}
 
 	var total int
-	if err := r.db.QueryRow(ctx, `SELECT count(*) FROM ledger_entries`).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE tenant_id=$1`, tenantID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -68,9 +68,10 @@ func (r *FinanceRepo) ListLedger(ctx context.Context, limit, offset int) ([]fin.
 		       amount_gross::float8, amount_discount::float8, amount_net::float8, profit_estimated::float8,
 		       notes, created_at::text
 		FROM ledger_entries
+		WHERE tenant_id=$1
 		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
-	`, limit, offset)
+		LIMIT $2 OFFSET $3
+	`, tenantID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

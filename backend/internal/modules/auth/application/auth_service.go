@@ -41,12 +41,20 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 	}
 	_ = s.users.UpdateLastLogin(ctx, u.ID)
 
-	roles, _ := s.users.ListUserRoles(ctx, u.ID)
-	accessTok, accessExp, err := s.issueAccessToken(u.ID)
+	tenantID, err := s.users.GetDefaultTenantID(ctx, u.ID)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
-	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, u.ID)
+	if tenantID == "" {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+
+	roles, _ := s.users.ListUserRoles(ctx, u.ID)
+	accessTok, accessExp, err := s.issueAccessToken(u.ID, tenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, u.ID, tenantID)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
@@ -57,11 +65,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 			ExpiresIn:        int64(time.Until(accessExp).Seconds()),
 			RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
 		}, AuthUserInfo{
-			ID: u.ID, Email: u.Email, Name: u.Name, Roles: roles,
+			ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles,
 		}, nil
 }
 
-func (s *AuthService) issueAccessToken(userID string) (string, time.Time, error) {
+func (s *AuthService) issueAccessToken(userID, tenantID string) (string, time.Time, error) {
 	now := time.Now()
 	exp := now.Add(s.cfg.AccessTokenTTL)
 	claims := Claims{RegisteredClaims: jwt.RegisteredClaims{
@@ -69,13 +77,13 @@ func (s *AuthService) issueAccessToken(userID string) (string, time.Time, error)
 		Subject:   userID,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(exp),
-	}, Type: "access"}
+	}, Type: "access", TenantID: tenantID}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := t.SignedString([]byte(s.cfg.JWTSecret))
 	return signed, exp, err
 }
 
-func (s *AuthService) issueRefreshToken(ctx context.Context, userID string) (string, time.Time, error) {
+func (s *AuthService) issueRefreshToken(ctx context.Context, userID, tenantID string) (string, time.Time, error) {
 	if s.refresh == nil {
 		return "", time.Time{}, common.ErrInvalidCredentials
 	}
@@ -93,7 +101,7 @@ func (s *AuthService) issueRefreshToken(ctx context.Context, userID string) (str
 		ID:        jti,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(exp),
-	}, Type: "refresh"}
+	}, Type: "refresh", TenantID: tenantID}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := t.SignedString([]byte(s.cfg.JWTSecret))
 	if err != nil {
@@ -105,25 +113,28 @@ func (s *AuthService) issueRefreshToken(ctx context.Context, userID string) (str
 	return signed, exp, nil
 }
 
-func (s *AuthService) ValidateToken(ctx context.Context, tokenStr string) (string, error) {
+func (s *AuthService) ValidateToken(ctx context.Context, tokenStr string) (userID string, tenantID string, err error) {
 	_ = ctx
 	parsed, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (any, error) {
 		return []byte(s.cfg.JWTSecret), nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	claims, ok := parsed.Claims.(*Claims)
 	if !ok || !parsed.Valid {
-		return "", common.ErrInvalidCredentials
+		return "", "", common.ErrInvalidCredentials
 	}
 	if claims.Issuer != s.cfg.JWTIssuer {
-		return "", common.ErrInvalidCredentials
+		return "", "", common.ErrInvalidCredentials
 	}
 	if claims.Type != "access" {
-		return "", common.ErrInvalidCredentials
+		return "", "", common.ErrInvalidCredentials
 	}
-	return claims.Subject, nil
+	if claims.Subject == "" || claims.TenantID == "" {
+		return "", "", common.ErrInvalidCredentials
+	}
+	return claims.Subject, claims.TenantID, nil
 }
 
 func (s *AuthService) Refresh(ctx context.Context, tokenStr string) (TokenResponse, error) {
@@ -141,11 +152,11 @@ func (s *AuthService) Refresh(ctx context.Context, tokenStr string) (TokenRespon
 	if !ok {
 		return TokenResponse{}, common.ErrInvalidCredentials
 	}
-	accessTok, accessExp, err := s.issueAccessToken(claims.Subject)
+	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID)
 	if err != nil {
 		return TokenResponse{}, err
 	}
-	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, claims.Subject)
+	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, claims.Subject, claims.TenantID)
 	if err != nil {
 		return TokenResponse{}, err
 	}
@@ -175,7 +186,7 @@ func (s *AuthService) validateRefreshToken(tokenStr string) (*Claims, error) {
 	if claims.Type != "refresh" {
 		return nil, common.ErrInvalidCredentials
 	}
-	if claims.ID == "" || claims.Subject == "" {
+	if claims.ID == "" || claims.Subject == "" || claims.TenantID == "" {
 		return nil, common.ErrInvalidCredentials
 	}
 	return claims, nil
@@ -198,8 +209,12 @@ func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserI
 	if err != nil {
 		return AuthUserInfo{}, common.ErrNotFound
 	}
+	tenantID, err := s.users.GetDefaultTenantID(ctx, u.ID)
+	if err != nil {
+		return AuthUserInfo{}, err
+	}
 	roles, _ := s.users.ListUserRoles(ctx, userID)
-	return AuthUserInfo{ID: u.ID, Email: u.Email, Name: u.Name, Roles: roles}, nil
+	return AuthUserInfo{ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles}, nil
 }
 
 func slowEqual(a, b string) {

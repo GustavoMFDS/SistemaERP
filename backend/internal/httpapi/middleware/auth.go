@@ -14,7 +14,8 @@ import (
 type ctxUserKey string
 
 type AuthUser struct {
-	UserID string
+	UserID   string
+	TenantID string
 }
 
 const userKey ctxUserKey = "auth_user"
@@ -28,13 +29,13 @@ func AuthJWT(cfg config.Config, auth *authapp.AuthService, logger *slog.Logger) 
 				return
 			}
 			token := strings.TrimSpace(h[len("Bearer "):])
-			userID, err := auth.ValidateToken(r.Context(), token)
+			userID, tenantID, err := auth.ValidateToken(r.Context(), token)
 			if err != nil {
 				logger.Warn("auth_invalid_token", slog.Any("err", err), slog.String("request_id", middleware.GetReqID(r.Context())))
 				http.Error(w, "invalid token", http.StatusUnauthorized)
 				return
 			}
-			ctx := context.WithValue(r.Context(), userKey, AuthUser{UserID: userID})
+			ctx := context.WithValue(r.Context(), userKey, AuthUser{UserID: userID, TenantID: tenantID})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}
 		return http.HandlerFunc(fn)

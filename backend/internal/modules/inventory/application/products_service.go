@@ -37,15 +37,15 @@ func NewProductsService(uow db.UnitOfWork, r ProductsRepository, v *validator.Va
 	return &ProductsService{uow: uow, repo: r, validate: v, logger: logger}
 }
 
-func (s *ProductsService) List(ctx context.Context, query string, limit, offset int) ([]inv.Product, int, error) {
-	return s.repo.List(ctx, query, limit, offset)
+func (s *ProductsService) List(ctx context.Context, tenantID string, query string, limit, offset int) ([]inv.Product, int, error) {
+	return s.repo.List(ctx, tenantID, query, limit, offset)
 }
 
-func (s *ProductsService) Get(ctx context.Context, id string) (inv.Product, error) {
-	return s.repo.Get(ctx, id)
+func (s *ProductsService) Get(ctx context.Context, tenantID string, id string) (inv.Product, error) {
+	return s.repo.Get(ctx, tenantID, id)
 }
 
-func (s *ProductsService) Create(ctx context.Context, req ProductCreateRequest) (string, error) {
+func (s *ProductsService) Create(ctx context.Context, tenantID string, req ProductCreateRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
 	}
@@ -67,7 +67,7 @@ func (s *ProductsService) Create(ctx context.Context, req ProductCreateRequest) 
 		MinStock:    req.MinStock,
 		Active:      req.Active,
 	}
-	id, err := s.repo.Create(ctx, tx, p)
+	id, err := s.repo.Create(ctx, tx, tenantID, p)
 	if err != nil {
 		return "", err
 	}
@@ -76,16 +76,16 @@ func (s *ProductsService) Create(ctx context.Context, req ProductCreateRequest) 
 	}
 	// Best-effort cache invalidation (after commit).
 	if inv, ok := s.repo.(interface {
-		InvalidateProduct(context.Context, string) error
-		BumpProductsListVersion(context.Context) error
+		InvalidateProduct(context.Context, string, string) error
+		BumpProductsListVersion(context.Context, string) error
 	}); ok {
-		_ = inv.InvalidateProduct(ctx, id)
-		_ = inv.BumpProductsListVersion(ctx)
+		_ = inv.InvalidateProduct(ctx, tenantID, id)
+		_ = inv.BumpProductsListVersion(ctx, tenantID)
 	}
 	return id, nil
 }
 
-func (s *ProductsService) Update(ctx context.Context, id string, req ProductUpdateRequest) error {
+func (s *ProductsService) Update(ctx context.Context, tenantID string, id string, req ProductUpdateRequest) error {
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
@@ -107,7 +107,7 @@ func (s *ProductsService) Update(ctx context.Context, id string, req ProductUpda
 		MinStock:    req.MinStock,
 		Active:      req.Active,
 	}
-	if err := s.repo.Update(ctx, tx, id, p); err != nil {
+	if err := s.repo.Update(ctx, tx, tenantID, id, p); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -115,11 +115,11 @@ func (s *ProductsService) Update(ctx context.Context, id string, req ProductUpda
 	}
 	// Best-effort cache invalidation (after commit).
 	if inv, ok := s.repo.(interface {
-		InvalidateProduct(context.Context, string) error
-		BumpProductsListVersion(context.Context) error
+		InvalidateProduct(context.Context, string, string) error
+		BumpProductsListVersion(context.Context, string) error
 	}); ok {
-		_ = inv.InvalidateProduct(ctx, id)
-		_ = inv.BumpProductsListVersion(ctx)
+		_ = inv.InvalidateProduct(ctx, tenantID, id)
+		_ = inv.BumpProductsListVersion(ctx, tenantID)
 	}
 	return nil
 }

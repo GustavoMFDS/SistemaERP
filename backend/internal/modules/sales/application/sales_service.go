@@ -56,15 +56,15 @@ func NewSalesService(cfg config.Config, uow db.UnitOfWork, salesRepo SalesReposi
 	return &SalesService{cfg: cfg, uow: uow, sales: salesRepo, inv: invRepo, fin: finRepo, cash: cashRepo, products: productsRepo, validate: v, logger: logger}
 }
 
-func (s *SalesService) List(ctx context.Context, limit, offset int) ([]sales.Sale, int, error) {
-	return s.sales.ListSales(ctx, limit, offset)
+func (s *SalesService) List(ctx context.Context, tenantID string, limit, offset int) ([]sales.Sale, int, error) {
+	return s.sales.ListSales(ctx, tenantID, limit, offset)
 }
 
-func (s *SalesService) Get(ctx context.Context, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
-	return s.sales.GetSale(ctx, id)
+func (s *SalesService) Get(ctx context.Context, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
+	return s.sales.GetSale(ctx, tenantID, id)
 }
 
-func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string, req SaleCreateRequest) (string, float64, error) {
+func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, actorUserID string, req SaleCreateRequest) (string, float64, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, common.ErrValidation
 	}
@@ -75,7 +75,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	cs, err := s.cash.GetSession(ctx, tx, req.CashSessionID)
+	cs, err := s.cash.GetSession(ctx, tx, tenantID, req.CashSessionID)
 	if err != nil {
 		return "", 0, common.ErrNotFound
 	}
@@ -92,7 +92,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 			ids = append(ids, it.ProductID)
 		}
 	}
-	prodMap, err := s.products.GetManyByIDs(ctx, tx, ids)
+	prodMap, err := s.products.GetManyByIDs(ctx, tx, tenantID, ids)
 	if err != nil {
 		return "", 0, err
 	}
@@ -147,7 +147,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 			return "", 0, derr
 		}
 	}
-	saleID, err := s.sales.InsertSale(ctx, tx, sale)
+	saleID, err := s.sales.InsertSale(ctx, tx, tenantID, sale)
 	if err != nil {
 		return "", 0, err
 	}
@@ -157,25 +157,25 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 	productIDs := uniqueSortedProductIDsFromSaleItems(computedItems)
 	balances := make(map[string]inv.InventoryBalance, len(productIDs))
 	if batch, ok := s.inv.(interface {
-		EnsureBalanceRows(context.Context, db.DBTX, []string) error
-		GetBalancesForUpdate(context.Context, db.DBTX, []string) (map[string]inv.InventoryBalance, error)
+		EnsureBalanceRows(context.Context, db.DBTX, string, []string) error
+		GetBalancesForUpdate(context.Context, db.DBTX, string, []string) (map[string]inv.InventoryBalance, error)
 	}); ok {
-		if err := batch.EnsureBalanceRows(ctx, tx, productIDs); err != nil {
+		if err := batch.EnsureBalanceRows(ctx, tx, tenantID, productIDs); err != nil {
 			return "", 0, err
 		}
-		bals, err := batch.GetBalancesForUpdate(ctx, tx, productIDs)
+		bals, err := batch.GetBalancesForUpdate(ctx, tx, tenantID, productIDs)
 		if err != nil {
 			return "", 0, err
 		}
 		balances = bals
 	} else {
 		for _, pid := range productIDs {
-			if err := s.inv.EnsureBalanceRow(ctx, tx, pid); err != nil {
+			if err := s.inv.EnsureBalanceRow(ctx, tx, tenantID, pid); err != nil {
 				return "", 0, err
 			}
 		}
 		for _, pid := range productIDs {
-			bal, err := s.inv.GetBalanceForUpdate(ctx, tx, pid)
+			bal, err := s.inv.GetBalanceForUpdate(ctx, tx, tenantID, pid)
 			if err != nil {
 				return "", 0, err
 			}
@@ -192,7 +192,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 			}
 			return "", 0, common.ErrValidation
 		}
-		if err := s.inv.UpdateBalance(ctx, tx, it.ProductID, after.QtyOnHand); err != nil {
+		if err := s.inv.UpdateBalance(ctx, tx, tenantID, it.ProductID, after.QtyOnHand); err != nil {
 			return "", 0, err
 		}
 		balances[it.ProductID] = after
@@ -202,19 +202,19 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 		refID := saleID
 		actor := actorUserID
 		mv := inv.NewMovement(it.ProductID, inv.MovementSale, -it.Qty, bal, after, &reason, &refType, &refID, &actor, time.Now().Format(time.RFC3339))
-		if err := s.inv.InsertMovement(ctx, tx, mv); err != nil {
+		if err := s.inv.InsertMovement(ctx, tx, tenantID, mv); err != nil {
 			return "", 0, err
 		}
 
 		it.SaleID = saleID
-		if err := s.sales.InsertItem(ctx, tx, it); err != nil {
+		if err := s.sales.InsertItem(ctx, tx, tenantID, it); err != nil {
 			return "", 0, err
 		}
 	}
 
 	for _, p := range req.Payments {
 		pay := sales.Payment{SaleID: saleID, Method: p.Method, Amount: p.Amount}
-		if err := s.sales.InsertPayment(ctx, tx, pay); err != nil {
+		if err := s.sales.InsertPayment(ctx, tx, tenantID, pay); err != nil {
 			return "", 0, err
 		}
 	}
@@ -222,7 +222,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 	// Ledger entry
 	saleIDPtr := saleID
 	cashIDPtr := req.CashSessionID
-	_, err = s.fin.InsertLedgerEntry(ctx, tx, fin.LedgerEntry{
+	_, err = s.fin.InsertLedgerEntry(ctx, tx, tenantID, fin.LedgerEntry{
 		EntryType:       "sale",
 		SaleID:          &saleIDPtr,
 		CashSessionID:   &cashIDPtr,
@@ -243,7 +243,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, actorUserID string
 	return saleID, sale.Total, nil
 }
 
-func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID string, req SaleCancelRequest) error {
+func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID string, saleID string, req SaleCancelRequest) error {
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
@@ -253,7 +253,7 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	sale, items, _, err := s.sales.GetSaleForUpdate(ctx, tx, saleID)
+	sale, items, _, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, saleID)
 	if err != nil {
 		return common.ErrNotFound
 	}
@@ -268,7 +268,7 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 		}
 	}
 
-	if err := s.sales.CancelSale(ctx, tx, saleID, req.Reason); err != nil {
+	if err := s.sales.CancelSale(ctx, tx, tenantID, saleID, req.Reason); err != nil {
 		return err
 	}
 
@@ -276,12 +276,12 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 	productIDs := uniqueSortedProductIDsFromSaleItems(items)
 	balances := make(map[string]inv.InventoryBalance, len(productIDs))
 	for _, pid := range productIDs {
-		if err := s.inv.EnsureBalanceRow(ctx, tx, pid); err != nil {
+		if err := s.inv.EnsureBalanceRow(ctx, tx, tenantID, pid); err != nil {
 			return err
 		}
 	}
 	for _, pid := range productIDs {
-		bal, err := s.inv.GetBalanceForUpdate(ctx, tx, pid)
+		bal, err := s.inv.GetBalanceForUpdate(ctx, tx, tenantID, pid)
 		if err != nil {
 			return err
 		}
@@ -293,7 +293,7 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 		if derr != nil {
 			return common.ErrValidation
 		}
-		if err := s.inv.UpdateBalance(ctx, tx, it.ProductID, after.QtyOnHand); err != nil {
+		if err := s.inv.UpdateBalance(ctx, tx, tenantID, it.ProductID, after.QtyOnHand); err != nil {
 			return err
 		}
 		balances[it.ProductID] = after
@@ -303,7 +303,7 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 		refID := saleID
 		actor := actorUserID
 		mv := inv.NewMovement(it.ProductID, inv.MovementReturn, it.Qty, bal, after, &reason, &refType, &refID, &actor, time.Now().Format(time.RFC3339))
-		if err := s.inv.InsertMovement(ctx, tx, mv); err != nil {
+		if err := s.inv.InsertMovement(ctx, tx, tenantID, mv); err != nil {
 			return err
 		}
 	}
@@ -312,7 +312,7 @@ func (s *SalesService) Cancel(ctx context.Context, actorUserID string, saleID st
 	saleIDPtr := saleID
 	cashIDPtr := sale.CashSessionID
 	note := "Cancelamento: " + req.Reason
-	_, err = s.fin.InsertLedgerEntry(ctx, tx, fin.LedgerEntry{
+	_, err = s.fin.InsertLedgerEntry(ctx, tx, tenantID, fin.LedgerEntry{
 		EntryType:       "sale_cancel",
 		SaleID:          &saleIDPtr,
 		CashSessionID:   &cashIDPtr,

@@ -18,10 +18,10 @@ func NewFinanceService(repo FinanceRepository, v *validator.Validate, logger *sl
 	return &FinanceService{repo: repo, validate: v, logger: logger}
 }
 
-func (s *FinanceService) Dashboard(ctx context.Context, from, to string) (map[string]float64, error) {
-	return s.repo.Dashboard(ctx, from, to)
+func (s *FinanceService) Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]float64, error) {
+	return s.repo.Dashboard(ctx, tenantID, from, to)
 }
 
-func (s *FinanceService) ListLedger(ctx context.Context, limit, offset int) ([]fin.LedgerEntry, int, error) {
-	return s.repo.ListLedger(ctx, limit, offset)
+func (s *FinanceService) ListLedger(ctx context.Context, tenantID string, limit, offset int) ([]fin.LedgerEntry, int, error) {
+	return s.repo.ListLedger(ctx, tenantID, limit, offset)
 }
