@@ -9,6 +9,18 @@ import (
 	"github.com/example/sistemaemgo/internal/platform/db"
 )
 
+// NFeProvider encapsulates NF-e XML generation.
+//
+// The current implementation is an MVP/stub (well-formed XML) and is NOT SEFAZ-ready.
+// This abstraction exists so we can later add:
+// - digital signature
+// - SEFAZ transmission + protocol handling
+// - DANFE generation
+// without changing the service/API surface.
+type NFeProvider interface {
+	GenerateNFeXML(ctx context.Context, sale sales.Sale, items []sales.SaleItem, products map[string]inv.Product) (content []byte, fileName string, err error)
+}
+
 type FiscalRepository interface {
 	ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, saleID string) (bool, error)
 	GetCompanyID(ctx context.Context, tx db.DBTX) (string, error)

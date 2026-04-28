@@ -38,6 +38,10 @@ Performance (Etapa 8):
 - Cache Redis para produtos: `GET /api/v1/products` (lista padrão) e `GET /api/v1/products/{id}` usam cache best-effort quando Redis está disponível.
 - Baixa de estoque em venda reduz round-trips ao banco (locks/balances em batch quando possível).
 
+Fiscal (Etapa 9):
+- Geração de XML NF-e fica atrás de uma interface (`NFeProvider`), com implementação MVP em `internal/modules/fiscal/providers/mvp`.
+- Objetivo: manter o fluxo/armazenamento funcionando hoje e permitir evolução futura (assinatura, transmissão SEFAZ, protocolo, DANFE) sem refatorar o serviço/API.
+
 ## Rodando o frontend
 - `cd web`
 - `npm install`

@@ -10,6 +10,7 @@ import (
 	fininfra "github.com/example/sistemaemgo/internal/modules/finance/infrastructure"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	fiscinfra "github.com/example/sistemaemgo/internal/modules/fiscal/infrastructure"
+	fiscmvp "github.com/example/sistemaemgo/internal/modules/fiscal/providers/mvp"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
@@ -61,7 +62,8 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	cashSvc := salesapp.NewCashService(uow, cashRepo, v, logger)
 	salesSvc := salesapp.NewSalesService(cfg, uow, salesRepo, inventoryRepo, financeRepo, cashRepo, productsRepo, v, logger)
 	financeSvc := finapp.NewFinanceService(financeRepo, v, logger)
-	fiscalSvc := fiscapp.NewFiscalService(uow, fiscalRepo, salesRepo, productsRepo, v, logger)
+	nfeProvider := fiscmvp.New()
+	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, v, logger)
 
 	return &Modules{
 		Auth:      authSvc,
