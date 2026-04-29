@@ -23,12 +23,37 @@ Projeto MVP de um ERP/PDV para o mercado brasileiro (estoque, vendas/PDV, financ
 ## Rodando o backend
 - `cd backend`
 - `go mod download`
-- `go run ./cmd/api`
+
+O backend **não carrega arquivos `.env` automaticamente** — ele lê apenas variáveis de ambiente do processo.
+
+### Windows (PowerShell)
+Carregue o `.env` (na raiz do repo) no ambiente do processo e inicie a API:
+
+```powershell
+cd C:\Projetos\SistemaEmGo
+Get-Content .env | ForEach-Object {
+	$l=$_.Trim(); if ($l -match '^#' -or $l -eq '') { return }
+	$name,$value = $l -split '=',2
+	if ($name -and $value) { Set-Item -Path "Env:$name" -Value $value }
+}
+cd backend
+go run ./cmd/api
+```
+
+### Linux/macOS (bash)
+```bash
+set -a
+source ../.env
+set +a
+go run ./cmd/api
+```
+
+Servidor: `http://localhost:8080`
+
+CORS (dev/test): quando `APP_ENV` **não** é prod-like, a API responde preflight `OPTIONS` e libera o `Origin` do browser (necessário para o Vite em `http://localhost:5173`).
 
 Gerar um JWT secret forte:
 - `go run ./cmd/gensecret -format base64url -bytes 32`
-
-Servidor: `http://localhost:8080`
 
 Observabilidade:
 - Métricas Prometheus: `http://localhost:8080/metrics`
@@ -56,6 +81,14 @@ Event-driven (Etapa 11):
 - `cd web`
 - `npm install`
 - `npm run dev`
+
+Por padrão o frontend usa `VITE_API_BASE_URL=http://localhost:8080` (ver `.env.dev.example`).
+
+## Credenciais (seed)
+Ao subir `docker compose ... seed`, são criados usuários para testes (senha: `admin123`):
+- `admin@sistema.local`
+- `gerente@sistema.local`
+- `caixa@sistema.local`
 
 ## Documentação
 - Arquitetura: `docs/architecture.md`

@@ -18,6 +18,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 	r := chi.NewRouter()
 
 	r.Use(chimw.RealIP)
+	r.Use(middleware.CORS(cfg))
 	r.Use(middleware.RequestID())
 	r.Use(middleware.AccessLog(logger))
 	r.Use(middleware.Metrics())
