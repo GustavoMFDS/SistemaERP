@@ -21,7 +21,7 @@ func CORS(cfg config.Config) func(http.Handler) http.Handler {
 	enabled := !cfg.IsProdLike()
 
 	allowedMethods := strings.Join([]string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, ", ")
-	allowedHeaders := strings.Join([]string{"Authorization", "Content-Type", "Accept"}, ", ")
+	allowedHeaders := strings.Join([]string{"Authorization", "Content-Type", "Accept", "Idempotency-Key"}, ", ")
 	exposedHeaders := strings.Join([]string{"Content-Type"}, ", ")
 
 	return func(next http.Handler) http.Handler {

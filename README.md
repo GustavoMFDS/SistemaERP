@@ -84,6 +84,14 @@ Event-driven (Etapa 11):
 
 Por padrão o frontend usa `VITE_API_BASE_URL=http://localhost:8080` (ver `.env.dev.example`).
 
+## Offline PDV (Etapa 13)
+O PDV suporta modo offline **best-effort** para quedas de rede durante o atendimento:
+- Se estiver offline (ou ocorrer erro de rede), a venda é **enfileirada localmente** e o PDV limpa os itens para seguir operando.
+- Ao voltar online, as pendências são **sincronizadas automaticamente**.
+- Cada venda enviada usa `Idempotency-Key`, e o backend persiste o resultado para evitar duplicação em retries.
+
+Detalhes: `docs/offline-pdv.md`
+
 ## Credenciais (seed)
 Ao subir `docker compose ... seed`, são criados usuários para testes (senha: `admin123`):
 - `admin@sistema.local`

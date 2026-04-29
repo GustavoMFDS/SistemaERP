@@ -58,13 +58,14 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	idemKey := r.Header.Get("Idempotency-Key")
 	var req salesapp.SaleCreateRequest
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 
-	saleID, total, err := h.svc.CreateAndFinalize(r.Context(), au.TenantID, au.UserID, req)
+	saleID, total, created, err := h.svc.CreateAndFinalize(r.Context(), au.TenantID, au.UserID, idemKey, req)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch err {
@@ -80,7 +81,11 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), status)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": saleID, "status": "finalized", "total": total})
+	code := http.StatusCreated
+	if !created {
+		code = http.StatusOK
+	}
+	writeJSON(w, code, map[string]any{"id": saleID, "status": "finalized", "total": total, "replayed": !created})
 }
 
 func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {

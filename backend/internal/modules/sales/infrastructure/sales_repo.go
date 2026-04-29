@@ -5,6 +5,7 @@ import (
 
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -174,4 +175,35 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 		pays = append(pays, p)
 	}
 	return s, items, pays, payRows.Err()
+}
+
+func (r *SalesRepo) LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error {
+	lockKey := tenantID + ":" + operation + ":" + key
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey)
+	return err
+}
+
+func (r *SalesRepo) GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (saleID string, total float64, ok bool, err error) {
+	err = tx.QueryRow(ctx, `
+		SELECT sale_id::text, total::float8
+		FROM idempotency_keys
+		WHERE tenant_id=$1 AND operation=$2 AND idem_key=$3
+	`, tenantID, operation, key).Scan(&saleID, &total)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", 0, false, nil
+		}
+		return "", 0, false, err
+	}
+	return saleID, total, true, nil
+}
+
+func (r *SalesRepo) SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, saleID string, total float64) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO idempotency_keys(tenant_id, operation, idem_key, sale_id, total)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (tenant_id, operation, idem_key)
+		DO UPDATE SET sale_id=EXCLUDED.sale_id, total=EXCLUDED.total
+	`, tenantID, operation, key, saleID, total)
+	return err
 }

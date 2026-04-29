@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	"log/slog"
@@ -66,23 +67,37 @@ func (s *SalesService) Get(ctx context.Context, tenantID string, id string) (sal
 	return s.sales.GetSale(ctx, tenantID, id)
 }
 
-func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, actorUserID string, req SaleCreateRequest) (string, float64, error) {
+func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, actorUserID string, idempotencyKey string, req SaleCreateRequest) (string, float64, bool, error) {
 	if err := s.validate.Struct(req); err != nil {
-		return "", 0, common.ErrValidation
+		return "", 0, false, common.ErrValidation
 	}
+	op := "sales.create_and_finalize"
 	// Validate cash session
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey != "" {
+		if err := s.sales.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+			return "", 0, false, err
+		}
+		if saleID, total, ok, err := s.sales.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+			return "", 0, false, err
+		} else if ok {
+			_ = tx.Rollback(ctx)
+			return saleID, total, false, nil
+		}
+	}
+
 	cs, err := s.cash.GetSession(ctx, tx, tenantID, req.CashSessionID)
 	if err != nil {
-		return "", 0, common.ErrNotFound
+		return "", 0, false, common.ErrNotFound
 	}
 	if cs.Status != "open" {
-		return "", 0, common.ErrCashSessionClosed
+		return "", 0, false, common.ErrCashSessionClosed
 	}
 
 	// Load products in batch (snapshot)
@@ -96,10 +111,10 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	}
 	prodMap, err := s.products.GetManyByIDs(ctx, tx, tenantID, ids)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	if len(prodMap) != len(ids) {
-		return "", 0, common.ErrValidation
+		return "", 0, false, common.ErrValidation
 	}
 
 	computedItems := make([]sales.SaleItem, 0, len(req.Items))
@@ -108,11 +123,11 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		if err := p.PodeVender(it.Qty); err != nil {
 			switch err {
 			case inv.ErrProductInactive:
-				return "", 0, common.ErrConflict
+				return "", 0, false, common.ErrConflict
 			case inv.ErrInvalidQuantity, inv.ErrInvalidPrice:
-				return "", 0, common.ErrValidation
+				return "", 0, false, common.ErrValidation
 			default:
-				return "", 0, err
+				return "", 0, false, err
 			}
 		}
 		computedItems = append(computedItems, sales.SaleItem{
@@ -129,9 +144,9 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	if derr != nil {
 		switch derr {
 		case sales.ErrInvalidItem, sales.ErrInvalidMoney:
-			return "", 0, common.ErrValidation
+			return "", 0, false, common.ErrValidation
 		default:
-			return "", 0, derr
+			return "", 0, false, derr
 		}
 	}
 
@@ -142,16 +157,16 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	if derr := sale.ValidarPagamentos(pays); derr != nil {
 		switch derr {
 		case sales.ErrPaymentsMismatch:
-			return "", 0, common.ErrPaymentsMismatch
+			return "", 0, false, common.ErrPaymentsMismatch
 		case sales.ErrInvalidMoney:
-			return "", 0, common.ErrValidation
+			return "", 0, false, common.ErrValidation
 		default:
-			return "", 0, derr
+			return "", 0, false, derr
 		}
 	}
 	saleID, err := s.sales.InsertSale(ctx, tx, tenantID, sale)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 
 	var pendingEvents []events.DomainEvent
@@ -165,23 +180,23 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		GetBalancesForUpdate(context.Context, db.DBTX, string, []string) (map[string]inv.InventoryBalance, error)
 	}); ok {
 		if err := batch.EnsureBalanceRows(ctx, tx, tenantID, productIDs); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 		bals, err := batch.GetBalancesForUpdate(ctx, tx, tenantID, productIDs)
 		if err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 		balances = bals
 	} else {
 		for _, pid := range productIDs {
 			if err := s.inv.EnsureBalanceRow(ctx, tx, tenantID, pid); err != nil {
-				return "", 0, err
+				return "", 0, false, err
 			}
 		}
 		for _, pid := range productIDs {
 			bal, err := s.inv.GetBalanceForUpdate(ctx, tx, tenantID, pid)
 			if err != nil {
-				return "", 0, err
+				return "", 0, false, err
 			}
 			balances[pid] = bal
 		}
@@ -192,12 +207,12 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		after, derr := bal.Baixar(it.Qty, s.cfg.AllowNegativeStock)
 		if derr != nil {
 			if derr == inv.ErrInsufficientStock {
-				return "", 0, common.ErrInsufficientStock
+				return "", 0, false, common.ErrInsufficientStock
 			}
-			return "", 0, common.ErrValidation
+			return "", 0, false, common.ErrValidation
 		}
 		if err := s.inv.UpdateBalance(ctx, tx, tenantID, it.ProductID, after.QtyOnHand); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 		balances[it.ProductID] = after
 
@@ -230,19 +245,19 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		actor := actorUserID
 		mv := inv.NewMovement(it.ProductID, inv.MovementSale, -it.Qty, bal, after, &reason, &refType, &refID, &actor, time.Now().Format(time.RFC3339))
 		if err := s.inv.InsertMovement(ctx, tx, tenantID, mv); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 
 		it.SaleID = saleID
 		if err := s.sales.InsertItem(ctx, tx, tenantID, it); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 	}
 
 	for _, p := range req.Payments {
 		pay := sales.Payment{SaleID: saleID, Method: p.Method, Amount: p.Amount}
 		if err := s.sales.InsertPayment(ctx, tx, tenantID, pay); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 	}
 
@@ -261,11 +276,17 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		CreatedAt:       time.Now().Format(time.RFC3339),
 	}, &actorUserID)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
+	}
+
+	if idempotencyKey != "" {
+		if err := s.sales.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, saleID, sale.Total); err != nil {
+			return "", 0, false, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	if s.events != nil {
 		snaps := make([]events.SaleItemSnapshot, 0, len(computedItems))
@@ -284,7 +305,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		}
 		s.events.PublishAll(ctx, append(base, pendingEvents...))
 	}
-	return saleID, sale.Total, nil
+	return saleID, sale.Total, true, nil
 }
 
 func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID string, saleID string, req SaleCancelRequest) error {

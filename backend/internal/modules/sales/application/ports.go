@@ -17,6 +17,10 @@ type SalesRepository interface {
 	ListSales(ctx context.Context, tenantID string, limit, offset int) ([]sales.Sale, int, error)
 	CancelSale(ctx context.Context, tx db.DBTX, tenantID string, id string, reason string) error
 	GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error)
+
+	LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error
+	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (saleID string, total float64, ok bool, err error)
+	SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, saleID string, total float64) error
 }
 
 type CashRepository interface {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson } from '../lib/api'
+import { enqueueRequest, flushQueue, getQueueCount } from '../lib/offlineQueue'
 import {
   clearCashSessionId,
   getCashSessionId,
@@ -36,6 +37,9 @@ export default function PDVPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  const [online, setOnline] = useState<boolean>(navigator.onLine)
+  const [pendingSync, setPendingSync] = useState<number>(getQueueCount())
+
   const [cashSessionId, setCashSessionIdState] = useState(getCashSessionId())
   const [openingAmount, setOpeningAmount] = useState<number>(0)
 
@@ -59,13 +63,43 @@ export default function PDVPage() {
     return Math.max(0, Math.round(t * 100) / 100)
   }, [items])
 
+  function refreshPending() {
+    setPendingSync(getQueueCount())
+  }
+
+  async function syncPending() {
+    if (!navigator.onLine) {
+      refreshPending()
+      return
+    }
+    const res = await flushQueue()
+    refreshPending()
+    if (!res.ok) {
+      setError(`Falha ao sincronizar pendências: ${res.error}`)
+    }
+  }
+
   async function loadProducts() {
     setError('')
     setLoading(true)
     try {
       const data = await apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0')
-      setProducts(data.items.filter((p) => p.active))
+      const active = data.items.filter((p) => p.active)
+      setProducts(active)
+      localStorage.setItem('sistemaemgo:productsCache:v1', JSON.stringify(active))
     } catch (e: any) {
+      const cachedRaw = localStorage.getItem('sistemaemgo:productsCache:v1')
+      if (cachedRaw) {
+        try {
+          const cached = JSON.parse(cachedRaw) as Product[]
+          if (Array.isArray(cached) && cached.length > 0) {
+            setProducts(cached)
+            return
+          }
+        } catch {
+          // ignore
+        }
+      }
       setError(String(e?.bodyText ?? e?.message ?? e))
     } finally {
       setLoading(false)
@@ -74,6 +108,30 @@ export default function PDVPage() {
 
   useEffect(() => {
     void loadProducts()
+  }, [])
+
+  useEffect(() => {
+    function onOnline() {
+      setOnline(true)
+      void syncPending()
+    }
+    function onOffline() {
+      setOnline(false)
+      refreshPending()
+    }
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+
+    // Attempt a sync when opening the PDV page.
+    if (navigator.onLine) {
+      void syncPending()
+    }
+
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function openCash(e: FormEvent) {
@@ -128,22 +186,77 @@ export default function PDVPage() {
         { method: payMethod, amount: computedTotal },
       ]
 
+      const body = {
+        cash_session_id: cashSessionId,
+        customer_id: null,
+        discount_value: 0,
+        items,
+        payments,
+      }
+
+      const idempotencyKey = crypto.randomUUID()
+
+      if (!navigator.onLine) {
+        const queuedId = enqueueRequest({
+          method: 'POST',
+          path: '/api/v1/sales',
+          body,
+          headers: { 'Idempotency-Key': idempotencyKey },
+        })
+        setSaleId(`offline:${queuedId}`)
+        setSaleTotal(computedTotal)
+        setItems([])
+        refreshPending()
+        return
+      }
+
       const res = await apiJson<SaleCreateResponse>('/api/v1/sales', {
         method: 'POST',
-        body: {
-          cash_session_id: cashSessionId,
-          customer_id: null,
-          discount_value: 0,
-          items,
-          payments,
-        },
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body,
       })
 
       setSaleId(res.id)
       setSaleTotal(res.total)
       setItems([])
     } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+      // Best-effort offline fallback on network errors.
+      const msg = String(e?.bodyText ?? e?.message ?? e)
+      const networkLike =
+        !navigator.onLine ||
+        msg.includes('NetworkError') ||
+        msg.includes('Failed to fetch')
+
+      if (networkLike) {
+        try {
+          const payments: SalePayment[] = [
+            { method: payMethod, amount: computedTotal },
+          ]
+          const body = {
+            cash_session_id: cashSessionId,
+            customer_id: null,
+            discount_value: 0,
+            items,
+            payments,
+          }
+          const idempotencyKey = crypto.randomUUID()
+          const queuedId = enqueueRequest({
+            method: 'POST',
+            path: '/api/v1/sales',
+            body,
+            headers: { 'Idempotency-Key': idempotencyKey },
+          })
+          setSaleId(`offline:${queuedId}`)
+          setSaleTotal(computedTotal)
+          setItems([])
+          refreshPending()
+          return
+        } catch {
+          // fall-through
+        }
+      }
+
+      setError(msg)
     }
   }
 
@@ -153,6 +266,9 @@ export default function PDVPage() {
         <div>
           <h2 className="text-base font-semibold">PDV</h2>
           <p className="text-sm text-gray-600">Abrir caixa e registrar venda finalizada.</p>
+          <p className="mt-1 text-xs text-gray-600">
+            Status: {online ? 'online' : 'offline'} • Pendências: {pendingSync}
+          </p>
         </div>
         <button
           onClick={() => void loadProducts()}
@@ -323,7 +439,15 @@ export default function PDVPage() {
 
         {saleId ? (
           <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-2 text-sm text-green-700">
-            Venda finalizada: <span className="font-mono text-xs">{saleId}</span> • Total R$ {saleTotal.toFixed(2)}
+            {saleId.startsWith('offline:') ? (
+              <>
+                Venda registrada offline (pendente sync): <span className="font-mono text-xs">{saleId.replace('offline:', '')}</span> • Total R$ {saleTotal.toFixed(2)}
+              </>
+            ) : (
+              <>
+                Venda finalizada: <span className="font-mono text-xs">{saleId}</span> • Total R$ {saleTotal.toFixed(2)}
+              </>
+            )}
           </div>
         ) : null}
       </div>

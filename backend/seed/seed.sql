@@ -2,6 +2,24 @@
 
 BEGIN;
 
+-- Ensure a deterministic default tenant and capture its ID for tenant-scoped seeds.
+-- We use psql variables via \gset so the rest of the file can reference :'tenant_id'.
+WITH ins AS (
+  INSERT INTO companies (legal_name, trade_name, cnpj, ie, crt, created_at)
+  SELECT 'Empresa Exemplo LTDA', 'Loja Exemplo', '00000000000000', 'ISENTO', '1', now()
+  WHERE NOT EXISTS (SELECT 1 FROM companies WHERE cnpj='00000000000000')
+  RETURNING id, created_at
+)
+SELECT id AS tenant_id, created_at AS tenant_created_at
+FROM ins
+UNION ALL
+SELECT id AS tenant_id, created_at AS tenant_created_at
+FROM companies
+WHERE cnpj='00000000000000'
+ORDER BY tenant_created_at
+LIMIT 1
+\gset
+
 INSERT INTO roles (id, name) VALUES
   (gen_random_uuid(), 'admin'),
   (gen_random_uuid(), 'manager'),
@@ -56,9 +74,7 @@ WHERE r.name='cashier'
 ON CONFLICT DO NOTHING;
 
 -- company (emitente) mínima
-INSERT INTO companies (id, legal_name, trade_name, cnpj, ie, crt, created_at)
-VALUES (gen_random_uuid(), 'Empresa Exemplo LTDA', 'Loja Exemplo', '00000000000000', 'ISENTO', '1', now())
-ON CONFLICT DO NOTHING;
+-- ensured above (tenant_id captured in :'tenant_id')
 
 -- users (senha: admin123)
 -- O hash é gerado no próprio Postgres usando pgcrypto.crypt() (bcrypt).
@@ -68,6 +84,13 @@ VALUES
   (gen_random_uuid(), 'gerente@sistema.local', 'Gerente', crypt('admin123', gen_salt('bf', 10)), true, now()),
   (gen_random_uuid(), 'caixa@sistema.local', 'Operador Caixa', crypt('admin123', gen_salt('bf', 10)), true, now())
 ON CONFLICT (email) DO NOTHING;
+
+-- map users to default tenant (required after multi-tenant migration)
+INSERT INTO user_tenants(user_id, tenant_id)
+SELECT u.id, :'tenant_id'::uuid
+FROM users u
+WHERE u.email IN ('admin@sistema.local','gerente@sistema.local','caixa@sistema.local')
+ON CONFLICT DO NOTHING;
 
 -- map roles
 INSERT INTO user_roles (user_id, role_id)
@@ -81,19 +104,22 @@ SELECT u.id, r.id FROM users u JOIN roles r ON r.name='cashier' WHERE u.email='c
 ON CONFLICT DO NOTHING;
 
 -- categories + products
-INSERT INTO categories (id, name, created_at) VALUES
-  (gen_random_uuid(), 'Bebidas', now()),
-  (gen_random_uuid(), 'Mercearia', now())
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO categories (id, tenant_id, name, created_at) VALUES
+  (gen_random_uuid(), :'tenant_id'::uuid, 'Bebidas', now()),
+  (gen_random_uuid(), :'tenant_id'::uuid, 'Mercearia', now())
+ON CONFLICT (tenant_id, name) DO NOTHING;
 
-INSERT INTO products (id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active, created_at)
-SELECT gen_random_uuid(), c.id, 'SKU-COCA-2L', '7890000000000', 'Coca-Cola 2L', '', 'UN', 7.00, 10.90, NULL, 5, true, now()
-FROM categories c WHERE c.name='Bebidas'
-ON CONFLICT (sku) DO NOTHING;
+INSERT INTO products (id, tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active, created_at)
+SELECT gen_random_uuid(), :'tenant_id'::uuid, c.id, 'SKU-COCA-2L', '7890000000000', 'Coca-Cola 2L', '', 'UN', 7.00, 10.90, NULL, 5, true, now()
+FROM categories c
+WHERE c.tenant_id = :'tenant_id'::uuid AND c.name='Bebidas'
+ON CONFLICT (tenant_id, sku) DO NOTHING;
 
 -- initial stock balance + movement
-INSERT INTO inventory_balances (product_id, qty_on_hand, updated_at)
-SELECT p.id, 20, now() FROM products p WHERE p.sku='SKU-COCA-2L'
+INSERT INTO inventory_balances (product_id, tenant_id, qty_on_hand, updated_at)
+SELECT p.id, p.tenant_id, 20, now()
+FROM products p
+WHERE p.tenant_id = :'tenant_id'::uuid AND p.sku='SKU-COCA-2L'
 ON CONFLICT (product_id) DO NOTHING;
 
 COMMIT;
