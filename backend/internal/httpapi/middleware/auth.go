@@ -25,14 +25,14 @@ func AuthJWT(cfg config.Config, auth *authapp.AuthService, logger *slog.Logger) 
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
 			if h == "" || !strings.HasPrefix(strings.ToLower(h), "bearer ") {
-				http.Error(w, "missing bearer token", http.StatusUnauthorized)
+				writeMiddlewareError(w, r, http.StatusUnauthorized, "authentication_error", "bearer token ausente")
 				return
 			}
 			token := strings.TrimSpace(h[len("Bearer "):])
 			userID, tenantID, err := auth.ValidateToken(r.Context(), token)
 			if err != nil {
 				logger.Warn("auth_invalid_token", slog.Any("err", err), slog.String("request_id", middleware.GetReqID(r.Context())))
-				http.Error(w, "invalid token", http.StatusUnauthorized)
+				writeMiddlewareError(w, r, http.StatusUnauthorized, "authentication_error", "token invalido")
 				return
 			}
 			ctx := context.WithValue(r.Context(), userKey, AuthUser{UserID: userID, TenantID: tenantID})

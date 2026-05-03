@@ -49,7 +49,7 @@ services:
       - -lc
       - |
         echo "seeding";
-        psql "postgres://${POSTGRES_USER:-sistemaemgo}:${POSTGRES_PASSWORD:-sistemaemgo}@db:5432/${POSTGRES_DB:-sistemaemgo}" -v ON_ERROR_STOP=1 -f /seed/seed.sql
+        psql "postgres://${POSTGRES_USER:-sistemaemgo}:${POSTGRES_PASSWORD:-sistemaemgo}@db:5432/${POSTGRES_DB:-sistemaemgo}" -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
 
 volumes:
   pgdata:

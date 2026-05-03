@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/config"
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
 	authinfra "github.com/example/sistemaemgo/internal/modules/auth/infrastructure"
 	finapp "github.com/example/sistemaemgo/internal/modules/finance/application"
@@ -14,6 +15,8 @@ import (
 	fiscmvp "github.com/example/sistemaemgo/internal/modules/fiscal/providers/mvp"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
+	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
+	privacyinfra "github.com/example/sistemaemgo/internal/modules/privacy/infrastructure"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
 	"github.com/example/sistemaemgo/internal/platform/db"
@@ -31,7 +34,10 @@ type Modules struct {
 	Sales     *salesapp.SalesService
 	Finance   *finapp.FinanceService
 	Fiscal    *fiscapp.FiscalService
+	Privacy   *privacyapp.Service
 	Events    *events.Bus
+	Redis     *redis.Client
+	Audit     *audit.Service
 }
 
 func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) *Modules {
@@ -53,7 +59,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	})
 
 	// infrastructure
-	usersRepo := authinfra.NewUsersRepo(pool)
+	usersRepo := authinfra.NewUsersRepo(pool, !cfg.IsProdLike())
 
 	baseProductsRepo := invinfra.NewProductsRepo(pool)
 	var productsRepo invapp.ProductsRepository = baseProductsRepo
@@ -67,6 +73,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 
 	financeRepo := fininfra.NewFinanceRepo(pool)
 	fiscalRepo := fiscinfra.NewFiscalRepo(pool)
+	privacyRepo := privacyinfra.NewRepo(pool)
 
 	// application services
 	var refreshStore authapp.RefreshTokenStore
@@ -81,6 +88,8 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	financeSvc := finapp.NewFinanceService(financeRepo, v, logger)
 	nfeProvider := fiscmvp.New()
 	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, v, logger)
+	auditSvc := audit.New(pool, logger)
+	privacySvc := privacyapp.NewService(privacyRepo)
 
 	return &Modules{
 		Auth:      authSvc,
@@ -90,6 +99,9 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		Sales:     salesSvc,
 		Finance:   financeSvc,
 		Fiscal:    fiscalSvc,
+		Privacy:   privacySvc,
 		Events:    bus,
+		Redis:     rdb,
+		Audit:     auditSvc,
 	}
 }

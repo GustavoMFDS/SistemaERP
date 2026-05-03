@@ -7,29 +7,31 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 )
 
 type InventoryHandler struct {
 	svc    *invapp.InventoryService
+	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewInventoryHandler(svc *invapp.InventoryService, logger *slog.Logger) *InventoryHandler {
-	return &InventoryHandler{svc: svc, logger: logger}
+func NewInventoryHandler(svc *invapp.InventoryService, auditSvc *audit.Service, logger *slog.Logger) *InventoryHandler {
+	return &InventoryHandler{svc: svc, audit: auditSvc, logger: logger}
 }
 
 func (h *InventoryHandler) LowStock(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	items, err := h.svc.LowStock(r.Context(), au.TenantID, limit)
 	if err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao listar estoque", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -38,7 +40,7 @@ func (h *InventoryHandler) LowStock(w http.ResponseWriter, r *http.Request) {
 func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	productID := r.URL.Query().Get("product_id")
@@ -46,7 +48,7 @@ func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request)
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	items, total, err := h.svc.ListMovements(r.Context(), au.TenantID, productID, limit, offset)
 	if err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao listar movimentacoes", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
@@ -55,12 +57,12 @@ func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request)
 func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	var req invapp.InventoryAdjustRequest
-	if err := readJSON(r, &req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
 	if err := h.svc.Adjust(r.Context(), au.TenantID, au.UserID, req); err != nil {
@@ -71,8 +73,9 @@ func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 		case common.ErrInsufficientStock:
 			status = http.StatusConflict
 		}
-		http.Error(w, err.Error(), status)
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
+	recordAudit(h.audit, r, au.TenantID, au.UserID, "inventory.adjust", "product", req.ProductID, "success", map[string]any{"type": req.Type})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }

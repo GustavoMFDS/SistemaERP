@@ -6,6 +6,7 @@ import (
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
 )
@@ -18,17 +19,17 @@ type ProductsService struct {
 }
 
 type ProductCreateRequest struct {
-	CategoryID  *string  `json:"category_id"`
-	SKU         string   `json:"sku" validate:"required,min=1,max=64"`
-	Barcode     *string  `json:"barcode" validate:"omitempty,min=8,max=32"`
-	Name        string   `json:"name" validate:"required,min=2,max=200"`
-	Description *string  `json:"description"`
-	Unit        string   `json:"unit" validate:"required,min=1,max=8"`
-	CostPrice   float64  `json:"cost_price" validate:"min=0"`
-	PriceCash   float64  `json:"price_cash" validate:"required,gt=0"`
-	PromoPrice  *float64 `json:"promo_price" validate:"omitempty,gt=0"`
-	MinStock    float64  `json:"min_stock" validate:"min=0"`
-	Active      bool     `json:"active"`
+	CategoryID  *string           `json:"category_id"`
+	SKU         string            `json:"sku" validate:"required,min=1,max=64"`
+	Barcode     *string           `json:"barcode" validate:"omitempty,min=8,max=32"`
+	Name        string            `json:"name" validate:"required,min=2,max=200"`
+	Description *string           `json:"description"`
+	Unit        string            `json:"unit" validate:"required,min=1,max=8"`
+	CostPrice   platform.Money    `json:"cost_price" validate:"min=0"`
+	PriceCash   platform.Money    `json:"price_cash" validate:"required,gt=0"`
+	PromoPrice  *platform.Money   `json:"promo_price" validate:"omitempty,gt=0"`
+	MinStock    platform.Quantity `json:"min_stock" validate:"min=0"`
+	Active      bool              `json:"active"`
 }
 
 type ProductUpdateRequest = ProductCreateRequest

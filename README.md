@@ -1,108 +1,210 @@
-# SistemaEmGo (ERP + PDV)
+# SistemaEmGo
 
-Projeto MVP de um ERP/PDV para o mercado brasileiro (estoque, vendas/PDV, financeiro básico e NF-e XML MVP), com backend em Go e banco PostgreSQL.
+SistemaEmGo is a multi-tenant ERP/POS and backoffice system for sales, inventory, finance, fiscal operations, auditability, and privacy/LGPD technical workflows.
 
-## Requisitos
-- Node.js 20+ (recomendado) para o frontend
-- Go 1.24+ para o backend
-- Docker + Docker Compose (opcional, recomendado) para subir Postgres + Redis + migrations/seed
+The project is currently a pre-production / staging candidate. It implements technical controls that support LGPD compliance, but final legal, accounting, DPO, infrastructure, and operational validation is required before real production use.
 
-## Subindo o banco (Docker)
-1) Copie um arquivo de env (NÃO commitar `.env`):
-- `copy .env.dev.example .env`
+## Features
 
-2) Suba Postgres + migrations + seed:
-- `docker compose --env-file .env up -d db redis migrate seed`
+- Multi-tenant POS/backoffice with tenant-scoped RBAC.
+- Sales creation, server-side price calculation, idempotent offline retry support, and sale cancellation.
+- Inventory balances, movements, low-stock checks, and stock validation.
+- Finance ledger and dashboard endpoints.
+- Fiscal XML/NFe preparation and access flows.
+- Offline POS queue with TTL, idempotency keys, and minimal browser storage.
+- JWT access tokens plus HttpOnly refresh-token cookies with rotation.
+- Standardized JSON API errors with request IDs.
+- Audit logging with sanitized metadata.
+- Privacy/LGPD technical workflows for data subject requests, exports, anonymization/blocking, and consent records.
+- Observability with health checks, structured logs, tracing hooks, and protected Prometheus metrics.
 
-> Observação (Windows): por padrão o Postgres do compose publica em `5433` para evitar conflito com Postgres local na `5432`.
+## Tech Stack
 
-> Observação: o Redis do compose está fixado em `redis:7.4-alpine` para evitar incompatibilidade de volume (formato de dump RDB) ao trocar tags.
+- Go `1.25.0` for the backend.
+- React 19, TypeScript, and Vite for the frontend.
+- PostgreSQL for persistent data.
+- Redis for refresh-token rotation, rate limiting, and optional caches.
+- Docker Compose for local dependencies, migrations, and development seed.
+- GitHub Actions CI for backend and frontend validation.
 
-> Produção: prefira injetar env vars via Docker/K8s/CI e usar `*_FILE` para secrets.
+## Repository Structure
 
-## Rodando o backend
-- `cd backend`
-- `go mod download`
+- `backend/`: Go API, modules, migrations, seed files, and backend tests.
+- `web/`: React/Vite frontend.
+- `docs/`: API, security, privacy, deployment, and smoke-test documentation.
+- `.github/workflows/ci.yml`: CI validation using `go test`, `go vet`, `gofmt`, `npm ci`, lint, and build.
 
-O backend **não carrega arquivos `.env` automaticamente** — ele lê apenas variáveis de ambiente do processo.
+## Prerequisites
 
-### Windows (PowerShell)
-Carregue o `.env` (na raiz do repo) no ambiente do processo e inicie a API:
+- Go `1.25.x`.
+- Node.js `22.x`.
+- Docker and Docker Compose.
+- PostgreSQL and Redis if running without Docker Compose.
 
-```powershell
-cd C:\Projetos\SistemaEmGo
-Get-Content .env | ForEach-Object {
-	$l=$_.Trim(); if ($l -match '^#' -or $l -eq '') { return }
-	$name,$value = $l -split '=',2
-	if ($name -and $value) { Set-Item -Path "Env:$name" -Value $value }
-}
+## Quick Start For Development
+
+```bash
+cp .env.example .env
+docker compose up -d db redis migrate
+docker compose up seed
+```
+
+Run the backend:
+
+```bash
 cd backend
 go run ./cmd/api
 ```
 
-### Linux/macOS (bash)
+Run the frontend:
+
 ```bash
-set -a
-source ../.env
-set +a
-go run ./cmd/api
+cd web
+npm ci
+npm run dev
 ```
 
-Servidor: `http://localhost:8080`
+The development seed is guarded by `ALLOW_DEMO_SEED=1` inside the Docker Compose seed service. Do not run the demo seed in staging or production.
 
-CORS (dev/test): quando `APP_ENV` **não** é prod-like, a API responde preflight `OPTIONS` e libera o `Origin` do browser (necessário para o Vite em `http://localhost:5173`).
+## Environment Variables
 
-Gerar um JWT secret forte:
-- `go run ./cmd/gensecret -format base64url -bytes 32`
+`.env` is local-only. It is ignored by Git and Docker packaging rules and must never be committed, shipped in source archives, attached to tickets, or copied into logs. Keep only safe examples in source control: `.env.example`, `.env.dev.example`, and `.env.prod.example`.
 
-Observabilidade:
-- Métricas Prometheus: `http://localhost:8080/metrics`
-- Tracing (OpenTelemetry): habilite com `OTEL_ENABLED=true` e escolha `OTEL_EXPORTER=stdout` (dev) ou `OTEL_EXPORTER=otlp` + `OTEL_EXPORTER_OTLP_ENDPOINT=...`
+Use `.env.example` for local development and `.env.prod.example` for staging/production. Replace every production placeholder with a real secret or environment-specific value before startup.
 
-Performance (Etapa 8):
-- Cache Redis para produtos: `GET /api/v1/products` (lista padrão) e `GET /api/v1/products/{id}` usam cache best-effort quando Redis está disponível.
-- Baixa de estoque em venda reduz round-trips ao banco (locks/balances em batch quando possível).
+Important variables:
 
-Fiscal (Etapa 9):
-- Geração de XML NF-e fica atrás de uma interface (`NFeProvider`), com implementação MVP em `internal/modules/fiscal/providers/mvp`.
-- Objetivo: manter o fluxo/armazenamento funcionando hoje e permitir evolução futura (assinatura, transmissão SEFAZ, protocolo, DANFE) sem refatorar o serviço/API.
+- `APP_ENV`: `dev`, `test`, `staging`, or `prod`.
+- `DATABASE_URL`: PostgreSQL connection string.
+- `REDIS_URL`: preferred Redis connection string for staging/production.
+- `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`: split Redis configuration for local/legacy deployments.
+- `JWT_SECRET`: strong signing secret, at least 32 characters.
+- `ACCESS_TOKEN_TTL_MINUTES`, `REFRESH_TOKEN_TTL_MINUTES`: token lifetimes.
+- `CORS_ALLOWED_ORIGINS`: explicit origins in staging/production.
+- `METRICS_BEARER_TOKEN` or `METRICS_BASIC_USER` / `METRICS_BASIC_PASS`: required for metrics in staging/production.
+- `RATE_LIMIT_*`: sensitive endpoint rate limits.
+- `PRIVACY_CONTACT_EMAIL`, `APP_PUBLIC_URL`: privacy/DPO contact and public URL.
 
-Multi-tenant (Etapa 10):
-- `tenant_id` é derivado do JWT via middleware (não é aceito via request).
-- Todas as operações relevantes no banco são filtradas por `tenant_id` para evitar vazamento cross-tenant.
-- Cache Redis de produtos usa chaves/versionamento separados por tenant.
+See [docs/security.md](docs/security.md), [.env.example](.env.example), and [.env.prod.example](.env.prod.example) for configuration details.
 
-Event-driven (Etapa 11):
-- Bus de eventos in-process em `internal/platform/events`.
-- Publicação acontece após `COMMIT` (mantém consistência) — pronto para evoluir para outbox + Kafka/RabbitMQ.
-- Eventos principais: `sale.created` e `inventory.debited` (com `tenant_id`).
+## Database Migrations
 
-## Rodando o frontend
-- `cd web`
-- `npm install`
-- `npm run dev`
+Apply migrations locally:
 
-Por padrão o frontend usa `VITE_API_BASE_URL=http://localhost:8080` (ver `.env.dev.example`).
+```bash
+docker compose up -d db redis migrate
+```
 
-## Offline PDV (Etapa 13)
-O PDV suporta modo offline **best-effort** para quedas de rede durante o atendimento:
-- Se estiver offline (ou ocorrer erro de rede), a venda é **enfileirada localmente** e o PDV limpa os itens para seguir operando.
-- Ao voltar online, as pendências são **sincronizadas automaticamente**.
-- Cada venda enviada usa `Idempotency-Key`, e o backend persiste o resultado para evitar duplicação em retries.
+Validate migrations on a clean local database:
 
-Detalhes: `docs/offline-pdv.md`
+```bash
+docker compose down -v
+docker compose up -d db redis migrate
+```
 
-## Credenciais (seed)
-Ao subir `docker compose ... seed`, são criados usuários para testes (senha: `admin123`):
-- `admin@sistema.local`
-- `gerente@sistema.local`
-- `caixa@sistema.local`
+Production seed safety:
 
-## Documentação
-- Arquitetura: `docs/architecture.md`
-- Modelo de dados e índices: `docs/data-model.md`
-- Regras de negócio: `docs/business-rules.md`
-- API (endpoints + exemplos): `docs/api.md`
-- Roadmap: `docs/roadmap.md`
+- `backend/seed/seed.prod.sql` contains production-safe reference data only.
+- `backend/seed/seed.sql` is development/demo seed and requires explicit `ALLOW_DEMO_SEED=1`.
+- Production bootstrap must create the first admin through a controlled operational procedure, not default credentials.
 
-> Observação: NF-e aqui é MVP de geração/armazenamento de XML, sem SEFAZ.
+See [docs/deployment.md](docs/deployment.md) for clean migration validation, backup, restore, and rollback procedures.
+
+## Running Tests And Validation
+
+Backend:
+
+```bash
+cd backend
+gofmt -l .
+go test ./...
+go vet ./...
+```
+
+Frontend:
+
+```bash
+cd web
+npm ci
+npm run lint
+npm run build
+```
+
+For the current production-readiness pass, the frontend production build was already validated with `cd web && npm run build`. Re-run the frontend commands when frontend files change.
+
+Smoke testing:
+
+```bash
+# Follow the checklist in docs/smoke-test.md after deploying to staging.
+```
+
+## Security Overview
+
+- Access tokens are short-lived JWTs.
+- Protected requests recheck current user status, so deactivated users are rejected before access-token expiration.
+- Refresh tokens are stored only in an HttpOnly, `SameSite=Strict` cookie and rotated on refresh.
+- Refresh/logout endpoints validate trusted `Origin` or `Referer` headers.
+- Login is rate-limited by IP, by hashed normalized identifier, and by IP plus identifier.
+- RBAC is tenant-scoped through `user_tenant_roles`; a role in tenant A does not grant tenant B permissions.
+- Tenant fallback to the first company is disabled in staging/production.
+- `/metrics` requires bearer token or basic auth in staging/production.
+- Audit metadata is recursively sanitized and size-limited before storage and API output.
+- API errors are standardized JSON and avoid leaking stack traces, SQL details, secrets, or tokens.
+
+See [docs/security.md](docs/security.md) for the detailed security model.
+
+## Privacy / LGPD Technical Controls
+
+The system provides technical controls for:
+
+- Data subject request creation, listing, viewing, and status transitions.
+- Personal data export for supported `customer` and `user` subjects.
+- Anonymization/blocking where legally applicable.
+- Consent recording, listing, and revocation.
+- Audit logging for privacy operations.
+- Retention and disposal documentation.
+
+Terminal privacy request statuses (`completed`, `rejected`, `cancelled`) are immutable through the status endpoint. Fiscal/accounting records are not hard-deleted by privacy endpoints when legal retention applies.
+
+See [docs/privacy/data-inventory.md](docs/privacy/data-inventory.md), [docs/privacy/retention-policy.md](docs/privacy/retention-policy.md), and [docs/privacy/ropa.md](docs/privacy/ropa.md).
+
+## Observability
+
+- Health endpoints support runtime checks.
+- Prometheus metrics are exposed through `/metrics` and protected outside development.
+- Structured logs include request IDs.
+- Audit logs support incident investigation without storing secrets or excessive personal data.
+
+## Deployment
+
+Use [docs/deployment.md](docs/deployment.md) for:
+
+- Migration validation.
+- Production configuration checklist.
+- Backup and restore commands.
+- Redis recovery considerations.
+- Application and migration rollback strategy.
+- Staging restore drill.
+
+Use [docs/smoke-test.md](docs/smoke-test.md) for critical functional validation before promoting a release.
+
+## Production Readiness Checklist
+
+- CI is green for backend and frontend.
+- Frontend production build has been validated with `npm run build`; run `npm ci`, lint, and build again after frontend dependency or source changes.
+- Backend `gofmt`, tests, and vet pass with Go `1.25.x`.
+- Clean database migrations have been validated.
+- Production secrets are strong and not placeholders.
+- CORS origins are explicit.
+- Metrics are protected.
+- Demo seed is disabled.
+- Tenant memberships and tenant-scoped roles are configured.
+- Backup/restore has been tested in staging.
+- Smoke test checklist has passed.
+- Legal/accounting/DPO review has approved retention and privacy procedures.
+
+## License / Status
+
+License: define before public distribution.
+
+Status: pre-production / staging candidate.

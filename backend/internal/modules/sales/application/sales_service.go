@@ -2,6 +2,9 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +16,7 @@ import (
 	fin "github.com/example/sistemaemgo/internal/modules/finance/domain"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/example/sistemaemgo/internal/platform/events"
 	"github.com/go-playground/validator/v10"
@@ -34,21 +38,21 @@ type SalesService struct {
 type SaleCreateRequest struct {
 	CashSessionID string               `json:"cash_session_id" validate:"required"`
 	CustomerID    *string              `json:"customer_id"`
-	DiscountValue float64              `json:"discount_value" validate:"min=0"`
+	DiscountValue platform.Money       `json:"discount_value" validate:"min=0"`
 	Items         []SaleItemRequest    `json:"items" validate:"required,min=1,dive"`
 	Payments      []SalePaymentRequest `json:"payments" validate:"required,min=1,dive"`
 }
 
 type SaleItemRequest struct {
-	ProductID     string  `json:"product_id" validate:"required"`
-	Qty           float64 `json:"qty" validate:"required,gt=0"`
-	UnitPrice     float64 `json:"unit_price" validate:"required,gt=0"`
-	DiscountValue float64 `json:"discount_value" validate:"min=0"`
+	ProductID     string            `json:"product_id" validate:"required"`
+	Qty           platform.Quantity `json:"qty" validate:"required,gt=0"`
+	UnitPrice     *platform.Money   `json:"unit_price,omitempty" validate:"omitempty,gt=0"` // Deprecated: ignored for calculation.
+	DiscountValue platform.Money    `json:"discount_value" validate:"min=0"`
 }
 
 type SalePaymentRequest struct {
-	Method string  `json:"method" validate:"required,oneof=cash pix debit credit transfer voucher"`
-	Amount float64 `json:"amount" validate:"required,gt=0"`
+	Method string         `json:"method" validate:"required,oneof=cash pix debit credit transfer voucher"`
+	Amount platform.Money `json:"amount" validate:"required,gt=0"`
 }
 
 type SaleCancelRequest struct {
@@ -67,11 +71,15 @@ func (s *SalesService) Get(ctx context.Context, tenantID string, id string) (sal
 	return s.sales.GetSale(ctx, tenantID, id)
 }
 
-func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, actorUserID string, idempotencyKey string, req SaleCreateRequest) (string, float64, bool, error) {
+func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, actorUserID string, idempotencyKey string, req SaleCreateRequest) (string, platform.Money, bool, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, false, common.ErrValidation
 	}
 	op := "sales.create_and_finalize"
+	requestHash, err := saleRequestHash(req)
+	if err != nil {
+		return "", 0, false, common.ErrValidation
+	}
 	// Validate cash session
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
@@ -84,9 +92,12 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		if err := s.sales.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
 			return "", 0, false, err
 		}
-		if saleID, total, ok, err := s.sales.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		if saleID, total, storedHash, ok, err := s.sales.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
 			return "", 0, false, err
 		} else if ok {
+			if storedHash != requestHash {
+				return "", 0, false, common.ErrConflict
+			}
 			_ = tx.Rollback(ctx)
 			return saleID, total, false, nil
 		}
@@ -133,7 +144,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		computedItems = append(computedItems, sales.SaleItem{
 			ProductID:     it.ProductID,
 			Qty:           it.Qty,
-			UnitPrice:     it.UnitPrice,
+			UnitPrice:     p.EffectiveSalePrice(),
 			DiscountValue: it.DiscountValue,
 			CostUnit:      p.CostPrice,
 		})
@@ -280,7 +291,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	}
 
 	if idempotencyKey != "" {
-		if err := s.sales.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, saleID, sale.Total); err != nil {
+		if err := s.sales.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, saleID, sale.Total); err != nil {
 			return "", 0, false, err
 		}
 	}
@@ -306,6 +317,43 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		s.events.PublishAll(ctx, append(base, pendingEvents...))
 	}
 	return saleID, sale.Total, true, nil
+}
+
+func saleRequestHash(req SaleCreateRequest) (string, error) {
+	type item struct {
+		ProductID     string            `json:"product_id"`
+		Qty           platform.Quantity `json:"qty"`
+		DiscountValue platform.Money    `json:"discount_value"`
+	}
+	type payment struct {
+		Method string         `json:"method"`
+		Amount platform.Money `json:"amount"`
+	}
+	payload := struct {
+		CashSessionID string         `json:"cash_session_id"`
+		CustomerID    *string        `json:"customer_id"`
+		DiscountValue platform.Money `json:"discount_value"`
+		Items         []item         `json:"items"`
+		Payments      []payment      `json:"payments"`
+	}{
+		CashSessionID: req.CashSessionID,
+		CustomerID:    req.CustomerID,
+		DiscountValue: req.DiscountValue,
+		Items:         make([]item, 0, len(req.Items)),
+		Payments:      make([]payment, 0, len(req.Payments)),
+	}
+	for _, it := range req.Items {
+		payload.Items = append(payload.Items, item{ProductID: it.ProductID, Qty: it.Qty, DiscountValue: it.DiscountValue})
+	}
+	for _, p := range req.Payments {
+		payload.Payments = append(payload.Payments, payment{Method: p.Method, Amount: p.Amount})
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID string, saleID string, req SaleCancelRequest) error {
@@ -340,20 +388,36 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 	// restore stock
 	productIDs := uniqueSortedProductIDsFromSaleItems(items)
 	balances := make(map[string]inv.InventoryBalance, len(productIDs))
-	for _, pid := range productIDs {
-		if err := s.inv.EnsureBalanceRow(ctx, tx, tenantID, pid); err != nil {
+	if batch, ok := s.inv.(interface {
+		EnsureBalanceRows(context.Context, db.DBTX, string, []string) error
+		GetBalancesForUpdate(context.Context, db.DBTX, string, []string) (map[string]inv.InventoryBalance, error)
+	}); ok {
+		if err := batch.EnsureBalanceRows(ctx, tx, tenantID, productIDs); err != nil {
 			return err
 		}
-	}
-	for _, pid := range productIDs {
-		bal, err := s.inv.GetBalanceForUpdate(ctx, tx, tenantID, pid)
+		balances, err = batch.GetBalancesForUpdate(ctx, tx, tenantID, productIDs)
 		if err != nil {
 			return err
 		}
-		balances[pid] = bal
+	} else {
+		for _, pid := range productIDs {
+			if err := s.inv.EnsureBalanceRow(ctx, tx, tenantID, pid); err != nil {
+				return err
+			}
+		}
+		for _, pid := range productIDs {
+			bal, err := s.inv.GetBalanceForUpdate(ctx, tx, tenantID, pid)
+			if err != nil {
+				return err
+			}
+			balances[pid] = bal
+		}
 	}
 	for _, it := range items {
-		bal := balances[it.ProductID]
+		bal, ok := balances[it.ProductID]
+		if !ok {
+			return common.ErrValidation
+		}
 		after, derr := bal.Creditar(it.Qty)
 		if derr != nil {
 			return common.ErrValidation

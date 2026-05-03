@@ -7,6 +7,7 @@ import (
 
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 )
 
 type nfeDoc struct {
@@ -41,8 +42,8 @@ type nfeDoc struct {
 func TestProvider_GenerateNFeXML_OK(t *testing.T) {
 	p := New()
 
-	sale := sales.Sale{ID: "sale-1", DiscountValue: 2.00, Total: 18.00}
-	items := []sales.SaleItem{{ProductID: "prod-1", Qty: 2, UnitPrice: 10.00}}
+	sale := sales.Sale{ID: "sale-1", DiscountValue: platform.NewMoneyCents(200), Total: platform.NewMoneyCents(1800)}
+	items := []sales.SaleItem{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(2_000), UnitPrice: platform.NewMoneyCents(1000)}}
 	products := map[string]inv.Product{
 		"prod-1": {ID: "prod-1", SKU: "P001", Name: "Produto 1", Unit: "UN", Active: true},
 	}
@@ -87,7 +88,7 @@ func TestProvider_GenerateNFeXML_OK(t *testing.T) {
 
 func TestProvider_GenerateNFeXML_MissingProductSnapshot(t *testing.T) {
 	p := New()
-	_, _, err := p.GenerateNFeXML(context.Background(), sales.Sale{ID: "sale-1"}, []sales.SaleItem{{ProductID: "prod-404", Qty: 1, UnitPrice: 1}}, map[string]inv.Product{})
+	_, _, err := p.GenerateNFeXML(context.Background(), sales.Sale{ID: "sale-1"}, []sales.SaleItem{{ProductID: "prod-404", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(100)}}, map[string]inv.Product{})
 	if err == nil {
 		t.Fatalf("expected error")
 	}

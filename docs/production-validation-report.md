@@ -1,0 +1,250 @@
+# Production Validation Report
+
+## Executive Summary
+
+- Overall verdict: Ready for staging
+- Date: 2026-05-03
+- Environment: Windows PowerShell, Docker Compose v5.1.2, PostgreSQL 16 container, Redis 7.4 container, local Go 1.26.2, Node.js v24.11.0, npm 11.6.1
+- Validator: Codex
+- Repository: https://github.com/GustavoMFDS/SistemaERP
+- Branch: production-readiness-validation
+- Commit before validation: 78655c806fb76e729bd289b5f6e3a2cf7001d899
+- Commit after validation: recorded in Git after this report is committed; a commit cannot contain its own final SHA without changing that SHA
+
+The validation found one real first-run bug: opening the first cash session on a clean database failed because the default cash register creation query did not read from the inserted CTE result. The query was fixed and the clean migration, seed, backend, frontend, API smoke, backup/restore, and rollback checks were rerun successfully. The only skipped production-readiness item is browser-level offline POS queue simulation.
+
+## Validation Matrix
+
+| Area | Status | Notes |
+|---|---|---|
+| Git safety check | PASS | Remote points to `https://github.com/GustavoMFDS/SistemaERP.git`; branch is `production-readiness-validation`; `.env` is not tracked. |
+| Docker Compose services | PASS | Services are `db`, `redis`, `migrate`, `seed`; `db` and `redis` started healthy with ports `5433:5432` and `6379:6379`. |
+| Frontend clean install | PASS | `npm.cmd ci` added/audited 273 packages and reported 0 vulnerabilities. |
+| Frontend lint | PASS | `npm.cmd run lint` completed successfully. |
+| Frontend build | PASS | `npm.cmd run build` completed; Vite generated `dist/index.html`, CSS, and JS assets. |
+| Backend tests | PASS | `go test ./...` passed. Local Go was 1.26.2; CI is configured for Go `1.25.x`. |
+| Backend vet | PASS | `go vet ./...` passed. |
+| Backend gofmt | PASS | `gofmt -l .` returned no files. |
+| Migrations clean DB | PASS | `docker compose down -v` then `docker compose up -d db redis migrate`; migrations reached version 12, dirty false. |
+| Idempotency immutability | PASS | Direct SQL update attempt was rejected by `idempotency_keys_immutable`. |
+| Seed safety | PASS | Production seed created no users; demo seed failed without `ALLOW_DEMO_SEED=1`; explicit dev seed created demo users/data. |
+| Backend startup | PASS | API started against clean migrated DB and restored DB; `/health` returned HTTP 200. |
+| Smoke tests | WARNING | API smoke passed for auth, RBAC, tenancy, sales, inventory, finance, fiscal, audit, privacy, consent; offline browser queue simulation was skipped. |
+| Backup/restore | PASS | `pg_dump` and `pg_restore` into `sistemaemgo_restore_validation` passed; schema/data and app startup/login verified. |
+| Rollback readiness | PASS | Deployment docs cover app, migration, config rollback and restore; recent migration `0012` down/up validated. |
+| Security checklist | PASS | Checklist passed; see detailed section. |
+
+## Commands Executed
+
+Git safety:
+
+```bash
+git remote -v
+git branch --show-current
+git rev-parse HEAD
+git status --short
+git ls-files .env
+git checkout -b production-readiness-validation
+```
+
+Docker and migrations:
+
+```bash
+docker compose config --services
+docker compose down -v
+docker compose up -d db redis migrate
+docker compose ps
+docker compose logs db redis migrate --tail=120
+docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -c "SELECT version, dirty FROM schema_migrations;"
+```
+
+Schema checks:
+
+```bash
+docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('companies','users','roles','permissions','user_tenant_roles','idempotency_keys','audit_logs','data_subject_requests','consent_records') ORDER BY table_name;"
+docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -c "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name='idempotency_keys' AND column_name IN ('tenant_id','operation','idem_key','request_hash') ORDER BY column_name;"
+docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -c "SELECT tgname FROM pg_trigger WHERE tgrelid='idempotency_keys'::regclass AND NOT tgisinternal ORDER BY tgname;"
+docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -c "SELECT code FROM permissions WHERE code IN ('privacy:read','privacy:write','audit:read') ORDER BY code;"
+docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -c "SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname IN ('idempotency_keys_tenant_op_key_hash_idx','audit_logs_tenant_created_idx','audit_logs_tenant_action_created_idx','audit_logs_tenant_resource_created_idx','audit_logs_tenant_actor_created_idx','audit_logs_tenant_outcome_created_idx','data_subject_requests_tenant_status_idx','consent_records_tenant_subject_idx','user_tenant_roles_tenant_user_idx','sales_tenant_status_created_idx','products_tenant_active_created_idx') ORDER BY indexname;"
+```
+
+Idempotency immutability:
+
+```bash
+docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 -c "DO $$ ... attempt idempotency_keys request_hash update ... $$;"
+```
+
+Result: update rejected by the immutability trigger and the temporary row was removed.
+
+Seed validation:
+
+```bash
+docker compose run --rm -e PGPASSWORD=sistemaemgo -v C:\Projetos\SistemaEmGo\backend\seed:/seed:ro db psql -h db -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 -f /seed/seed.prod.sql
+docker compose run --rm -e PGPASSWORD=sistemaemgo -v C:\Projetos\SistemaEmGo\backend\seed:/seed:ro db psql -h db -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 -f /seed/seed.sql
+docker compose run --rm -e PGPASSWORD=sistemaemgo -v C:\Projetos\SistemaEmGo\backend\seed:/seed:ro db psql -h db -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+```
+
+Expected intentional result: unflagged demo seed failed safely with `ERROR: division by zero`; explicit dev seed succeeded.
+
+Backend and frontend validation:
+
+```bash
+cd backend
+gofmt -l .
+go test ./...
+go vet ./...
+go build -o tmp\api-validation.exe .\cmd\api
+
+cd web
+npm.cmd ci
+npm.cmd run lint
+npm.cmd run build
+```
+
+Backend startup:
+
+```powershell
+APP_ENV=dev
+DATABASE_URL=postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
+REDIS_ADDR=localhost:6379
+JWT_SECRET=local-validation-secret-32-characters
+HTTP_ADDR=:18080
+backend\tmp\api-validation.exe
+Invoke-WebRequest http://localhost:18080/health
+Invoke-WebRequest http://localhost:18080/metrics
+```
+
+Result: `/health` returned `200 {"status":"ok"}`; `/metrics` returned HTTP 200 in dev mode.
+
+Backup/restore:
+
+```bash
+docker compose exec -T db pg_dump -U sistemaemgo -d sistemaemgo --format=custom --file=/tmp/sistemaemgo-validation.dump
+docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS sistemaemgo_restore_validation WITH (FORCE);" -c "CREATE DATABASE sistemaemgo_restore_validation OWNER sistemaemgo;"
+docker compose exec -T db pg_restore -U sistemaemgo --dbname=sistemaemgo_restore_validation --clean --if-exists /tmp/sistemaemgo-validation.dump
+docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_restore_validation -c "SELECT version, dirty FROM schema_migrations; SELECT COUNT(*) AS users_count FROM users; SELECT COUNT(*) AS products_count FROM products; SELECT COUNT(*) AS sales_count FROM sales; SELECT COUNT(*) AS audit_count FROM audit_logs;"
+```
+
+Restore verification returned migration version 12 dirty false, 3 users, 2 products, 1 sale, and 18 audit rows. API startup and login against the restored DB returned HTTP 200.
+
+Rollback validation:
+
+```bash
+docker compose run --rm migrate -path=/migrations -database=postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo?sslmode=disable down 1
+docker compose run --rm migrate -path=/migrations -database=postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo?sslmode=disable up 1
+```
+
+Result: `12/d tenant_scoped_roles` and `12/u tenant_scoped_roles` succeeded; migration status returned version 12 dirty false.
+
+## Smoke Tests
+
+| Test | Expected | Actual | Status |
+|---|---|---|---|
+| Backend health endpoint | HTTP 200 | HTTP 200 | PASS |
+| Metrics endpoint in dev | HTTP 200 | HTTP 200, metrics returned | PASS |
+| Protected route rejects unauthenticated request | HTTP 401 | HTTP 401 | PASS |
+| Login fails with invalid credentials | HTTP 401 | HTTP 401 | PASS |
+| Login succeeds with valid admin user | HTTP 200, token present | HTTP 200, token present | PASS |
+| Refresh session works | HTTP 200, rotated token | HTTP 200, token present | PASS |
+| Logout works | HTTP 200 | HTTP 200 | PASS |
+| List products | HTTP 200 with seeded product | HTTP 200 | PASS |
+| Tenant A cannot access tenant B product | HTTP 404/not found | HTTP 404 | PASS |
+| Stock adjustment works | HTTP 200 | HTTP 200 | PASS |
+| Inventory movement recorded | HTTP 200 with movement | HTTP 200, total 1 | PASS |
+| Open first cash session on clean DB | HTTP 201 | HTTP 201 | PASS |
+| Create sale and backend price calculation | HTTP 201, total 10.90 despite tampered `unit_price` | HTTP 201, total 10.90 | PASS |
+| Idempotent replay returns previous result | HTTP 200 replayed true same id | HTTP 200 replayed true | PASS |
+| Idempotent replay with different payload conflicts | HTTP 409 | HTTP 409 | PASS |
+| Insufficient stock rejected | HTTP 409 | HTTP 409 | PASS |
+| Fiscal mock/provider generation works | HTTP 201 XML id | HTTP 201 | PASS |
+| Fiscal XML download works for authorized user | HTTP 200 XML | HTTP 200 XML | PASS |
+| Fiscal download is RBAC-protected | HTTP 403 for cashier | HTTP 403 | PASS |
+| Finance ledger listing works | HTTP 200 with ledger rows | HTTP 200, total 1 | PASS |
+| Cancel sale restores stock through service flow | HTTP 200 | HTTP 200 | PASS |
+| Create privacy request | HTTP 201 | HTTP 201 | PASS |
+| List privacy requests | HTTP 200 | HTTP 200 | PASS |
+| Valid privacy status transition works | open -> in_progress -> completed | HTTP 200/200 | PASS |
+| Terminal privacy status transition is rejected | HTTP 409 | HTTP 409 | PASS |
+| Privacy export subject data works | HTTP 200 | HTTP 200 | PASS |
+| Privacy anonymize works where applicable | HTTP 200 | HTTP 200 | PASS |
+| Consent creation works | HTTP 201 | HTTP 201 | PASS |
+| Consent revocation works | HTTP 200 | HTTP 200 | PASS |
+| Audit listing requires audit:read and returns sanitized metadata | HTTP 200, no obvious secret strings | HTTP 200 | PASS |
+| Unauthorized action fails through RBAC | HTTP 403 for cashier audit logs | HTTP 403 | PASS |
+| Offline POS queue browser simulation | Browser offline/online local queue simulation | Not executed in API-only smoke pass | SKIPPED |
+
+## Security Checklist
+
+| Item | Status | Evidence |
+|---|---|---|
+| `.env` is not tracked | PASS | `git ls-files .env` returned no files. |
+| `.env` excluded from source package/archive | PASS | `.gitattributes` sets `export-ignore` for `.env` and `.env.*`; safe examples are explicitly kept. |
+| `.env.example` and `.env.prod.example` contain placeholders only | PASS | Reviewed examples; production placeholders use `REPLACE_WITH...` values and docs warn to replace them. |
+| Production config rejects weak JWT secret | PASS | `backend/internal/config/config_test.go` covers long TTL and placeholder secret rejection. |
+| Production config rejects missing/disabled Redis when required | PASS | Config validation rejects `DISABLE_REDIS=true` in staging/prod; app startup also fails if Redis is disabled/unavailable. |
+| Production config rejects insecure Redis URL/passwordless Redis | PASS | `REDIS_URL` validation requires `redis`/`rediss` and a non-placeholder password in prod-like environments. |
+| Production config rejects missing CORS allowed origins | PASS | Config validation requires explicit origins in staging/prod. |
+| Production config rejects unprotected metrics | PASS | Config validation requires bearer token or basic auth credentials in staging/prod. |
+| Refresh token is cookie-only | PASS | Public auth response omits refresh token; refresh reads `__Host-refresh_token` cookie. |
+| Access token is not stored in localStorage/sessionStorage | PASS | `web/src/lib/auth.ts` keeps access token in memory and removes legacy `auth_token` storage keys. |
+| Audit sanitizer redacts secrets | PASS | Unit tests cover password, tokens, cookie, authorization, API key, structs, typed maps, arrays, and oversized metadata. |
+| Rate limit keys do not expose raw emails | PASS | Login identifier keys use SHA-256 normalized identifier hashes. |
+| Tenant fallback disabled in staging/prod | PASS | `modules.New` only enables fallback when `!cfg.IsProdLike()`; repository returns forbidden otherwise. |
+| Demo seed cannot run accidentally in production | PASS | Startup config rejects `ALLOW_DEMO_SEED` in prod-like envs; seed SQL fails without explicit flag. |
+| Metrics endpoint protected in staging/prod | PASS | Middleware/config require metrics auth outside dev; dev mode metrics intentionally returned HTTP 200. |
+| CORS does not allow wildcard with credentials | PASS | Config validation rejects wildcard origins; CORS only echoes configured origins. |
+
+## Passed Tests
+
+- Git remote, branch, status, and `.env` tracking checks.
+- Docker Compose `db` and `redis` startup and health checks.
+- Clean migrations from zero through version 12.
+- Schema checks for base tables, tenants/companies, users, roles/permissions, tenant-scoped roles, idempotency, audit, privacy, consent, permissions, and indexes.
+- Idempotency immutability trigger validation.
+- Production seed safety and development seed explicit flag behavior.
+- Backend `gofmt`, tests, vet, build, startup, health, and dev metrics.
+- Frontend clean install, lint, and production build.
+- API smoke tests listed above.
+- PostgreSQL backup/restore drill and app startup/login against restored DB.
+- Recent migration down/up rollback validation.
+- Security checklist.
+
+## Failed Tests
+
+No unresolved failed tests remain.
+
+During the first smoke run, opening the first cash session on a clean database failed. Likely cause was a PostgreSQL statement snapshot issue in `CashRepo.EnsureDefaultRegister`: the query inserted the default register in a CTE but selected from `cash_registers`, which did not see the just-inserted row in the same statement. Fix: select from the CTE result unioned with existing registers. After the fix, backend tests/vet passed and the full clean DB/API smoke path passed.
+
+## Skipped Tests
+
+- Offline POS queue browser simulation: SKIPPED because this validation pass used API and direct database checks, not a browser with offline/online network toggling. Required to run: browser automation or manual UI test that disables network, enqueues a pending sale, verifies idempotency key storage, flushes after reconnect, verifies no duplicate sale, and confirms logout behavior with pending items.
+
+## Warnings
+
+- Local Go version is `go1.26.2`; project `go.mod` and GitHub Actions are configured for Go `1.25.x`. Local validation passed, but CI on Go `1.25.x` remains the exact configured-version source of truth.
+- Docker emitted local config access warnings for `C:\Users\gusta\.docker\config.json`; Compose operations still succeeded after approval.
+- The local PostgreSQL container logs note trust authentication for local container initialization. This is Docker-local validation behavior and not a production database configuration.
+- Dev seed intentionally creates known demo users/passwords only when explicitly flagged. Do not run it outside dev/test.
+
+## Remaining Risks
+
+- Browser-level offline POS queue behavior still needs manual or browser-automated validation.
+- Production secrets, TLS termination, database roles, Redis authentication/TLS, and infrastructure network policy must be validated in the real staging/production environment.
+- Legal, accounting, DPO, and retention-policy approval remain required before production use.
+- CI should be run on GitHub to validate the exact Go `1.25.x` and Node CI environment.
+- Load/performance and failure-mode tests beyond smoke coverage are still recommended before real production.
+
+## Final Verdict
+
+Ready for staging.
+
+This is not a full production approval. It is suitable for a production-like staging deployment and controlled operational validation. Do not promote to real production until the skipped offline queue simulation, GitHub CI, staging restore drill evidence, secrets/infrastructure review, and legal/accounting/DPO sign-off are complete.
+
+## Next Steps
+
+1. Run GitHub Actions on the pushed branch and confirm Go `1.25.x` CI passes.
+2. Execute browser/manual offline POS queue smoke testing.
+3. Run this backup/restore drill in staging with production-like infrastructure and record artifact IDs/duration.
+4. Validate production secret-manager values against `.env.prod.example`.
+5. Review TLS, Redis auth/TLS, database least-privilege roles, log retention, and monitoring alerts.
+6. Complete legal/accounting/DPO review for LGPD and fiscal retention procedures.

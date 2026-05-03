@@ -5,17 +5,19 @@ import (
 	"errors"
 
 	authdomain "github.com/example/sistemaemgo/internal/modules/auth/domain"
+	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type UsersRepo struct {
-	db *pgxpool.Pool
+	db                  *pgxpool.Pool
+	allowTenantFallback bool
 }
 
-func NewUsersRepo(db *pgxpool.Pool) *UsersRepo {
-	return &UsersRepo{db: db}
+func NewUsersRepo(db *pgxpool.Pool, allowTenantFallback bool) *UsersRepo {
+	return &UsersRepo{db: db, allowTenantFallback: allowTenantFallback}
 }
 
 func (r *UsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
@@ -50,12 +52,18 @@ func (r *UsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (stri
 		return tenantID, nil
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
-		// legacy fallback: first company
+		if !r.allowTenantFallback {
+			return "", common.ErrForbidden
+		}
+		// Legacy development/test fallback for pre-user_tenants local databases only.
 		return r.fallbackCompanyTenantID(ctx)
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
-		// relation does not exist (migration not applied yet)
+		if !r.allowTenantFallback {
+			return "", common.ErrForbidden
+		}
+		// Legacy development/test fallback for databases that have not applied the tenant migration yet.
 		return r.fallbackCompanyTenantID(ctx)
 	}
 	return "", err
@@ -67,14 +75,14 @@ func (r *UsersRepo) fallbackCompanyTenantID(ctx context.Context) (string, error)
 	return tenantID, err
 }
 
-func (r *UsersRepo) ListUserRoles(ctx context.Context, userID string) ([]string, error) {
+func (r *UsersRepo) ListUserRoles(ctx context.Context, userID string, tenantID string) ([]string, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT r.name
-		FROM user_roles ur
+		FROM user_tenant_roles ur
 		JOIN roles r ON r.id = ur.role_id
-		WHERE ur.user_id=$1
+		WHERE ur.user_id=$1 AND ur.tenant_id=$2
 		ORDER BY r.name
-	`, userID)
+	`, userID, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -91,15 +99,15 @@ func (r *UsersRepo) ListUserRoles(ctx context.Context, userID string) ([]string,
 	return roles, rows.Err()
 }
 
-func (r *UsersRepo) ListUserPermissions(ctx context.Context, userID string) ([]string, error) {
+func (r *UsersRepo) ListUserPermissions(ctx context.Context, userID string, tenantID string) ([]string, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT DISTINCT p.code
-		FROM user_roles ur
+		FROM user_tenant_roles ur
 		JOIN role_permissions rp ON rp.role_id = ur.role_id
 		JOIN permissions p ON p.id = rp.permission_id
-		WHERE ur.user_id=$1
+		WHERE ur.user_id=$1 AND ur.tenant_id=$2
 		ORDER BY p.code
-	`, userID)
+	`, userID, tenantID)
 	if err != nil {
 		return nil, err
 	}

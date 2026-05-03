@@ -8,6 +8,7 @@ import (
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
 )
@@ -22,10 +23,10 @@ type InventoryService struct {
 }
 
 type InventoryAdjustRequest struct {
-	ProductID string  `json:"product_id" validate:"required"`
-	Delta     float64 `json:"delta" validate:"required,ne=0"`
-	Reason    string  `json:"reason" validate:"required,min=3,max=250"`
-	Type      string  `json:"type" validate:"required,oneof=purchase adjustment loss damage return"`
+	ProductID string            `json:"product_id" validate:"required"`
+	Delta     platform.Quantity `json:"delta" validate:"required,ne=0"`
+	Reason    string            `json:"reason" validate:"required,min=3,max=250"`
+	Type      string            `json:"type" validate:"required,oneof=purchase adjustment loss damage return"`
 }
 
 func NewInventoryService(cfg config.Config, uow db.UnitOfWork, invRepo InventoryRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *InventoryService {

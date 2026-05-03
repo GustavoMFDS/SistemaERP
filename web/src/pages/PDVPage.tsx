@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiJson } from '../lib/api'
+import { apiJson, errorMessage } from '../lib/api'
 import { enqueueRequest, flushQueue, getQueueCount } from '../lib/offlineQueue'
 import {
   clearCashSessionId,
@@ -74,7 +74,7 @@ export default function PDVPage() {
     }
     const res = await flushQueue()
     refreshPending()
-    if (!res.ok) {
+    if (res.ok === false) {
       setError(`Falha ao sincronizar pendências: ${res.error}`)
     }
   }
@@ -87,7 +87,7 @@ export default function PDVPage() {
       const active = data.items.filter((p) => p.active)
       setProducts(active)
       localStorage.setItem('sistemaemgo:productsCache:v1', JSON.stringify(active))
-    } catch (e: any) {
+    } catch (e: unknown) {
       const cachedRaw = localStorage.getItem('sistemaemgo:productsCache:v1')
       if (cachedRaw) {
         try {
@@ -100,7 +100,7 @@ export default function PDVPage() {
           // ignore
         }
       }
-      setError(String(e?.bodyText ?? e?.message ?? e))
+      setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
@@ -144,8 +144,8 @@ export default function PDVPage() {
       })
       setCashSessionId(res.id)
       setCashSessionIdState(res.id)
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     }
   }
 
@@ -190,7 +190,11 @@ export default function PDVPage() {
         cash_session_id: cashSessionId,
         customer_id: null,
         discount_value: 0,
-        items,
+        items: items.map(({ product_id, qty, discount_value }) => ({
+          product_id,
+          qty,
+          discount_value,
+        })),
         payments,
       }
 
@@ -219,9 +223,9 @@ export default function PDVPage() {
       setSaleId(res.id)
       setSaleTotal(res.total)
       setItems([])
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Best-effort offline fallback on network errors.
-      const msg = String(e?.bodyText ?? e?.message ?? e)
+      const msg = errorMessage(e)
       const networkLike =
         !navigator.onLine ||
         msg.includes('NetworkError') ||
@@ -236,7 +240,11 @@ export default function PDVPage() {
             cash_session_id: cashSessionId,
             customer_id: null,
             discount_value: 0,
-            items,
+            items: items.map(({ product_id, qty, discount_value }) => ({
+              product_id,
+              qty,
+              discount_value,
+            })),
             payments,
           }
           const idempotencyKey = crypto.randomUUID()

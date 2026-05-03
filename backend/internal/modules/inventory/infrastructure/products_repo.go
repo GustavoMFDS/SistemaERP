@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -43,8 +44,8 @@ func (r *ProductsRepo) List(ctx context.Context, tenantID string, query string, 
 	offsetIdx := len(args) + 2
 	listSQL := fmt.Sprintf(`
 		SELECT p.id::text, p.category_id::text, p.sku, p.barcode, p.name, p.description, p.unit,
-		       p.cost_price::float8, p.price_cash::float8, p.promo_price::float8, p.min_stock::float8, p.active,
-		       COALESCE(b.qty_on_hand, 0)::float8
+		       p.cost_price::text, p.price_cash::text, p.promo_price::text, p.min_stock::text, p.active,
+		       COALESCE(b.qty_on_hand, 0)::text
 		FROM products p
 		LEFT JOIN inventory_balances b ON b.product_id = p.id AND b.tenant_id = p.tenant_id
 		%s
@@ -63,14 +64,17 @@ func (r *ProductsRepo) List(ctx context.Context, tenantID string, query string, 
 	for rows.Next() {
 		var p inv.Product
 		var categoryID *string
-		var promo *float64
+		var costPrice, priceCash, minStock, qtyOnHand string
+		var promo *string
 		var barcode *string
 		var desc *string
-		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &p.CostPrice, &p.PriceCash, &promo, &p.MinStock, &p.Active, &p.QtyOnHand); err != nil {
+		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand); err != nil {
+			return nil, 0, err
+		}
+		if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, qtyOnHand); err != nil {
 			return nil, 0, err
 		}
 		p.CategoryID = categoryID
-		p.PromoPrice = promo
 		p.Barcode = barcode
 		p.Description = desc
 		items = append(items, p)
@@ -83,20 +87,26 @@ func (r *ProductsRepo) Get(ctx context.Context, tenantID string, id string) (inv
 	var categoryID *string
 	var barcode *string
 	var desc *string
-	var promo *float64
+	var costPrice, priceCash, minStock, qtyOnHand string
+	var promo *string
 	err := r.db.QueryRow(ctx, `
 		SELECT p.id::text, p.category_id::text, p.sku, p.barcode, p.name, p.description, p.unit,
-		       p.cost_price::float8, p.price_cash::float8, p.promo_price::float8, p.min_stock::float8, p.active,
-		       COALESCE(b.qty_on_hand, 0)::float8
+		       p.cost_price::text, p.price_cash::text, p.promo_price::text, p.min_stock::text, p.active,
+		       COALESCE(b.qty_on_hand, 0)::text
 		FROM products p
 		LEFT JOIN inventory_balances b ON b.product_id = p.id AND b.tenant_id = p.tenant_id
 		WHERE p.tenant_id=$1 AND p.id=$2
-	`, tenantID, id).Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &p.CostPrice, &p.PriceCash, &promo, &p.MinStock, &p.Active, &p.QtyOnHand)
+	`, tenantID, id).Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand)
+	if err != nil {
+		return p, err
+	}
+	if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, qtyOnHand); err != nil {
+		return p, err
+	}
 	p.CategoryID = categoryID
 	p.Barcode = barcode
 	p.Description = desc
-	p.PromoPrice = promo
-	return p, err
+	return p, nil
 }
 
 func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error) {
@@ -105,7 +115,7 @@ func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, 
 		INSERT INTO products(tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING id::text
-	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice, p.PriceCash, p.PromoPrice, p.MinStock, p.Active).
+	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active).
 		Scan(&id)
 	if err != nil {
 		return "", err
@@ -120,14 +130,14 @@ func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, 
 		SET category_id=$2, sku=$3, barcode=$4, name=$5, description=$6, unit=$7,
 		    cost_price=$8, price_cash=$9, promo_price=$10, min_stock=$11, active=$12, updated_at=now()
 		WHERE tenant_id=$1 AND id=$13
-	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice, p.PriceCash, p.PromoPrice, p.MinStock, p.Active, id)
+	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active, id)
 	return err
 }
 
 func (r *ProductsRepo) GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id::text, category_id::text, sku, barcode, name, description, unit,
-		       cost_price::float8, price_cash::float8, promo_price::float8, min_stock::float8, active
+		       cost_price::text, price_cash::text, promo_price::text, min_stock::text, active
 		FROM products
 		WHERE tenant_id=$1 AND id = ANY($2::uuid[])
 	`, tenantID, ids)
@@ -142,15 +152,49 @@ func (r *ProductsRepo) GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID st
 		var categoryID *string
 		var barcode *string
 		var desc *string
-		var promo *float64
-		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &p.CostPrice, &p.PriceCash, &promo, &p.MinStock, &p.Active); err != nil {
+		var costPrice, priceCash, minStock string
+		var promo *string
+		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active); err != nil {
+			return nil, err
+		}
+		if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, "0"); err != nil {
 			return nil, err
 		}
 		p.CategoryID = categoryID
 		p.Barcode = barcode
 		p.Description = desc
-		p.PromoPrice = promo
 		m[p.ID] = p
 	}
 	return m, rows.Err()
+}
+
+func assignProductNumbers(p *inv.Product, costPrice, priceCash string, promo *string, minStock, qtyOnHand string) error {
+	var err error
+	if p.CostPrice, err = platform.ParseMoney(costPrice); err != nil {
+		return err
+	}
+	if p.PriceCash, err = platform.ParseMoney(priceCash); err != nil {
+		return err
+	}
+	if promo != nil {
+		v, err := platform.ParseMoney(*promo)
+		if err != nil {
+			return err
+		}
+		p.PromoPrice = &v
+	}
+	if p.MinStock, err = platform.ParseQuantity(minStock); err != nil {
+		return err
+	}
+	if p.QtyOnHand, err = platform.ParseQuantity(qtyOnHand); err != nil {
+		return err
+	}
+	return nil
+}
+
+func moneyPtrDBString(v *platform.Money) any {
+	if v == nil {
+		return nil
+	}
+	return v.DBString()
 }

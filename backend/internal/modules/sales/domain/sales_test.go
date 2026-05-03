@@ -4,27 +4,28 @@ import (
 	"testing"
 
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 )
 
 func TestSaleItem_CalcularSubtotal_OK(t *testing.T) {
-	it := sales.SaleItem{Qty: 2, UnitPrice: 10, DiscountValue: 1}
+	it := sales.SaleItem{Qty: platform.NewQuantityMilli(2_000), UnitPrice: platform.NewMoneyCents(1000), DiscountValue: platform.NewMoneyCents(100)}
 	gross, net, err := it.CalcularSubtotal()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gross != 20 {
-		t.Fatalf("gross want 20, got %v", gross)
+	if gross.Cents() != 2000 {
+		t.Fatalf("gross want 2000 cents, got %d", gross.Cents())
 	}
-	if net != 19 {
-		t.Fatalf("net want 19, got %v", net)
+	if net.Cents() != 1900 {
+		t.Fatalf("net want 1900 cents, got %d", net.Cents())
 	}
 }
 
 func TestSaleItem_CalcularSubtotal_InvalidItem(t *testing.T) {
 	cases := []sales.SaleItem{
-		{Qty: 0, UnitPrice: 10, DiscountValue: 0},
-		{Qty: 1, UnitPrice: 0, DiscountValue: 0},
-		{Qty: 1, UnitPrice: 10, DiscountValue: -1},
+		{Qty: 0, UnitPrice: platform.NewMoneyCents(1000), DiscountValue: 0},
+		{Qty: platform.NewQuantityMilli(1_000), UnitPrice: 0, DiscountValue: 0},
+		{Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(1000), DiscountValue: platform.NewMoneyCents(-100)},
 	}
 	for _, c := range cases {
 		_, _, err := c.CalcularSubtotal()
@@ -35,10 +36,10 @@ func TestSaleItem_CalcularSubtotal_InvalidItem(t *testing.T) {
 }
 
 func TestSale_CalcularTotal_ComputesTotals(t *testing.T) {
-	s := sales.NewFinalizedSale("cs", nil, "u", 2) // sale-level discount = 2
+	s := sales.NewFinalizedSale("cs", nil, "u", platform.NewMoneyCents(200))
 	items := []sales.SaleItem{
-		{ProductID: "p1", Qty: 2, UnitPrice: 10, DiscountValue: 1, CostUnit: 6},
-		{ProductID: "p2", Qty: 1, UnitPrice: 5, DiscountValue: 0, CostUnit: 1},
+		{ProductID: "p1", Qty: platform.NewQuantityMilli(2_000), UnitPrice: platform.NewMoneyCents(1000), DiscountValue: platform.NewMoneyCents(100), CostUnit: platform.NewMoneyCents(600)},
+		{ProductID: "p2", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(500), DiscountValue: 0, CostUnit: platform.NewMoneyCents(100)},
 	}
 	computed, err := s.CalcularTotal(items)
 	if err != nil {
@@ -47,31 +48,28 @@ func TestSale_CalcularTotal_ComputesTotals(t *testing.T) {
 	if len(computed) != 2 {
 		t.Fatalf("want 2 items, got %d", len(computed))
 	}
-	// subtotal = 2*10 + 1*5 = 25
-	if s.Subtotal != 25 {
-		t.Fatalf("subtotal want 25, got %v", s.Subtotal)
+	if s.Subtotal.Cents() != 2500 {
+		t.Fatalf("subtotal want 2500 cents, got %d", s.Subtotal.Cents())
 	}
-	// total discount = item discount (1) + sale discount (2) = 3
-	if s.DiscountValue != 3 {
-		t.Fatalf("discount want 3, got %v", s.DiscountValue)
+	if s.DiscountValue.Cents() != 300 {
+		t.Fatalf("discount want 300 cents, got %d", s.DiscountValue.Cents())
 	}
-	// total = 25 - 3 = 22
-	if s.Total != 22 {
-		t.Fatalf("total want 22, got %v", s.Total)
+	if s.Total.Cents() != 2200 {
+		t.Fatalf("total want 2200 cents, got %d", s.Total.Cents())
 	}
 }
 
 func TestSale_ValidarPagamentos_OK(t *testing.T) {
-	s := sales.Sale{Total: 10}
-	err := s.ValidarPagamentos([]sales.Payment{{Method: "cash", Amount: 3}, {Method: "pix", Amount: 7}})
+	s := sales.Sale{Total: platform.NewMoneyCents(1000)}
+	err := s.ValidarPagamentos([]sales.Payment{{Method: "cash", Amount: platform.NewMoneyCents(300)}, {Method: "pix", Amount: platform.NewMoneyCents(700)}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestSale_ValidarPagamentos_Mismatch(t *testing.T) {
-	s := sales.Sale{Total: 10}
-	err := s.ValidarPagamentos([]sales.Payment{{Method: "cash", Amount: 9.98}})
+	s := sales.Sale{Total: platform.NewMoneyCents(1000)}
+	err := s.ValidarPagamentos([]sales.Payment{{Method: "cash", Amount: platform.NewMoneyCents(998)}})
 	if err != sales.ErrPaymentsMismatch {
 		t.Fatalf("want ErrPaymentsMismatch, got %v", err)
 	}

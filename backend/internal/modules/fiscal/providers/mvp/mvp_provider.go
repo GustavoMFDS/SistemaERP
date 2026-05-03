@@ -105,13 +105,13 @@ func build(in input) ([]byte, string, error) {
 		InfAdic: &InfAdic{InfCpl: fmt.Sprintf("XML MVP gerado a partir da venda %s", in.sale.ID)},
 	}}
 
-	var vProd float64
+	var vProd = sales.Sale{}.Total
 	for i, it := range in.items {
 		p, ok := in.products[it.ProductID]
 		if !ok {
 			return nil, "", fmt.Errorf("missing product snapshot for product_id=%s", it.ProductID)
 		}
-		lineGross := it.UnitPrice * it.Qty
+		lineGross := it.UnitPrice.MulQty(it.Qty)
 		vProd += lineGross
 
 		barcode := "SEM GTIN"
@@ -128,9 +128,9 @@ func build(in input) ([]byte, string, error) {
 				XProd:  p.Name,
 				CEAN:   barcode,
 				UCom:   p.Unit,
-				QCom:   fmt.Sprintf("%.3f", it.Qty),
-				VUnCom: fmt.Sprintf("%.2f", it.UnitPrice),
-				VProd:  fmt.Sprintf("%.2f", lineGross),
+				QCom:   it.Qty.DBString(),
+				VUnCom: it.UnitPrice.DBString(),
+				VProd:  lineGross.DBString(),
 				NCM:    ncm,
 				CFOP:   cfop,
 			},
@@ -138,9 +138,9 @@ func build(in input) ([]byte, string, error) {
 	}
 
 	nfe.InfNFe.Total = Total{ICMSTot: ICMSTot{
-		VProd: fmt.Sprintf("%.2f", vProd),
-		VDesc: fmt.Sprintf("%.2f", in.sale.DiscountValue),
-		VNF:   fmt.Sprintf("%.2f", in.sale.Total),
+		VProd: vProd.DBString(),
+		VDesc: in.sale.DiscountValue.DBString(),
+		VNF:   in.sale.Total.DBString(),
 	}}
 
 	out, err := xml.MarshalIndent(nfe, "", "  ")

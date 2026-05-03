@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiJson } from '../lib/api'
+import { apiJson, errorMessage } from '../lib/api'
 
 type Product = {
   id: string
@@ -49,8 +49,8 @@ export default function InventoryPage() {
       ])
       setLow(lowRes.items)
       setProducts(prodRes.items)
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
@@ -75,8 +75,8 @@ export default function InventoryPage() {
       setDelta(0)
       setReason('')
       await load()
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     }
   }
 

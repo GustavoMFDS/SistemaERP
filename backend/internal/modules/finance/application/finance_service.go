@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	fin "github.com/example/sistemaemgo/internal/modules/finance/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/go-playground/validator/v10"
 )
 
@@ -18,7 +19,7 @@ func NewFinanceService(repo FinanceRepository, v *validator.Validate, logger *sl
 	return &FinanceService{repo: repo, validate: v, logger: logger}
 }
 
-func (s *FinanceService) Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]float64, error) {
+func (s *FinanceService) Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]platform.Money, error) {
 	return s.repo.Dashboard(ctx, tenantID, from, to)
 }
 

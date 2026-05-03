@@ -57,26 +57,46 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return nil, err
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
-	if cfg.OTelEnabled {
-		if err := redisotel.InstrumentTracing(rdb); err != nil {
+	var rdb *redis.Client
+	if !cfg.DisableRedis {
+		var opts *redis.Options
+		if cfg.RedisURL != "" {
+			opts, err = redis.ParseURL(cfg.RedisURL)
+			if err != nil {
+				pool.Close()
+				_ = telemetryShutdown(ctx)
+				return nil, err
+			}
+		} else {
+			opts = &redis.Options{
+				Addr:     cfg.RedisAddr,
+				Password: cfg.RedisPassword,
+				DB:       cfg.RedisDB,
+			}
+		}
+		rdb = redis.NewClient(opts)
+		if cfg.OTelEnabled {
+			if err := redisotel.InstrumentTracing(rdb); err != nil {
+				pool.Close()
+				_ = rdb.Close()
+				_ = telemetryShutdown(ctx)
+				return nil, err
+			}
+		}
+		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := rdb.Ping(pingCtx).Err(); err != nil {
 			pool.Close()
 			_ = rdb.Close()
 			_ = telemetryShutdown(ctx)
 			return nil, err
 		}
-	}
-	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := rdb.Ping(pingCtx).Err(); err != nil {
+	} else if cfg.IsProdLike() {
 		pool.Close()
-		_ = rdb.Close()
 		_ = telemetryShutdown(ctx)
-		return nil, err
+		return nil, errors.New("redis is required in staging/prod because refresh token rotation depends on it")
+	} else {
+		logger.Warn("redis_disabled_dev_mode", slog.String("impact", "refresh tokens and optional caches are unavailable"))
 	}
 
 	mods := modules.New(cfg, pool, rdb, logger)

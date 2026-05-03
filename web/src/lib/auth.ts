@@ -1,16 +1,19 @@
-const TOKEN_KEY = 'auth_token'
 const CASH_SESSION_KEY = 'cash_session_id'
 
+let accessToken = ''
+
 export function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? ''
+  return accessToken
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token)
+  accessToken = token
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY)
+  accessToken = ''
+  sessionStorage.removeItem('auth_token')
+  localStorage.removeItem('auth_token')
 }
 
 export function getCashSessionId(): string {

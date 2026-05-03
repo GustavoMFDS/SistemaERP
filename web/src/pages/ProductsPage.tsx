@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiJson } from '../lib/api'
+import { apiJson, errorMessage } from '../lib/api'
 
 type Product = {
   id: string
@@ -62,8 +62,8 @@ export default function ProductsPage() {
       const data = await apiJson<ListResponse>(`/api/v1/products?${qs.toString()}`)
       setItems(data.items)
       setTotal(data.total)
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
@@ -97,8 +97,8 @@ export default function ProductsPage() {
       setPriceCash(0)
       setMinStock(0)
       await load()
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     }
   }
 

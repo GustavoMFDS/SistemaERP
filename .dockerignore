@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+.git
+web/node_modules
+web/dist
+backend/bin
+backend/tmp
+*.log

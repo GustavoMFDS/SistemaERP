@@ -12,8 +12,8 @@ import (
 type format string
 
 const (
-	formatHex      format = "hex"
-	formatBase64   format = "base64"
+	formatHex       format = "hex"
+	formatBase64    format = "base64"
 	formatBase64URL format = "base64url"
 )
 

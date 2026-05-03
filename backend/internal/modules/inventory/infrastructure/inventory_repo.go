@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -38,8 +39,13 @@ func (r *InventoryRepo) EnsureBalanceRows(ctx context.Context, tx db.DBTX, tenan
 
 func (r *InventoryRepo) GetBalanceForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productID string) (inv.InventoryBalance, error) {
 	var b inv.InventoryBalance
-	err := tx.QueryRow(ctx, `SELECT product_id::text, qty_on_hand::float8 FROM inventory_balances WHERE tenant_id=$1 AND product_id=$2 FOR UPDATE`, tenantID, productID).
-		Scan(&b.ProductID, &b.QtyOnHand)
+	var qty string
+	err := tx.QueryRow(ctx, `SELECT product_id::text, qty_on_hand::text FROM inventory_balances WHERE tenant_id=$1 AND product_id=$2 FOR UPDATE`, tenantID, productID).
+		Scan(&b.ProductID, &qty)
+	if err != nil {
+		return b, err
+	}
+	b.QtyOnHand, err = platform.ParseQuantity(qty)
 	return b, err
 }
 
@@ -50,7 +56,7 @@ func (r *InventoryRepo) GetBalancesForUpdate(ctx context.Context, tx db.DBTX, te
 		return map[string]inv.InventoryBalance{}, nil
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT product_id::text, qty_on_hand::float8
+		SELECT product_id::text, qty_on_hand::text
 		FROM inventory_balances
 		WHERE tenant_id=$1 AND product_id = ANY($2::uuid[])
 		ORDER BY product_id
@@ -64,9 +70,15 @@ func (r *InventoryRepo) GetBalancesForUpdate(ctx context.Context, tx db.DBTX, te
 	out := make(map[string]inv.InventoryBalance, len(productIDs))
 	for rows.Next() {
 		var b inv.InventoryBalance
-		if err := rows.Scan(&b.ProductID, &b.QtyOnHand); err != nil {
+		var qty string
+		if err := rows.Scan(&b.ProductID, &qty); err != nil {
 			return nil, err
 		}
+		q, err := platform.ParseQuantity(qty)
+		if err != nil {
+			return nil, err
+		}
+		b.QtyOnHand = q
 		out[b.ProductID] = b
 	}
 	if err := rows.Err(); err != nil {
@@ -75,8 +87,8 @@ func (r *InventoryRepo) GetBalancesForUpdate(ctx context.Context, tx db.DBTX, te
 	return out, nil
 }
 
-func (r *InventoryRepo) UpdateBalance(ctx context.Context, tx db.DBTX, tenantID string, productID string, qty float64) error {
-	_, err := tx.Exec(ctx, `UPDATE inventory_balances SET qty_on_hand=$3, updated_at=now() WHERE tenant_id=$1 AND product_id=$2`, tenantID, productID, qty)
+func (r *InventoryRepo) UpdateBalance(ctx context.Context, tx db.DBTX, tenantID string, productID string, qty platform.Quantity) error {
+	_, err := tx.Exec(ctx, `UPDATE inventory_balances SET qty_on_hand=$3, updated_at=now() WHERE tenant_id=$1 AND product_id=$2`, tenantID, productID, qty.DBString())
 	return err
 }
 
@@ -84,7 +96,7 @@ func (r *InventoryRepo) InsertMovement(ctx context.Context, tx db.DBTX, tenantID
 	_, err := tx.Exec(ctx, `
 		INSERT INTO inventory_movements(tenant_id, product_id, movement_type, delta, qty_before, qty_after, reason, reference_type, reference_id, actor_user_id)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-	`, tenantID, m.ProductID, m.MovementType, m.Delta, m.QtyBefore, m.QtyAfter, m.Reason, m.ReferenceType, m.ReferenceID, m.ActorUserID)
+	`, tenantID, m.ProductID, m.MovementType, m.Delta.DBString(), m.QtyBefore.DBString(), m.QtyAfter.DBString(), m.Reason, m.ReferenceType, m.ReferenceID, m.ActorUserID)
 	return err
 }
 
@@ -94,8 +106,8 @@ func (r *InventoryRepo) LowStock(ctx context.Context, tenantID string, limit int
 	}
 	rows, err := r.db.Query(ctx, `
 		SELECT p.id::text, p.category_id::text, p.sku, p.barcode, p.name, p.description, p.unit,
-		       p.cost_price::float8, p.price_cash::float8, p.promo_price::float8, p.min_stock::float8, p.active,
-		       COALESCE(b.qty_on_hand, 0)::float8
+		       p.cost_price::text, p.price_cash::text, p.promo_price::text, p.min_stock::text, p.active,
+		       COALESCE(b.qty_on_hand, 0)::text
 		FROM products p
 		LEFT JOIN inventory_balances b ON b.product_id=p.id AND b.tenant_id=p.tenant_id
 		WHERE p.tenant_id=$1 AND p.active=true AND COALESCE(b.qty_on_hand,0) <= p.min_stock
@@ -113,14 +125,17 @@ func (r *InventoryRepo) LowStock(ctx context.Context, tenantID string, limit int
 		var categoryID *string
 		var barcode *string
 		var desc *string
-		var promo *float64
-		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &p.CostPrice, &p.PriceCash, &promo, &p.MinStock, &p.Active, &p.QtyOnHand); err != nil {
+		var costPrice, priceCash, minStock, qtyOnHand string
+		var promo *string
+		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand); err != nil {
+			return nil, err
+		}
+		if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, qtyOnHand); err != nil {
 			return nil, err
 		}
 		p.CategoryID = categoryID
 		p.Barcode = barcode
 		p.Description = desc
-		p.PromoPrice = promo
 		items = append(items, p)
 	}
 	return items, rows.Err()
@@ -150,7 +165,7 @@ func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, prod
 	args = append(args, limit, offset)
 
 	rows, err := r.db.Query(ctx, `
-		SELECT id::text, product_id::text, movement_type, delta::float8, qty_before::float8, qty_after::float8,
+		SELECT id::text, product_id::text, movement_type, delta::text, qty_before::text, qty_after::text,
 		       reason, reference_type, reference_id::text, actor_user_id::text, created_at::text
 		FROM inventory_movements
 		`+where+`
@@ -167,7 +182,18 @@ func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, prod
 		var m inv.InventoryMovement
 		var refID *string
 		var actor *string
-		if err := rows.Scan(&m.ID, &m.ProductID, &m.MovementType, &m.Delta, &m.QtyBefore, &m.QtyAfter, &m.Reason, &m.ReferenceType, &refID, &actor, &m.CreatedAt); err != nil {
+		var delta, qtyBefore, qtyAfter string
+		if err := rows.Scan(&m.ID, &m.ProductID, &m.MovementType, &delta, &qtyBefore, &qtyAfter, &m.Reason, &m.ReferenceType, &refID, &actor, &m.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		var err error
+		if m.Delta, err = platform.ParseQuantity(delta); err != nil {
+			return nil, 0, err
+		}
+		if m.QtyBefore, err = platform.ParseQuantity(qtyBefore); err != nil {
+			return nil, 0, err
+		}
+		if m.QtyAfter, err = platform.ParseQuantity(qtyAfter); err != nil {
 			return nil, 0, err
 		}
 		m.ReferenceID = refID

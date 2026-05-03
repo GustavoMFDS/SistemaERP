@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { apiJson } from '../lib/api'
+import { apiJson, errorMessage } from '../lib/api'
 import { clearCashSessionId, clearToken } from '../lib/auth'
+import { clearOfflineQueue, getQueueCount } from '../lib/offlineQueue'
 
 type MeResponse = {
   id: string
@@ -25,8 +26,8 @@ export default function Layout() {
       .then((data) => {
         if (!cancelled) setMe(data)
       })
-      .catch((e) => {
-        if (!cancelled) setMeError(String(e?.bodyText ?? e?.message ?? e))
+      .catch((e: unknown) => {
+        if (!cancelled) setMeError(errorMessage(e))
       })
     return () => {
       cancelled = true
@@ -46,8 +47,21 @@ export default function Layout() {
   )
 
   function logout() {
+    const pending = getQueueCount()
+    if (
+      pending > 0 &&
+      !window.confirm(
+        `Existem ${pending} venda(s) offline pendente(s). Sair agora vai limpar essa fila local. Deseja continuar?`,
+      )
+    ) {
+      return
+    }
+    void apiJson('/api/v1/auth/logout', { method: 'POST' }).catch(() => {
+      // Local logout still wins if the network is unavailable.
+    })
     clearToken()
     clearCashSessionId()
+    clearOfflineQueue()
     navigate('/login', { replace: true })
   }
 
@@ -60,14 +74,14 @@ export default function Layout() {
           </Link>
           <div className="flex items-center gap-3">
             <div className="text-xs text-gray-600">
-                {me?.email ? (
+              {me?.email ? (
                 <span>
-                    {me.name} • {me.email}
+                  {me.name} - {me.email}
                 </span>
               ) : meError ? (
-                <span className="text-red-600">Falha ao carregar usuário</span>
+                <span className="text-red-600">Falha ao carregar usuario</span>
               ) : (
-                <span>Carregando…</span>
+                <span>Carregando...</span>
               )}
             </div>
             <button

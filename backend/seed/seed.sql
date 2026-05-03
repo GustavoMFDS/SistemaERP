@@ -1,4 +1,19 @@
 -- Seed MVP
+-- Development/demo seed only. It creates default users with known passwords.
+-- Run only with psql -v ALLOW_DEMO_SEED=1.
+
+\if :{?ALLOW_DEMO_SEED}
+\if :ALLOW_DEMO_SEED
+\else
+\echo 'Refusing to run demo seed unless ALLOW_DEMO_SEED=1'
+SELECT 1/0;
+\quit
+\endif
+\else
+\echo 'Refusing to run demo seed without -v ALLOW_DEMO_SEED=1'
+SELECT 1/0;
+\quit
+\endif
 
 BEGIN;
 
@@ -39,7 +54,10 @@ INSERT INTO permissions (id, code, description) VALUES
   (gen_random_uuid(), 'sale:cancel', 'Cancelar venda'),
   (gen_random_uuid(), 'finance:read', 'Consultar financeiro'),
   (gen_random_uuid(), 'invoice:generate', 'Gerar XML NF-e'),
-  (gen_random_uuid(), 'invoice:read', 'Consultar XML NF-e')
+  (gen_random_uuid(), 'invoice:read', 'Consultar XML NF-e'),
+  (gen_random_uuid(), 'privacy:read', 'Consultar requisicoes LGPD e consentimentos'),
+  (gen_random_uuid(), 'privacy:write', 'Processar requisicoes LGPD e consentimentos'),
+  (gen_random_uuid(), 'audit:read', 'Consultar logs de auditoria')
 ON CONFLICT (code) DO NOTHING;
 
 -- Role permissions
@@ -101,6 +119,17 @@ SELECT u.id, r.id FROM users u JOIN roles r ON r.name='manager' WHERE u.email='g
 ON CONFLICT DO NOTHING;
 INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id FROM users u JOIN roles r ON r.name='cashier' WHERE u.email='caixa@sistema.local'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO user_tenant_roles(user_id, tenant_id, role_id)
+SELECT u.id, :'tenant_id'::uuid, r.id
+FROM users u
+JOIN roles r ON (
+  (u.email='admin@sistema.local' AND r.name='admin') OR
+  (u.email='gerente@sistema.local' AND r.name='manager') OR
+  (u.email='caixa@sistema.local' AND r.name='cashier')
+)
+WHERE u.email IN ('admin@sistema.local','gerente@sistema.local','caixa@sistema.local')
 ON CONFLICT DO NOTHING;
 
 -- categories + products

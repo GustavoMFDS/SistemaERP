@@ -39,3 +39,14 @@ Migração:
 3. Finalizar uma venda: deve aparecer como “registrada offline (pendente sync)”.
 4. Voltar online: o PDV sincroniza automaticamente.
 
+## Seguranca e privacidade operacional
+
+- Itens pendentes expiram apos 24 horas no frontend.
+- A fila guarda somente o payload necessario para recriar a venda e o cabecalho `Idempotency-Key`.
+- Evite incluir dados pessoais sensiveis no payload de venda offline. Quando o cliente for opcional, prefira venda sem identificacao.
+- `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
+- A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
+- Logout chama a limpeza da fila local para evitar que pendencias de um operador fiquem disponiveis para outro usuario no mesmo navegador.
+- Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
+- O backend usa `request_hash`: mesma chave + mesmo hash reaproveita o resultado; mesma chave + hash diferente retorna `409 conflict`.
+

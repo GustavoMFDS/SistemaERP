@@ -4,6 +4,7 @@ import (
 	"context"
 
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 )
 
@@ -18,7 +19,7 @@ type ProductsRepository interface {
 type InventoryRepository interface {
 	EnsureBalanceRow(ctx context.Context, tx db.DBTX, tenantID string, productID string) error
 	GetBalanceForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productID string) (inv.InventoryBalance, error)
-	UpdateBalance(ctx context.Context, tx db.DBTX, tenantID string, productID string, qty float64) error
+	UpdateBalance(ctx context.Context, tx db.DBTX, tenantID string, productID string, qty platform.Quantity) error
 	InsertMovement(ctx context.Context, tx db.DBTX, tenantID string, m inv.InventoryMovement) error
 	LowStock(ctx context.Context, tenantID string, limit int) ([]inv.Product, error)
 	ListMovements(ctx context.Context, tenantID string, productID string, limit, offset int) ([]inv.InventoryMovement, int, error)

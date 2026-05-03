@@ -18,6 +18,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/example/sistemaemgo/internal/platform"
 )
 
 // ── Event interface ───────────────────────────────────────────────────────────
@@ -34,9 +36,9 @@ type DomainEvent interface {
 // SaleItem mirrors the minimum data handlers need from a sale item.
 type SaleItemSnapshot struct {
 	ProductID string
-	Qty       float64
-	UnitPrice float64
-	CostUnit  float64
+	Qty       platform.Quantity
+	UnitPrice platform.Money
+	CostUnit  platform.Money
 }
 
 // SaleCreatedEvent is published when a sale is successfully finalised.
@@ -44,7 +46,7 @@ type SaleCreatedEvent struct {
 	SaleID    string
 	TenantID  string
 	SessionID string
-	Total     float64
+	Total     platform.Money
 	Items     []SaleItemSnapshot
 	At        time.Time
 }
@@ -58,7 +60,7 @@ type SaleCancelledEvent struct {
 	SaleID         string
 	TenantID       string
 	CancelledByID  string
-	AmountReversed float64
+	AmountReversed platform.Money
 	At             time.Time
 }
 
@@ -71,8 +73,8 @@ type InventoryDebitedEvent struct {
 	ProductID  string
 	TenantID   string
 	SaleID     string
-	QtyDebited float64
-	QtyAfter   float64
+	QtyDebited platform.Quantity
+	QtyAfter   platform.Quantity
 	At         time.Time
 }
 
@@ -85,8 +87,8 @@ type InventoryLowStockEvent struct {
 	ProductID  string
 	TenantID   string
 	ProductSKU string
-	QtyOnHand  float64
-	MinStock   float64
+	QtyOnHand  platform.Quantity
+	MinStock   platform.Quantity
 	At         time.Time
 }
 
@@ -99,8 +101,8 @@ type InventoryCreditedEvent struct {
 	ProductID   string
 	TenantID    string
 	SaleID      string
-	QtyCredited float64
-	QtyAfter    float64
+	QtyCredited platform.Quantity
+	QtyAfter    platform.Quantity
 	At          time.Time
 }
 

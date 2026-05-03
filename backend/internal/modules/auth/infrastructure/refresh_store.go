@@ -50,6 +50,10 @@ return 1
 	return res == 1, nil
 }
 
+func (s *RefreshTokenStore) Revoke(ctx context.Context, tokenID string) error {
+	return s.rdb.Del(ctx, s.key(tokenID)).Err()
+}
+
 // timeSeconds is a tiny helper to avoid importing time in every file that needs redis TTL.
 func timeSeconds(sec int64) time.Duration {
 	return time.Duration(sec) * time.Second

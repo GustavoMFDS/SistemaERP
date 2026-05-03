@@ -13,22 +13,39 @@ import (
 )
 
 type Config struct {
-	Env                string
-	ServiceName        string
-	HTTPAddr           string
-	DatabaseURL        string
-	RedisAddr          string
-	RedisPassword      string
-	RedisDB            int
-	JWTSecret          string
-	JWTIssuer          string
-	AccessTokenTTL     time.Duration
-	RefreshTokenTTL    time.Duration
-	OTelEnabled        bool
-	OTelExporter       string
-	OTelOTLPEndpoint   string
-	LogLevel           string
-	AllowNegativeStock bool
+	Env                 string
+	ServiceName         string
+	HTTPAddr            string
+	DatabaseURL         string
+	RedisURL            string
+	RedisAddr           string
+	RedisPassword       string
+	RedisDB             int
+	JWTSecret           string
+	JWTIssuer           string
+	AccessTokenTTL      time.Duration
+	RefreshTokenTTL     time.Duration
+	OTelEnabled         bool
+	OTelExporter        string
+	OTelOTLPEndpoint    string
+	LogLevel            string
+	AllowNegativeStock  bool
+	CORSAllowedOrigins  []string
+	CORSAllowedMethods  []string
+	CORSAllowedHeaders  []string
+	MetricsBearerToken  string
+	MetricsBasicUser    string
+	MetricsBasicPass    string
+	RateLimitLogin      int
+	RateLimitLoginID    int
+	RateLimitLoginIPID  int
+	RateLimitRefresh    int
+	RateLimitLogout     int
+	RateLimitSales      int
+	RateLimitFiscal     int
+	DisableRedis        bool
+	PrivacyContactEmail string
+	AppPublicURL        string
 }
 
 // LoadFromEnv reads configuration only from process env.
@@ -56,22 +73,39 @@ func LoadFromEnv() (Config, error) {
 	}
 
 	cfg := Config{
-		Env:                env,
-		ServiceName:        getEnv("SERVICE_NAME", "sistemaemgo-api"),
-		HTTPAddr:           getEnv("HTTP_ADDR", ":8080"),
-		DatabaseURL:        dbURL,
-		RedisAddr:          getEnv("REDIS_ADDR", "localhost:6379"),
-		RedisPassword:      redisPassword,
-		RedisDB:            getEnvInt("REDIS_DB", 0),
-		JWTSecret:          jwtSecret,
-		JWTIssuer:          getEnv("JWT_ISSUER", "sistemaemgo"),
-		AccessTokenTTL:     time.Duration(getEnvInt("ACCESS_TOKEN_TTL_MINUTES", 30)) * time.Minute,
-		RefreshTokenTTL:    time.Duration(getEnvInt("REFRESH_TOKEN_TTL_MINUTES", 43200)) * time.Minute,
-		OTelEnabled:        getEnvBool("OTEL_ENABLED", !strings.EqualFold(env, "prod") && !strings.EqualFold(env, "production")),
-		OTelExporter:       strings.ToLower(strings.TrimSpace(getEnv("OTEL_EXPORTER", "stdout"))),
-		OTelOTLPEndpoint:   strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
-		LogLevel:           getEnv("LOG_LEVEL", "info"),
-		AllowNegativeStock: getEnvBool("ALLOW_NEGATIVE_STOCK", false),
+		Env:                 env,
+		ServiceName:         getEnv("SERVICE_NAME", "sistemaemgo-api"),
+		HTTPAddr:            getEnv("HTTP_ADDR", ":8080"),
+		DatabaseURL:         dbURL,
+		RedisURL:            strings.TrimSpace(os.Getenv("REDIS_URL")),
+		RedisAddr:           getEnv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:       redisPassword,
+		RedisDB:             getEnvInt("REDIS_DB", 0),
+		JWTSecret:           jwtSecret,
+		JWTIssuer:           getEnv("JWT_ISSUER", "sistemaemgo"),
+		AccessTokenTTL:      time.Duration(getEnvInt("ACCESS_TOKEN_TTL_MINUTES", 15)) * time.Minute,
+		RefreshTokenTTL:     time.Duration(getEnvInt("REFRESH_TOKEN_TTL_MINUTES", 43200)) * time.Minute,
+		OTelEnabled:         getEnvBool("OTEL_ENABLED", !strings.EqualFold(env, "prod") && !strings.EqualFold(env, "production")),
+		OTelExporter:        strings.ToLower(strings.TrimSpace(getEnv("OTEL_EXPORTER", "stdout"))),
+		OTelOTLPEndpoint:    strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+		LogLevel:            getEnv("LOG_LEVEL", "info"),
+		AllowNegativeStock:  getEnvBool("ALLOW_NEGATIVE_STOCK", false),
+		CORSAllowedOrigins:  getEnvList("CORS_ALLOWED_ORIGINS", defaultCORSOrigins(env)),
+		CORSAllowedMethods:  getEnvList("CORS_ALLOWED_METHODS", []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
+		CORSAllowedHeaders:  getEnvList("CORS_ALLOWED_HEADERS", []string{"Authorization", "Content-Type", "Accept", "Idempotency-Key"}),
+		MetricsBearerToken:  strings.TrimSpace(os.Getenv("METRICS_BEARER_TOKEN")),
+		MetricsBasicUser:    strings.TrimSpace(os.Getenv("METRICS_BASIC_USER")),
+		MetricsBasicPass:    strings.TrimSpace(os.Getenv("METRICS_BASIC_PASS")),
+		RateLimitLogin:      getEnvInt("RATE_LIMIT_LOGIN_PER_MINUTE", 10),
+		RateLimitLoginID:    getEnvInt("RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE", 5),
+		RateLimitLoginIPID:  getEnvInt("RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE", 5),
+		RateLimitRefresh:    getEnvInt("RATE_LIMIT_REFRESH_PER_MINUTE", 30),
+		RateLimitLogout:     getEnvInt("RATE_LIMIT_LOGOUT_PER_MINUTE", 30),
+		RateLimitSales:      getEnvInt("RATE_LIMIT_SALES_PER_MINUTE", 60),
+		RateLimitFiscal:     getEnvInt("RATE_LIMIT_FISCAL_PER_MINUTE", 20),
+		DisableRedis:        getEnvBool("DISABLE_REDIS", false),
+		PrivacyContactEmail: strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
+		AppPublicURL:        strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -102,8 +136,18 @@ func (c Config) Validate() error {
 		}
 	}
 
-	if strings.TrimSpace(c.RedisAddr) == "" {
-		errs = append(errs, "REDIS_ADDR is required")
+	if !c.DisableRedis && strings.TrimSpace(c.RedisURL) == "" && strings.TrimSpace(c.RedisAddr) == "" {
+		errs = append(errs, "REDIS_URL or REDIS_ADDR is required")
+	}
+	if c.IsProdLike() && c.DisableRedis {
+		errs = append(errs, "DISABLE_REDIS must not be enabled in staging/prod")
+	}
+	if strings.TrimSpace(c.RedisURL) != "" {
+		if err := validateRedisURL(c.RedisURL, c.IsProdLike()); err != nil {
+			errs = append(errs, err.Error())
+		}
+	} else if c.IsProdLike() && strings.TrimSpace(c.RedisPassword) == "" {
+		errs = append(errs, "REDIS_PASSWORD or REDIS_PASSWORD_FILE is required in staging/prod when REDIS_URL is not used")
 	}
 
 	sec := strings.TrimSpace(c.JWTSecret)
@@ -115,13 +159,16 @@ func (c Config) Validate() error {
 			errs = append(errs, "JWT_SECRET must be at least 32 characters")
 		}
 		ls := strings.ToLower(sec)
-		if strings.Contains(ls, "change-me") || strings.Contains(ls, "changeme") {
+		if containsPlaceholder(ls) {
 			errs = append(errs, "JWT_SECRET must not be a placeholder")
 		}
 	}
 
 	if c.AccessTokenTTL <= 0 {
 		errs = append(errs, "ACCESS_TOKEN_TTL_MINUTES must be > 0")
+	}
+	if c.IsProdLike() && c.AccessTokenTTL > 15*time.Minute {
+		errs = append(errs, "ACCESS_TOKEN_TTL_MINUTES must be <= 15 in staging/prod")
 	}
 	if c.RefreshTokenTTL <= 0 {
 		errs = append(errs, "REFRESH_TOKEN_TTL_MINUTES must be > 0")
@@ -143,11 +190,54 @@ func (c Config) Validate() error {
 			errs = append(errs, "OTEL_EXPORTER_OTLP_ENDPOINT is required when OTEL_EXPORTER=otlp")
 		}
 	}
+	if c.IsProdLike() && len(c.CORSAllowedOrigins) == 0 {
+		errs = append(errs, "CORS_ALLOWED_ORIGINS must be explicit in staging/prod")
+	}
+	if err := validateCORSOrigins(c.CORSAllowedOrigins, c.IsProdLike()); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if c.IsProdLike() && c.MetricsBearerToken == "" && (c.MetricsBasicUser == "" || c.MetricsBasicPass == "") {
+		errs = append(errs, "METRICS_BEARER_TOKEN or METRICS_BASIC_USER/METRICS_BASIC_PASS is required in staging/prod")
+	}
+	if c.IsProdLike() && getEnvBool("ALLOW_DEMO_SEED", false) {
+		errs = append(errs, "ALLOW_DEMO_SEED must not be enabled in staging/prod")
+	}
+	if c.RateLimitLogin < 0 || c.RateLimitLoginID < 0 || c.RateLimitLoginIPID < 0 || c.RateLimitRefresh < 0 || c.RateLimitLogout < 0 || c.RateLimitSales < 0 || c.RateLimitFiscal < 0 {
+		errs = append(errs, "rate limit values must be >= 0")
+	}
 
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+func validateCORSOrigins(origins []string, prodLike bool) error {
+	for _, origin := range origins {
+		origin = strings.TrimSpace(origin)
+		if origin == "" {
+			continue
+		}
+		if origin == "*" {
+			return errors.New("CORS_ALLOWED_ORIGINS must not contain wildcard '*'")
+		}
+		u, err := url.Parse(origin)
+		if err != nil || u.Scheme == "" || u.Host == "" || u.Path != "" {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS contains invalid origin %q", origin)
+		}
+		if prodLike && (strings.HasPrefix(u.Host, "localhost") || strings.HasPrefix(u.Host, "127.0.0.1")) {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS must not use localhost origins in staging/prod: %q", origin)
+		}
+	}
+	return nil
+}
+
+func defaultCORSOrigins(env string) []string {
+	e := strings.ToLower(strings.TrimSpace(env))
+	if e == "prod" || e == "production" || e == "staging" {
+		return nil
+	}
+	return []string{"http://localhost:5173", "http://127.0.0.1:5173"}
 }
 
 func NewLogger(cfg Config) *slog.Logger {
@@ -236,10 +326,42 @@ func validateDatabaseURL(raw string, prodLike bool) error {
 		return errors.New("DATABASE_URL must include password")
 	}
 	weak := map[string]bool{"postgres": true, "password": true, "admin": true, "123": true, "sistemaemgo": true}
-	if prodLike && weak[strings.ToLower(pass)] {
+	if prodLike && (weak[strings.ToLower(pass)] || containsPlaceholder(pass)) {
 		return errors.New("DATABASE_URL password is too weak for staging/prod")
 	}
 	return nil
+}
+
+func validateRedisURL(raw string, prodLike bool) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("REDIS_URL is invalid: %w", err)
+	}
+	switch u.Scheme {
+	case "redis", "rediss":
+	default:
+		return errors.New("REDIS_URL scheme must be redis or rediss")
+	}
+	if strings.TrimSpace(u.Host) == "" {
+		return errors.New("REDIS_URL must include host")
+	}
+	if prodLike {
+		pass, hasPass := u.User.Password()
+		if !hasPass || strings.TrimSpace(pass) == "" || containsPlaceholder(pass) {
+			return errors.New("REDIS_URL must include a non-placeholder password in staging/prod")
+		}
+	}
+	return nil
+}
+
+func containsPlaceholder(v string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(v))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	return strings.Contains(normalized, "change_me") ||
+		strings.Contains(normalized, "changeme") ||
+		strings.Contains(normalized, "replace_with") ||
+		strings.Contains(normalized, "required") ||
+		strings.Contains(normalized, "placeholder")
 }
 
 func getEnvInt(key string, def int) int {
@@ -264,4 +386,20 @@ func getEnvBool(key string, def bool) bool {
 		return def
 	}
 	return b
+}
+
+func getEnvList(key string, def []string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

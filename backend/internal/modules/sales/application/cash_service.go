@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
 )
@@ -17,13 +18,13 @@ type CashService struct {
 }
 
 type CashOpenRequest struct {
-	OpeningAmount float64 `json:"opening_amount" validate:"min=0"`
-	Notes         *string `json:"notes"`
+	OpeningAmount platform.Money `json:"opening_amount" validate:"min=0"`
+	Notes         *string        `json:"notes"`
 }
 
 type CashCloseRequest struct {
-	ClosingAmount float64 `json:"closing_amount" validate:"min=0"`
-	Notes         *string `json:"notes"`
+	ClosingAmount platform.Money `json:"closing_amount" validate:"min=0"`
+	Notes         *string        `json:"notes"`
 }
 
 func NewCashService(uow db.UnitOfWork, cash CashRepository, v *validator.Validate, logger *slog.Logger) *CashService {

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"sync"
 	"time"
 
 	"log/slog"
@@ -16,14 +17,22 @@ import (
 )
 
 type AuthService struct {
-	cfg     config.Config
-	users   UsersRepository
-	refresh RefreshTokenStore
-	logger  *slog.Logger
+	cfg      config.Config
+	users    UsersRepository
+	refresh  RefreshTokenStore
+	logger   *slog.Logger
+	permsMu  sync.RWMutex
+	perms    map[string]permissionCacheEntry
+	permsTTL time.Duration
+}
+
+type permissionCacheEntry struct {
+	perms     map[string]bool
+	expiresAt time.Time
 }
 
 func NewAuthService(cfg config.Config, users UsersRepository, refresh RefreshTokenStore, logger *slog.Logger) *AuthService {
-	return &AuthService{cfg: cfg, users: users, refresh: refresh, logger: logger}
+	return &AuthService{cfg: cfg, users: users, refresh: refresh, logger: logger, perms: map[string]permissionCacheEntry{}, permsTTL: 30 * time.Second}
 }
 
 func (s *AuthService) Login(ctx context.Context, email, password string) (TokenResponse, AuthUserInfo, error) {
@@ -49,7 +58,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 
-	roles, _ := s.users.ListUserRoles(ctx, u.ID)
+	roles, _ := s.users.ListUserRoles(ctx, u.ID, tenantID)
 	accessTok, accessExp, err := s.issueAccessToken(u.ID, tenantID)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
@@ -114,7 +123,6 @@ func (s *AuthService) issueRefreshToken(ctx context.Context, userID, tenantID st
 }
 
 func (s *AuthService) ValidateToken(ctx context.Context, tokenStr string) (userID string, tenantID string, err error) {
-	_ = ctx
 	parsed, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (any, error) {
 		return []byte(s.cfg.JWTSecret), nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
@@ -134,31 +142,42 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenStr string) (userI
 	if claims.Subject == "" || claims.TenantID == "" {
 		return "", "", common.ErrInvalidCredentials
 	}
+	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+		return "", "", err
+	}
 	return claims.Subject, claims.TenantID, nil
 }
 
 func (s *AuthService) Refresh(ctx context.Context, tokenStr string) (TokenResponse, error) {
+	resp, _, _, err := s.RefreshWithSubject(ctx, tokenStr)
+	return resp, err
+}
+
+func (s *AuthService) RefreshWithSubject(ctx context.Context, tokenStr string) (TokenResponse, string, string, error) {
 	claims, err := s.validateRefreshToken(tokenStr)
 	if err != nil {
-		return TokenResponse{}, err
+		return TokenResponse{}, "", "", err
 	}
 	if s.refresh == nil {
-		return TokenResponse{}, common.ErrInvalidCredentials
+		return TokenResponse{}, "", "", common.ErrInvalidCredentials
 	}
 	ok, err := s.refresh.Consume(ctx, claims.ID, claims.Subject)
 	if err != nil {
-		return TokenResponse{}, err
+		return TokenResponse{}, "", "", err
 	}
 	if !ok {
-		return TokenResponse{}, common.ErrInvalidCredentials
+		return TokenResponse{}, "", "", common.ErrInvalidCredentials
+	}
+	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+		return TokenResponse{}, "", "", err
 	}
 	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID)
 	if err != nil {
-		return TokenResponse{}, err
+		return TokenResponse{}, "", "", err
 	}
 	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, claims.Subject, claims.TenantID)
 	if err != nil {
-		return TokenResponse{}, err
+		return TokenResponse{}, "", "", err
 	}
 	return TokenResponse{
 		AccessToken:      accessTok,
@@ -166,7 +185,26 @@ func (s *AuthService) Refresh(ctx context.Context, tokenStr string) (TokenRespon
 		TokenType:        "Bearer",
 		ExpiresIn:        int64(time.Until(accessExp).Seconds()),
 		RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
-	}, nil
+	}, claims.Subject, claims.TenantID, nil
+}
+
+func (s *AuthService) IdentifyRefreshToken(tokenStr string) (userID string, tenantID string, err error) {
+	claims, err := s.validateRefreshToken(tokenStr)
+	if err != nil {
+		return "", "", err
+	}
+	return claims.Subject, claims.TenantID, nil
+}
+
+func (s *AuthService) Logout(ctx context.Context, tokenStr string) error {
+	claims, err := s.validateRefreshToken(tokenStr)
+	if err != nil {
+		return nil
+	}
+	if s.refresh == nil {
+		return nil
+	}
+	return s.refresh.Revoke(ctx, claims.ID)
 }
 
 func (s *AuthService) validateRefreshToken(tokenStr string) (*Claims, error) {
@@ -192,8 +230,18 @@ func (s *AuthService) validateRefreshToken(tokenStr string) (*Claims, error) {
 	return claims, nil
 }
 
-func (s *AuthService) GetUserPermissions(ctx context.Context, userID string) (map[string]bool, error) {
-	perms, err := s.users.ListUserPermissions(ctx, userID)
+func (s *AuthService) GetUserPermissions(ctx context.Context, userID string, tenantID string) (map[string]bool, error) {
+	key := userID + ":" + tenantID
+	now := time.Now()
+	s.permsMu.RLock()
+	if cached, ok := s.perms[key]; ok && now.Before(cached.expiresAt) {
+		out := clonePerms(cached.perms)
+		s.permsMu.RUnlock()
+		return out, nil
+	}
+	s.permsMu.RUnlock()
+
+	perms, err := s.users.ListUserPermissions(ctx, userID, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +249,29 @@ func (s *AuthService) GetUserPermissions(ctx context.Context, userID string) (ma
 	for _, p := range perms {
 		m[p] = true
 	}
+	s.permsMu.Lock()
+	s.perms[key] = permissionCacheEntry{perms: clonePerms(m), expiresAt: now.Add(s.permsTTL)}
+	s.permsMu.Unlock()
 	return m, nil
+}
+
+func (s *AuthService) InvalidateUserPermissions(userID string) {
+	s.permsMu.Lock()
+	defer s.permsMu.Unlock()
+	prefix := userID + ":"
+	for key := range s.perms {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			delete(s.perms, key)
+		}
+	}
+}
+
+func clonePerms(in map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserInfo, error) {
@@ -209,12 +279,26 @@ func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserI
 	if err != nil {
 		return AuthUserInfo{}, common.ErrNotFound
 	}
+	if !u.Active {
+		return AuthUserInfo{}, common.ErrInactiveUser
+	}
 	tenantID, err := s.users.GetDefaultTenantID(ctx, u.ID)
 	if err != nil {
 		return AuthUserInfo{}, err
 	}
-	roles, _ := s.users.ListUserRoles(ctx, userID)
+	roles, _ := s.users.ListUserRoles(ctx, userID, tenantID)
 	return AuthUserInfo{ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles}, nil
+}
+
+func (s *AuthService) ensureUserActive(ctx context.Context, userID string) error {
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return common.ErrInvalidCredentials
+	}
+	if !u.Active {
+		return common.ErrInactiveUser
+	}
+	return nil
 }
 
 func slowEqual(a, b string) {

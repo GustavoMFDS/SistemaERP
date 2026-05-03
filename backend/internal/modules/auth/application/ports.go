@@ -13,8 +13,8 @@ type UsersRepository interface {
 	GetByID(ctx context.Context, id string) (authdomain.User, error)
 	UpdateLastLogin(ctx context.Context, id string) error
 	GetDefaultTenantID(ctx context.Context, userID string) (string, error)
-	ListUserRoles(ctx context.Context, userID string) ([]string, error)
-	ListUserPermissions(ctx context.Context, userID string) ([]string, error)
+	ListUserRoles(ctx context.Context, userID string, tenantID string) ([]string, error)
+	ListUserPermissions(ctx context.Context, userID string, tenantID string) ([]string, error)
 }
 
 // RefreshTokenStore persists refresh token IDs (jti) to allow rotation and revocation.
@@ -22,4 +22,5 @@ type UsersRepository interface {
 type RefreshTokenStore interface {
 	Save(ctx context.Context, tokenID string, userID string, ttlSeconds int64) error
 	Consume(ctx context.Context, tokenID string, userID string) (bool, error)
+	Revoke(ctx context.Context, tokenID string) error
 }

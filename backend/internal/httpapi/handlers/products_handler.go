@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 
@@ -15,17 +16,18 @@ import (
 
 type ProductsHandler struct {
 	svc    *invapp.ProductsService
+	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewProductsHandler(svc *invapp.ProductsService, logger *slog.Logger) *ProductsHandler {
-	return &ProductsHandler{svc: svc, logger: logger}
+func NewProductsHandler(svc *invapp.ProductsService, auditSvc *audit.Service, logger *slog.Logger) *ProductsHandler {
+	return &ProductsHandler{svc: svc, audit: auditSvc, logger: logger}
 }
 
 func (h *ProductsHandler) List(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	q := r.URL.Query().Get("query")
@@ -33,7 +35,7 @@ func (h *ProductsHandler) List(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	items, total, err := h.svc.List(r.Context(), au.TenantID, q, limit, offset)
 	if err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao listar produtos", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
@@ -42,13 +44,13 @@ func (h *ProductsHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *ProductsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	id := chi.URLParam(r, "id")
 	p, err := h.svc.Get(r.Context(), au.TenantID, id)
 	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+		writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -57,12 +59,12 @@ func (h *ProductsHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	var req invapp.ProductCreateRequest
-	if err := readJSON(r, &req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
 	id, err := h.svc.Create(r.Context(), au.TenantID, req)
@@ -71,22 +73,23 @@ func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity
 		}
-		http.Error(w, err.Error(), status)
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
+	recordAudit(h.audit, r, au.TenantID, au.UserID, "product.create", "product", id, "success", nil)
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
 func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	id := chi.URLParam(r, "id")
 	var req invapp.ProductUpdateRequest
-	if err := readJSON(r, &req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
 	if err := h.svc.Update(r.Context(), au.TenantID, id, req); err != nil {
@@ -94,8 +97,9 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity
 		}
-		http.Error(w, err.Error(), status)
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
+	recordAudit(h.audit, r, au.TenantID, au.UserID, "product.update", "product", id, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }

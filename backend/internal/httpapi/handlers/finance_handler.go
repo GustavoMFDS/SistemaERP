@@ -23,7 +23,7 @@ func NewFinanceHandler(svc *finapp.FinanceService, logger *slog.Logger) *Finance
 func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	from := r.URL.Query().Get("from")
@@ -36,7 +36,7 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := h.svc.Dashboard(r.Context(), au.TenantID, from, to)
 	if err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao carregar dashboard", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "totals": data})
@@ -45,14 +45,14 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 func (h *FinanceHandler) ListLedger(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	items, total, err := h.svc.ListLedger(r.Context(), au.TenantID, limit, offset)
 	if err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao listar lancamentos", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
