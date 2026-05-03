@@ -11,6 +11,7 @@ import (
 
 	"github.com/example/sistemaemgo/internal/app"
 	"github.com/example/sistemaemgo/internal/config"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
@@ -33,7 +34,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           application.Router,
+		Handler:           wrapTelemetryHandler(cfg, application.Router),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -53,4 +54,11 @@ func main() {
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
 	logger.Info("shutdown complete")
+}
+
+func wrapTelemetryHandler(cfg config.Config, h http.Handler) http.Handler {
+	if !cfg.OTelEnabled {
+		return h
+	}
+	return otelhttp.NewHandler(h, cfg.ServiceName)
 }

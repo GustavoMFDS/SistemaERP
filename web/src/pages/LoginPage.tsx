@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiJson } from '../lib/api'
+import { apiJson, errorMessage } from '../lib/api'
 import { setToken } from '../lib/auth'
 
 type LoginResponse = {
@@ -11,8 +11,8 @@ type LoginResponse = {
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState('admin@sistema.local')
-  const [password, setPassword] = useState('admin123')
+  const [email, setEmail] = useState(import.meta.env.DEV ? 'admin@sistema.local' : '')
+  const [password, setPassword] = useState(import.meta.env.DEV ? 'admin123' : '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -27,8 +27,8 @@ export default function LoginPage() {
       })
       setToken(data.token.access_token)
       navigate('/products', { replace: true })
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
@@ -81,6 +81,7 @@ export default function LoginPage() {
 
             <div className="text-xs text-gray-500">
               API base: {import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'}
+              {import.meta.env.DEV ? ' • Demo: admin@sistema.local / admin123' : ''}
             </div>
           </form>
         </div>

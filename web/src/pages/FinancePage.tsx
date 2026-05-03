@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiJson } from '../lib/api'
+import { apiJson, errorMessage } from '../lib/api'
 
 export default function FinancePage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<Record<string, unknown> | null>(null)
 
   async function load(e?: FormEvent) {
     e?.preventDefault()
@@ -18,10 +18,10 @@ export default function FinancePage() {
       if (from) qs.set('from', from)
       if (to) qs.set('to', to)
       const url = `/api/v1/finance/dashboard${qs.toString() ? `?${qs.toString()}` : ''}`
-      const res = await apiJson<any>(url)
+      const res = await apiJson<Record<string, unknown>>(url)
       setData(res)
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
       setData(null)
     } finally {
       setLoading(false)

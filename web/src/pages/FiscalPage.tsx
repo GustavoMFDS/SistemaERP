@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiDownload, apiJson } from '../lib/api'
+import { apiDownload, apiJson, errorMessage } from '../lib/api'
 
 type GenerateResponse = { invoice_id: string; xml_file_id: string }
 
@@ -29,8 +29,8 @@ export default function FiscalPage() {
       const data = await apiJson<ListResponse>('/api/v1/fiscal/nfe/xml?limit=50&offset=0')
       setItems(data.items)
       setTotal(data.total)
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
@@ -52,8 +52,8 @@ export default function FiscalPage() {
       setMessage(`Gerado: invoice_id=${res.invoice_id} xml_file_id=${res.xml_file_id}`)
       setSaleId('')
       await load()
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     }
   }
 
@@ -65,8 +65,8 @@ export default function FiscalPage() {
         x.file_name || `nfe-${x.id}.xml`,
         'application/xml',
       )
-    } catch (e: any) {
-      setError(String(e?.bodyText ?? e?.message ?? e))
+    } catch (e: unknown) {
+      setError(errorMessage(e))
     }
   }
 

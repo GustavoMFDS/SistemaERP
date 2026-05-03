@@ -9,15 +9,32 @@ backend/tmp/
 backend/*.exe
 backend/*.test
 backend/*.out
+backend/coverage.*
+backend/coverage/
+*.prof
+*.coverprofile
+*.cover.out
+*.log
+*.tmp
+tmp/
+dist/
 
 # OS / editor
 .DS_Store
 Thumbs.db
 .vscode/
 !.vscode/extensions.json
+.idea/
+*.swp
+*.swo
 
 # Node
 web/node_modules/
 web/dist/
 web/dist-ssr/
 web/*.local
+web/coverage/
+web/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

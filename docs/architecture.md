@@ -29,3 +29,27 @@ O sistema é composto por:
 - Venda: abrir caixa → carrinho → finalizar venda → baixa estoque → financeiro → pronto para NF-e.
 - Estoque: cadastro produto → entrada/ajuste → alerta mínimo.
 - Fiscal: selecionar venda finalizada → gerar XML → armazenar/download.
+# Architecture notes
+
+Current code keeps the existing package layout to avoid a risky full rewrite. The safe refactor direction is to flatten modules incrementally once behavior is covered by tests.
+
+Recommended target structure:
+
+```text
+backend/
+  cmd/api/
+  internal/app/
+  internal/httpapi/
+  internal/modules/{auth,inventory,sales,finance,fiscal}/
+  internal/platform/
+  migrations/
+web/
+  src/{components,lib,pages}
+```
+
+Refactor rule for the next pass:
+
+- Move one module at a time from `domain/application/infrastructure` into fewer feature files only after `go test ./...` is green.
+- Keep interfaces only where they support tests or real adapters.
+- Keep database migrations and Docker Compose paths stable.
+- Prefer repository-bound decimal conversion and domain integer money/quantity types over database-wide rewrites.

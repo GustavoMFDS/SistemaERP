@@ -16,27 +16,27 @@ func NewFiscalRepo(dbpool *pgxpool.Pool) *FiscalRepo {
 	return &FiscalRepo{db: dbpool}
 }
 
-func (r *FiscalRepo) CreateInvoiceWithXML(ctx context.Context, tx db.DBTX, saleID, companyID string, createdByUserID *string, fileName string, content []byte, sha256 string) (invoiceID, xmlID string, err error) {
+func (r *FiscalRepo) CreateInvoiceWithXML(ctx context.Context, tx db.DBTX, tenantID string, saleID, companyID string, createdByUserID *string, fileName string, content []byte, sha256 string) (invoiceID, xmlID string, err error) {
 	err = tx.QueryRow(ctx, `
-		INSERT INTO invoices(sale_id, company_id, created_by_user_id)
-		VALUES ($1,$2,$3)
+		INSERT INTO invoices(tenant_id, sale_id, company_id, created_by_user_id)
+		VALUES ($1,$2,$3,$4)
 		RETURNING id::text
-	`, saleID, companyID, createdByUserID).Scan(&invoiceID)
+	`, tenantID, saleID, companyID, createdByUserID).Scan(&invoiceID)
 	if err != nil {
 		return "", "", err
 	}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO invoice_xml_files(invoice_id, file_name, content, sha256)
-		VALUES ($1,$2,$3,$4)
+		INSERT INTO invoice_xml_files(tenant_id, invoice_id, file_name, content, sha256)
+		VALUES ($1,$2,$3,$4,$5)
 		RETURNING id::text
-	`, invoiceID, fileName, content, sha256).Scan(&xmlID)
+	`, tenantID, invoiceID, fileName, content, sha256).Scan(&xmlID)
 	if err != nil {
 		return "", "", err
 	}
 	return invoiceID, xmlID, nil
 }
 
-func (r *FiscalRepo) ListXML(ctx context.Context, limit, offset int) ([]fisc.XMLFile, int, error) {
+func (r *FiscalRepo) ListXML(ctx context.Context, tenantID string, limit, offset int) ([]fisc.XMLFile, int, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -45,16 +45,17 @@ func (r *FiscalRepo) ListXML(ctx context.Context, limit, offset int) ([]fisc.XML
 	}
 
 	var total int
-	if err := r.db.QueryRow(ctx, `SELECT count(*) FROM invoice_xml_files`).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT count(*) FROM invoice_xml_files WHERE tenant_id=$1`, tenantID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	rows, err := r.db.Query(ctx, `
 		SELECT id::text, invoice_id::text, file_name, sha256, created_at::text
 		FROM invoice_xml_files
+		WHERE tenant_id=$1
 		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
-	`, limit, offset)
+		LIMIT $2 OFFSET $3
+	`, tenantID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -71,8 +72,8 @@ func (r *FiscalRepo) ListXML(ctx context.Context, limit, offset int) ([]fisc.XML
 	return items, total, rows.Err()
 }
 
-func (r *FiscalRepo) GetXMLContent(ctx context.Context, id string) (fileName string, content []byte, err error) {
-	err = r.db.QueryRow(ctx, `SELECT file_name, content FROM invoice_xml_files WHERE id=$1`, id).Scan(&fileName, &content)
+func (r *FiscalRepo) GetXMLContent(ctx context.Context, tenantID string, id string) (fileName string, content []byte, err error) {
+	err = r.db.QueryRow(ctx, `SELECT file_name, content FROM invoice_xml_files WHERE tenant_id=$1 AND id=$2`, tenantID, id).Scan(&fileName, &content)
 	return fileName, content, err
 }
 
@@ -82,8 +83,8 @@ func (r *FiscalRepo) GetCompanyID(ctx context.Context, tx db.DBTX) (string, erro
 	return id, err
 }
 
-func (r *FiscalRepo) ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, saleID string) (bool, error) {
+func (r *FiscalRepo) ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, tenantID string, saleID string) (bool, error) {
 	var exists bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM invoices WHERE sale_id=$1)`, saleID).Scan(&exists)
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID).Scan(&exists)
 	return exists, err
 }

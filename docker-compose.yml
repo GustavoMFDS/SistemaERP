@@ -6,11 +6,21 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-sistemaemgo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sistemaemgo}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sistemaemgo} -d ${POSTGRES_DB:-sistemaemgo}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -39,7 +49,7 @@ services:
       - -lc
       - |
         echo "seeding";
-        psql "postgres://${POSTGRES_USER:-sistemaemgo}:${POSTGRES_PASSWORD:-sistemaemgo}@db:5432/${POSTGRES_DB:-sistemaemgo}" -v ON_ERROR_STOP=1 -f /seed/seed.sql
+        psql "postgres://${POSTGRES_USER:-sistemaemgo}:${POSTGRES_PASSWORD:-sistemaemgo}@db:5432/${POSTGRES_DB:-sistemaemgo}" -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
 
 volumes:
   pgdata:

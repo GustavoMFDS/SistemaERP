@@ -18,13 +18,13 @@ func LoadPermissions(auth *authapp.AuthService, logger *slog.Logger) func(http.H
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			au, ok := GetAuthUser(r.Context())
 			if !ok {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeMiddlewareError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado")
 				return
 			}
-			perms, err := auth.GetUserPermissions(r.Context(), au.UserID)
+			perms, err := auth.GetUserPermissions(r.Context(), au.UserID, au.TenantID)
 			if err != nil {
 				logger.Error("load_permissions_failed", slog.Any("err", err), slog.String("request_id", middleware.GetReqID(r.Context())))
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeMiddlewareError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado")
 				return
 			}
 			ctx := context.WithValue(r.Context(), permsKey, perms)
@@ -39,7 +39,7 @@ func RequirePermission(perm string) func(http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			perms, _ := r.Context().Value(permsKey).(map[string]bool)
 			if perms == nil || !perms[perm] {
-				http.Error(w, "forbidden", http.StatusForbidden)
+				writeMiddlewareError(w, r, http.StatusForbidden, "authorization_error", "permissao insuficiente")
 				return
 			}
 			next.ServeHTTP(w, r)
