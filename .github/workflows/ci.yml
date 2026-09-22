@@ -101,7 +101,11 @@ jobs:
       - name: Start database, Redis and migrations
         run: docker compose up -d db redis migrate
       - name: Seed browser test data
-        run: docker compose run --rm seed
+        run: |
+          docker compose run --rm seed
+          docker compose run --rm -v "$PWD/backend/seed:/seed:ro" db \
+            psql "postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo" \
+            -v ON_ERROR_STOP=1 -f /seed/seed.e2e.sql
       - name: Start API and wait for readiness
         working-directory: backend
         env:
@@ -128,7 +132,7 @@ jobs:
         run: |
           npm install --global npm@11.6.1
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium firefox webkit
       - name: Start frontend
         working-directory: web
         env:
