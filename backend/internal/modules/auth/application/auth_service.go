@@ -145,6 +145,9 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenStr string) (userI
 	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
 		return "", "", err
 	}
+	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
+		return "", "", err
+	}
 	return claims.Subject, claims.TenantID, nil
 }
 
@@ -169,6 +172,9 @@ func (s *AuthService) RefreshWithSubject(ctx context.Context, tokenStr string) (
 		return TokenResponse{}, "", "", common.ErrInvalidCredentials
 	}
 	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+		return TokenResponse{}, "", "", err
+	}
+	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
 		return TokenResponse{}, "", "", err
 	}
 	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID)
@@ -297,6 +303,17 @@ func (s *AuthService) ensureUserActive(ctx context.Context, userID string) error
 	}
 	if !u.Active {
 		return common.ErrInactiveUser
+	}
+	return nil
+}
+
+func (s *AuthService) ensureUserTenantAccess(ctx context.Context, userID string, tenantID string) error {
+	ok, err := s.users.UserHasTenant(ctx, userID, tenantID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return common.ErrForbidden
 	}
 	return nil
 }
