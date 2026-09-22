@@ -10,6 +10,7 @@ import {
   getLegacyQueueCount,
   getQueueItems,
   getQueueSummary,
+  markQueueItemAttention,
   rebindQueueItemToCashSession,
   retryQueueItem,
   type QueuedRequest,
@@ -279,22 +280,33 @@ export default function PDVPage() {
       })),
       payments,
     }
-    // Generate exactly once per user intent. The synchronous in-flight lock
-    // prevents a second click from creating a second key/request.
     const idempotencyKey = crypto.randomUUID()
+
+    let queuedId = ''
+    try {
+      // Write-ahead: persist the exact intent before the first network send.
+      // If storage is unavailable, abort without creating an ambiguous sale.
+      queuedId = enqueueRequest({
+        method: 'POST',
+        path: '/api/v1/sales',
+        body,
+        headers: { 'Idempotency-Key': idempotencyKey },
+      })
+      refreshPending()
+    } catch (e: unknown) {
+      setError(
+        `Não foi possível preservar a intenção de venda no navegador. Nenhuma venda foi enviada. ${errorMessage(e)}`,
+      )
+      finalizeInFlight.current = false
+      setFinalizing(false)
+      return
+    }
 
     try {
       if (!navigator.onLine) {
-        const queuedId = enqueueRequest({
-          method: 'POST',
-          path: '/api/v1/sales',
-          body,
-          headers: { 'Idempotency-Key': idempotencyKey },
-        })
         setSaleId(`offline:${queuedId}`)
         setSaleTotal(computedTotal)
         setItems([])
-        refreshPending()
         return
       }
 
@@ -304,33 +316,33 @@ export default function PDVPage() {
         body,
       })
 
+      discardQueueItem(queuedId)
+      refreshPending()
       setSaleId(res.id)
       setSaleTotal(res.total)
       setItems([])
     } catch (e: unknown) {
       const msg = errorMessage(e)
-      const networkLike =
-        !navigator.onLine || msg.includes('NetworkError') || msg.includes('Failed to fetch')
+      const permanent =
+        e instanceof APIError &&
+        e.status >= 400 &&
+        e.status < 500 &&
+        ![401, 408, 425, 429].includes(e.status)
 
-      if (networkLike) {
-        try {
-          const queuedId = enqueueRequest({
-            method: 'POST',
-            path: '/api/v1/sales',
-            body,
-            headers: { 'Idempotency-Key': idempotencyKey },
-          })
-          setSaleId(`offline:${queuedId}`)
-          setSaleTotal(computedTotal)
-          setItems([])
-          refreshPending()
-          return
-        } catch {
-          // fall-through to the original error
-        }
+      if (permanent) {
+        markQueueItemAttention(queuedId, 'request_rejected', msg)
+        refreshPending()
+        setError(msg)
+        return
       }
 
-      setError(msg)
+      // Network, auth retry exhaustion, rate limiting and server failures keep
+      // the already-persisted intent pending with the same key for safe replay.
+      setSaleId(`offline:${queuedId}`)
+      setSaleTotal(computedTotal)
+      setItems([])
+      refreshPending()
+      setError(`Venda preservada para reenvio seguro: ${msg}`)
     } finally {
       finalizeInFlight.current = false
       setFinalizing(false)
