@@ -144,7 +144,7 @@ Smoke testing:
 
 - Access tokens are short-lived JWTs.
 - Protected requests recheck current user status and tenant membership, so deactivated or de-scoped users are rejected before token expiration.
-- Refresh tokens are stored only in an HttpOnly, `SameSite=Strict` cookie and rotated on refresh.
+- Refresh tokens are stored only in an HttpOnly, `SameSite=Strict` cookie and rotated on refresh; logout is considered complete only after the server confirms revocation/cookie clearing.
 - Refresh/logout endpoints validate trusted `Origin` or `Referer` headers.
 - Login is rate-limited by IP, by hashed normalized identifier, and by IP plus identifier.
 - RBAC is tenant-scoped through `user_tenant_roles`; a role in tenant A does not grant tenant B permissions.
