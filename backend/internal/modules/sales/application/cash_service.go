@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
+	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
