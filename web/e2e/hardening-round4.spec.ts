@@ -19,17 +19,6 @@ async function waitForCashClosed(page: import('@playwright/test').Page) {
     .toBe('')
 }
 
-async function waitForCashClosed(page: import('@playwright/test').Page) {
-  await expect
-    .poll(async () =>
-      page.evaluate(async () => {
-        const { getCashSessionId } = await import('/src/lib/auth.ts')
-        return getCashSessionId()
-      }),
-    )
-    .toBe('')
-}
-
 test('double finalize intent produces only one sale request', async ({ page }) => {
   await login(page)
 
