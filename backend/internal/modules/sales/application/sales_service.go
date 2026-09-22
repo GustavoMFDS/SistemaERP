@@ -488,7 +488,6 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 	return nil
 }
 
-
 func (s *SalesService) invalidateProductCaches(ctx context.Context, tenantID string, productIDs []string) {
 	cache, ok := s.products.(interface {
 		InvalidateProduct(context.Context, string, string) error
