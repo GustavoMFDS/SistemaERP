@@ -2,9 +2,8 @@ package handlers
 
 import (
 	"errors"
-	"net/http"
-
 	"log/slog"
+	"net/http"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/audit"
