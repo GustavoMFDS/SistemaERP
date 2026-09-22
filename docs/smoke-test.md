@@ -36,7 +36,9 @@ npm run build
 | Login | Sign in with a valid active user. | Access token returned; refresh cookie set; audit event `auth.login` success. |
 | Failed login | Try wrong password for an existing-format email. | Generic auth error; no user enumeration; audit event failure; rate limits apply. |
 | Refresh session | Reload app or call refresh with cookie. | New access token; refresh cookie rotated; audit event `auth.refresh` includes tenant/user when identifiable. |
+| Expired refresh | Force protected request to 401 and make refresh fail. | Access token is cleared and UI redirects immediately to `/login`. |
 | Logout | Logout with a valid session. | Refresh token revoked; cookie cleared; frontend auth state cleared; audit event `auth.logout`. |
+| Cash lifecycle | Open a cash session, attempt a second open, close it, close again, then reopen. | Second open and second close return conflict; reopen after valid close succeeds. |
 | Sale creation | Create a sale with valid stock and payment. | Backend calculates totals; inventory decreases; finance/audit entries exist. |
 | Price tampering | Attempt sale with client-supplied low `unit_price`. | Backend ignores client price; total uses product/promotional price. |
 | Insufficient stock | Attempt sale above available stock. | Standardized validation/conflict error; no stock mutation. |
@@ -57,10 +59,12 @@ npm run build
 | Offline permanent conflict | Put a permanently invalid/rejected item before a valid queued sale. | Invalid item is preserved as attention; later valid item still synchronizes. |
 | Offline expiration | Leave a queued item older than 24 hours. | Item is not retried automatically and remains stored as attention; it is not silently deleted. |
 | Browser tenant isolation | Switch tenant/user identity in the same browser with cached PDV state. | Cash session, product cache, and offline queue from the prior identity are inaccessible. |
+| Legacy offline queue upgrade | Seed `sistemaemgo:offlineQueue:v1` and open PDV after login. | Legacy items are visible but never auto-sent; explicit import moves them to attention for manual review. |
+| Offline reconciliation | Put an item in attention. | Operator can inspect the error, retry manually or discard with confirmation. |
 | Offline logout | Logout with pending queue. | User is warned/confirmed before clearing pending items; no silent loss. |
 | RBAC allow | Perform action with required permission. | Request succeeds. |
 | RBAC deny | Perform same action with limited role. | Standardized `authorization_error`. |
-| Tenant isolation | Tenant A user requests tenant B product/sale/privacy/audit IDs. | Access denied or not found; no cross-tenant data returned. |
+| Tenant isolation | Authenticate real tenant A and tenant B users and cross sale, fiscal XML, finance, privacy and audit identifiers. | Cross-tenant direct lookups are not found and tenant B lists contain none of tenant A's IDs. |
 
 ## Restore drill smoke subset
 
