@@ -3,6 +3,18 @@ const CASH_SESSION_NAMESPACE = 'sistemaemgo:cashSession:v2'
 
 let accessToken = ''
 
+type TokenListener = (token: string) => void
+const tokenListeners = new Set<TokenListener>()
+
+function emitToken(): void {
+  for (const listener of tokenListeners) listener(accessToken)
+}
+
+export function subscribeToken(listener: TokenListener): () => void {
+  tokenListeners.add(listener)
+  return () => tokenListeners.delete(listener)
+}
+
 type AccessClaims = {
   sub?: string
   tenant_id?: string
@@ -14,12 +26,14 @@ export function getToken(): string {
 
 export function setToken(token: string): void {
   accessToken = token
+  emitToken()
 }
 
 export function clearToken(): void {
   accessToken = ''
   sessionStorage.removeItem('auth_token')
   localStorage.removeItem('auth_token')
+  emitToken()
 }
 
 function decodeAccessClaims(token: string): AccessClaims | null {
