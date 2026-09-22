@@ -145,10 +145,15 @@ Run a restore drill in staging at least quarterly and before major fiscal/privac
 - Refresh cookie settings are compatible with HTTPS deployment.
 - Tenant memberships and `user_tenant_roles` are explicitly provisioned.
 - `FISCAL_PROVIDER=disabled` while no SEFAZ-ready provider is configured. The MVP provider is rejected in staging/production.
-- Before migration `0013`, verify there is at most one `open` cash session per `(tenant_id, cash_register_id)`; duplicate rows must be reconciled explicitly.
+- Before migration `0013`, verify there is at most one `open` cash session per `(tenant_id, cash_register_id)`; duplicate rows must be reconciled explicitly. CI validates clean `v12 → v13`, `v13 → v12 → v13`, and rejection of legacy duplicate-open rows.
 - Backup and restore drill has been completed in staging.
 
 
 ## Fiscal production guard
 
 The built-in `mvp` provider generates only demonstration XML and is not SEFAZ-ready. Configuration validation rejects `FISCAL_PROVIDER=mvp` for staging/production. Use `FISCAL_PROVIDER=disabled` until a homologated provider with certificate signing, SEFAZ transmission/protocol handling, tax fields, numbering rules and DANFE is implemented and validated.
+
+## Session revocation and shared terminals
+
+- Logout is complete only after the backend confirms refresh-token revocation and clears the HttpOnly cookie. If the network is unavailable, keep the authenticated UI/session state and show the operator that logout was not completed; do not claim a local-only logout.
+- Access and refresh token validation recheck both active-user status and current `user_tenants` membership. Removing a user from a tenant invalidates subsequent protected requests and refreshes for that tenant.
