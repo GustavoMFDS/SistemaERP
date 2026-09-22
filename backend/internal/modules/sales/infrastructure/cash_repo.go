@@ -8,6 +8,7 @@ import (
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -57,19 +58,61 @@ func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string,
 	return id, err
 }
 
-func (r *CashRepo) CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, closingAmount platform.Money, notes *string) error {
-	tag, err := tx.Exec(ctx, `
-		UPDATE cash_sessions
-		SET status='closed', closed_at=now(), closed_by_user_id=$2, closing_amount=$3, notes=COALESCE($4, notes)
-		WHERE tenant_id=$5 AND id=$1 AND status='open'
-	`, sessionID, userID, closingAmount.DBString(), notes, tenantID)
+func (r *CashRepo) CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, closingAmount platform.Money, notes *string) (sales.CashCloseResult, error) {
+	var expectedRaw, closingRaw, differenceRaw string
+	err := tx.QueryRow(ctx, `
+		WITH expected AS (
+			SELECT
+				cs.id,
+				cs.opening_amount +
+				COALESCE(SUM(CASE
+					WHEN p.method='cash' AND s.status='finalized' THEN p.amount
+					ELSE 0
+				END), 0) AS expected_cash
+			FROM cash_sessions cs
+			LEFT JOIN sales s
+				ON s.cash_session_id=cs.id
+				AND s.tenant_id=cs.tenant_id
+			LEFT JOIN payments p ON p.sale_id=s.id
+			WHERE cs.tenant_id=$5 AND cs.id=$1 AND cs.status='open'
+			GROUP BY cs.id, cs.opening_amount
+		)
+		UPDATE cash_sessions cs
+		SET status='closed',
+		    closed_at=now(),
+		    closed_by_user_id=$2,
+		    closing_amount=$3,
+		    expected_cash=expected.expected_cash,
+		    closing_difference=$3::numeric - expected.expected_cash,
+		    notes=COALESCE($4, cs.notes)
+		FROM expected
+		WHERE cs.id=expected.id
+		RETURNING cs.expected_cash::text, cs.closing_amount::text, cs.closing_difference::text
+	`, sessionID, userID, closingAmount.DBString(), notes, tenantID).
+		Scan(&expectedRaw, &closingRaw, &differenceRaw)
 	if err != nil {
-		return err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sales.CashCloseResult{}, common.ErrCashSessionClosed
+		}
+		return sales.CashCloseResult{}, err
 	}
-	if tag.RowsAffected() == 0 {
-		return common.ErrCashSessionClosed
+	expected, err := platform.ParseMoney(expectedRaw)
+	if err != nil {
+		return sales.CashCloseResult{}, err
 	}
-	return nil
+	closing, err := platform.ParseMoney(closingRaw)
+	if err != nil {
+		return sales.CashCloseResult{}, err
+	}
+	difference, err := platform.ParseMoney(differenceRaw)
+	if err != nil {
+		return sales.CashCloseResult{}, err
+	}
+	return sales.CashCloseResult{
+		ExpectedCash: expected,
+		ClosingAmount: closing,
+		ClosingDifference: difference,
+	}, nil
 }
 
 func (r *CashRepo) GetSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID string) (sales.CashSession, error) {
