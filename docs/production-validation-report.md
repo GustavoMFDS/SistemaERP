@@ -4,7 +4,7 @@
 
 - Base audited: `main` after merge commit `768fe7ffffe7944a3bdde256c05d4fdc857edfc9`.
 - Hardening branch: `audit/e2e-hardening-round4-20260922`.
-- Evidence run: GitHub Actions `35763307873` on commit `f2f43f7428a80f0e1897dde76f9e3a1b6894d475`.
+- Evidence run: GitHub Actions `35765112514` on commit `65c71269eeb64a15a80db9f9cdfdc688e1bd05b1`.
 - CI result: backend PASS, frontend PASS, integration PASS, security PASS, e2e PASS, e2e-prodlike PASS.
 - Browser E2E: 18 tests discovered; 17 passed and 1 production-like-only test was intentionally skipped in the normal job.
 - Production-like E2E: 1/1 passed with built frontend over HTTPS, PostgreSQL `sslmode=verify-full` against a trusted CI CA, Redis over `rediss://`, secure HttpOnly refresh-cookie behavior, and server-confirmed logout semantics.
@@ -13,7 +13,7 @@
 - Logout no longer clears local auth/state when the revocation request fails. Because the refresh cookie is HttpOnly, logout is considered complete only after the server confirms revocation and cookie expiration.
 - Access-token validation and refresh rotation recheck current user↔tenant membership, so removing a user from a tenant invalidates existing tenant-scoped sessions immediately.
 - Staging/production configuration now requires PostgreSQL `sslmode=verify-full` and Redis `rediss://`; split Redis settings remain dev/legacy-only.
-- Integration CI validates migration `v12 → v13`, `v13 → v12` rollback, and reapplication against seeded existing data.
+- Integration CI validates migration `v12 → v13`, `v13 → v12` rollback, explicit rejection of seeded legacy duplicate-open cash sessions, and successful reapplication after reconciliation.
 - `govulncheck` reported 0 vulnerabilities reachable by the Go code; the production npm audit reported 0 vulnerabilities.
 
 ### Round 4 verdict
