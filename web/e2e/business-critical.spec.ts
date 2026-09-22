@@ -69,6 +69,11 @@ test('admin online sale updates stock and finance, generates fiscal XML, then ca
     const ledgerAfterCancel = await apiJson<Ledger>('/api/v1/finance/ledger?limit=200&offset=0')
     const saleAfterCancel = await apiJson<{ sale: { status: string } }>(`/api/v1/sales/${sale.id}`)
 
+    await apiJson(`/api/v1/cash/sessions/${cash.id}/close`, {
+      method: 'POST',
+      body: { closing_amount: 0, notes: 'E2E cleanup' },
+    })
+
     return {
       beforeQty: product.qty_on_hand,
       afterSaleQty: productAfterSale.qty_on_hand,

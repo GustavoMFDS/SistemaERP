@@ -22,4 +22,5 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
 
   await context.setOffline(false)
   await expect(page.getByText(/Pendências: 0/)).toBeVisible({ timeout: 15000 })
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
 })

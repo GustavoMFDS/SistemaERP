@@ -1,5 +1,25 @@
 # Production Validation Report
 
+## Revalidation — 2026-09-22 (round 3 hardening)
+
+- Base audited: `main` after merge commit `38bb1dd2f325396ebde016f60eb71ff8125fe7b8`.
+- Hardening branch: `audit/e2e-hardening-round3-20260922`.
+- Implementation evidence run: GitHub Actions `35759350936` on commit `e52b90333f09e8f60a7de4fe5f27de2b3e035fdd`.
+- CI result: backend PASS, frontend PASS, integration PASS, e2e PASS, e2e-prodlike PASS, security PASS.
+- Browser E2E: 14 tests passed and 1 production-like-only test was intentionally skipped in the normal job. The complete stateful functional suite runs deterministically in Chromium; Firefox and WebKit run an authenticated UI/PDV smoke to validate cross-engine compatibility without competing for shared transactional test data.
+- Production-like E2E: 1/1 passed through an HTTPS reverse proxy with a built frontend, staging configuration, PostgreSQL TLS, password-protected Redis, trusted proxy configuration, and secure refresh-cookie attributes.
+- Cash lifecycle is closed end to end: the UI closes the backend session, duplicate open/close operations return conflicts, and migration `0013` enforces at most one open session per tenant/register. Existing duplicate sessions make the migration fail explicitly for manual reconciliation rather than being silently altered.
+- Legacy offline queue `v1` is detected but never auto-attributed to a tenant. An authenticated operator can explicitly import legacy items into attention/reconciliation state, bind a sale to the current cash session with a new idempotency key, retry, or discard it.
+- Attention-state offline items are visible and individually actionable in the PDV instead of becoming an operational dead end.
+- A definitive refresh failure now propagates auth-state invalidation to the React route guard and immediately redirects to login.
+- Real two-tenant browser E2E verifies that tenant B cannot retrieve tenant A sale, fiscal XML, finance ledger references, privacy requests, or audit resource IDs.
+- `FISCAL_PROVIDER=mvp` is rejected in staging/production. Production-like configuration uses `FISCAL_PROVIDER=disabled` until a SEFAZ-ready provider is implemented and homologated.
+- Production dependency audit and `govulncheck` remain green.
+
+### Round 3 verdict
+
+**Code and CI findings from the third E2E audit are closed.** The repository is a strong production-like staging candidate. This is not approval for Brazilian fiscal production: real NF-e issuance remains intentionally disabled until a SEFAZ-ready provider (certificate/signature, tax fields, transmission/protocol handling and DANFE as applicable) is implemented and validated. Environment-specific backup/restore, load/failure-mode, monitoring, least-privilege credentials and legal/accounting/LGPD approvals remain operational prerequisites.
+
 ## Revalidation — 2026-09-22
 
 - Base audited: `main` after merge commit `7a5cfaa7216554de9f9f15eee9938f187dfc1d0e`.

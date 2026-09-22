@@ -100,6 +100,8 @@ func friendlyErrorMessage(err error) string {
 		return "estoque insuficiente"
 	case errors.Is(err, common.ErrCashSessionClosed):
 		return "sessao de caixa fechada"
+	case errors.Is(err, common.ErrCashSessionAlreadyOpen):
+		return "ja existe uma sessao aberta para este caixa"
 	case errors.Is(err, common.ErrPaymentsMismatch):
 		return "pagamentos nao conferem com o total"
 	case errors.Is(err, common.ErrConflict):

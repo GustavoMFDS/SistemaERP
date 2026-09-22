@@ -89,7 +89,7 @@ Verify restored schema and application startup:
 ```bash
 psql "$RESTORE_DATABASE_URL" -c "SELECT version, dirty FROM schema_migrations;"
 psql "$RESTORE_DATABASE_URL" -c "SELECT COUNT(*) FROM companies;"
-APP_ENV=staging DATABASE_URL="$RESTORE_DATABASE_URL" REDIS_URL="$STAGING_REDIS_URL" JWT_SECRET="$STAGING_JWT_SECRET" CORS_ALLOWED_ORIGINS="$STAGING_CORS_ALLOWED_ORIGINS" METRICS_BEARER_TOKEN="$STAGING_METRICS_BEARER_TOKEN" go run ./backend/cmd/api
+APP_ENV=staging FISCAL_PROVIDER=disabled DATABASE_URL="$RESTORE_DATABASE_URL" REDIS_URL="$STAGING_REDIS_URL" JWT_SECRET="$STAGING_JWT_SECRET" CORS_ALLOWED_ORIGINS="$STAGING_CORS_ALLOWED_ORIGINS" METRICS_BEARER_TOKEN="$STAGING_METRICS_BEARER_TOKEN" go run ./backend/cmd/api
 ```
 
 After startup, run the restore subset in `docs/smoke-test.md`: login, refresh, product listing, sale creation/cancellation, fiscal listing/download, finance listing, audit listing, privacy request status/export, consent revocation, offline queue flush, and tenant isolation.
@@ -144,4 +144,11 @@ Run a restore drill in staging at least quarterly and before major fiscal/privac
 - Access token TTL is 15 minutes or less.
 - Refresh cookie settings are compatible with HTTPS deployment.
 - Tenant memberships and `user_tenant_roles` are explicitly provisioned.
+- `FISCAL_PROVIDER=disabled` while no SEFAZ-ready provider is configured. The MVP provider is rejected in staging/production.
+- Before migration `0013`, verify there is at most one `open` cash session per `(tenant_id, cash_register_id)`; duplicate rows must be reconciled explicitly.
 - Backup and restore drill has been completed in staging.
+
+
+## Fiscal production guard
+
+The built-in `mvp` provider generates only demonstration XML and is not SEFAZ-ready. Configuration validation rejects `FISCAL_PROVIDER=mvp` for staging/production. Use `FISCAL_PROVIDER=disabled` until a homologated provider with certificate signing, SEFAZ transmission/protocol handling, tax fields, numbering rules and DANFE is implemented and validated.
