@@ -55,6 +55,9 @@ test('lost sale response reuses the original idempotency key', async ({ page }) 
     return apiJson<{ total: number }>('/api/v1/sales?limit=200&offset=0')
   })
   expect(after.total).toBe(before.total + 1)
+
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await expect(page.getByText(/cash_session_id/)).toBeVisible()
 })
 
 test('offline browser state is isolated by tenant and user', async ({ page }) => {
