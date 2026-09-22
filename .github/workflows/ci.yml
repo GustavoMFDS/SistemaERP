@@ -120,6 +120,7 @@ jobs:
           FROM cash_registers cr
           JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
           JOIN users u ON u.id=ut.user_id
+          WHERE cr.name='Caixa Upgrade CI'
           ORDER BY cr.created_at, u.created_at
           LIMIT 1;
           SQL
