@@ -35,6 +35,36 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - run: npm install --global npm@11.6.1
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start dependencies and run clean migrations
+        run: docker compose up -d db redis migrate
+      - name: Verify migration container
+        run: docker compose ps --all
+      - name: Start API and verify readiness
+        working-directory: backend
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
+          REDIS_ADDR: localhost:6379
+          JWT_SECRET: ci-integration-secret-that-is-over-32-chars
+          HTTP_ADDR: :18080
+          OTEL_ENABLED: "false"
+        run: |
+          go run ./cmd/api > /tmp/sistemaemgo-api.log 2>&1 &
+          echo $! > /tmp/sistemaemgo-api.pid
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:18080/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/sistemaemgo-api.log
+          exit 1
