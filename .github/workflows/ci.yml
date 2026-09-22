@@ -127,8 +127,9 @@ jobs:
         working-directory: web
         run: |
           npm install --global npm@11.6.1
+          npm install --package-lock-only --save-dev @playwright/test@1.55.1
+          git diff -- package.json package-lock.json
           npm ci
-          npm install --no-save @playwright/test@1.55.0
           npx playwright install --with-deps chromium
       - name: Start frontend
         working-directory: web
