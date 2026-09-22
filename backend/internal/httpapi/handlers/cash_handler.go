@@ -98,9 +98,9 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 			"closing_amount":     result.ClosingAmount.String(),
 			"closing_difference": result.ClosingDifference.String(),
 		},
-		RequestID:    requestID,
-		IP:           ip,
-		UserAgent:    userAgent,
+		RequestID: requestID,
+		IP:        ip,
+		UserAgent: userAgent,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":             "closed",
