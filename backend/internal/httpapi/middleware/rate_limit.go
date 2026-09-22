@@ -18,7 +18,7 @@ import (
 type RateLimitKeyFunc func(*http.Request) string
 
 var (
-	sharedFallbackLimiter = newLocalRateLimiter()
+	sharedFallbackLimiter   = newLocalRateLimiter()
 	ErrRateLimitUnavailable = errors.New("rate limit backend unavailable")
 )
 
@@ -75,14 +75,18 @@ func RateLimit(rdb *redis.Client, name string, limit int, window time.Duration, 
 
 func HashRateLimitIdentifier(identifier string) string {
 	normalized := strings.ToLower(strings.TrimSpace(identifier))
-	if normalized == "" { normalized = "blank" }
+	if normalized == "" {
+		normalized = "blank"
+	}
 	sum := sha256.Sum256([]byte(normalized))
 	return hex.EncodeToString(sum[:])
 }
 
 func RateLimitByIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil { return host }
+	if err == nil {
+		return host
+	}
 	return r.RemoteAddr
 }
 
@@ -95,7 +99,9 @@ func RateLimitByTenantUserOrIP(r *http.Request) string {
 
 func allowRequest(ctx context.Context, rdb *redis.Client, local *localRateLimiter, name, key string, limit int, window time.Duration) (bool, error) {
 	if rdb == nil {
-		if local == nil { return false, ErrRateLimitUnavailable }
+		if local == nil {
+			return false, ErrRateLimitUnavailable
+		}
 		return local.allow(name+":"+key, limit, window), nil
 	}
 
@@ -107,18 +113,21 @@ return count`
 	redisKey := "rl:" + name + ":" + key
 	redisCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
+
 	count, err := rdb.Eval(redisCtx, script, []string{redisKey}, window.Milliseconds()).Int64()
-	if err != nil { return false, err }
+	if err != nil {
+		return false, err
+	}
 	return count <= int64(limit), nil
 }
 
 type localRateLimiter struct {
-	mu sync.Mutex
+	mu      sync.Mutex
 	buckets map[string]localRateBucket
 }
 
 type localRateBucket struct {
-	count int
+	count   int
 	expires time.Time
 }
 
@@ -130,6 +139,7 @@ func (l *localRateLimiter) allow(key string, limit int, window time.Duration) bo
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
 	bucket := l.buckets[key]
 	if bucket.expires.IsZero() || now.After(bucket.expires) {
 		l.buckets[key] = localRateBucket{count: 1, expires: now.Add(window)}
