@@ -49,7 +49,7 @@ Migração:
 - `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
 - A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
 - Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo que outro tenant/usuário leia o estado anterior no mesmo navegador. Logout limpa apenas o escopo atual antes de remover o access token.
-- A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual.
+- A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual. Ao vincular um item a um novo caixa, a `Idempotency-Key` original é preservada: se a operação antiga já tiver sido commitada, o backend retorna conflito em vez de criar uma segunda venda.
 - Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
 - O backend usa `request_hash`: mesma chave + mesmo hash reaproveita o resultado; mesma chave + hash diferente retorna `409 conflict`.
 
@@ -57,11 +57,14 @@ Migração:
 
 ## Cenarios E2E obrigatorios
 
+- duplo clique/submissão concorrente em Finalizar gera apenas uma intenção/requisição de venda;
 - venda offline normal e sincronizacao ao reconectar;
 - resposta perdida depois de o backend processar a venda: retry deve usar a mesma `Idempotency-Key` e nao duplicar a venda;
 - dois tenants/usuarios no mesmo browser nao compartilham caixa, cache de produtos ou fila;
 - rejeicao permanente de um item nao impede a sincronizacao dos itens posteriores;
-- item com mais de 24 horas permanece armazenado em estado de atencao, sem exclusao silenciosa.
+- item com mais de 24 horas permanece armazenado em estado de atencao, sem exclusao silenciosa;
+- rebind de venda legada já commitada preserva a chave original e não duplica a venda;
+- falha de rede durante logout não limpa estado local nem simula revogação do cookie HttpOnly.
 
 ## Ciclo de caixa
 
