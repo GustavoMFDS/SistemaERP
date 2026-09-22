@@ -109,6 +109,56 @@ func TestValidateTokenChecksActiveUser(t *testing.T) {
 	}
 }
 
+func TestValidateTokenRejectsRemovedTenantMembership(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	allowed := true
+	users := &fakeUsersRepo{
+		user:          authdomain.User{ID: "user-1", Email: "admin@example.com", Name: "Admin", PasswordHash: string(hash), Active: true},
+		tenantID:      "tenant-1",
+		tenantAllowed: &allowed,
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	allowed = false
+	_, _, err = svc.ValidateToken(context.Background(), loginResp.AccessToken)
+	if err != common.ErrForbidden {
+		t.Fatalf("expected removed tenant membership to reject access token, got %v", err)
+	}
+}
+
+func TestRefreshRejectsRemovedTenantMembership(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	allowed := true
+	users := &fakeUsersRepo{
+		user:          authdomain.User{ID: "user-1", Email: "admin@example.com", Name: "Admin", PasswordHash: string(hash), Active: true},
+		tenantID:      "tenant-1",
+		tenantAllowed: &allowed,
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	allowed = false
+	_, _, _, err = svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken)
+	if err != common.ErrForbidden {
+		t.Fatalf("expected removed tenant membership to reject refresh, got %v", err)
+	}
+}
+
 func TestRefreshChecksActiveUser(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
@@ -133,11 +183,12 @@ func TestRefreshChecksActiveUser(t *testing.T) {
 }
 
 type fakeUsersRepo struct {
-	user        authdomain.User
-	tenantID    string
-	tenantErr   error
-	roles       []string
-	tenantPerms map[string][]string
+	user          authdomain.User
+	tenantID      string
+	tenantErr     error
+	roles         []string
+	tenantPerms   map[string][]string
+	tenantAllowed *bool
 }
 
 func (f *fakeUsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
@@ -165,6 +216,13 @@ func (f *fakeUsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (
 
 func (f *fakeUsersRepo) ListUserRoles(ctx context.Context, userID string, tenantID string) ([]string, error) {
 	return f.roles, nil
+}
+
+func (f *fakeUsersRepo) UserHasTenant(ctx context.Context, userID string, tenantID string) (bool, error) {
+	if f.tenantAllowed != nil {
+		return *f.tenantAllowed, nil
+	}
+	return tenantID == f.tenantID, nil
 }
 
 func (f *fakeUsersRepo) ListUserPermissions(ctx context.Context, userID string, tenantID string) ([]string, error) {

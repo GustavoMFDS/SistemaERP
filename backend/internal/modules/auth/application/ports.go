@@ -13,6 +13,7 @@ type UsersRepository interface {
 	GetByID(ctx context.Context, id string) (authdomain.User, error)
 	UpdateLastLogin(ctx context.Context, id string) error
 	GetDefaultTenantID(ctx context.Context, userID string) (string, error)
+	UserHasTenant(ctx context.Context, userID string, tenantID string) (bool, error)
 	ListUserRoles(ctx context.Context, userID string, tenantID string) ([]string, error)
 	ListUserPermissions(ctx context.Context, userID string, tenantID string) ([]string, error)
 }

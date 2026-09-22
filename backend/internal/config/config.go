@@ -151,8 +151,8 @@ func (c Config) Validate() error {
 		if err := validateRedisURL(c.RedisURL, c.IsProdLike()); err != nil {
 			errs = append(errs, err.Error())
 		}
-	} else if c.IsProdLike() && strings.TrimSpace(c.RedisPassword) == "" {
-		errs = append(errs, "REDIS_PASSWORD or REDIS_PASSWORD_FILE is required in staging/prod when REDIS_URL is not used")
+	} else if c.IsProdLike() {
+		errs = append(errs, "REDIS_URL with rediss:// is required in staging/prod")
 	}
 
 	sec := strings.TrimSpace(c.JWTSecret)
@@ -352,6 +352,11 @@ func validateDatabaseURL(raw string, prodLike bool) error {
 	if prodLike && (weak[strings.ToLower(pass)] || containsPlaceholder(pass)) {
 		return errors.New("DATABASE_URL password is too weak for staging/prod")
 	}
+	if prodLike {
+		if strings.ToLower(strings.TrimSpace(u.Query().Get("sslmode"))) != "verify-full" {
+			return errors.New("DATABASE_URL must use sslmode=verify-full in staging/prod")
+		}
+	}
 	return nil
 }
 
@@ -369,6 +374,9 @@ func validateRedisURL(raw string, prodLike bool) error {
 		return errors.New("REDIS_URL must include host")
 	}
 	if prodLike {
+		if u.Scheme != "rediss" {
+			return errors.New("REDIS_URL must use rediss:// in staging/prod")
+		}
 		pass, hasPass := u.User.Password()
 		if !hasPass || strings.TrimSpace(pass) == "" || containsPlaceholder(pass) {
 			return errors.New("REDIS_URL must include a non-placeholder password in staging/prod")

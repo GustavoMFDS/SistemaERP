@@ -58,6 +58,100 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
+      - name: Verify v12 to v13 migration upgrade and rollback
+        run: |
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
+            -c "CREATE DATABASE sistemaemgo_upgrade OWNER sistemaemgo;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            goto 12
+
+          docker compose run --rm -v "$PWD/backend/seed:/seed:ro" db \
+            psql "postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo_upgrade?sslmode=disable" \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='cash_sessions_one_open_per_register';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          # Prove that a legacy duplicate-open state is rejected instead of
+          # being silently mutated by migration 0013.
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO cash_registers(tenant_id, name, active)
+          SELECT c.id, 'Caixa Upgrade CI', true
+          FROM companies c
+          ORDER BY c.created_at
+          LIMIT 1
+          ON CONFLICT (tenant_id, name) DO NOTHING;
+
+          INSERT INTO cash_sessions(
+            tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
+          )
+          SELECT cr.tenant_id, cr.id, u.id, 0, 'open'
+          FROM cash_registers cr
+          JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
+          JOIN users u ON u.id=ut.user_id
+          WHERE cr.name='Caixa Upgrade CI'
+          ORDER BY cr.created_at, u.created_at
+          LIMIT 1;
+
+          INSERT INTO cash_sessions(
+            tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
+          )
+          SELECT cr.tenant_id, cr.id, u.id, 0, 'open'
+          FROM cash_registers cr
+          JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
+          JOIN users u ON u.id=ut.user_id
+          WHERE cr.name='Caixa Upgrade CI'
+          ORDER BY cr.created_at, u.created_at
+          LIMIT 1;
+          SQL
+
+          if docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1; then
+            echo "migration 0013 unexpectedly accepted duplicate open cash sessions"
+            exit 1
+          fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DELETE FROM cash_sessions WHERE status='open';" \
+            -c "UPDATE schema_migrations SET dirty=false WHERE version=13 AND dirty=true;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            force 12
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
       - name: Run tagged integration tests
         working-directory: backend
         env:
@@ -186,32 +280,56 @@ jobs:
           node-version: '22.13.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Start TLS PostgreSQL and protected Redis
+      - name: Start verified-TLS PostgreSQL and Redis
         run: |
-          mkdir -p /tmp/pgssl
+          mkdir -p /tmp/tls
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-            -subj "/CN=localhost" \
-            -keyout /tmp/pgssl/server.key \
-            -out /tmp/pgssl/server.crt
-          chmod 600 /tmp/pgssl/server.key
-          chmod 644 /tmp/pgssl/server.crt
-          sudo chown 999:999 /tmp/pgssl/server.key /tmp/pgssl/server.crt
+            -subj "/CN=SistemaEmGo CI CA" \
+            -keyout /tmp/tls/ca.key \
+            -out /tmp/tls/ca.crt
+
+          openssl req -newkey rsa:2048 -nodes \
+            -subj "/CN=127.0.0.1" \
+            -keyout /tmp/tls/server.key \
+            -out /tmp/tls/server.csr
+          printf "subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth\n" > /tmp/tls/server.ext
+          openssl x509 -req -days 1 \
+            -in /tmp/tls/server.csr \
+            -CA /tmp/tls/ca.crt \
+            -CAkey /tmp/tls/ca.key \
+            -CAcreateserial \
+            -extfile /tmp/tls/server.ext \
+            -out /tmp/tls/server.crt
+
+          chmod 600 /tmp/tls/server.key
+          chmod 644 /tmp/tls/server.crt /tmp/tls/ca.crt
+          sudo chown 999:999 /tmp/tls/server.key /tmp/tls/server.crt /tmp/tls/ca.crt
+          sudo cp /tmp/tls/ca.crt /usr/local/share/ca-certificates/sistemaemgo-ci-ca.crt
+          sudo update-ca-certificates
 
           docker run -d --name pg-staging \
             -e POSTGRES_DB=sistemaemgo \
             -e POSTGRES_USER=sistemaemgo \
             -e POSTGRES_PASSWORD=ci-staging-db-password \
             -p 55432:5432 \
-            -v /tmp/pgssl:/ssl:ro \
+            -v /tmp/tls:/tls:ro \
             postgres:16 \
             -c ssl=on \
-            -c ssl_cert_file=/ssl/server.crt \
-            -c ssl_key_file=/ssl/server.key
+            -c ssl_cert_file=/tls/server.crt \
+            -c ssl_key_file=/tls/server.key
 
           docker run -d --name redis-staging \
             -p 56379:6379 \
+            -v /tmp/tls:/tls:ro \
             redis:7.4-alpine \
-            redis-server --requirepass ci-staging-redis-password
+            redis-server \
+              --port 0 \
+              --tls-port 6379 \
+              --tls-cert-file /tls/server.crt \
+              --tls-key-file /tls/server.key \
+              --tls-ca-cert-file /tls/ca.crt \
+              --tls-auth-clients no \
+              --requirepass ci-staging-redis-password
 
           for i in {1..30}; do
             if docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo >/dev/null 2>&1; then
@@ -220,20 +338,22 @@ jobs:
             sleep 2
           done
           docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo
-          docker exec redis-staging redis-cli -a ci-staging-redis-password ping
+          docker exec redis-staging redis-cli --tls --cacert /tls/ca.crt -a ci-staging-redis-password ping
       - name: Migrate and seed over PostgreSQL TLS
         run: |
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
+            -v /tmp/tls:/tls:ro \
             migrate/migrate:v4.17.1 \
             -path=/migrations \
-            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=require" \
+            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
             up
 
           docker run --rm --network host \
             -v "$PWD/backend/seed:/seed:ro" \
+            -v /tmp/tls:/tls:ro \
             postgres:16 \
-            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=require" \
+            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
             -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
       - name: Configure staging hostname
         run: echo "127.0.0.1 staging.example.test" | sudo tee -a /etc/hosts
@@ -243,9 +363,8 @@ jobs:
         env:
           APP_ENV: staging
           FISCAL_PROVIDER: disabled
-          DATABASE_URL: postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=require
-          REDIS_ADDR: 127.0.0.1:56379
-          REDIS_PASSWORD: ci-staging-redis-password
+          DATABASE_URL: "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tmp/tls/ca.crt"
+          REDIS_URL: "rediss://:ci-staging-redis-password@127.0.0.1:56379/0"
           JWT_SECRET: ci-staging-jwt-secret-longer-than-32-characters
           HTTP_ADDR: :18081
           OTEL_ENABLED: "false"

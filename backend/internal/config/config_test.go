@@ -67,6 +67,38 @@ func TestValidateRejectsInvalidRedisURL(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsDatabaseWithoutVerifyFullInProd(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.DatabaseURL = "postgres://app:super-secret-password@db:5432/sistemaemgo?sslmode=require"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "sslmode=verify-full") {
+		t.Fatalf("expected verify-full database validation error, got %v", err)
+	}
+}
+
+func TestValidateRejectsPlainRedisInProd(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.RedisURL = "redis://:strong-redis-password@redis.example.internal:6379/0"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "rediss://") {
+		t.Fatalf("expected rediss validation error, got %v", err)
+	}
+}
+
+func TestValidateRejectsSplitRedisInProd(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.RedisURL = ""
+	cfg.RedisAddr = "redis.example.internal:6379"
+	cfg.RedisPassword = "strong-redis-password"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "REDIS_URL with rediss://") {
+		t.Fatalf("expected production REDIS_URL requirement, got %v", err)
+	}
+}
+
 func TestValidateRejectsMVPFiscalProviderInProd(t *testing.T) {
 	cfg := validProdConfig()
 	cfg.FiscalProvider = "mvp"
@@ -93,9 +125,8 @@ func validProdConfig() Config {
 		Env:                "prod",
 		ServiceName:        "sistemaemgo-api",
 		HTTPAddr:           ":8080",
-		DatabaseURL:        "postgres://app:super-secret-password@db:5432/sistemaemgo?sslmode=require",
-		RedisAddr:          "redis:6379",
-		RedisPassword:      "super-secret-redis-password",
+		DatabaseURL:        "postgres://app:super-secret-password@db:5432/sistemaemgo?sslmode=verify-full",
+		RedisURL:           "rediss://:super-secret-redis-password@redis.example.internal:6379/0",
 		JWTSecret:          "this-is-a-very-long-production-jwt-secret",
 		JWTIssuer:          "sistemaemgo",
 		AccessTokenTTL:     15 * time.Minute,

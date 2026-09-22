@@ -94,7 +94,7 @@ APP_ENV=staging FISCAL_PROVIDER=disabled DATABASE_URL="$RESTORE_DATABASE_URL" RE
 
 After startup, run the restore subset in `docs/smoke-test.md`: login, refresh, product listing, sale creation/cancellation, fiscal listing/download, finance listing, audit listing, privacy request status/export, consent revocation, offline queue flush, and tenant isolation.
 
-Redis stores refresh-token rotation/session state and optional cache data. Treat Redis availability as security-critical in staging/production. If Redis persistence is enabled, align it with the infrastructure recovery plan; otherwise, be prepared to force user reauthentication after Redis loss.
+Redis stores refresh-token rotation/session state and optional cache data. Treat Redis availability and verified TLS as security-critical in staging/production. If Redis persistence is enabled, align it with the infrastructure recovery plan; otherwise, be prepared to force user reauthentication after Redis loss.
 
 These backup/restore commands are operational procedures. Do not mark backup/restore as tested until the exact command, date, artifact, environment, and result are recorded in the release evidence.
 
@@ -136,8 +136,8 @@ Run a restore drill in staging at least quarterly and before major fiscal/privac
 
 - `APP_ENV` is `staging` or `prod`.
 - `JWT_SECRET` is strong, unique, and not a placeholder.
-- `DATABASE_URL` uses a strong password and production-appropriate TLS settings.
-- `REDIS_URL` or split Redis settings point to a protected Redis deployment.
+- `DATABASE_URL` uses a strong password, `sslmode=verify-full`, and a trusted CA/root certificate.
+- `REDIS_URL` uses `rediss://` with a non-placeholder password and certificate verification. Split Redis settings are not accepted in staging/production.
 - `CORS_ALLOWED_ORIGINS` contains only explicit trusted HTTPS origins.
 - Metrics authentication is configured.
 - `ALLOW_DEMO_SEED` is not enabled.
@@ -145,10 +145,15 @@ Run a restore drill in staging at least quarterly and before major fiscal/privac
 - Refresh cookie settings are compatible with HTTPS deployment.
 - Tenant memberships and `user_tenant_roles` are explicitly provisioned.
 - `FISCAL_PROVIDER=disabled` while no SEFAZ-ready provider is configured. The MVP provider is rejected in staging/production.
-- Before migration `0013`, verify there is at most one `open` cash session per `(tenant_id, cash_register_id)`; duplicate rows must be reconciled explicitly.
+- Before migration `0013`, verify there is at most one `open` cash session per `(tenant_id, cash_register_id)`; duplicate rows must be reconciled explicitly. CI validates clean `v12 → v13`, `v13 → v12 → v13`, and rejection of legacy duplicate-open rows.
 - Backup and restore drill has been completed in staging.
 
 
 ## Fiscal production guard
 
 The built-in `mvp` provider generates only demonstration XML and is not SEFAZ-ready. Configuration validation rejects `FISCAL_PROVIDER=mvp` for staging/production. Use `FISCAL_PROVIDER=disabled` until a homologated provider with certificate signing, SEFAZ transmission/protocol handling, tax fields, numbering rules and DANFE is implemented and validated.
+
+## Session revocation and shared terminals
+
+- Logout is complete only after the backend confirms refresh-token revocation and clears the HttpOnly cookie. If the network is unavailable, keep the authenticated UI/session state and show the operator that logout was not completed; do not claim a local-only logout.
+- Access and refresh token validation recheck both active-user status and current `user_tenants` membership. Removing a user from a tenant invalidates subsequent protected requests and refreshes for that tenant.

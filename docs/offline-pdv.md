@@ -16,7 +16,7 @@ Objetivo: permitir que o PDV continue operando em quedas de rede **curtas/interm
 
 Fluxo:
 1. PDV monta e tenta sincronizar pendências se `navigator.onLine`.
-2. Em `Finalizar`, uma única `Idempotency-Key` é gerada antes do primeiro envio.
+2. Em `Finalizar`, uma trava síncrona permite apenas uma intenção em voo; uma única `Idempotency-Key` é gerada antes do primeiro envio, evitando venda duplicada por duplo clique.
 3. Se o browser estiver offline ou a resposta se perder após o envio, a venda é enfileirada reutilizando exatamente a mesma chave.
 4. Evento `online` dispara `flushQueue()` para sincronizar.
 5. Rejeições permanentes 4xx ficam preservadas como itens que requerem atenção e não bloqueiam vendas posteriores; falhas transitórias/rede interrompem o flush para retry posterior.
@@ -50,6 +50,7 @@ Migração:
 - A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
 - Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo que outro tenant/usuário leia o estado anterior no mesmo navegador. Logout limpa apenas o escopo atual antes de remover o access token.
 - A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual.
+- Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova. Ao vincular um item a um novo caixa, a `Idempotency-Key` original é preservada: se a operação antiga já tiver sido commitada, o backend retorna conflito em vez de criar uma segunda venda.
 - Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
 - O backend usa `request_hash`: mesma chave + mesmo hash reaproveita o resultado; mesma chave + hash diferente retorna `409 conflict`.
 
@@ -57,11 +58,16 @@ Migração:
 
 ## Cenarios E2E obrigatorios
 
+- duplo clique/submissão concorrente em Finalizar gera apenas uma intenção/requisição de venda;
 - venda offline normal e sincronizacao ao reconectar;
 - resposta perdida depois de o backend processar a venda: retry deve usar a mesma `Idempotency-Key` e nao duplicar a venda;
+- duplo clique em `Finalizar`: somente um POST de venda e uma chave idempotente devem ser emitidos;
+- rebind de venda legada/attention para outro caixa: preservar a chave original e bloquear duplicação se o backend já tiver commitado a intenção;
 - dois tenants/usuarios no mesmo browser nao compartilham caixa, cache de produtos ou fila;
 - rejeicao permanente de um item nao impede a sincronizacao dos itens posteriores;
-- item com mais de 24 horas permanece armazenado em estado de atencao, sem exclusao silenciosa.
+- item com mais de 24 horas permanece armazenado em estado de atencao, sem exclusao silenciosa;
+- rebind de venda legada já commitada preserva a chave original e não duplica a venda;
+- falha de rede durante logout não limpa estado local nem simula revogação do cookie HttpOnly.
 
 ## Ciclo de caixa
 
