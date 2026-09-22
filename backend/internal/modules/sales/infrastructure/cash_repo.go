@@ -2,10 +2,13 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
+	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,7 +21,6 @@ func NewCashRepo(dbpool *pgxpool.Pool) *CashRepo {
 }
 
 func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tenantID string) (string, error) {
-	// create a default register if none exists
 	var id string
 	err := r.db.QueryRow(ctx, `
 		WITH ins AS (
@@ -46,16 +48,28 @@ func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string,
 		VALUES ($1,$2,$3,$4,$5)
 		RETURNING id::text
 	`, tenantID, registerID, userID, openingAmount.DBString(), notes).Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "cash_sessions_one_open_per_register" {
+			return "", common.ErrCashSessionAlreadyOpen
+		}
+	}
 	return id, err
 }
 
 func (r *CashRepo) CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, closingAmount platform.Money, notes *string) error {
-	_, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		UPDATE cash_sessions
 		SET status='closed', closed_at=now(), closed_by_user_id=$2, closing_amount=$3, notes=COALESCE($4, notes)
 		WHERE tenant_id=$5 AND id=$1 AND status='open'
 	`, sessionID, userID, closingAmount.DBString(), notes, tenantID)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return common.ErrCashSessionClosed
+	}
+	return nil
 }
 
 func (r *CashRepo) GetSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID string) (sales.CashSession, error) {
