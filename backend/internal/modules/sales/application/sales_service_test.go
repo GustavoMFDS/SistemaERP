@@ -339,8 +339,8 @@ func (fakeCashRepo) EnsureDefaultRegister(context.Context, string) (string, erro
 func (fakeCashRepo) OpenSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) (string, error) {
 	return "cash-1", nil
 }
-func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) error {
-	return nil
+func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) (sales.CashCloseResult, error) {
+	return sales.CashCloseResult{}, nil
 }
 func (fakeCashRepo) GetSession(context.Context, db.DBTX, string, string) (sales.CashSession, error) {
 	return sales.CashSession{ID: "cash-1", Status: "open"}, nil
