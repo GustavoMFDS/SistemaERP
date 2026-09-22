@@ -45,6 +45,7 @@ type Config struct {
 	RateLimitLogout     int
 	RateLimitSales      int
 	RateLimitFiscal     int
+	FiscalProvider      string
 	DisableRedis        bool
 	PrivacyContactEmail string
 	AppPublicURL        string
@@ -106,6 +107,7 @@ func LoadFromEnv() (Config, error) {
 		RateLimitLogout:     getEnvInt("RATE_LIMIT_LOGOUT_PER_MINUTE", 30),
 		RateLimitSales:      getEnvInt("RATE_LIMIT_SALES_PER_MINUTE", 60),
 		RateLimitFiscal:     getEnvInt("RATE_LIMIT_FISCAL_PER_MINUTE", 20),
+		FiscalProvider:      strings.ToLower(strings.TrimSpace(getEnv("FISCAL_PROVIDER", "mvp"))),
 		DisableRedis:        getEnvBool("DISABLE_REDIS", false),
 		PrivacyContactEmail: strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
 		AppPublicURL:        strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
@@ -212,6 +214,15 @@ func (c Config) Validate() error {
 	}
 	if c.RateLimitLogin < 0 || c.RateLimitLoginID < 0 || c.RateLimitLoginIPID < 0 || c.RateLimitRefresh < 0 || c.RateLimitLogout < 0 || c.RateLimitSales < 0 || c.RateLimitFiscal < 0 {
 		errs = append(errs, "rate limit values must be >= 0")
+	}
+
+	switch c.FiscalProvider {
+	case "mvp", "disabled":
+	default:
+		errs = append(errs, "FISCAL_PROVIDER must be one of mvp|disabled")
+	}
+	if c.IsProdLike() && c.FiscalProvider == "mvp" {
+		errs = append(errs, "FISCAL_PROVIDER=mvp is not allowed in staging/prod because it is not SEFAZ-ready; use disabled until a production fiscal provider is configured")
 	}
 
 	if len(errs) > 0 {
