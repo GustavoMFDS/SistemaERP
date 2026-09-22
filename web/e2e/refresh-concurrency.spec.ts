@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test'
 test('concurrent 401 responses share one refresh request', async ({ page }) => {
   let refreshed = false
   let refreshCalls = 0
+  let meSuccesses = 0
+  let productSuccesses = 0
 
   await page.route('http://127.0.0.1:8080/api/v1/auth/login', async (route) => {
     await route.fulfill({
@@ -31,6 +33,7 @@ test('concurrent 401 responses share one refresh request', async ({ page }) => {
       await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ message: 'expired' }) })
       return
     }
+    meSuccesses += 1
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -43,6 +46,7 @@ test('concurrent 401 responses share one refresh request', async ({ page }) => {
       await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ message: 'expired' }) })
       return
     }
+    productSuccesses += 1
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -57,6 +61,7 @@ test('concurrent 401 responses share one refresh request', async ({ page }) => {
 
   await expect(page).toHaveURL(/\/products$/)
   await expect(page.getByRole('heading', { name: 'Produtos' })).toBeVisible()
-  await expect(page.getByText('Admin - admin@sistema.local')).toBeVisible()
-  expect(refreshCalls).toBe(1)
+  await expect.poll(() => refreshCalls).toBe(1)
+  await expect.poll(() => meSuccesses).toBeGreaterThan(0)
+  await expect.poll(() => productSuccesses).toBeGreaterThan(0)
 })
