@@ -75,9 +75,9 @@ Use `.env.example` for local development and `.env.prod.example` for staging/pro
 Important variables:
 
 - `APP_ENV`: `dev`, `test`, `staging`, or `prod`.
-- `DATABASE_URL`: PostgreSQL connection string.
-- `REDIS_URL`: preferred Redis connection string for staging/production.
-- `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`: split Redis configuration for local/legacy deployments.
+- `DATABASE_URL`: PostgreSQL connection string; staging/production require `sslmode=verify-full`.
+- `REDIS_URL`: required `rediss://` connection string for staging/production.
+- `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`: split Redis configuration for development/legacy deployments only.
 - `JWT_SECRET`: strong signing secret, at least 32 characters.
 - `ACCESS_TOKEN_TTL_MINUTES`, `REFRESH_TOKEN_TTL_MINUTES`: token lifetimes.
 - `CORS_ALLOWED_ORIGINS`: explicit origins in staging/production.
@@ -143,7 +143,7 @@ Smoke testing:
 ## Security Overview
 
 - Access tokens are short-lived JWTs.
-- Protected requests recheck current user status, so deactivated users are rejected before access-token expiration.
+- Protected requests recheck current user status and tenant membership, so deactivated or de-scoped users are rejected before token expiration.
 - Refresh tokens are stored only in an HttpOnly, `SameSite=Strict` cookie and rotated on refresh.
 - Refresh/logout endpoints validate trusted `Origin` or `Referer` headers.
 - Login is rate-limited by IP, by hashed normalized identifier, and by IP plus identifier.
