@@ -1,5 +1,25 @@
 # Production Validation Report
 
+## Revalidation — 2026-09-22 (round 4 hardening)
+
+- Base audited: `main` after merge commit `768fe7ffffe7944a3bdde256c05d4fdc857edfc9`.
+- Hardening branch: `audit/e2e-hardening-round4-20260922`.
+- Evidence run: GitHub Actions `35763307873` on commit `f2f43f7428a80f0e1897dde76f9e3a1b6894d475`.
+- CI result: backend PASS, frontend PASS, integration PASS, security PASS, e2e PASS, e2e-prodlike PASS.
+- Browser E2E: 18 tests discovered; 17 passed and 1 production-like-only test was intentionally skipped in the normal job.
+- Production-like E2E: 1/1 passed with built frontend over HTTPS, PostgreSQL `sslmode=verify-full` against a trusted CI CA, Redis over `rediss://`, secure HttpOnly refresh-cookie behavior, and server-confirmed logout semantics.
+- PDV finalization now uses a synchronous in-flight guard, so rapid/double clicks cannot create two independent idempotency keys/requests.
+- Rebinding an offline/legacy sale to the current cash session preserves the original `Idempotency-Key`; if the original request already committed, the backend conflict guard prevents a duplicate.
+- Logout no longer clears local auth/state when the revocation request fails. Because the refresh cookie is HttpOnly, logout is considered complete only after the server confirms revocation and cookie expiration.
+- Access-token validation and refresh rotation recheck current user↔tenant membership, so removing a user from a tenant invalidates existing tenant-scoped sessions immediately.
+- Staging/production configuration now requires PostgreSQL `sslmode=verify-full` and Redis `rediss://`; split Redis settings remain dev/legacy-only.
+- Integration CI validates migration `v12 → v13`, `v13 → v12` rollback, and reapplication against seeded existing data.
+- `govulncheck` reported 0 vulnerabilities reachable by the Go code; the production npm audit reported 0 vulnerabilities.
+
+### Round 4 verdict
+
+**All code/CI findings from the fourth E2E audit are closed by automated evidence.** The remaining prerequisites are operational/environmental rather than known code defects: production backup/restore evidence, load/failure-mode exercises, monitoring/alerting, least-privilege infrastructure credentials, legal/accounting/LGPD approval, and a SEFAZ-ready fiscal provider before real NF-e production use.
+
 ## Revalidation — 2026-09-22 (round 3 hardening)
 
 - Base audited: `main` after merge commit `38bb1dd2f325396ebde016f60eb71ff8125fe7b8`.
