@@ -39,9 +39,14 @@ npm run build
 | Expired refresh | Force protected request to 401 and make refresh fail. | Access token is cleared and UI redirects immediately to `/login`. |
 | Logout | Logout with a valid session. | Refresh token revoked; cookie cleared; frontend auth state cleared; audit event `auth.logout`. |
 | Logout network failure | Abort the logout request before the backend responds. | UI remains authenticated and reports logout incomplete; after network recovery a successful logout clears the HttpOnly cookie and local auth state. |
+| Logout revocation failure | Force the refresh-token store to fail revocation. | Backend returns `503`, does not expire the cookie and does not audit success; retry succeeds only after revocation is available. |
+| Invalid refresh cookie | Attempt refresh with an invalid/expired refresh token. | Backend returns `401` and expires the invalid browser cookie. |
 | Cash lifecycle | Open a cash session, attempt a second open, close it, close again, then reopen. | Second open and second close return conflict; reopen after valid close succeeds. |
+| Cash reconciliation | Open with known amount, create a cash-method sale, close with a declared difference. | Response/database contain expected cash, declared amount and difference; `cash.open`/`cash.close` audit events exist with reconciliation metadata. |
 | Sale creation | Create a sale with valid stock and payment. | Backend calculates totals; inventory decreases; finance/audit entries exist. |
 | Sale double-submit | Trigger `Finalizar` twice in the same interaction window. | Exactly one sale POST and one idempotency key are emitted; sale count increases once. |
+| Sale write-ahead failure | Make queue `localStorage.setItem` fail before finalization. | No sale POST leaves the browser; operator sees that no sale was sent. |
+| Missing idempotency key | Call `POST /sales` without `Idempotency-Key`. | Request is rejected with `422`; no sale/stock/ledger mutation occurs. |
 | Price tampering | Attempt sale with client-supplied low `unit_price`. | Backend ignores client price; total uses product/promotional price. |
 | Insufficient stock | Attempt sale above available stock. | Standardized validation/conflict error; no stock mutation. |
 | Sale cancellation | Cancel a finalized sale. | Stock restored in transaction; cancellation audit entry exists; no duplicate restoration. |
@@ -70,7 +75,9 @@ npm run build
 | Tenant isolation | Authenticate real tenant A and tenant B users and cross sale, fiscal XML, finance, privacy and audit identifiers. | Cross-tenant direct lookups are not found and tenant B lists contain none of tenant A's IDs. |
 | Tenant membership revocation | Remove the authenticated user from the token's tenant, then use access and refresh tokens again. | Protected access and refresh are rejected immediately even while the user account remains active. |
 | Production TLS policy | Start staging/prod config with PostgreSQL below `sslmode=verify-full` or Redis without `rediss://`. | Startup config validation fails; production-like E2E succeeds only with certificate-verified PostgreSQL and Redis TLS. |
-| Migration upgrade/rollback | Upgrade a populated v12 DB to v13, roll back to v12, inject duplicate open cash sessions, retry v13, reconcile, and reapply. | Normal up/down/up succeeds; duplicate-open upgrade fails explicitly without silent data correction; after reconciliation v13 applies. |
+| Migration upgrade/rollback | Upgrade a populated v12 DB through v13/v14, roll back/reapply, inject duplicate open cash sessions for v13 and reconcile. | v13 rejects duplicate-open data explicitly; after reconciliation v13 applies; v14 cash-reconciliation columns survive validated down/up. |
+| Redis limiter atomicity | Exercise the real Redis limiter repeatedly and inspect PTTL. | Requests are counted correctly and the rate-limit key always retains a positive TTL. |
+| Redis limiter outage | Exercise a production-configured limiter with Redis unavailable. | Sensitive request returns `503 service_unavailable`; it does not silently fall back to a node-local allowance. |
 
 ## Restore drill smoke subset
 
