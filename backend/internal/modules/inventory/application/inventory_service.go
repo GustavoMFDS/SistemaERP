@@ -90,5 +90,13 @@ func (s *InventoryService) Adjust(ctx context.Context, tenantID string, actorUse
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	if cache, ok := s.products.(interface {
+		InvalidateProduct(context.Context, string, string) error
+		BumpProductsListVersion(context.Context, string) error
+	}); ok {
+		cacheCtx := context.WithoutCancel(ctx)
+		_ = cache.InvalidateProduct(cacheCtx, tenantID, req.ProductID)
+		_ = cache.BumpProductsListVersion(cacheCtx, tenantID)
+	}
 	return nil
 }

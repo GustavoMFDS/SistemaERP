@@ -37,7 +37,10 @@ test('concurrent 401 responses share one refresh request', async ({ page }) => {
   })
 
   await page.route(/http:\/\/127\.0\.0\.1:8080\/api\/v1\/products.*/, async (route) => {
-    if (challengeMode && !refreshed) {
+    const url = new URL(route.request().url())
+    const isProbe = url.searchParams.has('probe')
+
+    if (challengeMode && isProbe && !refreshed) {
       await route.fulfill({
         status: 401,
         contentType: 'application/json',
@@ -46,7 +49,7 @@ test('concurrent 401 responses share one refresh request', async ({ page }) => {
       return
     }
 
-    if (challengeMode && refreshed) successfulRetries += 1
+    if (challengeMode && isProbe && refreshed) successfulRetries += 1
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

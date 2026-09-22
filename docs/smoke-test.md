@@ -53,6 +53,10 @@ npm run build
 | Consent create/revoke | Record consent and revoke it. | Consent evidence remains; withdrawal timestamp set; audit events exist. |
 | Offline enqueue | Disable network and create pending sale. | Queue stores only minimal sale payload, idempotency key, and timestamp. |
 | Offline flush | Restore network and flush queue. | Sale submitted once; idempotent replay does not duplicate sale. |
+| Lost response after commit | Let the backend process a sale, then fail the browser response before it is delivered. | Fallback queue preserves the original idempotency key; replay returns the prior result and sale count increases only once. |
+| Offline permanent conflict | Put a permanently invalid/rejected item before a valid queued sale. | Invalid item is preserved as attention; later valid item still synchronizes. |
+| Offline expiration | Leave a queued item older than 24 hours. | Item is not retried automatically and remains stored as attention; it is not silently deleted. |
+| Browser tenant isolation | Switch tenant/user identity in the same browser with cached PDV state. | Cash session, product cache, and offline queue from the prior identity are inaccessible. |
 | Offline logout | Logout with pending queue. | User is warned/confirmed before clearing pending items; no silent loss. |
 | RBAC allow | Perform action with required permission. | Request succeeds. |
 | RBAC deny | Perform same action with limited role. | Standardized `authorization_error`. |

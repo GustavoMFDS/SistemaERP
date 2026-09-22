@@ -1,4 +1,7 @@
-import { apiJson, errorMessage } from './api'
+import { APIError, apiJson, errorMessage } from './api'
+import { scopedStorageKey } from './auth'
+
+export type QueueState = 'pending' | 'attention'
 
 export type QueuedRequest = {
   id: string
@@ -7,10 +10,24 @@ export type QueuedRequest = {
   path: string
   body?: unknown
   headers?: Record<string, string>
+  state?: QueueState
+  attentionReason?: 'expired' | 'request_rejected'
+  lastError?: string
+  lastAttemptAt?: number
 }
 
-const QUEUE_KEY = 'sistemaemgo:offlineQueue:v1'
+export type QueueSummary = {
+  pending: number
+  attention: number
+  total: number
+}
+
+const QUEUE_NAMESPACE = 'sistemaemgo:offlineQueue:v2'
 const QUEUE_TTL_MS = 24 * 60 * 60 * 1000
+
+function queueKey(): string | null {
+  return scopedStorageKey(QUEUE_NAMESPACE)
+}
 
 function safeJsonParse<T>(raw: string | null): T | null {
   if (!raw) return null
@@ -22,31 +39,63 @@ function safeJsonParse<T>(raw: string | null): T | null {
 }
 
 function loadQueue(): QueuedRequest[] {
-  const parsed = safeJsonParse<QueuedRequest[]>(localStorage.getItem(QUEUE_KEY))
+  const key = queueKey()
+  if (!key) return []
+
+  const parsed = safeJsonParse<QueuedRequest[]>(localStorage.getItem(key))
   if (!parsed || !Array.isArray(parsed)) return []
+
   const now = Date.now()
-  const valid = parsed.filter(
-    (x) =>
+  let changed = false
+  const valid = parsed.filter((x) => {
+    const ok =
       x &&
       typeof x.id === 'string' &&
       typeof x.createdAt === 'number' &&
-      now - x.createdAt <= QUEUE_TTL_MS &&
       typeof x.method === 'string' &&
-      typeof x.path === 'string',
-  )
-  if (valid.length !== parsed.length) saveQueue(valid)
+      typeof x.path === 'string'
+    if (!ok) changed = true
+    return ok
+  })
+
+  for (const item of valid) {
+    if (!item.state) {
+      item.state = 'pending'
+      changed = true
+    }
+    if (item.state === 'pending' && now - item.createdAt > QUEUE_TTL_MS) {
+      item.state = 'attention'
+      item.attentionReason = 'expired'
+      item.lastError = 'Venda offline expirou antes da sincronizacao automatica.'
+      changed = true
+    }
+  }
+
+  if (changed) saveQueue(valid)
   return valid
 }
 
 function saveQueue(queue: QueuedRequest[]): void {
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue))
+  const key = queueKey()
+  if (!key) return
+  localStorage.setItem(key, JSON.stringify(queue))
+}
+
+export function getQueueSummary(): QueueSummary {
+  const queue = loadQueue()
+  const pending = queue.filter((item) => item.state !== 'attention').length
+  const attention = queue.filter((item) => item.state === 'attention').length
+  return { pending, attention, total: queue.length }
 }
 
 export function getQueueCount(): number {
-  return loadQueue().length
+  return getQueueSummary().total
 }
 
-export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt'>): string {
+export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt' | 'state'>): string {
+  const key = queueKey()
+  if (!key) throw new Error('authenticated tenant/user scope is required')
+
   const id = crypto.randomUUID()
   const headers = sanitizeQueuedHeaders(req.headers)
   if (req.path.includes('/api/v1/sales') && !headers['Idempotency-Key']) {
@@ -59,6 +108,7 @@ export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt'>): st
     path: req.path,
     body: sanitizeQueuedBody(req.path, req.body),
     headers,
+    state: 'pending',
   }
   const queue = loadQueue()
   queue.push(next)
@@ -67,7 +117,8 @@ export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt'>): st
 }
 
 export function clearOfflineQueue(): void {
-  localStorage.removeItem(QUEUE_KEY)
+  const key = queueKey()
+  if (key) localStorage.removeItem(key)
 }
 
 function sanitizeQueuedHeaders(headers?: Record<string, string>): Record<string, string> {
@@ -102,19 +153,28 @@ function sanitizeQueuedBody(path: string, body: unknown): unknown {
   }
 }
 
+function isPermanentQueueError(error: unknown): boolean {
+  if (!(error instanceof APIError)) return false
+  if (error.status < 400 || error.status >= 500) return false
+  return ![401, 408, 425, 429].includes(error.status)
+}
+
 export type FlushResult =
-  | { ok: true; processed: number; remaining: number }
-  | { ok: false; processed: number; remaining: number; error: string }
+  | { ok: true; processed: number; remaining: number; attention: number }
+  | { ok: false; processed: number; remaining: number; attention: number; error: string }
 
 export async function flushQueue(): Promise<FlushResult> {
   if (!navigator.onLine) {
-    return { ok: true, processed: 0, remaining: getQueueCount() }
+    const summary = getQueueSummary()
+    return { ok: true, processed: 0, remaining: summary.total, attention: summary.attention }
   }
 
   const queue = loadQueue().sort((a, b) => a.createdAt - b.createdAt)
   let processed = 0
 
   for (const item of queue) {
+    if (item.state === 'attention') continue
+
     try {
       await apiJson(item.path, {
         method: item.method,
@@ -122,15 +182,35 @@ export async function flushQueue(): Promise<FlushResult> {
         headers: item.headers,
       })
 
-      // remove item
       const current = loadQueue().filter((x) => x.id !== item.id)
       saveQueue(current)
       processed += 1
     } catch (e: unknown) {
       const msg = errorMessage(e)
-      return { ok: false, processed, remaining: getQueueCount(), error: msg }
+      if (isPermanentQueueError(e)) {
+        const current = loadQueue()
+        const failed = current.find((x) => x.id === item.id)
+        if (failed) {
+          failed.state = 'attention'
+          failed.attentionReason = 'request_rejected'
+          failed.lastError = msg
+          failed.lastAttemptAt = Date.now()
+          saveQueue(current)
+        }
+        continue
+      }
+
+      const summary = getQueueSummary()
+      return {
+        ok: false,
+        processed,
+        remaining: summary.total,
+        attention: summary.attention,
+        error: msg,
+      }
     }
   }
 
-  return { ok: true, processed, remaining: getQueueCount() }
+  const summary = getQueueSummary()
+  return { ok: true, processed, remaining: summary.total, attention: summary.attention }
 }
