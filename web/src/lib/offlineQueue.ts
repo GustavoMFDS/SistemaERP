@@ -200,6 +200,22 @@ export function discardQueueItem(id: string): boolean {
   return true
 }
 
+export function markQueueItemAttention(
+  id: string,
+  reason: AttentionReason,
+  message: string,
+): boolean {
+  const queue = loadQueue()
+  const item = queue.find((candidate) => candidate.id === id)
+  if (!item) return false
+  item.state = 'attention'
+  item.attentionReason = reason
+  item.lastError = message
+  item.lastAttemptAt = Date.now()
+  saveQueue(queue)
+  return true
+}
+
 export function rebindQueueItemToCashSession(id: string, cashSessionId: string): boolean {
   const normalizedCashSessionId = cashSessionId.trim()
   if (!normalizedCashSessionId) return false
