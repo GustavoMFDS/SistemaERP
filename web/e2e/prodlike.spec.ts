@@ -64,7 +64,6 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
       name: '__Host-refresh_token',
       value: 'invalid-refresh-token',
       url: 'https://staging.example.test:8443',
-      path: '/',
       secure: true,
       httpOnly: true,
       sameSite: 'Strict',
