@@ -1,5 +1,7 @@
 import { clearToken, getToken, setToken } from './auth'
 
+let refreshPromise: Promise<boolean> | null = null
+
 export class APIError extends Error {
   status: number
   bodyText?: string
@@ -89,7 +91,16 @@ async function apiJsonInternal<T>(
   return text as unknown as T
 }
 
-export async function refreshAccessToken(): Promise<boolean> {
+export function refreshAccessToken(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = performRefresh().finally(() => {
+    refreshPromise = null
+  })
+  return refreshPromise
+}
+
+async function performRefresh(): Promise<boolean> {
   try {
     const token = await apiJsonInternal<{ access_token: string }>(
       '/api/v1/auth/refresh',

@@ -81,6 +81,7 @@ Important variables:
 - `JWT_SECRET`: strong signing secret, at least 32 characters.
 - `ACCESS_TOKEN_TTL_MINUTES`, `REFRESH_TOKEN_TTL_MINUTES`: token lifetimes.
 - `CORS_ALLOWED_ORIGINS`: explicit origins in staging/production.
+- `TRUSTED_PROXY_CIDRS`: reverse-proxy networks allowed to supply forwarded client IP headers; leave empty for direct exposure.
 - `METRICS_BEARER_TOKEN` or `METRICS_BASIC_USER` / `METRICS_BASIC_PASS`: required for metrics in staging/production.
 - `RATE_LIMIT_*`: sensitive endpoint rate limits.
 - `PRIVACY_CONTACT_EMAIL`, `APP_PUBLIC_URL`: privacy/DPO contact and public URL.
@@ -170,7 +171,7 @@ See [docs/privacy/data-inventory.md](docs/privacy/data-inventory.md), [docs/priv
 
 ## Observability
 
-- Health endpoints support runtime checks.
+- `/health/live` checks process liveness; `/health/ready` verifies PostgreSQL and Redis readiness.
 - Prometheus metrics are exposed through `/metrics` and protected outside development.
 - Structured logs include request IDs.
 - Audit logs support incident investigation without storing secrets or excessive personal data.

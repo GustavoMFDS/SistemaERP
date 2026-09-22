@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -17,7 +18,7 @@ import (
 func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(chimw.RealIP)
+	r.Use(middleware.TrustedRealIP(cfg))
 	r.Use(middleware.RequestID())
 	r.Use(middleware.SecurityHeaders(cfg))
 	r.Use(middleware.CORS(cfg))
@@ -28,11 +29,9 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 	r.With(middleware.ProtectMetrics(cfg)).Handle("/metrics", promhttp.Handler())
 
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	r.Get("/health", liveHealth)
+	r.Get("/health/live", liveHealth)
+	r.Get("/health/ready", readinessHealth(mods))
 
 	h := handlers.New(cfg, mods, logger)
 	authLoginLimit := middleware.RateLimit(mods.Redis, "auth_login", cfg.RateLimitLogin, time.Minute, middleware.RateLimitByIP)
@@ -108,4 +107,35 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 	})
 
 	return r
+}
+
+func liveHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+func readinessHealth(mods *modules.Modules) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		if mods.DB == nil || mods.DB.Ping(ctx) != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"unready","dependency":"postgres"}`))
+			return
+		}
+		if mods.Redis != nil {
+			if err := mods.Redis.Ping(ctx).Err(); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"unready","dependency":"redis"}`))
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ready"}`))
+	}
 }

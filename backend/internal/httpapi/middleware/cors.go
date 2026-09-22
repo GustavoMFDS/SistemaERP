@@ -21,6 +21,7 @@ func CORS(cfg config.Config) func(http.Handler) http.Handler {
 			if origin != "" {
 				if _, ok := allowedOrigins[origin]; ok {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
 					w.Header().Add("Vary", "Origin")
 					w.Header().Set("Access-Control-Allow-Methods", allowedMethods)
 					w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
