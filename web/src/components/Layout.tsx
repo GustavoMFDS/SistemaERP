@@ -21,6 +21,8 @@ export default function Layout() {
   const navigate = useNavigate()
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meError, setMeError] = useState<string>('')
+  const [logoutError, setLogoutError] = useState('')
+  const [loggingOut, setLoggingOut] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -48,7 +50,9 @@ export default function Layout() {
     [],
   )
 
-  function logout() {
+  async function logout() {
+    if (loggingOut) return
+
     const pending = getQueueCount()
     if (
       pending > 0 &&
@@ -58,15 +62,29 @@ export default function Layout() {
     ) {
       return
     }
-    void apiJson('/api/v1/auth/logout', { method: 'POST' }).catch(() => {
-      // Local logout still wins if the network is unavailable.
-    })
-    // Clear state while the current token still identifies the tenant/user scope.
-    clearCashSessionId()
-    clearOfflineQueue()
-    clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
-    clearToken()
-    navigate('/login', { replace: true })
+
+    setLogoutError('')
+    setLoggingOut(true)
+    try {
+      // The refresh token is HttpOnly, so the browser cannot safely complete
+      // logout locally. Only clear local state after the server confirms the
+      // revocation and sends the cookie expiration response.
+      await apiJson('/api/v1/auth/logout', { method: 'POST' })
+
+      // Clear scoped state while the current access token still identifies
+      // the tenant/user namespace.
+      clearCashSessionId()
+      clearOfflineQueue()
+      clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
+      clearToken()
+      navigate('/login', { replace: true })
+    } catch (e: unknown) {
+      setLogoutError(
+        `Não foi possível encerrar a sessão no servidor. Verifique a conexão e tente novamente. ${errorMessage(e)}`,
+      )
+    } finally {
+      setLoggingOut(false)
+    }
   }
 
   return (
@@ -89,14 +107,21 @@ export default function Layout() {
               )}
             </div>
             <button
-              onClick={logout}
-              className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
+              onClick={() => void logout()}
+              disabled={loggingOut}
+              className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-60"
             >
-              Sair
+              {loggingOut ? 'Saindo…' : 'Sair'}
             </button>
           </div>
         </div>
       </header>
+
+      {logoutError ? (
+        <div className="mx-auto mt-3 max-w-6xl rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {logoutError}
+        </div>
+      ) : null}
 
       <div className="mx-auto grid max-w-6xl grid-cols-12 gap-4 px-4 py-4">
         <aside className="col-span-12 md:col-span-3">
