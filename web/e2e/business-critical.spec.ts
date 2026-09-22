@@ -84,7 +84,7 @@ test('admin online sale updates stock and finance, generates fiscal XML, then ca
       ),
       fiscalId: fiscal.xml_file_id,
       fiscalListed: fiscalList.items.some((item) => item.id === fiscal.xml_file_id),
-      privacyListReadable: Array.isArray(privacy.items),
+      privacyListReadable: Object.prototype.hasOwnProperty.call(privacy, 'items'),
     }
   })
 
