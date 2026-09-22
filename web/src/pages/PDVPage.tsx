@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
-import { enqueueRequest, flushQueue, getQueueCount } from '../lib/offlineQueue'
+import { enqueueRequest, flushQueue, getQueueSummary } from '../lib/offlineQueue'
 import {
   clearCashSessionId,
   getCashSessionId,
   setCashSessionId,
+  scopedStorageKey,
 } from '../lib/auth'
 
 type Product = {
@@ -32,13 +33,17 @@ type SaleItem = {
 
 type SalePayment = { method: string; amount: number }
 
+const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
+
 export default function PDVPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const [online, setOnline] = useState<boolean>(navigator.onLine)
-  const [pendingSync, setPendingSync] = useState<number>(getQueueCount())
+  const initialQueue = getQueueSummary()
+  const [pendingSync, setPendingSync] = useState<number>(initialQueue.pending)
+  const [attentionSync, setAttentionSync] = useState<number>(initialQueue.attention)
 
   const [cashSessionId, setCashSessionIdState] = useState(getCashSessionId())
   const [openingAmount, setOpeningAmount] = useState<number>(0)
@@ -64,7 +69,9 @@ export default function PDVPage() {
   }, [items])
 
   function refreshPending() {
-    setPendingSync(getQueueCount())
+    const summary = getQueueSummary()
+    setPendingSync(summary.pending)
+    setAttentionSync(summary.attention)
   }
 
   async function syncPending() {
@@ -76,6 +83,8 @@ export default function PDVPage() {
     refreshPending()
     if (res.ok === false) {
       setError(`Falha ao sincronizar pendências: ${res.error}`)
+    } else if (res.attention > 0) {
+      setError(`${res.attention} venda(s) offline requer(em) atenção manual e foram preservadas localmente.`)
     }
   }
 
@@ -86,9 +95,11 @@ export default function PDVPage() {
       const data = await apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0')
       const active = data.items.filter((p) => p.active)
       setProducts(active)
-      localStorage.setItem('sistemaemgo:productsCache:v1', JSON.stringify(active))
+      const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
+      if (cacheKey) localStorage.setItem(cacheKey, JSON.stringify(active))
     } catch (e: unknown) {
-      const cachedRaw = localStorage.getItem('sistemaemgo:productsCache:v1')
+      const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
+      const cachedRaw = cacheKey ? localStorage.getItem(cacheKey) : null
       if (cachedRaw) {
         try {
           const cached = JSON.parse(cachedRaw) as Product[]
@@ -181,25 +192,25 @@ export default function PDVPage() {
     setSaleId('')
     setSaleTotal(0)
 
+    const payments: SalePayment[] = [
+      { method: payMethod, amount: computedTotal },
+    ]
+    const body = {
+      cash_session_id: cashSessionId,
+      customer_id: null,
+      discount_value: 0,
+      items: items.map(({ product_id, qty, discount_value }) => ({
+        product_id,
+        qty,
+        discount_value,
+      })),
+      payments,
+    }
+    // Generate this exactly once. If the response is lost after the backend
+    // commits, the queued retry must use the same key to replay safely.
+    const idempotencyKey = crypto.randomUUID()
+
     try {
-      const payments: SalePayment[] = [
-        { method: payMethod, amount: computedTotal },
-      ]
-
-      const body = {
-        cash_session_id: cashSessionId,
-        customer_id: null,
-        discount_value: 0,
-        items: items.map(({ product_id, qty, discount_value }) => ({
-          product_id,
-          qty,
-          discount_value,
-        })),
-        payments,
-      }
-
-      const idempotencyKey = crypto.randomUUID()
-
       if (!navigator.onLine) {
         const queuedId = enqueueRequest({
           method: 'POST',
@@ -224,7 +235,6 @@ export default function PDVPage() {
       setSaleTotal(res.total)
       setItems([])
     } catch (e: unknown) {
-      // Best-effort offline fallback on network errors.
       const msg = errorMessage(e)
       const networkLike =
         !navigator.onLine ||
@@ -233,21 +243,6 @@ export default function PDVPage() {
 
       if (networkLike) {
         try {
-          const payments: SalePayment[] = [
-            { method: payMethod, amount: computedTotal },
-          ]
-          const body = {
-            cash_session_id: cashSessionId,
-            customer_id: null,
-            discount_value: 0,
-            items: items.map(({ product_id, qty, discount_value }) => ({
-              product_id,
-              qty,
-              discount_value,
-            })),
-            payments,
-          }
-          const idempotencyKey = crypto.randomUUID()
           const queuedId = enqueueRequest({
             method: 'POST',
             path: '/api/v1/sales',
@@ -275,7 +270,7 @@ export default function PDVPage() {
           <h2 className="text-base font-semibold">PDV</h2>
           <p className="text-sm text-gray-600">Abrir caixa e registrar venda finalizada.</p>
           <p className="mt-1 text-xs text-gray-600">
-            Status: {online ? 'online' : 'offline'} • Pendências: {pendingSync}
+            Status: {online ? 'online' : 'offline'} • Pendências: {pendingSync} • Atenção: {attentionSync}
           </p>
         </div>
         <button
