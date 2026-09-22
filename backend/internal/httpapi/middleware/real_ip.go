@@ -21,7 +21,7 @@ func TrustedRealIP(cfg config.Config) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			remoteIP := parseRemoteIP(r.RemoteAddr)
 			if remoteIP != nil && ipInNetworks(remoteIP, trusted) {
-				if forwarded := firstForwardedIP(r.Header.Get("X-Forwarded-For")); forwarded != nil {
+				if forwarded := forwardedClientIP(r.Header.Get("X-Forwarded-For"), trusted); forwarded != nil {
 					r.RemoteAddr = forwarded.String()
 				} else if realIP := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); realIP != nil {
 					r.RemoteAddr = realIP.String()
@@ -40,12 +40,18 @@ func parseRemoteIP(remoteAddr string) net.IP {
 	return net.ParseIP(strings.TrimSpace(remoteAddr))
 }
 
-func firstForwardedIP(value string) net.IP {
-	if value == "" {
-		return nil
+func forwardedClientIP(value string, trusted []*net.IPNet) net.IP {
+	parts := strings.Split(value, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(parts[i]))
+		if ip == nil {
+			continue
+		}
+		if !ipInNetworks(ip, trusted) {
+			return ip
+		}
 	}
-	first := strings.TrimSpace(strings.Split(value, ",")[0])
-	return net.ParseIP(first)
+	return nil
 }
 
 func ipInNetworks(ip net.IP, networks []*net.IPNet) bool {
