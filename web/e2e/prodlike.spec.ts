@@ -38,6 +38,24 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
     .poll(async () => page.evaluate(cashSessionFromStorage))
     .toBe('')
 
+  await page.route('https://staging.example.test:8443/api/v1/auth/logout', async (route) => {
+    await route.abort('failed')
+  })
+  await page.getByRole('button', { name: 'Sair' }).click()
+  await expect(page).not.toHaveURL(/\/login$/)
+  await expect(page.getByText(/Não foi possível encerrar a sessão no servidor/)).toBeVisible()
+
+  const cookieAfterFailedLogout = (await context.cookies()).find(
+    (cookie) => cookie.name === '__Host-refresh_token',
+  )
+  expect(cookieAfterFailedLogout).toBeTruthy()
+
+  await page.unroute('https://staging.example.test:8443/api/v1/auth/logout')
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/login$/)
+
+  const cookieAfterSuccessfulLogout = (await context.cookies()).find(
+    (cookie) => cookie.name === '__Host-refresh_token',
+  )
+  expect(cookieAfterSuccessfulLogout).toBeUndefined()
 })
