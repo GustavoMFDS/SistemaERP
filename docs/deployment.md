@@ -94,7 +94,7 @@ APP_ENV=staging FISCAL_PROVIDER=disabled DATABASE_URL="$RESTORE_DATABASE_URL" RE
 
 After startup, run the restore subset in `docs/smoke-test.md`: login, refresh, product listing, sale creation/cancellation, fiscal listing/download, finance listing, audit listing, privacy request status/export, consent revocation, offline queue flush, and tenant isolation.
 
-Redis stores refresh-token rotation/session state and optional cache data. Treat Redis availability as security-critical in staging/production. If Redis persistence is enabled, align it with the infrastructure recovery plan; otherwise, be prepared to force user reauthentication after Redis loss.
+Redis stores refresh-token rotation/session state and optional cache data. Treat Redis availability and verified TLS as security-critical in staging/production. If Redis persistence is enabled, align it with the infrastructure recovery plan; otherwise, be prepared to force user reauthentication after Redis loss.
 
 These backup/restore commands are operational procedures. Do not mark backup/restore as tested until the exact command, date, artifact, environment, and result are recorded in the release evidence.
 
@@ -136,8 +136,8 @@ Run a restore drill in staging at least quarterly and before major fiscal/privac
 
 - `APP_ENV` is `staging` or `prod`.
 - `JWT_SECRET` is strong, unique, and not a placeholder.
-- `DATABASE_URL` uses a strong password and production-appropriate TLS settings.
-- `REDIS_URL` or split Redis settings point to a protected Redis deployment.
+- `DATABASE_URL` uses a strong password, `sslmode=verify-full`, and a trusted CA/root certificate.
+- `REDIS_URL` uses `rediss://` with a non-placeholder password and certificate verification. Split Redis settings are not accepted in staging/production.
 - `CORS_ALLOWED_ORIGINS` contains only explicit trusted HTTPS origins.
 - Metrics authentication is configured.
 - `ALLOW_DEMO_SEED` is not enabled.
