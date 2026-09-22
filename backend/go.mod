@@ -1,5 +1,7 @@
 module github.com/example/sistemaemgo
+
 go 1.25.0
+
 require (
 	github.com/exaring/otelpgx v0.12.0
 	github.com/go-chi/chi/v5 v5.2.3
@@ -18,6 +20,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	golang.org/x/crypto v0.51.0
 )
+
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
