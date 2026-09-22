@@ -44,6 +44,21 @@ test('cash register allows only one open session and supports close/reopen', asy
     )
     .toBe('')
 
+  const duplicateCloseStatus = await page.evaluate(async (sessionId) => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    try {
+      await apiJson(`/api/v1/cash/sessions/${sessionId}/close`, {
+        method: 'POST',
+        body: { closing_amount: 0, notes: 'duplicate close e2e' },
+      })
+      return 200
+    } catch (error) {
+      if (error instanceof APIError) return error.status
+      throw error
+    }
+  }, firstCash)
+  expect(duplicateCloseStatus).toBe(409)
+
   await page.getByRole('button', { name: 'Abrir' }).click()
   const secondCash = await page.evaluate(async () => {
     const { getCashSessionId } = await import('/src/lib/auth.ts')
