@@ -67,6 +67,16 @@ func TestValidateRejectsInvalidRedisURL(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsMVPFiscalProviderInProd(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.FiscalProvider = "mvp"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "not SEFAZ-ready") {
+		t.Fatalf("expected production fiscal provider validation error, got %v", err)
+	}
+}
+
 func TestValidateRejectsPlaceholderSecretsInProd(t *testing.T) {
 	cfg := validProdConfig()
 	cfg.JWTSecret = "REPLACE_WITH_RANDOM_32_PLUS_CHARACTER_SECRET"
@@ -101,5 +111,6 @@ func validProdConfig() Config {
 		RateLimitLogout:    30,
 		RateLimitSales:     60,
 		RateLimitFiscal:    20,
+		FiscalProvider:     "disabled",
 	}
 }
