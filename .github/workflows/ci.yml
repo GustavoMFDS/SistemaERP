@@ -270,15 +270,15 @@ jobs:
           done
           cat /tmp/staging-api.log
           exit 1
-      - name: Start frontend and HTTPS reverse proxy
+      - name: Build frontend and start HTTPS reverse proxy
         working-directory: web
         env:
           VITE_API_BASE_URL: https://staging.example.test:8443
         run: |
           npm install --global npm@11.6.1
           npm ci
+          npm run build
           npx playwright install --with-deps chromium
-          npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/staging-web.log 2>&1 &
 
           cat > /tmp/Caddyfile <<'EOF'
           https://staging.example.test:8443 {
@@ -288,23 +288,27 @@ jobs:
               reverse_proxy 127.0.0.1:18081
             }
             handle {
-              reverse_proxy 127.0.0.1:5173
+              root * /srv
+              try_files {path} /index.html
+              file_server
             }
           }
           EOF
 
           docker run -d --name caddy-staging --network host \
             -v /tmp/Caddyfile:/etc/caddy/Caddyfile:ro \
+            -v "$PWD/dist:/srv:ro" \
             caddy:2.8-alpine
 
           for i in {1..30}; do
-            if curl --noproxy '*' -k --fail --silent https://staging.example.test:8443/health/ready; then
+            health="$(curl --noproxy '*' -k --fail --silent https://staging.example.test:8443/health/ready || true)"
+            app="$(curl --noproxy '*' -k --fail --silent https://staging.example.test:8443/login || true)"
+            if echo "$health" | grep -q '"status":"ready"' && echo "$app" | grep -q 'id="root"'; then
               exit 0
             fi
             sleep 2
           done
           docker logs caddy-staging
-          cat /tmp/staging-web.log
           exit 1
       - name: Run staging-like browser E2E
         working-directory: web
