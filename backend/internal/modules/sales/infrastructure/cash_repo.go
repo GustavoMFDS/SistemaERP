@@ -109,8 +109,8 @@ func (r *CashRepo) CloseSession(ctx context.Context, tx db.DBTX, tenantID string
 		return sales.CashCloseResult{}, err
 	}
 	return sales.CashCloseResult{
-		ExpectedCash: expected,
-		ClosingAmount: closing,
+		ExpectedCash:      expected,
+		ClosingAmount:     closing,
 		ClosingDifference: difference,
 	}, nil
 }
