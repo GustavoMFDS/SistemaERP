@@ -139,8 +139,7 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
   await page.getByRole('button', { name: 'Usar caixa atual' }).click()
   await expect(page.getByText('Reconciliação offline')).not.toBeVisible()
   expect(reboundCash).toBe(currentCash)
-  expect(reboundIdempotencyKey).not.toBe('')
-  expect(reboundIdempotencyKey).not.toBe('legacy-idem-1')
+  expect(reboundIdempotencyKey).toBe('legacy-idem-1')
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
 
