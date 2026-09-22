@@ -274,10 +274,10 @@ test('real tenant B cannot access tenant A sale, fiscal, finance, privacy or aud
       saleStatus,
       xmlStatus,
       privacyStatus,
-      ledgerLeak: ledger.items.some((item) => item.sale_id === ids.saleId),
-      fiscalLeak: fiscal.items.some((item) => item.id === ids.xmlId),
-      privacyLeak: privacy.items.some((item) => item.id === ids.privacyId),
-      auditLeak: audit.items.some((item) =>
+      ledgerLeak: (ledger.items ?? []).some((item) => item.sale_id === ids.saleId),
+      fiscalLeak: (fiscal.items ?? []).some((item) => item.id === ids.xmlId),
+      privacyLeak: (privacy.items ?? []).some((item) => item.id === ids.privacyId),
+      auditLeak: (audit.items ?? []).some((item) =>
         [ids.saleId, ids.xmlId, ids.privacyId].includes(item.resource_id ?? ''),
       ),
     }
