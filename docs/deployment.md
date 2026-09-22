@@ -144,4 +144,11 @@ Run a restore drill in staging at least quarterly and before major fiscal/privac
 - Access token TTL is 15 minutes or less.
 - Refresh cookie settings are compatible with HTTPS deployment.
 - Tenant memberships and `user_tenant_roles` are explicitly provisioned.
+- `FISCAL_PROVIDER=disabled` while no SEFAZ-ready provider is configured. The MVP provider is rejected in staging/production.
+- Before migration `0013`, verify there is at most one `open` cash session per `(tenant_id, cash_register_id)`; duplicate rows must be reconciled explicitly.
 - Backup and restore drill has been completed in staging.
+
+
+## Fiscal production guard
+
+The built-in `mvp` provider generates only demonstration XML and is not SEFAZ-ready. Configuration validation rejects `FISCAL_PROVIDER=mvp` for staging/production. Use `FISCAL_PROVIDER=disabled` until a homologated provider with certificate signing, SEFAZ transmission/protocol handling, tax fields, numbering rules and DANFE is implemented and validated.
