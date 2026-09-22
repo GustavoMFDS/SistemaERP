@@ -3,9 +3,9 @@
 Implemented or prepared controls:
 
 - JWT access tokens are short-lived by configuration (`ACCESS_TOKEN_TTL_MINUTES`, example default 15 minutes; staging/production rejects values above 15).
-- Protected requests and refresh-token rotation recheck current user status. Deactivated users are rejected before the old access token naturally expires.
+- Protected requests and refresh-token rotation recheck current user status and current tenant membership. Deactivated users or users removed from the token tenant are rejected before token expiry.
 - Refresh token rotation is backed by Redis and refresh tokens are issued as `HttpOnly`, `SameSite=Strict` cookies. Refresh tokens are not returned in JSON auth responses.
-- Logout revokes the refresh token when available and clears the cookie.
+- Logout is considered complete only after the server confirms refresh-token revocation and cookie expiration; a network failure leaves the authenticated UI in place with an explicit retry error.
 - Cookie-authenticated refresh/logout endpoints validate `Origin`/`Referer` against `CORS_ALLOWED_ORIGINS`; staging/production requires one of those headers.
 - Sensitive endpoints use rate limiting. Login is limited by IP, normalized identifier, and IP plus identifier. Redis is used when available; a local in-memory limiter is used as a development/testing fallback.
 - Login identifier rate-limit keys are SHA-256 hashes of normalized identifiers; raw emails are not embedded in Redis/local limiter keys.
@@ -19,13 +19,13 @@ Implemented or prepared controls:
 - CORS is environment-configurable and production requires explicit allowed origins.
 - Security headers are applied globally, including CSP, content-type sniffing protection, referrer policy, frame protection, permissions policy, and HSTS in production-like environments.
 - `/metrics` is public only in development by default. Staging/production must configure `METRICS_BEARER_TOKEN` or basic auth credentials.
-- Redis can be disabled only in development. Production fails config validation/startup if Redis is unavailable or disabled because refresh token rotation depends on it.
+- Redis can be disabled only in development. Staging/production require `rediss://`; PostgreSQL requires `sslmode=verify-full`. Startup fails when these verified-TLS requirements are not met.
 
 Sensitive environment variables:
 
 - `JWT_SECRET` or `JWT_SECRET_FILE`
 - `DATABASE_URL` or `DB_PASSWORD_FILE`
-- `REDIS_URL`, or `REDIS_PASSWORD` / `REDIS_PASSWORD_FILE` when using split Redis settings
+- `REDIS_URL` using `rediss://` in staging/production; split Redis settings are development/legacy-only
 - `METRICS_BEARER_TOKEN`
 - `METRICS_BASIC_PASS`
 - `ALLOW_DEMO_SEED` must not be enabled in staging/production.
