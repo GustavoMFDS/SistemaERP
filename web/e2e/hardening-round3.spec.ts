@@ -19,6 +19,17 @@ async function waitForCashClosed(page: import('@playwright/test').Page) {
     .toBe('')
 }
 
+async function waitForCashClosed(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe('')
+}
+
 test('cash register allows only one open session and supports close/reopen', async ({ page }) => {
   await login(page, 'admin@sistema.local')
   await page.getByRole('link', { name: 'PDV' }).click()
