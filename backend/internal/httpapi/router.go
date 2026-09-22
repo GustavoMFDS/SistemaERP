@@ -81,11 +81,13 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("finance:read")).Get("/ledger", h.Finance.ListLedger)
 			})
 
-			pr.Route("/fiscal", func(rr chi.Router) {
-				rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfe/xml", h.Fiscal.GenerateNFeXML)
-				rr.With(middleware.RequirePermission("invoice:read")).Get("/nfe/xml", h.Fiscal.ListXML)
-				rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/nfe/xml/{id}/download", h.Fiscal.DownloadXML)
-			})
+			if mods.Fiscal != nil {
+				pr.Route("/fiscal", func(rr chi.Router) {
+					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfe/xml", h.Fiscal.GenerateNFeXML)
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfe/xml", h.Fiscal.ListXML)
+					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/nfe/xml/{id}/download", h.Fiscal.DownloadXML)
+				})
+			}
 
 			pr.Route("/privacy", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("privacy:write")).Post("/requests", h.Privacy.CreateRequest)
