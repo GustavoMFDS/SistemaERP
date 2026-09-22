@@ -89,7 +89,7 @@ Verify restored schema and application startup:
 ```bash
 psql "$RESTORE_DATABASE_URL" -c "SELECT version, dirty FROM schema_migrations;"
 psql "$RESTORE_DATABASE_URL" -c "SELECT COUNT(*) FROM companies;"
-APP_ENV=staging DATABASE_URL="$RESTORE_DATABASE_URL" REDIS_URL="$STAGING_REDIS_URL" JWT_SECRET="$STAGING_JWT_SECRET" CORS_ALLOWED_ORIGINS="$STAGING_CORS_ALLOWED_ORIGINS" METRICS_BEARER_TOKEN="$STAGING_METRICS_BEARER_TOKEN" go run ./backend/cmd/api
+APP_ENV=staging FISCAL_PROVIDER=disabled DATABASE_URL="$RESTORE_DATABASE_URL" REDIS_URL="$STAGING_REDIS_URL" JWT_SECRET="$STAGING_JWT_SECRET" CORS_ALLOWED_ORIGINS="$STAGING_CORS_ALLOWED_ORIGINS" METRICS_BEARER_TOKEN="$STAGING_METRICS_BEARER_TOKEN" go run ./backend/cmd/api
 ```
 
 After startup, run the restore subset in `docs/smoke-test.md`: login, refresh, product listing, sale creation/cancellation, fiscal listing/download, finance listing, audit listing, privacy request status/export, consent revocation, offline queue flush, and tenant isolation.
