@@ -1,5 +1,29 @@
 # Production Validation Report
 
+## Revalidation — 2026-09-22
+
+- Base audited: `main` after merge commit `7a5cfaa7216554de9f9f15eee9938f187dfc1d0e`.
+- Hardening branch: `audit/e2e-offline-integrity-20260922`.
+- Evidence run: GitHub Actions `35689488382` on commit `294ab386b83de0999512cb39894e8fe30354ee26`.
+- CI result: backend PASS, frontend PASS, integration PASS, e2e PASS, security PASS.
+- Browser E2E: 5 tests passed in Chromium.
+- Tagged PostgreSQL integration test now runs in CI with `go test -tags=integration ./tests/integration/...` and validates cross-tenant product isolation.
+- Offline PDV validates normal offline/reconnect plus ambiguous response loss: a retry reuses the original `Idempotency-Key` and the backend records only one sale.
+- Browser operational state (cash session, product cache, offline queue) is scoped by authenticated tenant + user.
+- Offline items older than 24 hours are preserved in an attention state rather than silently deleted.
+- Permanent 4xx reconciliation failures are preserved for attention and no longer block later queued sales.
+- Production dependency audit and Go vulnerability gate passed.
+
+### Updated staging verdict
+
+**Ready for production-like staging validation.** The code/CI blockers identified in the May 2026 report and the September E2E audit are closed by automated evidence above. This still is not a production approval: real secrets/TLS/reverse proxy behavior, least-privilege production DB/Redis configuration, staging backup/restore drill, monitoring/load/failure-mode exercises, and legal/accounting/DPO approvals remain environment/operational prerequisites.
+
+### Superseded statements in the original report
+
+The original 2026-05-03 report below is retained as historical evidence. Its statements that browser offline POS testing was skipped and that GitHub CI still needed to run are no longer current; both now have automated GitHub Actions evidence in the 2026-09-22 revalidation above.
+
+## Original validation — 2026-05-03
+
 ## Executive Summary
 
 - Overall verdict: Ready for staging
