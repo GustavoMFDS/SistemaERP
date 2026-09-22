@@ -39,6 +39,37 @@ func TestPublicTokenResponseDoesNotExposeRefreshToken(t *testing.T) {
 	}
 }
 
+func TestRefreshFailureExpiresInvalidCookie(t *testing.T) {
+	cfg := config.Config{
+		Env:             "test",
+		JWTSecret:       "this-is-a-long-test-secret-for-handler-tests",
+		JWTIssuer:       "sistemaemgo-test",
+		AccessTokenTTL:  15 * time.Minute,
+		RefreshTokenTTL: 24 * time.Hour,
+	}
+	users := &logoutUsersRepo{}
+	svc := authapp.NewAuthService(cfg, users, &logoutRefreshStore{tokens: map[string]string{}}, slog.Default())
+	h := NewAuthHandler(cfg, svc, nil, nil, slog.Default())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "__Host-refresh_token", Value: "invalid-token", Path: "/"})
+	rec := httptest.NewRecorder()
+	h.Refresh(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("refresh status=%d, want 401", rec.Code)
+	}
+	cleared := false
+	for _, header := range rec.Header().Values("Set-Cookie") {
+		if strings.Contains(header, "__Host-refresh_token") && strings.Contains(header, "Max-Age=0") {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatalf("invalid refresh must expire the browser cookie")
+	}
+}
+
 func TestLogoutRequiresSuccessfulRefreshRevocation(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
