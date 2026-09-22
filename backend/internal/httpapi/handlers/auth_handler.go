@@ -43,7 +43,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Email = strings.TrimSpace(req.Email)
-	if !h.allowLoginIdentifier(r, req.Email) {
+	allowed, limitErr := h.allowLoginIdentifier(r, req.Email)
+	if limitErr != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "service_unavailable", "rate limit backend unavailable", nil)
+		return
+	}
+	if !allowed {
 		writeError(w, r, http.StatusTooManyRequests, "rate_limit", "rate limit exceeded", nil)
 		return
 	}
@@ -82,12 +87,18 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"token": publicTokenResponse(resp), "user": user})
 }
 
-func (h *AuthHandler) allowLoginIdentifier(r *http.Request, email string) bool {
+func (h *AuthHandler) allowLoginIdentifier(r *http.Request, email string) (bool, error) {
 	identifierHash := middleware.HashRateLimitIdentifier(email)
 	ip := middleware.RateLimitByIP(r)
-	idAllowed := middleware.AllowRateLimit(r.Context(), h.rdb, "auth_login_identifier", identifierHash, h.cfg.RateLimitLoginID, time.Minute)
-	combinedAllowed := middleware.AllowRateLimit(r.Context(), h.rdb, "auth_login_ip_identifier", ip+":"+identifierHash, h.cfg.RateLimitLoginIPID, time.Minute)
-	return idAllowed && combinedAllowed
+	idAllowed, err := middleware.AllowRateLimit(r.Context(), h.rdb, "auth_login_identifier", identifierHash, h.cfg.RateLimitLoginID, time.Minute, h.cfg.IsProdLike())
+	if err != nil {
+		return false, err
+	}
+	combinedAllowed, err := middleware.AllowRateLimit(r.Context(), h.rdb, "auth_login_ip_identifier", ip+":"+identifierHash, h.cfg.RateLimitLoginIPID, time.Minute, h.cfg.IsProdLike())
+	if err != nil {
+		return false, err
+	}
+	return idAllowed && combinedAllowed, nil
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
