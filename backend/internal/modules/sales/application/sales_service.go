@@ -299,6 +299,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	if err := tx.Commit(ctx); err != nil {
 		return "", 0, false, err
 	}
+	s.invalidateProductCaches(context.WithoutCancel(ctx), tenantID, productIDs)
 	if s.events != nil {
 		snaps := make([]events.SaleItemSnapshot, 0, len(computedItems))
 		for _, it := range computedItems {
@@ -459,6 +460,7 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	s.invalidateProductCaches(context.WithoutCancel(ctx), tenantID, productIDs)
 	if s.events != nil {
 		out := []events.DomainEvent{
 			events.SaleCancelledEvent{
@@ -484,6 +486,21 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 		s.events.PublishAll(ctx, out)
 	}
 	return nil
+}
+
+
+func (s *SalesService) invalidateProductCaches(ctx context.Context, tenantID string, productIDs []string) {
+	cache, ok := s.products.(interface {
+		InvalidateProduct(context.Context, string, string) error
+		BumpProductsListVersion(context.Context, string) error
+	})
+	if !ok {
+		return
+	}
+	for _, productID := range productIDs {
+		_ = cache.InvalidateProduct(ctx, tenantID, productID)
+	}
+	_ = cache.BumpProductsListVersion(ctx, tenantID)
 }
 
 func uniqueSortedProductIDsFromSaleItems(items []sales.SaleItem) []string {
