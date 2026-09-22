@@ -143,7 +143,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Go vulnerability scan
         working-directory: backend
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.1 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - name: Frontend production dependency audit
         working-directory: web
         run: |
