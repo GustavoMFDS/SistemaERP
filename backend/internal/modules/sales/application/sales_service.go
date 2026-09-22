@@ -92,17 +92,17 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := s.sales.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
-			return "", 0, false, err
+		return "", 0, false, err
+	}
+	if saleID, total, storedHash, ok, err := s.sales.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", 0, false, err
+	} else if ok {
+		if storedHash != requestHash {
+			return "", 0, false, common.ErrConflict
 		}
-		if saleID, total, storedHash, ok, err := s.sales.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
-			return "", 0, false, err
-		} else if ok {
-			if storedHash != requestHash {
-				return "", 0, false, common.ErrConflict
-			}
-			_ = tx.Rollback(ctx)
-			return saleID, total, false, nil
-		}
+		_ = tx.Rollback(ctx)
+		return saleID, total, false, nil
+	}
 
 	cs, err := s.cash.GetSession(ctx, tx, tenantID, req.CashSessionID)
 	if err != nil {
