@@ -92,6 +92,51 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             down 1
 
+          # Prove that a legacy duplicate-open state is rejected instead of
+          # being silently mutated by migration 0013.
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO cash_sessions(
+            tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
+          )
+          SELECT cr.tenant_id, cr.id, u.id, 0, 'open'
+          FROM cash_registers cr
+          JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
+          JOIN users u ON u.id=ut.user_id
+          ORDER BY cr.created_at, u.created_at
+          LIMIT 1;
+
+          INSERT INTO cash_sessions(
+            tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
+          )
+          SELECT cr.tenant_id, cr.id, u.id, 0, 'open'
+          FROM cash_registers cr
+          JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
+          JOIN users u ON u.id=ut.user_id
+          ORDER BY cr.created_at, u.created_at
+          LIMIT 1;
+          SQL
+
+          if docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1; then
+            echo "migration 0013 unexpectedly accepted duplicate open cash sessions"
+            exit 1
+          fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DELETE FROM cash_sessions WHERE status='open';" \
+            -c "UPDATE schema_migrations SET dirty=false WHERE version=13 AND dirty=true;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            force 12
+
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
             migrate/migrate:v4.17.1 \
