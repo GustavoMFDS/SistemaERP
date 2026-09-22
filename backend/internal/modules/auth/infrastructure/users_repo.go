@@ -75,6 +75,30 @@ func (r *UsersRepo) fallbackCompanyTenantID(ctx context.Context) (string, error)
 	return tenantID, err
 }
 
+func (r *UsersRepo) UserHasTenant(ctx context.Context, userID string, tenantID string) (bool, error) {
+	var ok bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_tenants
+			WHERE user_id=$1 AND tenant_id=$2
+		)
+	`, userID, tenantID).Scan(&ok)
+	if err == nil {
+		return ok, nil
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42P01" && r.allowTenantFallback {
+		fallbackID, fallbackErr := r.fallbackCompanyTenantID(ctx)
+		if fallbackErr != nil {
+			return false, fallbackErr
+		}
+		return fallbackID == tenantID, nil
+	}
+	return false, err
+}
+
 func (r *UsersRepo) ListUserRoles(ctx context.Context, userID string, tenantID string) ([]string, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT r.name
