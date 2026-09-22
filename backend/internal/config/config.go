@@ -216,12 +216,16 @@ func (c Config) Validate() error {
 		errs = append(errs, "rate limit values must be >= 0")
 	}
 
-	switch c.FiscalProvider {
+	fiscalProvider := strings.ToLower(strings.TrimSpace(c.FiscalProvider))
+	if fiscalProvider == "" {
+		fiscalProvider = "mvp"
+	}
+	switch fiscalProvider {
 	case "mvp", "disabled":
 	default:
 		errs = append(errs, "FISCAL_PROVIDER must be one of mvp|disabled")
 	}
-	if c.IsProdLike() && c.FiscalProvider == "mvp" {
+	if c.IsProdLike() && fiscalProvider == "mvp" {
 		errs = append(errs, "FISCAL_PROVIDER=mvp is not allowed in staging/prod because it is not SEFAZ-ready; use disabled until a production fiscal provider is configured")
 	}
 
