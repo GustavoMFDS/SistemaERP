@@ -10,7 +10,7 @@ The project is currently a pre-production / staging candidate. It implements tec
 - Sales creation, server-side price calculation, idempotent offline retry support, and sale cancellation.
 - Inventory balances, movements, low-stock checks, and stock validation.
 - Finance ledger and dashboard endpoints.
-- Fiscal XML/NFe preparation and access flows.
+- Fiscal XML/NFe preparation and access flows. The bundled provider is an MVP test provider and is blocked in staging/production.
 - Offline POS queue with TTL, idempotency keys, and minimal browser storage.
 - JWT access tokens plus HttpOnly refresh-token cookies with rotation.
 - Standardized JSON API errors with request IDs.
@@ -84,6 +84,7 @@ Important variables:
 - `TRUSTED_PROXY_CIDRS`: reverse-proxy networks allowed to supply forwarded client IP headers; leave empty for direct exposure.
 - `METRICS_BEARER_TOKEN` or `METRICS_BASIC_USER` / `METRICS_BASIC_PASS`: required for metrics in staging/production.
 - `RATE_LIMIT_*`: sensitive endpoint rate limits.
+- `FISCAL_PROVIDER`: `mvp` only for dev/test; use `disabled` in staging/production until a SEFAZ-ready provider exists.
 - `PRIVACY_CONTACT_EMAIL`, `APP_PUBLIC_URL`: privacy/DPO contact and public URL.
 
 See [docs/security.md](docs/security.md), [.env.example](.env.example), and [.env.prod.example](.env.prod.example) for configuration details.
