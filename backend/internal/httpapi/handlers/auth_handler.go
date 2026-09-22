@@ -127,9 +127,25 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	token := refreshTokenFromCookie(r)
 	userID, tenantID, _ := h.auth.IdentifyRefreshToken(token)
-	_ = h.auth.Logout(r.Context(), token)
-	clearRefreshCookie(w, h.cfg)
 	requestID, ip, userAgent := audit.RequestContext(r)
+
+	if err := h.auth.Logout(r.Context(), token); err != nil {
+		h.audit.Record(r.Context(), audit.Event{
+			TenantID:     tenantID,
+			ActorUserID:  userID,
+			Action:       "auth.logout",
+			ResourceType: "refresh_token",
+			Outcome:      "failure",
+			Metadata:     map[string]any{"reason": "revocation_unavailable"},
+			RequestID:    requestID,
+			IP:           ip,
+			UserAgent:    userAgent,
+		})
+		writeError(w, r, http.StatusServiceUnavailable, "service_unavailable", "nao foi possivel revogar a sessao", nil)
+		return
+	}
+
+	clearRefreshCookie(w, h.cfg)
 	h.audit.Record(r.Context(), audit.Event{
 		TenantID:     tenantID,
 		ActorUserID:  userID,
