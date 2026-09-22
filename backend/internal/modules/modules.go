@@ -36,6 +36,7 @@ type Modules struct {
 	Fiscal    *fiscapp.FiscalService
 	Privacy   *privacyapp.Service
 	Events    *events.Bus
+	DB        *pgxpool.Pool
 	Redis     *redis.Client
 	Audit     *audit.Service
 }
@@ -101,6 +102,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		Fiscal:    fiscalSvc,
 		Privacy:   privacySvc,
 		Events:    bus,
+		DB:        pool,
 		Redis:     rdb,
 		Audit:     auditSvc,
 	}
