@@ -294,9 +294,20 @@ jobs:
           npm install --global npm@11.6.1
           npm ci
           npm audit --omit=dev --audit-level=high
-      - name: Report frontend development advisories
+      - name: Generate remediated frontend lockfile
         working-directory: web
-        run: npm audit --json || true
+        run: |
+          npm audit fix --package-lock-only || true
+          npm audit --json > audit-after-fix.json || true
+      - name: Upload remediated frontend lockfile
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-audit-fix
+          path: |
+            web/package.json
+            web/package-lock.json
+            web/audit-after-fix.json
+          if-no-files-found: error
 
 
   e2e-prodlike:
