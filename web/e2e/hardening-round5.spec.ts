@@ -8,6 +8,17 @@ async function login(page: import('@playwright/test').Page) {
   await expect(page).toHaveURL(/\/products$/)
 }
 
+async function waitForCashClosed(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe('')
+}
+
 test('write-ahead storage failure prevents any sale request from leaving the browser', async ({
   page,
 }) => {
@@ -44,6 +55,7 @@ test('write-ahead storage failure prevents any sale request from leaving the bro
     delete w.__originalSetItem
   })
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await waitForCashClosed(page)
 })
 
 test('sales API rejects a request without Idempotency-Key', async ({ page }) => {
