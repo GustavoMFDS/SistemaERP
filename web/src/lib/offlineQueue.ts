@@ -200,6 +200,30 @@ export function discardQueueItem(id: string): boolean {
   return true
 }
 
+export function rebindQueueItemToCashSession(id: string, cashSessionId: string): boolean {
+  const normalizedCashSessionId = cashSessionId.trim()
+  if (!normalizedCashSessionId) return false
+
+  const queue = loadQueue()
+  const item = queue.find((candidate) => candidate.id === id)
+  if (!item || item.state !== 'attention' || !item.path.includes('/api/v1/sales')) return false
+  if (!item.body || typeof item.body !== 'object') return false
+
+  const body = item.body as Record<string, unknown>
+  item.body = { ...body, cash_session_id: normalizedCashSessionId }
+  item.headers = {
+    ...sanitizeQueuedHeaders(item.headers),
+    'Idempotency-Key': crypto.randomUUID(),
+  }
+  item.state = 'pending'
+  item.createdAt = Date.now()
+  item.lastAttemptAt = Date.now()
+  delete item.attentionReason
+  delete item.lastError
+  saveQueue(queue)
+  return true
+}
+
 export function clearOfflineQueue(): void {
   const key = queueKey()
   if (key) localStorage.removeItem(key)
