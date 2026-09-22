@@ -164,7 +164,6 @@ test('rebinding an already committed legacy sale preserves key and cannot duplic
 
 test('network failure during logout does not pretend the HttpOnly session was revoked', async ({
   page,
-  context: _context,
 }) => {
   await login(page)
 
