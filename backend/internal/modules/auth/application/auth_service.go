@@ -16,10 +16,10 @@ import (
 )
 
 type AuthService struct {
-	cfg      config.Config
-	users    UsersRepository
-	refresh  RefreshTokenStore
-	logger *slog.Logger
+	cfg     config.Config
+	users   UsersRepository
+	refresh RefreshTokenStore
+	logger  *slog.Logger
 }
 
 func NewAuthService(cfg config.Config, users UsersRepository, refresh RefreshTokenStore, logger *slog.Logger) *AuthService {
