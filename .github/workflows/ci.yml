@@ -44,6 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: backend/go.sum
       - name: Start dependencies and run clean migrations
         run: docker compose up -d db redis migrate
       - name: Verify migration container
@@ -58,7 +62,8 @@ jobs:
           HTTP_ADDR: :18080
           OTEL_ENABLED: "false"
         run: |
-          go run ./cmd/api > /tmp/sistemaemgo-api.log 2>&1 &
+          go build -o /tmp/sistemaemgo-api ./cmd/api
+          /tmp/sistemaemgo-api > /tmp/sistemaemgo-api.log 2>&1 &
           echo $! > /tmp/sistemaemgo-api.pid
           for i in {1..30}; do
             if curl --fail --silent http://localhost:18080/health/ready; then
