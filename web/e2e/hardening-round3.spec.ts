@@ -13,11 +13,16 @@ test('cash register allows only one open session and supports close/reopen', asy
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
 
-  const firstCash = await page.evaluate(async () => {
-    const { getCashSessionId } = await import('/src/lib/auth.ts')
-    return getCashSessionId()
-  })
-  expect(firstCash).not.toBe('')
+  let firstCash = ''
+  await expect
+    .poll(async () => {
+      firstCash = await page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      })
+      return firstCash
+    })
+    .not.toBe('')
 
   const duplicateStatus = await page.evaluate(async () => {
     const { APIError, apiJson } = await import('/src/lib/api.ts')
@@ -60,11 +65,16 @@ test('cash register allows only one open session and supports close/reopen', asy
   expect(duplicateCloseStatus).toBe(409)
 
   await page.getByRole('button', { name: 'Abrir' }).click()
-  const secondCash = await page.evaluate(async () => {
-    const { getCashSessionId } = await import('/src/lib/auth.ts')
-    return getCashSessionId()
-  })
-  expect(secondCash).not.toBe('')
+  let secondCash = ''
+  await expect
+    .poll(async () => {
+      secondCash = await page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      })
+      return secondCash
+    })
+    .not.toBe('')
   expect(secondCash).not.toBe(firstCash)
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
