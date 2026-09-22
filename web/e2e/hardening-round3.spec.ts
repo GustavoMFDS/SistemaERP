@@ -106,9 +106,43 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
   await expect(page.getByText('Reconciliação offline')).toBeVisible()
   await expect(page.getByText(/legacy_migration/)).toBeVisible()
 
+  await page.getByRole('button', { name: 'Abrir' }).click()
+  let currentCash = ''
+  await expect
+    .poll(async () => {
+      currentCash = await page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      })
+      return currentCash
+    })
+    .not.toBe('')
+
+  let reboundCash = ''
+  let reboundIdempotencyKey = ''
+  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    const body = route.request().postDataJSON() as { cash_session_id?: string }
+    reboundCash = body.cash_session_id ?? ''
+    reboundIdempotencyKey = route.request().headers()['idempotency-key'] ?? ''
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'rebound-sale', status: 'finalized', total: 10 }),
+    })
+  })
+
   page.once('dialog', (dialog) => void dialog.accept())
-  await page.getByRole('button', { name: 'Descartar' }).click()
+  await page.getByRole('button', { name: 'Usar caixa atual' }).click()
   await expect(page.getByText('Reconciliação offline')).not.toBeVisible()
+  expect(reboundCash).toBe(currentCash)
+  expect(reboundIdempotencyKey).not.toBe('')
+  expect(reboundIdempotencyKey).not.toBe('legacy-idem-1')
+
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
 
   const remaining = await page.evaluate(() => localStorage.getItem('sistemaemgo:offlineQueue:v1'))
   expect(remaining).toBeNull()
