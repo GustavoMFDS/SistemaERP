@@ -95,6 +95,13 @@ jobs:
           # Prove that a legacy duplicate-open state is rejected instead of
           # being silently mutated by migration 0013.
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO cash_registers(tenant_id, name, active)
+          SELECT c.id, 'Caixa Upgrade CI', true
+          FROM companies c
+          ORDER BY c.created_at
+          LIMIT 1
+          ON CONFLICT (tenant_id, name) DO NOTHING;
+
           INSERT INTO cash_sessions(
             tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
           )
@@ -102,6 +109,7 @@ jobs:
           FROM cash_registers cr
           JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
           JOIN users u ON u.id=ut.user_id
+          WHERE cr.name='Caixa Upgrade CI'
           ORDER BY cr.created_at, u.created_at
           LIMIT 1;
 
