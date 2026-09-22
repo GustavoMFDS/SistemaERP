@@ -18,6 +18,20 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+func TestCreateAndFinalizeRequiresIdempotencyKey(t *testing.T) {
+	svc, _, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		Items:         []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(1_000)}},
+		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(1000)}},
+	}
+
+	_, _, _, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "   ", req)
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("want ErrValidation for blank idempotency key, got %v", err)
+	}
+}
+
 func TestCreateAndFinalizeIgnoresClientTamperedUnitPrice(t *testing.T) {
 	svc, salesRepo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
 	tampered := platform.NewMoneyCents(1)
