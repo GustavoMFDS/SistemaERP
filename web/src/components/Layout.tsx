@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
-import { clearCashSessionId, clearToken } from '../lib/auth'
+import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
 import { clearOfflineQueue, getQueueCount } from '../lib/offlineQueue'
+
+const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 
 type MeResponse = {
   id: string
@@ -59,9 +61,11 @@ export default function Layout() {
     void apiJson('/api/v1/auth/logout', { method: 'POST' }).catch(() => {
       // Local logout still wins if the network is unavailable.
     })
-    clearToken()
+    // Clear state while the current token still identifies the tenant/user scope.
     clearCashSessionId()
     clearOfflineQueue()
+    clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
+    clearToken()
     navigate('/login', { replace: true })
   }
 
