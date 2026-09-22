@@ -1,5 +1,16 @@
 import { expect, test } from '@playwright/test'
 
+async function waitForCashClosed(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe('')
+}
+
 test('lost sale response reuses the original idempotency key', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
@@ -57,7 +68,7 @@ test('lost sale response reuses the original idempotency key', async ({ page }) 
   expect(after.total).toBe(before.total + 1)
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
-  await expect(page.getByText(/cash_session_id/)).toBeVisible()
+  await waitForCashClosed(page)
 })
 
 test('offline browser state is isolated by tenant and user', async ({ page }) => {
