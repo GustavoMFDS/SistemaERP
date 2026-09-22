@@ -294,6 +294,9 @@ jobs:
           npm install --global npm@11.6.1
           npm ci
           npm audit --omit=dev --audit-level=high
+      - name: Report frontend development advisories
+        working-directory: web
+        run: npm audit --json || true
 
 
   e2e-prodlike:
