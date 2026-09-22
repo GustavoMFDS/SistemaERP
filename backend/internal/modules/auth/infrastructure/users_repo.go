@@ -76,16 +76,25 @@ func (r *UsersRepo) fallbackCompanyTenantID(ctx context.Context) (string, error)
 }
 
 func (r *UsersRepo) UserHasTenant(ctx context.Context, userID string, tenantID string) (bool, error) {
-	var ok bool
+	var hasRequestedTenant bool
+	var hasAnyTenant bool
 	err := r.db.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1
-			FROM user_tenants
-			WHERE user_id=$1 AND tenant_id=$2
-		)
-	`, userID, tenantID).Scan(&ok)
+		SELECT
+			EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1 AND tenant_id=$2),
+			EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1)
+	`, userID, tenantID).Scan(&hasRequestedTenant, &hasAnyTenant)
 	if err == nil {
-		return ok, nil
+		if hasRequestedTenant {
+			return true, nil
+		}
+		if !r.allowTenantFallback || hasAnyTenant {
+			return false, nil
+		}
+		fallbackID, fallbackErr := r.fallbackCompanyTenantID(ctx)
+		if fallbackErr != nil {
+			return false, fallbackErr
+		}
+		return fallbackID == tenantID, nil
 	}
 
 	var pgErr *pgconn.PgError
