@@ -171,3 +171,142 @@ jobs:
           npm install --global npm@11.6.1
           npm ci
           npm audit --omit=dev --audit-level=high
+
+
+  e2e-prodlike:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Start TLS PostgreSQL and protected Redis
+        run: |
+          mkdir -p /tmp/pgssl
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/CN=localhost" \
+            -keyout /tmp/pgssl/server.key \
+            -out /tmp/pgssl/server.crt
+          chmod 600 /tmp/pgssl/server.key
+          chmod 644 /tmp/pgssl/server.crt
+          sudo chown 999:999 /tmp/pgssl/server.key /tmp/pgssl/server.crt
+
+          docker run -d --name pg-staging \
+            -e POSTGRES_DB=sistemaemgo \
+            -e POSTGRES_USER=sistemaemgo \
+            -e POSTGRES_PASSWORD=ci-staging-db-password \
+            -p 55432:5432 \
+            -v /tmp/pgssl:/ssl:ro \
+            postgres:16 \
+            -c ssl=on \
+            -c ssl_cert_file=/ssl/server.crt \
+            -c ssl_key_file=/ssl/server.key
+
+          docker run -d --name redis-staging \
+            -p 56379:6379 \
+            redis:7.4-alpine \
+            redis-server --requirepass ci-staging-redis-password
+
+          for i in {1..30}; do
+            if docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo
+          docker exec redis-staging redis-cli -a ci-staging-redis-password ping
+      - name: Migrate and seed over PostgreSQL TLS
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=require" \
+            up
+
+          docker run --rm --network host \
+            -v "$PWD/backend/seed:/seed:ro" \
+            postgres:16 \
+            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=require" \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+      - name: Start staging-configured API
+        working-directory: backend
+        env:
+          APP_ENV: staging
+          FISCAL_PROVIDER: disabled
+          DATABASE_URL: postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=require
+          REDIS_ADDR: 127.0.0.1:56379
+          REDIS_PASSWORD: ci-staging-redis-password
+          JWT_SECRET: ci-staging-jwt-secret-longer-than-32-characters
+          HTTP_ADDR: :18081
+          OTEL_ENABLED: "false"
+          CORS_ALLOWED_ORIGINS: https://127.0.0.1:8443
+          TRUSTED_PROXY_CIDRS: 127.0.0.1/32
+          METRICS_BEARER_TOKEN: ci-staging-metrics-token
+          RATE_LIMIT_LOGIN_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE: "1000"
+          RATE_LIMIT_REFRESH_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGOUT_PER_MINUTE: "1000"
+          RATE_LIMIT_SALES_PER_MINUTE: "1000"
+          RATE_LIMIT_FISCAL_PER_MINUTE: "1000"
+        run: |
+          go build -o /tmp/sistemaemgo-staging-api ./cmd/api
+          /tmp/sistemaemgo-staging-api > /tmp/staging-api.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18081/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/staging-api.log
+          exit 1
+      - name: Start frontend and HTTPS reverse proxy
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: https://127.0.0.1:8443
+        run: |
+          npm install --global npm@11.6.1
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/staging-web.log 2>&1 &
+
+          cat > /tmp/Caddyfile <<'EOF'
+          https://127.0.0.1:8443 {
+            tls internal
+            @backend path /api/* /health /health/* /metrics
+            handle @backend {
+              reverse_proxy 127.0.0.1:18081
+            }
+            handle {
+              reverse_proxy 127.0.0.1:5173
+            }
+          }
+          EOF
+
+          docker run -d --name caddy-staging --network host \
+            -v /tmp/Caddyfile:/etc/caddy/Caddyfile:ro \
+            caddy:2.8-alpine
+
+          for i in {1..30}; do
+            if curl -k --fail --silent https://127.0.0.1:8443/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs caddy-staging
+          cat /tmp/staging-web.log
+          exit 1
+      - name: Run staging-like browser E2E
+        working-directory: web
+        env:
+          E2E_PRODLIKE: "1"
+          E2E_BASE_URL: https://127.0.0.1:8443
+          E2E_IGNORE_HTTPS_ERRORS: "1"
+        run: npx playwright test e2e/prodlike.spec.ts --project=chromium
