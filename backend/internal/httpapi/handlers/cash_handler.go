@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"log/slog"
@@ -34,8 +35,11 @@ func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 	id, err := h.svc.OpenSession(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
-		if err == common.ErrValidation {
+		switch {
+		case errors.Is(err, common.ErrValidation):
 			status = http.StatusUnprocessableEntity
+		case errors.Is(err, common.ErrCashSessionAlreadyOpen):
+			status = http.StatusConflict
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
@@ -57,8 +61,11 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.svc.CloseSession(r.Context(), au.TenantID, au.UserID, sessionID, req); err != nil {
 		status := http.StatusBadRequest
-		if err == common.ErrValidation {
+		switch {
+		case errors.Is(err, common.ErrValidation):
 			status = http.StatusUnprocessableEntity
+		case errors.Is(err, common.ErrCashSessionClosed):
+			status = http.StatusConflict
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
