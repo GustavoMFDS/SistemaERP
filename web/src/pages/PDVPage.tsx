@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 import {
@@ -70,6 +70,8 @@ export default function PDVPage() {
   const [payMethod, setPayMethod] = useState('pix')
   const [saleId, setSaleId] = useState('')
   const [saleTotal, setSaleTotal] = useState<number>(0)
+  const [finalizing, setFinalizing] = useState(false)
+  const finalizeInFlight = useRef(false)
 
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
@@ -210,7 +212,7 @@ export default function PDVPage() {
     if (!cashSessionId) return
     if (
       !window.confirm(
-        'Recriar esta venda para o caixa atual? Uma nova Idempotency-Key será gerada antes do reenvio.',
+        'Recriar esta venda para o caixa atual preservando a Idempotency-Key original? Se a venda antiga já tiver sido processada, o backend bloqueará a duplicação.',
       )
     ) {
       return
@@ -257,14 +259,15 @@ export default function PDVPage() {
   )
 
   async function finalizeSale() {
-    if (!canFinalize) return
+    if (!canFinalize || finalizeInFlight.current) return
+
+    finalizeInFlight.current = true
+    setFinalizing(true)
     setError('')
     setSaleId('')
     setSaleTotal(0)
 
-    const payments: SalePayment[] = [
-      { method: payMethod, amount: computedTotal },
-    ]
+    const payments: SalePayment[] = [{ method: payMethod, amount: computedTotal }]
     const body = {
       cash_session_id: cashSessionId,
       customer_id: null,
@@ -276,8 +279,8 @@ export default function PDVPage() {
       })),
       payments,
     }
-    // Generate this exactly once. If the response is lost after the backend
-    // commits, the queued retry must use the same key to replay safely.
+    // Generate exactly once per user intent. The synchronous in-flight lock
+    // prevents a second click from creating a second key/request.
     const idempotencyKey = crypto.randomUUID()
 
     try {
@@ -307,9 +310,7 @@ export default function PDVPage() {
     } catch (e: unknown) {
       const msg = errorMessage(e)
       const networkLike =
-        !navigator.onLine ||
-        msg.includes('NetworkError') ||
-        msg.includes('Failed to fetch')
+        !navigator.onLine || msg.includes('NetworkError') || msg.includes('Failed to fetch')
 
       if (networkLike) {
         try {
@@ -325,11 +326,14 @@ export default function PDVPage() {
           refreshPending()
           return
         } catch {
-          // fall-through
+          // fall-through to the original error
         }
       }
 
       setError(msg)
+    } finally {
+      finalizeInFlight.current = false
+      setFinalizing(false)
     }
   }
 
@@ -590,10 +594,10 @@ export default function PDVPage() {
             <button
               type="button"
               onClick={() => void finalizeSale()}
-              disabled={!canFinalize}
+              disabled={!canFinalize || finalizing}
               className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
-              Finalizar
+              {finalizing ? 'Finalizando…' : 'Finalizar'}
             </button>
           </div>
         </div>
