@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
-	"sync"
 	"time"
 
 	"log/slog"
@@ -20,19 +19,11 @@ type AuthService struct {
 	cfg      config.Config
 	users    UsersRepository
 	refresh  RefreshTokenStore
-	logger   *slog.Logger
-	permsMu  sync.RWMutex
-	perms    map[string]permissionCacheEntry
-	permsTTL time.Duration
-}
-
-type permissionCacheEntry struct {
-	perms     map[string]bool
-	expiresAt time.Time
+	logger *slog.Logger
 }
 
 func NewAuthService(cfg config.Config, users UsersRepository, refresh RefreshTokenStore, logger *slog.Logger) *AuthService {
-	return &AuthService{cfg: cfg, users: users, refresh: refresh, logger: logger, perms: map[string]permissionCacheEntry{}, permsTTL: 30 * time.Second}
+	return &AuthService{cfg: cfg, users: users, refresh: refresh, logger: logger}
 }
 
 func (s *AuthService) Login(ctx context.Context, email, password string) (TokenResponse, AuthUserInfo, error) {
@@ -237,47 +228,20 @@ func (s *AuthService) validateRefreshToken(tokenStr string) (*Claims, error) {
 }
 
 func (s *AuthService) GetUserPermissions(ctx context.Context, userID string, tenantID string) (map[string]bool, error) {
-	key := userID + ":" + tenantID
-	now := time.Now()
-	s.permsMu.RLock()
-	if cached, ok := s.perms[key]; ok && now.Before(cached.expiresAt) {
-		out := clonePerms(cached.perms)
-		s.permsMu.RUnlock()
-		return out, nil
-	}
-	s.permsMu.RUnlock()
-
 	perms, err := s.users.ListUserPermissions(ctx, userID, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	m := make(map[string]bool, len(perms))
+	out := make(map[string]bool, len(perms))
 	for _, p := range perms {
-		m[p] = true
+		out[p] = true
 	}
-	s.permsMu.Lock()
-	s.perms[key] = permissionCacheEntry{perms: clonePerms(m), expiresAt: now.Add(s.permsTTL)}
-	s.permsMu.Unlock()
-	return m, nil
+	return out, nil
 }
 
 func (s *AuthService) InvalidateUserPermissions(userID string) {
-	s.permsMu.Lock()
-	defer s.permsMu.Unlock()
-	prefix := userID + ":"
-	for key := range s.perms {
-		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
-			delete(s.perms, key)
-		}
-	}
-}
-
-func clonePerms(in map[string]bool) map[string]bool {
-	out := make(map[string]bool, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
+	// Permissions are read from the tenant-scoped repository on every request.
+	// Kept for compatibility with callers that may explicitly invalidate.
 }
 
 func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserInfo, error) {
