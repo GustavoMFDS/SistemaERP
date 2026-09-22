@@ -17,6 +17,12 @@ jobs:
         with:
           go-version: '1.25.x'
           cache-dependency-path: backend/go.sum
+      - name: Refresh module checksums
+        run: |
+          go mod tidy
+          echo "=== BEGIN GO.SUM ==="
+          cat go.sum
+          echo "=== END GO.SUM ==="
       - name: gofmt check
         run: |
           test -z "$(gofmt -l .)"
