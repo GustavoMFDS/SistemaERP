@@ -26,6 +26,9 @@ func AllowRateLimit(ctx context.Context, rdb *redis.Client, name, key string, li
 	if limit <= 0 || window <= 0 {
 		return true, nil
 	}
+	if failClosed && rdb == nil {
+		return false, ErrRateLimitUnavailable
+	}
 	allowed, err := allowRequest(ctx, rdb, sharedFallbackLimiter, name, key, limit, window)
 	if err != nil {
 		if failClosed {
@@ -47,6 +50,10 @@ func RateLimit(rdb *redis.Client, name string, limit int, window time.Duration, 
 			keyPart := strings.TrimSpace(keyFn(r))
 			if keyPart == "" {
 				keyPart = "anonymous"
+			}
+			if failClosed && rdb == nil {
+				writeMiddlewareError(w, r, http.StatusServiceUnavailable, "service_unavailable", "rate limit backend unavailable")
+				return
 			}
 			allowed, err := allowRequest(r.Context(), rdb, local, name, keyPart, limit, window)
 			if err != nil {
