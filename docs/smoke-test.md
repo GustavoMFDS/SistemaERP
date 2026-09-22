@@ -38,8 +38,10 @@ npm run build
 | Refresh session | Reload app or call refresh with cookie. | New access token; refresh cookie rotated; audit event `auth.refresh` includes tenant/user when identifiable. |
 | Expired refresh | Force protected request to 401 and make refresh fail. | Access token is cleared and UI redirects immediately to `/login`. |
 | Logout | Logout with a valid session. | Refresh token revoked; cookie cleared; frontend auth state cleared; audit event `auth.logout`. |
+| Logout network failure | Abort the logout request before the backend responds. | UI remains authenticated and reports logout incomplete; after network recovery a successful logout clears the HttpOnly cookie and local auth state. |
 | Cash lifecycle | Open a cash session, attempt a second open, close it, close again, then reopen. | Second open and second close return conflict; reopen after valid close succeeds. |
 | Sale creation | Create a sale with valid stock and payment. | Backend calculates totals; inventory decreases; finance/audit entries exist. |
+| Sale double-submit | Trigger `Finalizar` twice in the same interaction window. | Exactly one sale POST and one idempotency key are emitted; sale count increases once. |
 | Price tampering | Attempt sale with client-supplied low `unit_price`. | Backend ignores client price; total uses product/promotional price. |
 | Insufficient stock | Attempt sale above available stock. | Standardized validation/conflict error; no stock mutation. |
 | Sale cancellation | Cancel a finalized sale. | Stock restored in transaction; cancellation audit entry exists; no duplicate restoration. |
@@ -60,11 +62,15 @@ npm run build
 | Offline expiration | Leave a queued item older than 24 hours. | Item is not retried automatically and remains stored as attention; it is not silently deleted. |
 | Browser tenant isolation | Switch tenant/user identity in the same browser with cached PDV state. | Cash session, product cache, and offline queue from the prior identity are inaccessible. |
 | Legacy offline queue upgrade | Seed `sistemaemgo:offlineQueue:v1` and open PDV after login. | Legacy items are visible but never auto-sent; explicit import moves them to attention for manual review. |
+| Legacy sale rebind after prior commit | Rebind an attention/legacy sale to the current cash after the original key was already committed. | Original idempotency key is preserved; changed payload receives conflict/attention and no second sale is created. |
 | Offline reconciliation | Put an item in attention. | Operator can inspect the error, retry manually or discard with confirmation. |
 | Offline logout | Logout with pending queue. | User is warned/confirmed before clearing pending items; no silent loss. |
 | RBAC allow | Perform action with required permission. | Request succeeds. |
 | RBAC deny | Perform same action with limited role. | Standardized `authorization_error`. |
 | Tenant isolation | Authenticate real tenant A and tenant B users and cross sale, fiscal XML, finance, privacy and audit identifiers. | Cross-tenant direct lookups are not found and tenant B lists contain none of tenant A's IDs. |
+| Tenant membership revocation | Remove the authenticated user from the token's tenant, then use access and refresh tokens again. | Protected access and refresh are rejected immediately even while the user account remains active. |
+| Production TLS policy | Start staging/prod config with PostgreSQL below `sslmode=verify-full` or Redis without `rediss://`. | Startup config validation fails; production-like E2E succeeds only with certificate-verified PostgreSQL and Redis TLS. |
+| Migration upgrade/rollback | Upgrade a populated v12 DB to v13, roll back to v12, inject duplicate open cash sessions, retry v13, reconcile, and reapply. | Normal up/down/up succeeds; duplicate-open upgrade fails explicitly without silent data correction; after reconciliation v13 applies. |
 
 ## Restore drill smoke subset
 
