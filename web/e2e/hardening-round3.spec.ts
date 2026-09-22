@@ -8,6 +8,17 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await expect(page).toHaveURL(/\/products$/)
 }
 
+async function waitForCashClosed(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe('')
+}
+
 test('cash register allows only one open session and supports close/reopen', async ({ page }) => {
   await login(page, 'admin@sistema.local')
   await page.getByRole('link', { name: 'PDV' }).click()
@@ -78,6 +89,7 @@ test('cash register allows only one open session and supports close/reopen', asy
   expect(secondCash).not.toBe(firstCash)
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await waitForCashClosed(page)
 })
 
 test('legacy offline queue is visible and requires explicit operator reconciliation', async ({ page }) => {
@@ -142,6 +154,7 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
   expect(reboundIdempotencyKey).toBe('legacy-idem-1')
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await waitForCashClosed(page)
 
   const remaining = await page.evaluate(() => localStorage.getItem('sistemaemgo:offlineQueue:v1'))
   expect(remaining).toBeNull()
