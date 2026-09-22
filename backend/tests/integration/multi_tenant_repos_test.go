@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -12,11 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// This integration test validates tenant isolation at the repository layer.
-// It requires a real PostgreSQL.
-// Run:
-//
-//	TEST_DATABASE_URL=postgres://... go test ./... -tags=integration -run TestProductsRepo_TenantIsolation
+// This integration test validates tenant isolation against a real PostgreSQL.
+// Migrations and the demo seed must be applied before running it.
 func TestProductsRepo_TenantIsolation(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -32,41 +30,52 @@ func TestProductsRepo_TenantIsolation(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// Minimal sanity check to ensure the DB is reachable.
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("db ping: %v", err)
 	}
 
+	var tenantA string
+	if err := pool.QueryRow(ctx, `
+		SELECT tenant_id::text
+		FROM products
+		ORDER BY created_at
+		LIMIT 1
+	`).Scan(&tenantA); err != nil {
+		t.Fatalf("seeded tenant with product required: %v", err)
+	}
+
+	cnpj := fmt.Sprintf("%014d", time.Now().UnixNano()%100000000000000)
+	var tenantB string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO companies(legal_name, trade_name, cnpj)
+		VALUES ('Integration Tenant Isolation', 'Integration Tenant Isolation', $1)
+		RETURNING id::text
+	`, cnpj).Scan(&tenantB); err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
+	})
+
 	repo := invinfra.NewProductsRepo(pool)
 
-	// NOTE: This assumes migrations are already applied and there are at least
-	// 2 tenants in companies table. We keep it non-destructive.
-	// If your DB is empty, seed it first via docker-compose seed.
-	rows, err := pool.Query(ctx, `SELECT id::text FROM companies ORDER BY created_at LIMIT 2`)
-	if err != nil {
-		t.Fatalf("query companies: %v", err)
-	}
-	defer rows.Close()
-
-	var tenants []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		tenants = append(tenants, id)
-	}
-	if len(tenants) < 2 {
-		t.Skip("need at least 2 tenants in companies")
-	}
-
-	// List should never error, and must be scoped by tenant.
-	_, _, err = repo.List(ctx, tenants[0], "", 10, 0)
+	itemsA, totalA, err := repo.List(ctx, tenantA, "", 50, 0)
 	if err != nil {
 		t.Fatalf("list tenant A: %v", err)
 	}
-	_, _, err = repo.List(ctx, tenants[1], "", 10, 0)
+	if totalA == 0 || len(itemsA) == 0 {
+		t.Fatal("tenant A must contain the seeded product")
+	}
+
+	itemsB, totalB, err := repo.List(ctx, tenantB, "", 50, 0)
 	if err != nil {
 		t.Fatalf("list tenant B: %v", err)
+	}
+	if totalB != 0 || len(itemsB) != 0 {
+		t.Fatalf("tenant B leaked tenant A products: total=%d items=%d", totalB, len(itemsB))
+	}
+
+	if _, err := repo.Get(ctx, tenantB, itemsA[0].ID); err == nil {
+		t.Fatal("tenant B unexpectedly fetched tenant A product by id")
 	}
 }
