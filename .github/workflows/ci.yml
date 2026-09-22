@@ -23,7 +23,11 @@ jobs:
           git diff --quiet -- go.mod go.sum
       - name: gofmt check
         run: |
-          test -z "$(gofmt -l .)"
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
       - run: go test ./...
       - run: go vet ./...
 
