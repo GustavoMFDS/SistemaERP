@@ -36,7 +36,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm install --global npm@11.6.1
-      - run: npm ci
+      - name: Reconcile lockfile and install
+        run: |
+          npm install --package-lock-only
+          git diff -- package-lock.json
+          npm ci
       - run: npm run lint
       - run: npm run build
 
@@ -101,6 +105,8 @@ jobs:
         working-directory: web
         run: |
           npm install --global npm@11.6.1
+          npm install --package-lock-only
+          git diff -- package-lock.json
           npm ci
           npm install --no-save @playwright/test@1.55.0
           npx playwright install --with-deps chromium
