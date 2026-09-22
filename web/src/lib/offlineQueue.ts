@@ -211,10 +211,12 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
 
   const body = item.body as Record<string, unknown>
   item.body = { ...body, cash_session_id: normalizedCashSessionId }
-  item.headers = {
-    ...sanitizeQueuedHeaders(item.headers),
-    'Idempotency-Key': crypto.randomUUID(),
-  }
+  const headers = sanitizeQueuedHeaders(item.headers)
+  // Preserve the original key. If the old request was already committed,
+  // the backend will return an idempotency conflict for the changed payload
+  // instead of accepting a duplicate sale under a new key.
+  if (!headers['Idempotency-Key']) headers['Idempotency-Key'] = item.id
+  item.headers = headers
   item.state = 'pending'
   item.createdAt = Date.now()
   item.lastAttemptAt = Date.now()
