@@ -106,6 +106,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	token := refreshTokenFromCookie(r)
 	resp, userID, tenantID, err := h.auth.RefreshWithSubject(r.Context(), token)
 	if err != nil {
+		clearRefreshCookie(w, h.cfg)
 		requestID, ip, userAgent := audit.RequestContext(r)
 		h.audit.Record(r.Context(), audit.Event{
 			Action:       "auth.refresh",
