@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ type Config struct {
 	CORSAllowedOrigins  []string
 	CORSAllowedMethods  []string
 	CORSAllowedHeaders  []string
+	TrustedProxyCIDRs   []string
 	MetricsBearerToken  string
 	MetricsBasicUser    string
 	MetricsBasicPass    string
@@ -93,6 +95,7 @@ func LoadFromEnv() (Config, error) {
 		CORSAllowedOrigins:  getEnvList("CORS_ALLOWED_ORIGINS", defaultCORSOrigins(env)),
 		CORSAllowedMethods:  getEnvList("CORS_ALLOWED_METHODS", []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
 		CORSAllowedHeaders:  getEnvList("CORS_ALLOWED_HEADERS", []string{"Authorization", "Content-Type", "Accept", "Idempotency-Key"}),
+		TrustedProxyCIDRs:   getEnvList("TRUSTED_PROXY_CIDRS", nil),
 		MetricsBearerToken:  strings.TrimSpace(os.Getenv("METRICS_BEARER_TOKEN")),
 		MetricsBasicUser:    strings.TrimSpace(os.Getenv("METRICS_BASIC_USER")),
 		MetricsBasicPass:    strings.TrimSpace(os.Getenv("METRICS_BASIC_PASS")),
@@ -195,6 +198,11 @@ func (c Config) Validate() error {
 	}
 	if err := validateCORSOrigins(c.CORSAllowedOrigins, c.IsProdLike()); err != nil {
 		errs = append(errs, err.Error())
+	}
+	for _, cidr := range c.TrustedProxyCIDRs {
+		if _, _, err := net.ParseCIDR(strings.TrimSpace(cidr)); err != nil {
+			errs = append(errs, fmt.Sprintf("TRUSTED_PROXY_CIDRS contains invalid CIDR %q", cidr))
+		}
 	}
 	if c.IsProdLike() && c.MetricsBearerToken == "" && (c.MetricsBasicUser == "" || c.MetricsBasicPass == "") {
 		errs = append(errs, "METRICS_BEARER_TOKEN or METRICS_BASIC_USER/METRICS_BASIC_PASS is required in staging/prod")
