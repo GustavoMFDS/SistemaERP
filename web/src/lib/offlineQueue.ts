@@ -2,6 +2,7 @@ import { APIError, apiJson, errorMessage } from './api'
 import { scopedStorageKey } from './auth'
 
 export type QueueState = 'pending' | 'attention'
+export type AttentionReason = 'expired' | 'request_rejected' | 'legacy_migration'
 
 export type QueuedRequest = {
   id: string
@@ -11,7 +12,7 @@ export type QueuedRequest = {
   body?: unknown
   headers?: Record<string, string>
   state?: QueueState
-  attentionReason?: 'expired' | 'request_rejected'
+  attentionReason?: AttentionReason
   lastError?: string
   lastAttemptAt?: number
 }
@@ -22,6 +23,7 @@ export type QueueSummary = {
   total: number
 }
 
+const LEGACY_QUEUE_KEY = 'sistemaemgo:offlineQueue:v1'
 const QUEUE_NAMESPACE = 'sistemaemgo:offlineQueue:v2'
 const QUEUE_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -38,6 +40,22 @@ function safeJsonParse<T>(raw: string | null): T | null {
   }
 }
 
+function isValidQueueItem(x: QueuedRequest): boolean {
+  return Boolean(
+    x &&
+      typeof x.id === 'string' &&
+      typeof x.createdAt === 'number' &&
+      typeof x.method === 'string' &&
+      typeof x.path === 'string',
+  )
+}
+
+function readLegacyQueue(): QueuedRequest[] {
+  const parsed = safeJsonParse<QueuedRequest[]>(localStorage.getItem(LEGACY_QUEUE_KEY))
+  if (!parsed || !Array.isArray(parsed)) return []
+  return parsed.filter(isValidQueueItem)
+}
+
 function loadQueue(): QueuedRequest[] {
   const key = queueKey()
   if (!key) return []
@@ -48,12 +66,7 @@ function loadQueue(): QueuedRequest[] {
   const now = Date.now()
   let changed = false
   const valid = parsed.filter((x) => {
-    const ok =
-      x &&
-      typeof x.id === 'string' &&
-      typeof x.createdAt === 'number' &&
-      typeof x.method === 'string' &&
-      typeof x.path === 'string'
+    const ok = isValidQueueItem(x)
     if (!ok) changed = true
     return ok
   })
@@ -81,6 +94,12 @@ function saveQueue(queue: QueuedRequest[]): void {
   localStorage.setItem(key, JSON.stringify(queue))
 }
 
+export function getQueueItems(): QueuedRequest[] {
+  return loadQueue()
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt)
+}
+
 export function getQueueSummary(): QueueSummary {
   const queue = loadQueue()
   const pending = queue.filter((item) => item.state !== 'attention').length
@@ -90,6 +109,49 @@ export function getQueueSummary(): QueueSummary {
 
 export function getQueueCount(): number {
   return getQueueSummary().total
+}
+
+export function getLegacyQueueCount(): number {
+  return readLegacyQueue().length
+}
+
+export function claimLegacyQueue(): number {
+  const key = queueKey()
+  if (!key) throw new Error('authenticated tenant/user scope is required')
+
+  const legacy = readLegacyQueue()
+  if (legacy.length === 0) {
+    localStorage.removeItem(LEGACY_QUEUE_KEY)
+    return 0
+  }
+
+  const current = loadQueue()
+  for (const old of legacy) {
+    const headers = sanitizeQueuedHeaders(old.headers)
+    if (old.path.includes('/api/v1/sales') && !headers['Idempotency-Key']) {
+      headers['Idempotency-Key'] = old.id
+    }
+    current.push({
+      id: crypto.randomUUID(),
+      createdAt: old.createdAt,
+      method: old.method,
+      path: old.path,
+      body: sanitizeQueuedBody(old.path, old.body),
+      headers,
+      state: 'attention',
+      attentionReason: 'legacy_migration',
+      lastError:
+        'Item importado da fila anterior ao isolamento por tenant. Revise e tente novamente manualmente.',
+    })
+  }
+
+  saveQueue(current)
+  localStorage.removeItem(LEGACY_QUEUE_KEY)
+  return legacy.length
+}
+
+export function discardLegacyQueue(): void {
+  localStorage.removeItem(LEGACY_QUEUE_KEY)
 }
 
 export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt' | 'state'>): string {
@@ -114,6 +176,28 @@ export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt' | 'st
   queue.push(next)
   saveQueue(queue)
   return id
+}
+
+export function retryQueueItem(id: string): boolean {
+  const queue = loadQueue()
+  const item = queue.find((candidate) => candidate.id === id)
+  if (!item || item.state !== 'attention') return false
+
+  item.state = 'pending'
+  item.createdAt = Date.now()
+  item.lastAttemptAt = Date.now()
+  delete item.attentionReason
+  delete item.lastError
+  saveQueue(queue)
+  return true
+}
+
+export function discardQueueItem(id: string): boolean {
+  const queue = loadQueue()
+  const next = queue.filter((item) => item.id !== id)
+  if (next.length === queue.length) return false
+  saveQueue(next)
+  return true
 }
 
 export function clearOfflineQueue(): void {
