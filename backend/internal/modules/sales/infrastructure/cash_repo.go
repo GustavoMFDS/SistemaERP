@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/modules/common"
+	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5/pgconn"
