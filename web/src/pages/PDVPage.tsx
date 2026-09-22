@@ -358,7 +358,10 @@ export default function PDVPage() {
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               />
             </label>
-            <button className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white">
+            <button
+              disabled={Boolean(cashSessionId)}
+              className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+            >
               Abrir
             </button>
           </form>
