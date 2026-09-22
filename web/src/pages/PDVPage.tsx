@@ -10,6 +10,7 @@ import {
   getLegacyQueueCount,
   getQueueItems,
   getQueueSummary,
+  rebindQueueItemToCashSession,
   retryQueueItem,
   type QueuedRequest,
 } from '../lib/offlineQueue'
@@ -203,6 +204,19 @@ export default function PDVPage() {
     }
     discardQueueItem(id)
     refreshPending()
+  }
+
+  async function rebindAttentionToCurrentCash(id: string) {
+    if (!cashSessionId) return
+    if (
+      !window.confirm(
+        'Recriar esta venda para o caixa atual? Uma nova Idempotency-Key será gerada antes do reenvio.',
+      )
+    ) {
+      return
+    }
+    if (!rebindQueueItemToCashSession(id, cashSessionId)) return
+    await syncPending()
   }
 
   function importLegacyQueue() {
@@ -443,6 +457,15 @@ export default function PDVPage() {
                     >
                       Tentar novamente
                     </button>
+                    {cashSessionId && item.path.includes('/api/v1/sales') ? (
+                      <button
+                        type="button"
+                        onClick={() => void rebindAttentionToCurrentCash(item.id)}
+                        className="rounded-md border px-2 py-1"
+                      >
+                        Usar caixa atual
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => discardAttention(item.id)}
