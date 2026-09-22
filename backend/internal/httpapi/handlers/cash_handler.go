@@ -95,8 +95,8 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 		ResourceID:   sessionID,
 		Outcome:      "success",
 		Metadata: map[string]any{
-			"expected_cash": result.ExpectedCash.String(),
-			"closing_amount": result.ClosingAmount.String(),
+			"expected_cash":      result.ExpectedCash.String(),
+			"closing_amount":     result.ClosingAmount.String(),
 			"closing_difference": result.ClosingDifference.String(),
 		},
 		RequestID:    requestID,
@@ -104,9 +104,9 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 		UserAgent:    userAgent,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status": "closed",
-		"expected_cash": result.ExpectedCash,
-		"closing_amount": result.ClosingAmount,
+		"status":             "closed",
+		"expected_cash":      result.ExpectedCash,
+		"closing_amount":     result.ClosingAmount,
 		"closing_difference": result.ClosingDifference,
 	})
 }
