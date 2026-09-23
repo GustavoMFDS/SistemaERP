@@ -44,6 +44,7 @@ export default function Layout() {
         { to: '/products', label: 'Produtos' },
         { to: '/inventory', label: 'Estoque' },
         { to: '/purchases', label: 'Compras' },
+        { to: '/returns', label: 'Vendas / Devoluções' },
         { to: '/pdv', label: 'PDV' },
         { to: '/finance', label: 'Financeiro' },
         { to: '/fiscal', label: 'Fiscal (XML)' },
