@@ -1,16 +1,14 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
-
-	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
-
 	"github.com/go-chi/chi/v5"
 )
 
