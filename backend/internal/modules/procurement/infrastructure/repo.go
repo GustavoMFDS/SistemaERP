@@ -102,14 +102,16 @@ func (r *Repo) UpdateSupplier(ctx context.Context, tx db.DBTX, tenantID, id stri
 
 func scanPurchase(row interface{ Scan(...any) error }) (proc.Purchase, error) {
 	var p proc.Purchase
+	var status string
 	var total string
 	err := row.Scan(
-		&p.ID, &p.SupplierID, &p.SupplierName, &p.Status, &p.InvoiceNumber, &p.PaymentDueDate,
+		&p.ID, &p.SupplierID, &p.SupplierName, &status, &p.InvoiceNumber, &p.PaymentDueDate,
 		&total, &p.Notes, &p.CreatedBy, &p.OrderedAt, &p.ReceivedAt, &p.CancelledAt, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
 		return p, err
 	}
+	p.Status = proc.PurchaseStatus(status)
 	p.Total, err = platform.ParseMoney(total)
 	return p, err
 }
