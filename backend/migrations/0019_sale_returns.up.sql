@@ -82,7 +82,9 @@ CREATE TABLE IF NOT EXISTS return_idempotency_keys (
   created_at timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT return_idempotency_key_unique UNIQUE (tenant_id, operation, idem_key),
-  CONSTRAINT return_idempotency_refund_due_nonnegative CHECK (refund_due >= 0)
+  CONSTRAINT return_idempotency_refund_due_nonnegative CHECK (refund_due >= 0),
+  CONSTRAINT return_idempotency_return_tenant_fk
+    FOREIGN KEY (tenant_id, return_id) REFERENCES sale_returns(tenant_id, id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS return_idempotency_tenant_created_idx
