@@ -298,8 +298,9 @@ export default function PDVPage() {
     try {
       let product = productByBarcode.get(code)
       if (!product && navigator.onLine) {
-        product = await apiJson<Product>(`/api/v1/products/barcode/${encodeURIComponent(code)}`)
-        setProducts((prev) => (prev.some((item) => item.id === product!.id) ? prev : [...prev, product!]))
+        const fetched = await apiJson<Product>(`/api/v1/products/barcode/${encodeURIComponent(code)}`)
+        product = fetched
+        setProducts((prev) => (prev.some((item) => item.id === fetched.id) ? prev : [...prev, fetched]))
       }
       if (!product) {
         setError(
