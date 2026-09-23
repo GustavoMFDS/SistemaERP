@@ -56,6 +56,25 @@ func (h *ProductsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+func (h *ProductsHandler) GetByBarcode(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	barcode := chi.URLParam(r, "barcode")
+	p, err := h.svc.GetByBarcode(r.Context(), au.TenantID, barcode)
+	if err != nil {
+		if err == common.ErrValidation {
+			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "codigo de barras invalido", nil)
+			return
+		}
+		writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
 func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
