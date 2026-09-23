@@ -411,3 +411,34 @@ Metadata keys containing secrets, tokens, cookies, authorization values, credent
 RBAC is tenant-scoped. Effective permissions come from `user_tenant_roles` joined with `role_permissions`, filtered by the authenticated `tenant_id` and `user_id`. A role assigned in tenant A does not grant permissions in tenant B.
 
 In staging/production, users must have an explicit `user_tenants` membership. The legacy fallback to the first company is available only for development/test databases that predate tenant membership migrations.
+
+
+## Returns and exchanges
+
+### POST `/sales/{id}/returns`
+
+Requires permission `sale:return` and header `Idempotency-Key`.
+
+Registers a partial or full return against a finalized sale. The backend computes the refundable amount from the original net sale value; clients cannot choose the refund amount.
+
+```json
+{
+  "kind": "return",
+  "reason": "Tamanho incorreto",
+  "items": [
+    { "sale_item_id": "uuid", "qty": 1, "restock": true }
+  ]
+}
+```
+
+Use `kind: "exchange"` when the returned merchandise is part of an exchange. The replacement is created as a normal new sale in the PDV. `restock=false` records the return without crediting sellable stock (for example, damaged merchandise).
+
+Response includes `refund_due` and `refund_status: "pending"`. Financial settlement/refund is intentionally separate.
+
+### GET `/returns`
+
+Lists return/exchange records. Optional query: `sale_id`.
+
+### GET `/returns/{id}`
+
+Returns the header and returned items for one return.
