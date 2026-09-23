@@ -37,11 +37,13 @@ type ProductCreateRequest = {
 export default function ProductsPage() {
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<Product[]>([])
+  const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const [sku, setSku] = useState('')
+  const [barcode, setBarcode] = useState('')
   const [name, setName] = useState('')
   const [unit, setUnit] = useState('un')
   const [priceCash, setPriceCash] = useState<number>(0)
@@ -74,6 +76,38 @@ export default function ProductsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function saveBarcode(product: Product) {
+    setError('')
+    const nextBarcode = (barcodeDrafts[product.id] ?? product.barcode ?? '').trim()
+    try {
+      const payload: ProductCreateRequest = {
+        category_id: product.category_id ?? null,
+        sku: product.sku,
+        barcode: nextBarcode || null,
+        name: product.name,
+        description: product.description ?? null,
+        unit: product.unit,
+        cost_price: product.cost_price,
+        price_cash: product.price_cash,
+        promo_price: product.promo_price ?? null,
+        min_stock: product.min_stock,
+        active: product.active,
+      }
+      await apiJson<{ id: string }>(`/api/v1/products/${product.id}`, {
+        method: 'PUT',
+        body: payload,
+      })
+      setBarcodeDrafts((prev) => {
+        const next = { ...prev }
+        delete next[product.id]
+        return next
+      })
+      await load()
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!canCreate) return
@@ -81,6 +115,7 @@ export default function ProductsPage() {
     try {
       const payload: ProductCreateRequest = {
         sku: sku.trim(),
+        barcode: barcode.trim() || null,
         name: name.trim(),
         unit: unit.trim() || 'un',
         cost_price: 0,
@@ -93,6 +128,7 @@ export default function ProductsPage() {
         body: payload,
       })
       setSku('')
+      setBarcode('')
       setName('')
       setPriceCash(0)
       setMinStock(0)
@@ -144,6 +180,7 @@ export default function ProductsPage() {
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
               <th className="px-3 py-2">SKU</th>
+              <th className="px-3 py-2">Código de barras</th>
               <th className="px-3 py-2">Nome</th>
               <th className="px-3 py-2">Un</th>
               <th className="px-3 py-2">Preço</th>
@@ -156,6 +193,26 @@ export default function ProductsPage() {
             {items.map((p) => (
               <tr key={p.id}>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
+                <td className="px-3 py-2">
+                  <div className="flex min-w-64 items-center gap-2">
+                    <input
+                      value={barcodeDrafts[p.id] ?? p.barcode ?? ''}
+                      onChange={(e) =>
+                        setBarcodeDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
+                      }
+                      placeholder="Sem código"
+                      autoComplete="off"
+                      className="w-full rounded-md border px-2 py-1 font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveBarcode(p)}
+                      className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
+                    >
+                      Salvar
+                    </button>
+                  </div>
+                </td>
                 <td className="px-3 py-2">{p.name}</td>
                 <td className="px-3 py-2">{p.unit}</td>
                 <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
@@ -170,7 +227,7 @@ export default function ProductsPage() {
 
       <div className="mt-6">
         <h3 className="text-sm font-semibold">Cadastrar produto</h3>
-        <form onSubmit={onCreate} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-5">
+        <form onSubmit={onCreate} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-6">
           <label className="block md:col-span-1">
             <span className="text-xs text-gray-600">SKU</span>
             <input
@@ -178,6 +235,16 @@ export default function ProductsPage() {
               onChange={(e) => setSku(e.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               required
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="text-xs text-gray-600">Código de barras</span>
+            <input
+              value={barcode}
+              onChange={(e) => setBarcode(e.target.value)}
+              placeholder="EAN / GTIN"
+              autoComplete="off"
+              className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
             />
           </label>
           <label className="block md:col-span-2">
@@ -220,7 +287,7 @@ export default function ProductsPage() {
             />
           </label>
 
-          <div className="md:col-span-5">
+          <div className="md:col-span-6">
             <button
               disabled={!canCreate}
               className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
