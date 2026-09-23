@@ -19,6 +19,8 @@ import (
 	privacyinfra "github.com/example/sistemaemgo/internal/modules/privacy/infrastructure"
 	procapp "github.com/example/sistemaemgo/internal/modules/procurement/application"
 	procinfra "github.com/example/sistemaemgo/internal/modules/procurement/infrastructure"
+	retapp "github.com/example/sistemaemgo/internal/modules/returns/application"
+	retinfra "github.com/example/sistemaemgo/internal/modules/returns/infrastructure"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
 	"github.com/example/sistemaemgo/internal/platform/db"
@@ -38,6 +40,7 @@ type Modules struct {
 	Fiscal      *fiscapp.FiscalService
 	Privacy     *privacyapp.Service
 	Procurement *procapp.Service
+	Returns     *retapp.Service
 	Events      *events.Bus
 	DB          *pgxpool.Pool
 	Redis       *redis.Client
@@ -79,6 +82,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	fiscalRepo := fiscinfra.NewFiscalRepo(pool)
 	privacyRepo := privacyinfra.NewRepo(pool)
 	procurementRepo := procinfra.NewRepo(pool)
+	returnsRepo := retinfra.NewRepo(pool)
 
 	// application services
 	var refreshStore authapp.RefreshTokenStore
@@ -99,6 +103,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	auditSvc := audit.New(pool, logger)
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, v, logger)
+	returnsSvc := retapp.NewService(uow, returnsRepo, salesRepo, inventoryRepo, financeRepo, productsRepo, v, logger)
 
 	return &Modules{
 		Auth:        authSvc,
@@ -110,6 +115,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		Fiscal:      fiscalSvc,
 		Privacy:     privacySvc,
 		Procurement: procurementSvc,
+		Returns:     returnsSvc,
 		Events:      bus,
 		DB:          pool,
 		Redis:       rdb,
