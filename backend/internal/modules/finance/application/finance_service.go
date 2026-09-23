@@ -142,7 +142,7 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 	if err != nil {
 		return "", "", false, err
 	}
-	if payment.Method == "cash" || payment.ReconciliationStatus == "not_applicable" {
+	if payment.Method == "cash" || payment.ReconciliationStatus != "pending" {
 		return "", "", false, common.ErrConflict
 	}
 
