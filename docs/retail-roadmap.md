@@ -52,7 +52,7 @@ Criterios de aceite:
 - feedback claro de estoque, caixa, offline e erros;
 - impressao/recibo nao fiscal enquanto o fiscal real estiver pendente.
 
-## 7. Piloto real
+## 7. Piloto real — preparação implementada; execução externa pendente
 
 - ambiente production-like dedicado a uma loja;
 - backup/restore comprovado;
@@ -104,3 +104,15 @@ A integracao fiscal real fica para a etapa final, depois que o fluxo comercial e
 - o backend também bloqueia qualquer desconto sem `sale:discount`, inclusive chamadas API manipuladas;
 - após venda online, o catálogo/estoque é atualizado e o foco retorna ao scanner;
 - vendas finalizadas exibem opção de impressão de comprovante explicitamente não fiscal.
+
+
+### Etapa 7 — preparação implementada
+
+- runbook de piloto controlado em uma loja;
+- template versionado de evidências e decisão go/no-go;
+- checker read-only de prontidão para ambiente production-like;
+- checker valida health/live, health/ready, migration limpa >= 21, objetos críticos, ausência de usuários demo, sessões de caixa duplicadas e papéis tenant-scoped;
+- CI valida a sintaxe do checker;
+- backup/restore continua seguindo `docs/deployment.md` e só pode ser marcado como testado com evidência do ambiente real;
+- a execução do piloto, reconciliação com operação física, monitoramento real e aprovações de owner/accounting permanecem pendências externas;
+- fiscal continua fora do piloto e permanece bloqueado até implementação SEFAZ-ready.
