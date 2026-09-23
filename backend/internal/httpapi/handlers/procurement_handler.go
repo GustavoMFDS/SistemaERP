@@ -146,9 +146,6 @@ func (h *ProcurementHandler) CreatePurchase(w http.ResponseWriter, r *http.Reque
 		writeProcurementError(w, r, err)
 		return
 	}
-	if created {
-		recordAudit(h.audit, r, au.TenantID, au.UserID, "purchase.create", "purchase", id, "success", map[string]any{"supplier_id": req.SupplierID})
-	}
 	code := http.StatusCreated
 	if !created {
 		code = http.StatusOK
@@ -174,9 +171,6 @@ func (h *ProcurementHandler) ReceivePurchase(w http.ResponseWriter, r *http.Requ
 		writeProcurementError(w, r, err)
 		return
 	}
-	if created {
-		recordAudit(h.audit, r, au.TenantID, au.UserID, "purchase.receive", "purchase", purchaseID, "success", map[string]any{"receipt_id": receiptID, "status": status})
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"receipt_id": receiptID, "status": status, "replayed": !created})
 }
 
@@ -187,10 +181,9 @@ func (h *ProcurementHandler) CancelPurchase(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	purchaseID := chi.URLParam(r, "id")
-	if err := h.svc.CancelPurchase(r.Context(), au.TenantID, purchaseID); err != nil {
+	if err := h.svc.CancelPurchase(r.Context(), au.TenantID, au.UserID, purchaseID); err != nil {
 		writeProcurementError(w, r, err)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "purchase.cancel", "purchase", purchaseID, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled"})
 }
