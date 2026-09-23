@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sort"
 	"strings"
@@ -18,12 +17,12 @@ import (
 )
 
 type Service struct {
-	uow      db.UnitOfWork
-	repo     Repository
-	products invapp.ProductsRepository
+	uow       db.UnitOfWork
+	repo      Repository
+	products  invapp.ProductsRepository
 	inventory invapp.InventoryRepository
-	validate *validator.Validate
-	logger   *slog.Logger
+	validate  *validator.Validate
+	logger    *slog.Logger
 }
 
 type SupplierRequest struct {
@@ -386,7 +385,7 @@ func (s *Service) CancelPurchase(ctx context.Context, tenantID, purchaseID strin
 	if err := s.repo.CancelPurchase(ctx, tx, tenantID, purchaseID); err != nil {
 		return err
 	}
-	if err := s.repo.CancelAccountPayable(ctx, tx, tenantID, purchaseID); err != nil && !errors.Is(err, common.ErrNotFound) {
+	if err := s.repo.CancelAccountPayable(ctx, tx, tenantID, purchaseID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
