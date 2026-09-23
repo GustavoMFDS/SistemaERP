@@ -77,13 +77,14 @@ func (r *Repo) ListSuppliers(ctx context.Context, tenantID, query string, limit,
 	return items, total, rows.Err()
 }
 
-func (r *Repo) GetSupplier(ctx context.Context, tenantID, id string) (proc.Supplier, error) {
+func (r *Repo) GetSupplier(ctx context.Context, q db.DBTX, tenantID, id string) (proc.Supplier, error) {
 	var s proc.Supplier
-	err := r.db.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT id::text, name, document, email::text, phone, contact_name, notes, active,
 		       created_at::text, updated_at::text
 		FROM suppliers
 		WHERE tenant_id=$1 AND id=$2
+		FOR SHARE
 	`, tenantID, id).Scan(&s.ID, &s.Name, &s.Document, &s.Email, &s.Phone, &s.ContactName, &s.Notes, &s.Active, &s.CreatedAt, &s.UpdatedAt)
 	return s, err
 }
