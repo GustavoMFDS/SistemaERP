@@ -11,10 +11,12 @@ concurrency:
 
 jobs:
   backend:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
+        shell: powershell
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -27,20 +29,22 @@ jobs:
           git diff --quiet -- go.mod go.sum
       - name: gofmt check
         run: |
-          files="$(gofmt -l .)"
-          if [ -n "$files" ]; then
-            echo "$files"
+          $files = @(gofmt -l .)
+          if ($files.Count -gt 0) {
+            $files | ForEach-Object { Write-Host $_ }
             gofmt -d .
             exit 1
-          fi
+          }
       - run: go test ./...
       - run: go vet ./...
 
   frontend:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: web
+        shell: powershell
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -54,56 +58,56 @@ jobs:
       - run: npm run build
 
   integration:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 60
+    concurrency:
+      group: sistemaerp-compose-self-hosted
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: '1.25.x'
           cache-dependency-path: backend/go.sum
+      - name: Verify Docker prerequisites
+        shell: powershell
+        run: |
+          Get-Command docker -ErrorAction Stop | Format-List
+          docker version
+          docker compose version
       - name: Start dependencies and run clean migrations
-        run: docker compose up -d db redis migrate
+        shell: powershell
+        run: |
+          docker compose down -v --remove-orphans
+          docker compose up -d db redis migrate
       - name: Verify migration container
+        shell: powershell
         run: docker compose ps --all
       - name: Seed integration data
+        shell: powershell
         run: docker compose run --rm seed
       - name: Verify v12 to v16 migration upgrade and rollback
+        shell: powershell
         run: |
-          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
-            -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
-            -c "CREATE DATABASE sistemaemgo_upgrade OWNER sistemaemgo;"
+          $migrations = Join-Path $env:GITHUB_WORKSPACE 'backend\migrations'
+          $seed = Join-Path $env:GITHUB_WORKSPACE 'backend\seed'
+          $upgradeUrl = 'postgres://sistemaemgo:sistemaemgo@host.docker.internal:5433/sistemaemgo_upgrade?sslmode=disable'
 
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            goto 12
+          function Invoke-Migrate {
+            param([string[]]$MigrateArgs)
+            $dockerArgs = @('run','--rm','-v',('{0}:/migrations:ro' -f $migrations),'migrate/migrate:v4.17.1','-path=/migrations',('-database={0}' -f $upgradeUrl)) + $MigrateArgs
+            & docker @dockerArgs
+            if ($LASTEXITCODE -ne 0) { throw ('migrate failed: {0}' -f ($MigrateArgs -join ' ')) }
+          }
 
-          docker compose run --rm -v "$PWD/backend/seed:/seed:ro" db \
-            psql "postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo_upgrade?sslmode=disable" \
-            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c 'DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);' -c 'CREATE DATABASE sistemaemgo_upgrade OWNER sistemaemgo;'
+          Invoke-Migrate -MigrateArgs @('goto','12')
+          docker compose run --rm -v ('{0}:/seed:ro' -f $seed) db psql 'postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo_upgrade?sslmode=disable' -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+          Invoke-Migrate -MigrateArgs @('up','1')
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 -c "SELECT indexname FROM pg_indexes WHERE indexname='cash_sessions_one_open_per_register';"
+          Invoke-Migrate -MigrateArgs @('down','1')
 
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1
-
-          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
-            -c "SELECT indexname FROM pg_indexes WHERE indexname='cash_sessions_one_open_per_register';"
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            down 1
-
-          # Prove that a legacy duplicate-open state is rejected instead of
-          # being silently mutated by migration 0013.
-          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          $duplicateSql = @'
           INSERT INTO cash_registers(tenant_id, name, active)
           SELECT c.id, 'Caixa Upgrade CI', true
           FROM companies c
@@ -132,119 +136,39 @@ jobs:
           WHERE cr.name='Caixa Upgrade CI'
           ORDER BY cr.created_at, u.created_at
           LIMIT 1;
-          SQL
+          '@
+          $duplicateSql | docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1
+          if ($LASTEXITCODE -ne 0) { throw 'failed to create duplicate-open fixture' }
 
-          if docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1; then
-            echo "migration 0013 unexpectedly accepted duplicate open cash sessions"
-            exit 1
-          fi
+          $dockerArgs = @('run','--rm','-v',('{0}:/migrations:ro' -f $migrations),'migrate/migrate:v4.17.1','-path=/migrations',('-database={0}' -f $upgradeUrl),'up','1')
+          & docker @dockerArgs
+          if ($LASTEXITCODE -eq 0) { throw 'migration 0013 unexpectedly accepted duplicate open cash sessions' }
 
-          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
-            -c "DELETE FROM cash_sessions WHERE status='open';" \
-            -c "UPDATE schema_migrations SET dirty=false WHERE version=13 AND dirty=true;"
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            force 12
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1
-
-          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
-            -c "SELECT column_name FROM information_schema.columns WHERE table_name='cash_sessions' AND column_name IN ('expected_cash','closing_difference') ORDER BY column_name;"
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            down 1
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1
-
-          # Upgrade 0014 -> 0015, verify cash movement/reconciliation schema,
-          # then prove rollback/reapply is clean.
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1
-
-          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
-            -c "SELECT to_regclass('public.cash_movements'), to_regclass('public.cash_session_reconciliations');" \
-            -c "SELECT code FROM permissions WHERE code='cash:move';"
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            down 1
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1
-
-          # Upgrade 0015 -> 0016, verify retention index, then rollback/reapply.
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1
-
-          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
-            -c "SELECT indexname FROM pg_indexes WHERE indexname='idempotency_keys_created_at_idx';"
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            down 1
-
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
-            up 1
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 -c "DELETE FROM cash_sessions WHERE status='open';" -c 'UPDATE schema_migrations SET dirty=false WHERE version=13 AND dirty=true;'
+          Invoke-Migrate -MigrateArgs @('force','12')
+          Invoke-Migrate -MigrateArgs @('up','1')
+          Invoke-Migrate -MigrateArgs @('up','1')
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 -c "SELECT column_name FROM information_schema.columns WHERE table_name='cash_sessions' AND column_name IN ('expected_cash','closing_difference') ORDER BY column_name;"
+          Invoke-Migrate -MigrateArgs @('down','1')
+          Invoke-Migrate -MigrateArgs @('up','1')
+          Invoke-Migrate -MigrateArgs @('up','1')
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 -c "SELECT to_regclass('public.cash_movements'), to_regclass('public.cash_session_reconciliations');" -c "SELECT code FROM permissions WHERE code='cash:move';"
+          Invoke-Migrate -MigrateArgs @('down','1')
+          Invoke-Migrate -MigrateArgs @('up','1')
+          Invoke-Migrate -MigrateArgs @('up','1')
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 -c "SELECT indexname FROM pg_indexes WHERE indexname='idempotency_keys_created_at_idx';"
+          Invoke-Migrate -MigrateArgs @('down','1')
+          Invoke-Migrate -MigrateArgs @('up','1')
       - name: Run tagged integration tests
         working-directory: backend
+        shell: powershell
         env:
           TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
           TEST_REDIS_ADDR: localhost:6379
         run: go test -tags=integration ./tests/integration/...
       - name: Start API and verify readiness
         working-directory: backend
+        shell: powershell
         env:
           APP_ENV: test
           DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
@@ -253,20 +177,41 @@ jobs:
           HTTP_ADDR: :18080
           OTEL_ENABLED: "false"
         run: |
-          go build -o /tmp/sistemaemgo-api ./cmd/api
-          /tmp/sistemaemgo-api > /tmp/sistemaemgo-api.log 2>&1 &
-          echo $! > /tmp/sistemaemgo-api.pid
-          for i in {1..30}; do
-            if curl --fail --silent http://localhost:18080/health/ready; then
-              exit 0
-            fi
-            sleep 2
-          done
-          cat /tmp/sistemaemgo-api.log
+          $api = Join-Path $env:RUNNER_TEMP 'sistemaemgo-integration-api.exe'
+          $stdout = Join-Path $env:RUNNER_TEMP 'sistemaemgo-integration-api.out.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'sistemaemgo-integration-api.err.log'
+          $pidFile = Join-Path $env:RUNNER_TEMP 'sistemaemgo-integration-api.pid'
+          go build -o $api ./cmd/api
+          $proc = Start-Process -FilePath $api -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Set-Content -Path $pidFile -Value $proc.Id
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:18080/health/ready' -TimeoutSec 2
+              if ($response.StatusCode -eq 200) { exit 0 }
+            } catch {}
+            Start-Sleep -Seconds 2
+          }
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
           exit 1
+      - name: Cleanup integration resources
+        if: always()
+        shell: powershell
+        run: |
+          $pidFile = Join-Path $env:RUNNER_TEMP 'sistemaemgo-integration-api.pid'
+          if (Test-Path $pidFile) {
+            $apiPid = Get-Content $pidFile
+            Stop-Process -Id $apiPid -Force -ErrorAction SilentlyContinue
+          }
+          if (Get-Command docker -ErrorAction SilentlyContinue) { docker compose down -v --remove-orphans }
+          exit 0
 
   e2e:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 75
+    concurrency:
+      group: sistemaerp-compose-self-hosted
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -278,16 +223,26 @@ jobs:
           node-version: '22.13.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Start database, Redis and migrations
-        run: docker compose up -d db redis migrate
-      - name: Seed browser test data
+      - name: Verify Docker prerequisites
+        shell: powershell
         run: |
+          Get-Command docker -ErrorAction Stop | Format-List
+          docker version
+          docker compose version
+      - name: Start database, Redis and migrations
+        shell: powershell
+        run: |
+          docker compose down -v --remove-orphans
+          docker compose up -d db redis migrate
+      - name: Seed browser test data
+        shell: powershell
+        run: |
+          $seed = Join-Path $env:GITHUB_WORKSPACE 'backend\seed'
           docker compose run --rm seed
-          docker compose run --rm -v "$PWD/backend/seed:/seed:ro" db \
-            psql "postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo" \
-            -v ON_ERROR_STOP=1 -f /seed/seed.e2e.sql
+          docker compose run --rm -v ('{0}:/seed:ro' -f $seed) db psql 'postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo' -v ON_ERROR_STOP=1 -f /seed/seed.e2e.sql
       - name: Start API and wait for readiness
         working-directory: backend
+        shell: powershell
         env:
           APP_ENV: test
           DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
@@ -304,33 +259,72 @@ jobs:
           RATE_LIMIT_SALES_PER_MINUTE: "1000"
           RATE_LIMIT_FISCAL_PER_MINUTE: "1000"
         run: |
-          go build -o /tmp/sistemaemgo-api ./cmd/api
-          /tmp/sistemaemgo-api > /tmp/api.log 2>&1 &
-          for i in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8080/health/ready; then
-              exit 0
-            fi
-            sleep 2
-          done
-          cat /tmp/api.log
+          $api = Join-Path $env:RUNNER_TEMP 'sistemaemgo-e2e-api.exe'
+          $stdout = Join-Path $env:RUNNER_TEMP 'sistemaemgo-e2e-api.out.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'sistemaemgo-e2e-api.err.log'
+          $pidFile = Join-Path $env:RUNNER_TEMP 'sistemaemgo-e2e-api.pid'
+          go build -o $api ./cmd/api
+          $proc = Start-Process -FilePath $api -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Set-Content -Path $pidFile -Value $proc.Id
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8080/health/ready' -TimeoutSec 2
+              if ($response.StatusCode -eq 200) { exit 0 }
+            } catch {}
+            Start-Sleep -Seconds 2
+          }
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
           exit 1
       - name: Install frontend and Playwright
         working-directory: web
+        shell: powershell
         run: |
           npm install --global npm@11.6.1
           npm ci
-          npx playwright install --with-deps chromium firefox webkit
+          npx playwright install chromium firefox webkit
       - name: Start frontend
         working-directory: web
+        shell: powershell
         env:
           VITE_API_BASE_URL: http://127.0.0.1:8080
-        run: npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/web.log 2>&1 &
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP 'sistemaemgo-web.out.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'sistemaemgo-web.err.log'
+          $pidFile = Join-Path $env:RUNNER_TEMP 'sistemaemgo-web.pid'
+          $proc = Start-Process -FilePath 'npm.cmd' -ArgumentList @('run','dev','--','--host','127.0.0.1','--port','5173') -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Set-Content -Path $pidFile -Value $proc.Id
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:5173/login' -TimeoutSec 2
+              if ($response.StatusCode -eq 200) { exit 0 }
+            } catch {}
+            Start-Sleep -Seconds 2
+          }
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
+          exit 1
       - name: Run browser E2E
         working-directory: web
+        shell: powershell
         run: npx playwright test
+      - name: Cleanup E2E resources
+        if: always()
+        shell: powershell
+        run: |
+          foreach ($name in @('sistemaemgo-e2e-api.pid','sistemaemgo-web.pid')) {
+            $pidFile = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path $pidFile) {
+              $processId = Get-Content $pidFile
+              Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            }
+          }
+          if (Get-Command docker -ErrorAction SilentlyContinue) { docker compose down -v --remove-orphans }
+          exit 0
 
   security:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -344,18 +338,22 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Go vulnerability scan
         working-directory: backend
+        shell: powershell
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - name: Frontend production dependency audit
         working-directory: web
+        shell: powershell
         run: |
           npm install --global npm@11.6.1
           npm ci
           npm audit --omit=dev --audit-level=high
       - name: Generate remediated frontend lockfile
         working-directory: web
+        shell: powershell
         run: |
-          npm audit fix --package-lock-only || true
-          npm audit --json > audit-after-fix.json || true
+          npm audit fix --package-lock-only
+          npm audit --json | Out-File -FilePath audit-after-fix.json -Encoding utf8
+          exit 0
       - name: Upload remediated frontend lockfile
         uses: actions/upload-artifact@v7
         with:
@@ -366,9 +364,12 @@ jobs:
             web/audit-after-fix.json
           if-no-files-found: error
 
-
   e2e-prodlike:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 90
+    concurrency:
+      group: sistemaerp-prodlike-self-hosted
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -380,95 +381,71 @@ jobs:
           node-version: '22.13.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Start verified-TLS PostgreSQL and Redis
+      - name: Verify Docker prerequisites
+        shell: powershell
         run: |
-          mkdir -p /tmp/tls
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-            -subj "/CN=SistemaEmGo CI CA" \
-            -keyout /tmp/tls/ca.key \
-            -out /tmp/tls/ca.crt
+          Get-Command docker -ErrorAction Stop | Format-List
+          docker version
+          docker compose version
+      - name: Start verified-TLS PostgreSQL and Redis
+        shell: powershell
+        run: |
+          foreach ($container in @('pg-staging','redis-staging','caddy-staging','tls-export')) { docker rm -f $container 2>$null }
+          docker network rm sistemaemgo-staging 2>$null
+          docker volume rm -f sistemaemgo-ci-tls 2>$null
+          docker volume create sistemaemgo-ci-tls
+          docker network create sistemaemgo-staging
 
-          openssl req -newkey rsa:2048 -nodes \
-            -subj "/CN=127.0.0.1" \
-            -keyout /tmp/tls/server.key \
-            -out /tmp/tls/server.csr
-          printf "subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth\n" > /tmp/tls/server.ext
-          openssl x509 -req -days 1 \
-            -in /tmp/tls/server.csr \
-            -CA /tmp/tls/ca.crt \
-            -CAkey /tmp/tls/ca.key \
-            -CAcreateserial \
-            -extfile /tmp/tls/server.ext \
-            -out /tmp/tls/server.crt
+          $tlsScript = @'
+          set -eu
+          apk add --no-cache openssl >/dev/null
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=SistemaEmGo CI CA" -keyout /tls/ca.key -out /tls/ca.crt
+          openssl req -newkey rsa:2048 -nodes -subj "/CN=127.0.0.1" -keyout /tls/server.key -out /tls/server.csr
+          printf "subjectAltName=IP:127.0.0.1,DNS:pg-staging,DNS:redis-staging,DNS:host.docker.internal
+extendedKeyUsage=serverAuth
+" > /tls/server.ext
+          openssl x509 -req -days 1 -in /tls/server.csr -CA /tls/ca.crt -CAkey /tls/ca.key -CAcreateserial -extfile /tls/server.ext -out /tls/server.crt
+          chown 999:999 /tls/server.key /tls/server.crt /tls/ca.crt
+          chmod 600 /tls/server.key
+          chmod 644 /tls/server.crt /tls/ca.crt
+          '@
+          docker run --rm -v 'sistemaemgo-ci-tls:/tls' alpine:3.20 sh -lc $tlsScript
+          if ($LASTEXITCODE -ne 0) { throw 'failed to generate TLS material' }
 
-          chmod 600 /tmp/tls/server.key
-          chmod 644 /tmp/tls/server.crt /tmp/tls/ca.crt
-          sudo chown 999:999 /tmp/tls/server.key /tmp/tls/server.crt /tmp/tls/ca.crt
-          sudo cp /tmp/tls/ca.crt /usr/local/share/ca-certificates/sistemaemgo-ci-ca.crt
-          sudo update-ca-certificates
+          docker create --name tls-export -v 'sistemaemgo-ci-tls:/tls' alpine:3.20 | Out-Null
+          $caPath = Join-Path $env:RUNNER_TEMP 'sistemaemgo-ci-ca.crt'
+          docker cp 'tls-export:/tls/ca.crt' $caPath
+          docker rm tls-export | Out-Null
+          $cert = Import-Certificate -FilePath $caPath -CertStoreLocation 'Cert:\CurrentUser\Root'
+          ('CI_CA_THUMBPRINT={0}' -f $cert.Thumbprint) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          docker run -d --name pg-staging \
-            -e POSTGRES_DB=sistemaemgo \
-            -e POSTGRES_USER=sistemaemgo \
-            -e POSTGRES_PASSWORD=ci-staging-db-password \
-            -p 55432:5432 \
-            -v /tmp/tls:/tls:ro \
-            postgres:16 \
-            -c ssl=on \
-            -c ssl_cert_file=/tls/server.crt \
-            -c ssl_key_file=/tls/server.key
+          docker run -d --name pg-staging --network sistemaemgo-staging -e POSTGRES_DB=sistemaemgo -e POSTGRES_USER=sistemaemgo -e POSTGRES_PASSWORD=ci-staging-db-password -p 55432:5432 -v 'sistemaemgo-ci-tls:/tls:ro' postgres:16 -c ssl=on -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/tls/server.key
+          docker run -d --name redis-staging --network sistemaemgo-staging -p 56379:6379 -v 'sistemaemgo-ci-tls:/tls:ro' redis:7.4-alpine redis-server --port 0 --tls-port 6379 --tls-cert-file /tls/server.crt --tls-key-file /tls/server.key --tls-ca-cert-file /tls/ca.crt --tls-auth-clients no --requirepass ci-staging-redis-password
 
-          docker run -d --name redis-staging \
-            -p 56379:6379 \
-            -v /tmp/tls:/tls:ro \
-            redis:7.4-alpine \
-            redis-server \
-              --port 0 \
-              --tls-port 6379 \
-              --tls-cert-file /tls/server.crt \
-              --tls-key-file /tls/server.key \
-              --tls-ca-cert-file /tls/ca.crt \
-              --tls-auth-clients no \
-              --requirepass ci-staging-redis-password
-
-          for i in {1..30}; do
-            if docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo >/dev/null 2>&1; then
-              break
-            fi
-            sleep 2
-          done
+          for ($i = 0; $i -lt 30; $i++) {
+            docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo *> $null
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 2
+          }
           docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo
           docker exec redis-staging redis-cli --tls --cacert /tls/ca.crt -a ci-staging-redis-password ping
       - name: Migrate and seed over PostgreSQL TLS
+        shell: powershell
         run: |
-          docker run --rm --network host \
-            -v "$PWD/backend/migrations:/migrations:ro" \
-            -v /tmp/tls:/tls:ro \
-            migrate/migrate:v4.17.1 \
-            -path=/migrations \
-            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
-            up
-
-          docker run --rm --network host \
-            -v "$PWD/backend/seed:/seed:ro" \
-            -v /tmp/tls:/tls:ro \
-            postgres:16 \
-            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
-            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
-      - name: Configure staging hostname
-        run: echo "127.0.0.1 staging.example.test" | sudo tee -a /etc/hosts
-
+          $migrations = Join-Path $env:GITHUB_WORKSPACE 'backend\migrations'
+          $seed = Join-Path $env:GITHUB_WORKSPACE 'backend\seed'
+          docker run --rm --network sistemaemgo-staging -v ('{0}:/migrations:ro' -f $migrations) -v 'sistemaemgo-ci-tls:/tls:ro' migrate/migrate:v4.17.1 -path=/migrations '-database=postgres://sistemaemgo:ci-staging-db-password@pg-staging:5432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt' up
+          docker run --rm --network sistemaemgo-staging -v ('{0}:/seed:ro' -f $seed) -v 'sistemaemgo-ci-tls:/tls:ro' postgres:16 psql 'postgres://sistemaemgo:ci-staging-db-password@pg-staging:5432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt' -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
       - name: Start staging-configured API
         working-directory: backend
+        shell: powershell
         env:
           APP_ENV: staging
           FISCAL_PROVIDER: disabled
-          DATABASE_URL: "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tmp/tls/ca.crt"
-          REDIS_URL: "rediss://:ci-staging-redis-password@127.0.0.1:56379/0"
           JWT_SECRET: ci-staging-jwt-secret-longer-than-32-characters
           HTTP_ADDR: :18081
           OTEL_ENABLED: "false"
-          CORS_ALLOWED_ORIGINS: https://staging.example.test:8443
+          CORS_ALLOWED_ORIGINS: https://127.0.0.1:8443
           TRUSTED_PROXY_CIDRS: 127.0.0.1/32
           METRICS_BEARER_TOKEN: ci-staging-metrics-token
           RATE_LIMIT_LOGIN_PER_MINUTE: "1000"
@@ -479,32 +456,42 @@ jobs:
           RATE_LIMIT_SALES_PER_MINUTE: "1000"
           RATE_LIMIT_FISCAL_PER_MINUTE: "1000"
         run: |
-          go build -o /tmp/sistemaemgo-staging-api ./cmd/api
-          /tmp/sistemaemgo-staging-api > /tmp/staging-api.log 2>&1 &
-          for i in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:18081/health/ready; then
-              exit 0
-            fi
-            sleep 2
-          done
-          cat /tmp/staging-api.log
+          $env:DATABASE_URL = 'postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full'
+          $env:REDIS_URL = 'rediss://:ci-staging-redis-password@127.0.0.1:56379/0'
+          $api = Join-Path $env:RUNNER_TEMP 'sistemaemgo-staging-api.exe'
+          $stdout = Join-Path $env:RUNNER_TEMP 'sistemaemgo-staging-api.out.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'sistemaemgo-staging-api.err.log'
+          $pidFile = Join-Path $env:RUNNER_TEMP 'sistemaemgo-staging-api.pid'
+          go build -o $api ./cmd/api
+          $proc = Start-Process -FilePath $api -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Set-Content -Path $pidFile -Value $proc.Id
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:18081/health/ready' -TimeoutSec 2
+              if ($response.StatusCode -eq 200) { exit 0 }
+            } catch {}
+            Start-Sleep -Seconds 2
+          }
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
           exit 1
       - name: Build frontend and start HTTPS reverse proxy
         working-directory: web
+        shell: powershell
         env:
-          VITE_API_BASE_URL: https://staging.example.test:8443
+          VITE_API_BASE_URL: https://127.0.0.1:8443
         run: |
           npm install --global npm@11.6.1
           npm ci
           npm run build
-          npx playwright install --with-deps chromium
-
-          cat > /tmp/Caddyfile <<'EOF'
-          https://staging.example.test:8443 {
-            tls internal
+          npx playwright install chromium
+          $caddyFile = Join-Path $env:RUNNER_TEMP 'Caddyfile'
+          @'
+          :8443 {
+            tls /tls/server.crt /tls/server.key
             @backend path /api/* /health /health/* /metrics
             handle @backend {
-              reverse_proxy 127.0.0.1:18081
+              reverse_proxy host.docker.internal:18081
             }
             handle {
               root * /srv
@@ -512,27 +499,40 @@ jobs:
               file_server
             }
           }
-          EOF
-
-          docker run -d --name caddy-staging --network host \
-            -v /tmp/Caddyfile:/etc/caddy/Caddyfile:ro \
-            -v "$PWD/dist:/srv:ro" \
-            caddy:2.8-alpine
-
-          for i in {1..30}; do
-            health="$(curl --noproxy '*' -k --fail --silent https://staging.example.test:8443/health/ready || true)"
-            app="$(curl --noproxy '*' -k --fail --silent https://staging.example.test:8443/login || true)"
-            if echo "$health" | grep -q '"status":"ready"' && echo "$app" | grep -q 'id="root"'; then
-              exit 0
-            fi
-            sleep 2
-          done
+          '@ | Set-Content -Path $caddyFile -Encoding ascii
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'web\dist'
+          docker run -d --name caddy-staging -p 8443:8443 -v ('{0}:/etc/caddy/Caddyfile:ro' -f $caddyFile) -v ('{0}:/srv:ro' -f $dist) -v 'sistemaemgo-ci-tls:/tls:ro' caddy:2.8-alpine
+          for ($i = 0; $i -lt 30; $i++) {
+            $health = & curl.exe --noproxy '*' -k --fail --silent 'https://127.0.0.1:8443/health/ready' 2>$null
+            $healthExit = $LASTEXITCODE
+            $app = & curl.exe --noproxy '*' -k --fail --silent 'https://127.0.0.1:8443/login' 2>$null
+            $appExit = $LASTEXITCODE
+            if ($healthExit -eq 0 -and $appExit -eq 0 -and $health -match '"status":"ready"' -and $app -match 'id="root"') { exit 0 }
+            Start-Sleep -Seconds 2
+          }
           docker logs caddy-staging
           exit 1
       - name: Run staging-like browser E2E
         working-directory: web
+        shell: powershell
         env:
           E2E_PRODLIKE: "1"
-          E2E_BASE_URL: https://staging.example.test:8443
+          E2E_BASE_URL: https://127.0.0.1:8443
           E2E_IGNORE_HTTPS_ERRORS: "1"
         run: npx playwright test e2e/prodlike.spec.ts --project=chromium
+      - name: Cleanup production-like resources
+        if: always()
+        shell: powershell
+        run: |
+          $pidFile = Join-Path $env:RUNNER_TEMP 'sistemaemgo-staging-api.pid'
+          if (Test-Path $pidFile) {
+            $apiPid = Get-Content $pidFile
+            Stop-Process -Id $apiPid -Force -ErrorAction SilentlyContinue
+          }
+          if ($env:CI_CA_THUMBPRINT) { Remove-Item ('Cert:\CurrentUser\Root\{0}' -f $env:CI_CA_THUMBPRINT) -Force -ErrorAction SilentlyContinue }
+          if (Get-Command docker -ErrorAction SilentlyContinue) {
+            foreach ($container in @('caddy-staging','pg-staging','redis-staging','tls-export')) { docker rm -f $container 2>$null }
+            docker network rm sistemaemgo-staging 2>$null
+            docker volume rm -f sistemaemgo-ci-tls 2>$null
+          }
+          exit 0
