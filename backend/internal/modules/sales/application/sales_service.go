@@ -390,6 +390,14 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 		}
 	}
 
+	hasInvoice, err := s.sales.HasInvoiceForSale(ctx, tx, tenantID, saleID)
+	if err != nil {
+		return err
+	}
+	if hasInvoice {
+		return common.ErrConflict
+	}
+
 	session, err := s.cash.GetSession(ctx, tx, tenantID, sale.CashSessionID)
 	if err != nil {
 		return common.ErrCashSessionClosed
