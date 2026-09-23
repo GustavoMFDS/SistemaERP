@@ -21,6 +21,33 @@ test('barcode lookup and PDV scanner add and increment the product', async ({ pa
   expect(lookup.sku).toBe('SKU-COCA-2L')
   expect(lookup.barcode).toBe('7890000000000')
 
+  const duplicateStatus = await page.evaluate(async () => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    try {
+      await apiJson('/api/v1/products', {
+        method: 'POST',
+        body: {
+          category_id: null,
+          sku: `E2E-DUP-BAR-${crypto.randomUUID().slice(0, 8)}`,
+          barcode: '7890000000000',
+          name: 'Duplicate barcode must fail',
+          description: null,
+          unit: 'UN',
+          cost_price: 1,
+          price_cash: 2,
+          promo_price: null,
+          min_stock: 0,
+          active: true,
+        },
+      })
+      return 200
+    } catch (error) {
+      if (error instanceof APIError) return error.status
+      throw error
+    }
+  })
+  expect(duplicateStatus).toBe(409)
+
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
   const scanner = page.getByLabel('Código de barras')
