@@ -108,6 +108,16 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   const sale = (await saleResponse.json()) as { id: string; total: number }
   expect(sale.total).toBe(18)
 
+  const adminSaleDetail = await page.evaluate(async (saleId) => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    return apiJson<{
+      sale: { profit_estimated: number }
+      items: Array<{ cost_unit: number }>
+    }>(`/api/v1/sales/${saleId}`)
+  }, sale.id)
+  expect(adminSaleDetail.sale.profit_estimated).toBeGreaterThan(0)
+  expect(adminSaleDetail.items[0].cost_unit).toBe(4)
+
   await expect(page.getByText(/Venda finalizada:/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Imprimir comprovante não fiscal' })).toBeVisible()
 
