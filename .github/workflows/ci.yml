@@ -372,6 +372,7 @@ jobs:
 
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
             -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('payment_reconciliations','return_refunds','finance_idempotency_keys') ORDER BY table_name;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='payment_reconciliations_tenant_payment_unique';" \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='payments' AND column_name IN ('provider','transaction_ref','authorization_code','installments','reconciliation_status','reconciled_amount','reconciled_fee','reconciled_at') ORDER BY column_name;" \
             -c "SELECT code FROM permissions WHERE code='finance:reconcile';" \
             -c "SELECT conname FROM pg_constraint WHERE conname IN ('payment_reconciliation_payment_tenant_fk','return_refunds_return_tenant_fk','return_refunds_sale_tenant_fk','return_refunds_cash_session_tenant_fk') ORDER BY conname;" \
