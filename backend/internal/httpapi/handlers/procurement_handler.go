@@ -58,18 +58,25 @@ func (h *ProcurementHandler) CreateSupplier(w http.ResponseWriter, r *http.Reque
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
+	idemKey := r.Header.Get("Idempotency-Key")
 	var req procapp.SupplierRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	id, err := h.svc.CreateSupplier(r.Context(), au.TenantID, req)
+	id, created, err := h.svc.CreateSupplier(r.Context(), au.TenantID, idemKey, req)
 	if err != nil {
 		writeProcurementError(w, r, err)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "supplier.create", "supplier", id, "success", nil)
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+	if created {
+		recordAudit(h.audit, r, au.TenantID, au.UserID, "supplier.create", "supplier", id, "success", nil)
+	}
+	code := http.StatusCreated
+	if !created {
+		code = http.StatusOK
+	}
+	writeJSON(w, code, map[string]any{"id": id, "replayed": !created})
 }
 
 func (h *ProcurementHandler) UpdateSupplier(w http.ResponseWriter, r *http.Request) {
