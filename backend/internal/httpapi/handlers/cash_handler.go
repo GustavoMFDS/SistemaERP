@@ -45,19 +45,6 @@ func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	requestID, ip, userAgent := audit.RequestContext(r)
-	h.audit.Record(r.Context(), audit.Event{
-		TenantID:     au.TenantID,
-		ActorUserID:  au.UserID,
-		Action:       "cash.open",
-		ResourceType: "cash_session",
-		ResourceID:   id,
-		Outcome:      "success",
-		Metadata:     map[string]any{"opening_amount": req.OpeningAmount.String()},
-		RequestID:    requestID,
-		IP:           ip,
-		UserAgent:    userAgent,
-	})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
@@ -85,22 +72,6 @@ func (h *CashHandler) RecordMovement(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	requestID, ip, userAgent := audit.RequestContext(r)
-	h.audit.Record(r.Context(), audit.Event{
-		TenantID:     au.TenantID,
-		ActorUserID:  au.UserID,
-		Action:       "cash." + req.Type,
-		ResourceType: "cash_movement",
-		ResourceID:   id,
-		Outcome:      "success",
-		Metadata: map[string]any{
-			"cash_session_id": sessionID,
-			"amount":          req.Amount.String(),
-		},
-		RequestID: requestID,
-		IP:        ip,
-		UserAgent: userAgent,
-	})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "recorded"})
 }
 
@@ -128,23 +99,6 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	requestID, ip, userAgent := audit.RequestContext(r)
-	h.audit.Record(r.Context(), audit.Event{
-		TenantID:     au.TenantID,
-		ActorUserID:  au.UserID,
-		Action:       "cash.close",
-		ResourceType: "cash_session",
-		ResourceID:   sessionID,
-		Outcome:      "success",
-		Metadata: map[string]any{
-			"expected_cash":      result.ExpectedCash.String(),
-			"closing_amount":     result.ClosingAmount.String(),
-			"closing_difference": result.ClosingDifference.String(),
-		},
-		RequestID: requestID,
-		IP:        ip,
-		UserAgent: userAgent,
-	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":               "closed",
 		"expected_cash":        result.ExpectedCash,
