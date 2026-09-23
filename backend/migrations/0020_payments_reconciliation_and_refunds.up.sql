@@ -44,6 +44,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS payments_tenant_id_id_unique
   ON payments(tenant_id, id);
 CREATE INDEX IF NOT EXISTS payments_tenant_reconciliation_idx
   ON payments(tenant_id, reconciliation_status, method, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS payments_tenant_provider_transaction_ref_unique
+  ON payments(tenant_id, lower(provider), transaction_ref)
+  WHERE provider IS NOT NULL AND transaction_ref IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS payment_reconciliations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -69,6 +72,9 @@ CREATE TABLE IF NOT EXISTS payment_reconciliations (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS payment_reconciliations_tenant_payment_unique
   ON payment_reconciliations(tenant_id, payment_id);
+CREATE UNIQUE INDEX IF NOT EXISTS payment_reconciliations_tenant_provider_external_ref_unique
+  ON payment_reconciliations(tenant_id, lower(provider), external_ref)
+  WHERE provider IS NOT NULL AND external_ref IS NOT NULL;
 CREATE INDEX IF NOT EXISTS payment_reconciliations_tenant_payment_created_idx
   ON payment_reconciliations(tenant_id, payment_id, created_at DESC);
 
@@ -99,6 +105,9 @@ CREATE TABLE IF NOT EXISTS return_refunds (
 );
 CREATE INDEX IF NOT EXISTS return_refunds_tenant_return_created_idx
   ON return_refunds(tenant_id, return_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS return_refunds_tenant_provider_external_ref_unique
+  ON return_refunds(tenant_id, lower(provider), external_ref)
+  WHERE provider IS NOT NULL AND external_ref IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS finance_idempotency_keys (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
