@@ -333,7 +333,7 @@ jobs:
             down 1
 
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
-          DO $
+          DO $do$
           BEGIN
             IF EXISTS (SELECT 1 FROM permissions WHERE code='sale:return') THEN
               RAISE EXCEPTION 'rollback 0019 left sale:return permission behind';
@@ -341,7 +341,7 @@ jobs:
             IF to_regclass('public.sale_returns') IS NOT NULL THEN
               RAISE EXCEPTION 'rollback 0019 left sale_returns behind';
             END IF;
-          END $;
+          END $do$;
           SQL
 
           docker run --rm --network host \
@@ -375,7 +375,7 @@ jobs:
             down 1
 
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
-          DO $
+          DO $do$
           BEGIN
             IF EXISTS (SELECT 1 FROM permissions WHERE code='finance:reconcile') THEN
               RAISE EXCEPTION 'rollback 0020 left finance:reconcile permission behind';
@@ -384,7 +384,7 @@ jobs:
                OR to_regclass('public.return_refunds') IS NOT NULL THEN
               RAISE EXCEPTION 'rollback 0020 left finance reconciliation tables behind';
             END IF;
-          END $;
+          END $do$;
           SQL
 
           docker run --rm --network host \
