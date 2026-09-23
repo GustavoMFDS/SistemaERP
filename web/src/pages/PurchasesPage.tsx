@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson, errorMessage } from '../lib/api'
 
 type Supplier = {
   id: string
@@ -73,6 +73,7 @@ export default function PurchasesPage() {
   const [supplierName, setSupplierName] = useState('')
   const [supplierDocument, setSupplierDocument] = useState('')
   const [supplierPhone, setSupplierPhone] = useState('')
+  const supplierCreateKeyRef = useRef('')
 
   const [supplierId, setSupplierId] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -128,8 +129,10 @@ export default function PurchasesPage() {
     e.preventDefault()
     setError('')
     try {
-      await apiJson<{ id: string }>('/api/v1/suppliers', {
+      if (!supplierCreateKeyRef.current) supplierCreateKeyRef.current = crypto.randomUUID()
+      await apiJson<{ id: string; replayed: boolean }>('/api/v1/suppliers', {
         method: 'POST',
+        headers: { 'Idempotency-Key': supplierCreateKeyRef.current },
         body: {
           name: supplierName.trim(),
           document: supplierDocument.trim() || null,
@@ -143,8 +146,10 @@ export default function PurchasesPage() {
       setSupplierName('')
       setSupplierDocument('')
       setSupplierPhone('')
+      supplierCreateKeyRef.current = ''
       await loadBase()
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) supplierCreateKeyRef.current = ''
       setError(errorMessage(e))
     }
   }
@@ -193,6 +198,7 @@ export default function PurchasesPage() {
       purchaseCreateKeyRef.current = ''
       await loadBase()
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) purchaseCreateKeyRef.current = ''
       setError(errorMessage(e))
     }
   }
@@ -247,6 +253,7 @@ export default function PurchasesPage() {
       await loadBase()
       await openPurchase(selected.purchase.id)
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) receiveKeyRef.current = ''
       setError(errorMessage(e))
     }
   }
