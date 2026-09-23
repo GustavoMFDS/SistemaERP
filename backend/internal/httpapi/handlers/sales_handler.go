@@ -66,6 +66,19 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
+	hasDiscount := req.DiscountValue > 0
+	if !hasDiscount {
+		for _, item := range req.Items {
+			if item.DiscountValue > 0 {
+				hasDiscount = true
+				break
+			}
+		}
+	}
+	if hasDiscount && !middleware.HasPermission(r.Context(), "sale:discount") {
+		writeError(w, r, http.StatusForbidden, "authorization_error", "permissao insuficiente para desconto", nil)
+		return
+	}
 
 	saleID, total, created, err := h.svc.CreateAndFinalize(r.Context(), au.TenantID, au.UserID, idemKey, req)
 	if err != nil {
