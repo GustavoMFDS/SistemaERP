@@ -27,6 +27,7 @@ type Product = {
   sku: string
   name: string
   unit: string
+  barcode?: string | null
   price_cash: number
   active: boolean
 }
@@ -71,6 +72,8 @@ export default function PDVPage() {
   const [closingAmount, setClosingAmount] = useState<number>(0)
   const [cashCloseSummary, setCashCloseSummary] = useState<CashCloseResponse | null>(null)
 
+  const [barcodeScan, setBarcodeScan] = useState('')
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
   const [itemProductId, setItemProductId] = useState('')
   const [itemQty, setItemQty] = useState<number>(1)
   const [items, setItems] = useState<SaleItem[]>([])
@@ -84,6 +87,15 @@ export default function PDVPage() {
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
     for (const p of products) map.set(p.id, p)
+    return map
+  }, [products])
+
+  const productByBarcode = useMemo(() => {
+    const map = new Map<string, Product>()
+    for (const p of products) {
+      const code = p.barcode?.trim()
+      if (code) map.set(code, p)
+    }
     return map
   }, [products])
 
@@ -250,16 +262,65 @@ export default function PDVPage() {
     refreshPending()
   }
 
+  function addProductToCart(p: Product, qty = 1) {
+    const normalizedQty = Number(qty) || 1
+    setItems((prev) => {
+      const idx = prev.findIndex((item) => item.product_id === p.id && item.discount_value === 0)
+      if (idx >= 0) {
+        return prev.map((item, i) =>
+          i === idx ? { ...item, qty: item.qty + normalizedQty } : item,
+        )
+      }
+      return [
+        ...prev,
+        {
+          product_id: p.id,
+          qty: normalizedQty,
+          unit_price: Number(p.price_cash) || 0,
+          discount_value: 0,
+        },
+      ]
+    })
+  }
+
   function addItem() {
     const p = productById.get(itemProductId)
     if (!p) return
-    const next: SaleItem = {
-      product_id: p.id,
-      qty: Number(itemQty) || 1,
-      unit_price: Number(p.price_cash) || 0,
-      discount_value: 0,
+    addProductToCart(p, itemQty)
+  }
+
+  async function scanBarcode(e: FormEvent) {
+    e.preventDefault()
+    const code = barcodeScan.trim()
+    if (!code) return
+
+    setError('')
+    try {
+      let product = productByBarcode.get(code)
+      if (!product && navigator.onLine) {
+        product = await apiJson<Product>(`/api/v1/products/barcode/${encodeURIComponent(code)}`)
+        setProducts((prev) => (prev.some((item) => item.id === product!.id) ? prev : [...prev, product!]))
+      }
+      if (!product) {
+        setError(
+          navigator.onLine
+            ? `Nenhum produto encontrado para o código ${code}.`
+            : `Código ${code} não está no cache local. Conecte-se para consultar o catálogo completo.`,
+        )
+        return
+      }
+      if (!product.active) {
+        setError(`O produto ${product.name} está inativo.`)
+        return
+      }
+
+      addProductToCart(product, 1)
+      setBarcodeScan('')
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    } finally {
+      barcodeInputRef.current?.focus()
     }
-    setItems((prev) => [...prev, next])
   }
 
   function removeItem(idx: number) {
@@ -521,7 +582,32 @@ export default function PDVPage() {
 
       <div className="mt-4 rounded-md border p-3">
         <h3 className="text-sm font-semibold">Itens</h3>
-        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-6">
+
+        <form onSubmit={scanBarcode} className="mt-2 flex gap-2">
+          <label className="block flex-1">
+            <span className="text-xs text-gray-600">Código de barras</span>
+            <input
+              ref={barcodeInputRef}
+              value={barcodeScan}
+              onChange={(e) => setBarcodeScan(e.target.value)}
+              placeholder="Bipe o produto e pressione Enter"
+              autoComplete="off"
+              autoFocus
+              className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            className="mt-5 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white"
+          >
+            Adicionar
+          </button>
+        </form>
+        <p className="mt-1 text-xs text-gray-500">
+          Leitores USB/Bluetooth que funcionam como teclado podem enviar o código seguido de Enter.
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-6">
           <label className="block md:col-span-4">
             <span className="text-xs text-gray-600">Produto</span>
             <select
