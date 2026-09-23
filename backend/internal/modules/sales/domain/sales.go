@@ -143,10 +143,10 @@ type CashMovement struct {
 }
 
 type CashCloseResult struct {
-	ExpectedCash      platform.Money            `json:"expected_cash"`
-	ClosingAmount     platform.Money            `json:"closing_amount"`
-	ClosingDifference platform.Money            `json:"closing_difference"`
-	ExpectedByMethod  map[string]platform.Money `json:"expected_by_method"`
-	DeclaredByMethod  map[string]platform.Money `json:"declared_by_method"`
+	ExpectedCash       platform.Money            `json:"expected_cash"`
+	ClosingAmount      platform.Money            `json:"closing_amount"`
+	ClosingDifference  platform.Money            `json:"closing_difference"`
+	ExpectedByMethod   map[string]platform.Money `json:"expected_by_method"`
+	DeclaredByMethod   map[string]platform.Money `json:"declared_by_method"`
 	DifferenceByMethod map[string]platform.Money `json:"difference_by_method"`
 }
