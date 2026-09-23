@@ -55,6 +55,7 @@ INSERT INTO permissions (id, code, description) VALUES
   (gen_random_uuid(), 'sale:cancel', 'Cancelar venda'),
   (gen_random_uuid(), 'sale:return', 'Registrar devolucoes e trocas'),
   (gen_random_uuid(), 'finance:read', 'Consultar financeiro'),
+  (gen_random_uuid(), 'finance:reconcile', 'Conciliar pagamentos e liquidar reembolsos'),
   (gen_random_uuid(), 'invoice:generate', 'Gerar XML NF-e'),
   (gen_random_uuid(), 'invoice:read', 'Consultar XML NF-e'),
   (gen_random_uuid(), 'privacy:read', 'Consultar requisicoes LGPD e consentimentos'),
@@ -78,7 +79,7 @@ FROM roles r
 JOIN permissions p ON p.code IN (
   'product:read','product:write','inventory:read','inventory:adjust',
   'cash:open','cash:move','cash:close','sale:read','sale:write','sale:cancel','sale:return',
-  'finance:read','invoice:generate','invoice:read'
+  'finance:read','finance:reconcile','invoice:generate','invoice:read'
 )
 WHERE r.name='manager'
 ON CONFLICT DO NOTHING;
