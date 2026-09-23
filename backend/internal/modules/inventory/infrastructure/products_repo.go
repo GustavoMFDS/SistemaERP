@@ -166,13 +166,19 @@ func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, 
 }
 
 func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product) error {
-	_, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		UPDATE products
 		SET category_id=$2, sku=$3, barcode=$4, name=$5, description=$6, unit=$7,
 		    cost_price=$8, price_cash=$9, promo_price=$10, min_stock=$11, active=$12, updated_at=now()
 		WHERE tenant_id=$1 AND id=$13
 	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active, id)
-	return mapProductWriteError(err)
+	if err != nil {
+		return mapProductWriteError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return common.ErrNotFound
+	}
+	return nil
 }
 
 func (r *ProductsRepo) GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error) {
