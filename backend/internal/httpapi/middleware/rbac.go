@@ -34,6 +34,11 @@ func LoadPermissions(auth *authapp.AuthService, logger *slog.Logger) func(http.H
 	}
 }
 
+func HasPermission(ctx context.Context, perm string) bool {
+	perms, _ := ctx.Value(permsKey).(map[string]bool)
+	return perms != nil && perms[perm]
+}
+
 func RequirePermission(perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
