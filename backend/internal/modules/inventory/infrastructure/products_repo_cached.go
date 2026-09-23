@@ -137,6 +137,10 @@ func (r *CachedProductsRepo) Get(ctx context.Context, tenantID string, id string
 	return p, nil
 }
 
+func (r *CachedProductsRepo) GetByBarcode(ctx context.Context, tenantID string, barcode string) (inv.Product, error) {
+	return r.base.GetByBarcode(ctx, tenantID, barcode)
+}
+
 func (r *CachedProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error) {
 	return r.base.Create(ctx, tx, tenantID, p)
 }
