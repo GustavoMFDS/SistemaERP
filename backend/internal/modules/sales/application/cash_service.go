@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
@@ -17,6 +18,7 @@ var cashReconciliationMethods = []string{"cash", "pix", "debit", "credit", "tran
 type CashService struct {
 	uow      db.UnitOfWork
 	cash     CashRepository
+	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
 }
@@ -38,8 +40,8 @@ type CashMovementRequest struct {
 	Notes  *string        `json:"notes"`
 }
 
-func NewCashService(uow db.UnitOfWork, cash CashRepository, v *validator.Validate, logger *slog.Logger) *CashService {
-	return &CashService{uow: uow, cash: cash, validate: v, logger: logger}
+func NewCashService(uow db.UnitOfWork, cash CashRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *CashService {
+	return &CashService{uow: uow, cash: cash, audit: auditSvc, validate: v, logger: logger}
 }
 
 func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
@@ -58,6 +60,13 @@ func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID s
 
 	id, err := s.cash.OpenSession(ctx, tx, tenantID, registerID, userID, req.OpeningAmount, req.Notes)
 	if err != nil {
+		return "", err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: userID, Action: "cash.open",
+		ResourceType: "cash_session", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{"opening_amount": req.OpeningAmount.String()},
+	}); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -100,6 +109,16 @@ func (s *CashService) RecordMovement(ctx context.Context, tenantID, userID, sess
 
 	id, err := s.cash.InsertMovement(ctx, tx, tenantID, sessionID, userID, req.Type, req.Amount, req.Notes)
 	if err != nil {
+		return "", err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: userID, Action: "cash." + req.Type,
+		ResourceType: "cash_movement", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{
+			"cash_session_id": sessionID,
+			"amount":          req.Amount.String(),
+		},
+	}); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -176,6 +195,19 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 	if err := s.cash.SaveReconciliation(ctx, tx, tenantID, sessionID, expected, declared); err != nil {
 		return sales.CashCloseResult{}, err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: userID, Action: "cash.close",
+		ResourceType: "cash_session", ResourceID: sessionID, Outcome: "success",
+		Metadata: map[string]any{
+			"expected_cash":      expected["cash"].String(),
+			"closing_amount":     req.ClosingAmount.String(),
+			"closing_difference": req.ClosingAmount.Sub(expected["cash"]).String(),
+			"expected_by_method": moneyMapStrings(expected),
+			"declared_by_method": moneyMapStrings(declared),
+		},
+	}); err != nil {
+		return sales.CashCloseResult{}, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return sales.CashCloseResult{}, err
@@ -202,4 +234,12 @@ func isCashReconciliationMethod(method string) bool {
 		}
 	}
 	return false
+}
+
+func moneyMapStrings(values map[string]platform.Money) map[string]string {
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value.String()
+	}
+	return out
 }
