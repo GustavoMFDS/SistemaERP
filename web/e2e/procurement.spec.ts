@@ -200,6 +200,13 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       total: number
     }>(`/api/v1/inventory/movements?product_id=${productCreated.id}&limit=20&offset=0`)
 
+    const createAudit = await apiJson<{
+      items: Array<{ action: string; resource_id: string }>
+    }>('/api/v1/audit/logs?action=purchase.create&resource_type=purchase&limit=200&offset=0')
+    const receiveAudit = await apiJson<{
+      items: Array<{ action: string; resource_id: string }>
+    }>('/api/v1/audit/logs?action=purchase.receive&resource_type=purchase&limit=200&offset=0')
+
     return {
       purchaseId: purchase.id,
       supplierId: supplier.id,
@@ -224,6 +231,8 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
           movement.movement_type === 'purchase' &&
           movement.reference_type === 'purchase_receipt',
       ).length,
+      purchaseCreateAuditCount: createAudit.items.filter((item) => item.resource_id === purchase.id).length,
+      purchaseReceiveAuditCount: receiveAudit.items.filter((item) => item.resource_id === purchase.id).length,
     }
   }, suffix)
 
@@ -244,6 +253,8 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
   expect(result.afterQty).toBe(4)
   expect(result.afterCost).toBe(6.25)
   expect(result.purchaseMovements).toBe(2)
+  expect(result.purchaseCreateAuditCount).toBe(1)
+  expect(result.purchaseReceiveAuditCount).toBe(2)
 
   await page.getByRole('link', { name: 'Compras' }).click()
   await expect(page).toHaveURL(/\/purchases$/)
