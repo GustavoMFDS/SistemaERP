@@ -102,7 +102,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		fiscalSvc = fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, v, logger)
 	}
 	privacySvc := privacyapp.NewService(privacyRepo)
-	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, v, logger)
+	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
 	returnsSvc := retapp.NewService(uow, returnsRepo, inventoryRepo, productsRepo, auditSvc, v, logger)
 
 	return &Modules{
