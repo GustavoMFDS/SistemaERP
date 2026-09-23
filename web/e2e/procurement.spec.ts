@@ -10,7 +10,7 @@ async function login(page: import('@playwright/test').Page) {
 
 test('purchase receiving is partial, tenant-scoped and credits stock only on receipt', async ({ page }, testInfo) => {
   await login(page)
-  const suffix = `${testInfo.project.name}-${crypto.randomUUID()}`.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 32)
+  const suffix = `${testInfo.project.name}-${crypto.randomUUID()}`.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 24)
 
   const result = await page.evaluate(async (suffix) => {
     const { apiJson } = await import('/src/lib/api.ts')
