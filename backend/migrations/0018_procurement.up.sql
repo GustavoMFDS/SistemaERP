@@ -123,10 +123,10 @@ ALTER TABLE accounts_payable
 ALTER TABLE accounts_payable
   DROP CONSTRAINT IF EXISTS accounts_payable_supplier_tenant_fk,
   ADD CONSTRAINT accounts_payable_supplier_tenant_fk
-    FOREIGN KEY (tenant_id, supplier_id) REFERENCES suppliers(tenant_id, id) ON DELETE SET NULL,
+    FOREIGN KEY (tenant_id, supplier_id) REFERENCES suppliers(tenant_id, id) ON DELETE SET NULL (supplier_id),
   DROP CONSTRAINT IF EXISTS accounts_payable_purchase_tenant_fk,
   ADD CONSTRAINT accounts_payable_purchase_tenant_fk
-    FOREIGN KEY (tenant_id, purchase_id) REFERENCES purchases(tenant_id, id) ON DELETE SET NULL;
+    FOREIGN KEY (tenant_id, purchase_id) REFERENCES purchases(tenant_id, id) ON DELETE SET NULL (purchase_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS accounts_payable_tenant_purchase_unique
   ON accounts_payable(tenant_id, purchase_id)
