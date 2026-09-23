@@ -2,6 +2,8 @@
 
 BEGIN;
 
+DROP TABLE IF EXISTS procurement_idempotency_keys;
+
 DROP INDEX IF EXISTS accounts_payable_tenant_purchase_unique;
 ALTER TABLE accounts_payable
   DROP COLUMN IF EXISTS purchase_id,
