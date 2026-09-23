@@ -27,6 +27,9 @@ func mapConstraintError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return common.ErrNotFound
+	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return common.ErrConflict
@@ -87,7 +90,7 @@ func (r *Repo) GetSupplier(ctx context.Context, q db.DBTX, tenantID, id string) 
 		WHERE tenant_id=$1 AND id=$2
 		FOR SHARE
 	`, tenantID, id).Scan(&s.ID, &s.Name, &s.Document, &s.Email, &s.Phone, &s.ContactName, &s.Notes, &s.Active, &s.CreatedAt, &s.UpdatedAt)
-	return s, err
+	return s, mapConstraintError(err)
 }
 
 func (r *Repo) CreateSupplier(ctx context.Context, tx db.DBTX, tenantID string, s proc.Supplier) (string, error) {
@@ -180,7 +183,7 @@ func (r *Repo) ListPurchases(ctx context.Context, tenantID, status string, limit
 func (r *Repo) GetPurchase(ctx context.Context, tenantID, id string) (proc.Purchase, []proc.PurchaseItem, []proc.Receipt, error) {
 	p, err := scanPurchase(r.db.QueryRow(ctx, purchaseSelect()+" WHERE p.tenant_id=$1 AND p.id=$2", tenantID, id))
 	if err != nil {
-		return p, nil, nil, err
+		return p, nil, nil, mapConstraintError(err)
 	}
 	items, err := r.listPurchaseItems(ctx, r.db, tenantID, id, false)
 	if err != nil {
@@ -252,7 +255,7 @@ func (r *Repo) listPurchaseItems(ctx context.Context, q db.DBTX, tenantID, purch
 func (r *Repo) GetPurchaseForUpdate(ctx context.Context, tx db.DBTX, tenantID, id string) (proc.Purchase, []proc.PurchaseItem, error) {
 	p, err := scanPurchase(tx.QueryRow(ctx, purchaseSelect()+" WHERE p.tenant_id=$1 AND p.id=$2 FOR UPDATE OF p", tenantID, id))
 	if err != nil {
-		return p, nil, err
+		return p, nil, mapConstraintError(err)
 	}
 	items, err := r.listPurchaseItems(ctx, tx, tenantID, id, true)
 	return p, items, err
