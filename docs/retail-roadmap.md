@@ -2,7 +2,7 @@
 
 Ordem acordada para evoluir o SistemaEmGo para uso nas lojas da familia. Cada loja/empresa continua sendo um tenant independente.
 
-## 2. Codigo de barras e scanner — em implementacao
+## 2. Codigo de barras e scanner — implementado, aguardando CI final/merge
 
 Criterios de aceite:
 
@@ -15,7 +15,7 @@ Criterios de aceite:
 - offline nunca aceita codigo desconhecido;
 - testes de integracao e E2E cobrem isolamento e scanner.
 
-## 3. Fornecedores, compras e entrada de estoque
+## 3. Fornecedores, compras e entrada de estoque — implementado na branch
 
 - cadastro de fornecedores;
 - pedido/compra com itens, custo e status;
