@@ -10,7 +10,7 @@ import (
 
 type Repository interface {
 	ListSuppliers(ctx context.Context, tenantID, query string, limit, offset int) ([]proc.Supplier, int, error)
-	GetSupplier(ctx context.Context, tenantID, id string) (proc.Supplier, error)
+	GetSupplier(ctx context.Context, q db.DBTX, tenantID, id string) (proc.Supplier, error)
 	CreateSupplier(ctx context.Context, tx db.DBTX, tenantID string, supplier proc.Supplier) (string, error)
 	UpdateSupplier(ctx context.Context, tx db.DBTX, tenantID, id string, supplier proc.Supplier) error
 
