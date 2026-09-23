@@ -14,6 +14,7 @@ type Repository interface {
 	Get(ctx context.Context, tenantID, id string) (domain.SaleReturn, []domain.Item, error)
 	GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID, saleID string) (sales.Sale, []sales.SaleItem, error)
 	SumReturnedBySaleItem(ctx context.Context, tx db.DBTX, tenantID string, saleItemIDs []string) (map[string]platform.Quantity, error)
+	SumRefundDue(ctx context.Context, tx db.DBTX, tenantID, saleID string) (platform.Money, error)
 	CreateReturn(ctx context.Context, tx db.DBTX, tenantID string, r domain.SaleReturn) (string, error)
 	InsertItem(ctx context.Context, tx db.DBTX, tenantID string, item domain.Item) error
 
