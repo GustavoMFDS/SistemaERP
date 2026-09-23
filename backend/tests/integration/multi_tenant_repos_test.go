@@ -21,7 +21,7 @@ func TestProductsRepo_TenantIsolation(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20 * time.Second)
 	defer cancel()
 
 	pool, err := pgxpool.New(ctx, url)
