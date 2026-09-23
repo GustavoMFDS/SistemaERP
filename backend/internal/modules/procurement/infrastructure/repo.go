@@ -10,6 +10,7 @@ import (
 	proc "github.com/example/sistemaemgo/internal/modules/procurement/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -368,5 +369,41 @@ func (r *Repo) CancelAccountPayable(ctx context.Context, tx db.DBTX, tenantID, p
 		UPDATE accounts_payable SET status='cancelled'
 		WHERE tenant_id=$1 AND purchase_id=$2 AND status='open'
 	`, tenantID, purchaseID)
+	return err
+}
+
+func (r *Repo) LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error {
+	lockKey := tenantID + ":" + operation + ":" + key
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey)
+	return err
+}
+
+func (r *Repo) GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (resourceID, resultStatus, requestHash string, ok bool, err error) {
+	err = tx.QueryRow(ctx, `
+		SELECT resource_id::text, COALESCE(result_status, ''), request_hash
+		FROM procurement_idempotency_keys
+		WHERE tenant_id=$1 AND operation=$2 AND idem_key=$3
+	`, tenantID, operation, key).Scan(&resourceID, &resultStatus, &requestHash)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", "", "", false, nil
+		}
+		return "", "", "", false, err
+	}
+	return resourceID, resultStatus, requestHash, true, nil
+}
+
+func (r *Repo) SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, requestHash, resourceID, resultStatus string) error {
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO procurement_idempotency_keys(
+			tenant_id, operation, idem_key, request_hash, resource_id, result_status
+		)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (tenant_id, operation, idem_key)
+		DO NOTHING
+	`, tenantID, operation, key, requestHash, resourceID, resultStatus)
+	if err == nil && tag.RowsAffected() == 0 {
+		return common.ErrConflict
+	}
 	return err
 }
