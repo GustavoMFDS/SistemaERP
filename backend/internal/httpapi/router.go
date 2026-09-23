@@ -66,6 +66,20 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/adjust", h.Inventory.Adjust)
 			})
 
+			pr.Route("/suppliers", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("inventory:read")).Get("/", h.Procurement.ListSuppliers)
+				rr.With(middleware.RequirePermission("product:write")).Post("/", h.Procurement.CreateSupplier)
+				rr.With(middleware.RequirePermission("product:write")).Put("/{id}", h.Procurement.UpdateSupplier)
+			})
+
+			pr.Route("/purchases", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("inventory:read")).Get("/", h.Procurement.ListPurchases)
+				rr.With(middleware.RequirePermission("inventory:read")).Get("/{id}", h.Procurement.GetPurchase)
+				rr.With(middleware.RequirePermission("product:write")).Post("/", h.Procurement.CreatePurchase)
+				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/{id}/receive", h.Procurement.ReceivePurchase)
+				rr.With(middleware.RequirePermission("product:write")).Post("/{id}/cancel", h.Procurement.CancelPurchase)
+			})
+
 			pr.Route("/cash", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("cash:open")).Post("/sessions/open", h.Cash.OpenSession)
 				rr.With(middleware.RequirePermission("cash:close")).Post("/sessions/{id}/close", h.Cash.CloseSession)
