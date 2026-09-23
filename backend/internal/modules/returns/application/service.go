@@ -80,7 +80,7 @@ func roundDiv(n, d int64) int64 {
 	if n < 0 {
 		return -roundDiv(-n, d)
 	}
-	return (n + d/2) / d
+	return (n + d / 2) / d
 }
 
 func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, idempotencyKey string, req CreateRequest) (string, platform.Money, bool, error) {
@@ -181,8 +181,8 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 		newReturnedQty := alreadyReturned[item.ID] + requested.Qty
 		alreadyReturned[item.ID] = newReturnedQty
 
-		returnedLineBasis := roundDiv(item.Subtotal.Cents()*requested.Qty.Milli(), item.Qty.Milli())
-		itemRefund := platform.NewMoneyCents(roundDiv(sale.Total.Cents()*returnedLineBasis, totalBasis))
+		returnedLineBasis := roundDiv(item.Subtotal.Cents() * requested.Qty.Milli(), item.Qty.Milli())
+		itemRefund := platform.NewMoneyCents(roundDiv(sale.Total.Cents() * returnedLineBasis, totalBasis))
 		refundDue = refundDue.Add(itemRefund)
 		resultItems = append(resultItems, ret.Item{
 			SaleItemID: item.ID, ProductID: item.ProductID, Qty: requested.Qty,
@@ -206,7 +206,7 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 	}
 	if allFullyReturned && refundDue != remainingRefund && len(resultItems) > 0 {
 		delta := remainingRefund.Sub(refundDue)
-		resultItems[len(resultItems)-1].RefundValue = resultItems[len(resultItems)-1].RefundValue.Add(delta)
+		resultItems[len(resultItems) - 1].RefundValue = resultItems[len(resultItems) - 1].RefundValue.Add(delta)
 		refundDue = remainingRefund
 	}
 
