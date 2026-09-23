@@ -8,19 +8,20 @@ async function login(page: import('@playwright/test').Page) {
   await expect(page).toHaveURL(/\/products$/)
 }
 
-test('purchase receiving is partial, tenant-scoped and credits stock only on receipt', async ({ page }) => {
+test('purchase receiving is partial, tenant-scoped and credits stock only on receipt', async ({ page }, testInfo) => {
   await login(page)
+  const suffix = `${testInfo.project.name}-${crypto.randomUUID()}`.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 32)
 
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async (suffix) => {
     const { apiJson } = await import('/src/lib/api.ts')
 
     const productCreated = await apiJson<{ id: string }>('/api/v1/products', {
       method: 'POST',
       body: {
         category_id: null,
-        sku: 'E2E-PURCHASE-ITEM',
+        sku: `E2E-PURCHASE-${suffix}`,
         barcode: null,
-        name: 'Produto Compra E2E',
+        name: `Produto Compra E2E ${suffix}`,
         description: null,
         unit: 'UN',
         cost_price: 5,
@@ -29,15 +30,15 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
         min_stock: 0,
         active: true,
       },
-    })
+    }, suffix)
 
     const supplierKey = crypto.randomUUID()
     const supplier = await apiJson<{ id: string; replayed: boolean }>('/api/v1/suppliers', {
       method: 'POST',
       headers: { 'Idempotency-Key': supplierKey },
       body: {
-        name: 'Fornecedor E2E',
-        document: '11222333000199',
+        name: `Fornecedor E2E ${suffix}`,
+        document: `DOC-${suffix}`,
         email: null,
         phone: '34999999999',
         contact_name: null,
@@ -50,8 +51,8 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       method: 'POST',
       headers: { 'Idempotency-Key': supplierKey },
       body: {
-        name: 'Fornecedor E2E',
-        document: '11222333000199',
+        name: `Fornecedor E2E ${suffix}`,
+        document: `DOC-${suffix}`,
         email: null,
         phone: '34999999999',
         contact_name: null,
@@ -66,7 +67,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       headers: { 'Idempotency-Key': purchaseKey },
       body: {
         supplier_id: supplier.id,
-        invoice_number: 'NF-E2E-001',
+        invoice_number: `NF-${suffix}`,
         payment_due_date: '2026-12-31',
         notes: 'Compra criada pelo E2E',
         items: [{ product_id: productCreated.id, qty: 4, unit_cost: 6.25 }],
@@ -80,7 +81,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
         headers: { 'Idempotency-Key': purchaseKey },
         body: {
           supplier_id: supplier.id,
-          invoice_number: 'NF-E2E-001',
+          invoice_number: `NF-${suffix}`,
           payment_due_date: '2026-12-31',
           notes: 'Compra criada pelo E2E',
           items: [{ product_id: productCreated.id, qty: 4, unit_cost: 6.25 }],
@@ -91,7 +92,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
     const before = await apiJson<{
       items: Array<{ id: string; qty_on_hand: number; cost_price: number }>
       total: number
-    }>('/api/v1/products?query=E2E-PURCHASE-ITEM')
+    }>(`/api/v1/products?query=E2E-PURCHASE-${suffix}`)
 
     const detail = await apiJson<{
       purchase: { status: string }
@@ -130,7 +131,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
     const middle = await apiJson<{
       items: Array<{ id: string; qty_on_hand: number; cost_price: number }>
       total: number
-    }>('/api/v1/products?query=E2E-PURCHASE-ITEM')
+    }>(`/api/v1/products?query=E2E-PURCHASE-${suffix}`)
 
     const completed = await apiJson<{ receipt_id: string; status: string; replayed: boolean }>(
       `/api/v1/purchases/${purchase.id}/receive`,
@@ -153,7 +154,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
     const after = await apiJson<{
       items: Array<{ id: string; qty_on_hand: number; cost_price: number }>
       total: number
-    }>('/api/v1/products?query=E2E-PURCHASE-ITEM')
+    }>(`/api/v1/products?query=E2E-PURCHASE-${suffix}`)
 
     const movements = await apiJson<{
       items: Array<{ movement_type: string; delta: number; reference_type?: string | null }>
@@ -205,6 +206,6 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
 
   await page.getByRole('link', { name: 'Compras' }).click()
   await expect(page).toHaveURL(/\/purchases$/)
-  await expect(page.getByText('Fornecedor E2E').first()).toBeVisible()
+  await expect(page.getByText(`Fornecedor E2E ${suffix}`).first()).toBeVisible()
   await expect(page.getByText('Recebida', { exact: true }).first()).toBeVisible()
 })
