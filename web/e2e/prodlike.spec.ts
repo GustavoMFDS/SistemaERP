@@ -58,4 +58,22 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
     (cookie) => cookie.name === '__Host-refresh_token',
   )
   expect(cookieAfterSuccessfulLogout).toBeUndefined()
+
+  await context.addCookies([
+    {
+      name: '__Host-refresh_token',
+      value: 'invalid-refresh-token',
+      url: 'https://staging.example.test:8443',
+      secure: true,
+      httpOnly: true,
+      sameSite: 'Strict',
+    },
+  ])
+  await page.goto('/products')
+  await expect(page).toHaveURL(/\/login$/)
+
+  const invalidCookieAfterRefreshFailure = (await context.cookies()).find(
+    (cookie) => cookie.name === '__Host-refresh_token',
+  )
+  expect(invalidCookieAfterRefreshFailure).toBeUndefined()
 })

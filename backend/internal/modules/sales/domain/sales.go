@@ -132,3 +132,9 @@ type CashSession struct {
 	OpenedByUserID string
 	Status         string
 }
+
+type CashCloseResult struct {
+	ExpectedCash      platform.Money `json:"expected_cash"`
+	ClosingAmount     platform.Money `json:"closing_amount"`
+	ClosingDifference platform.Money `json:"closing_difference"`
+}

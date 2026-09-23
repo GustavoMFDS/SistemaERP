@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
+	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
@@ -55,19 +56,22 @@ func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID s
 	return id, nil
 }
 
-func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID, sessionID string, req CashCloseRequest) error {
+func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID, sessionID string, req CashCloseRequest) (sales.CashCloseResult, error) {
 	if err := s.validate.Struct(req); err != nil {
-		return common.ErrValidation
+		return sales.CashCloseResult{}, common.ErrValidation
 	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
-		return err
+		return sales.CashCloseResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	err = s.cash.CloseSession(ctx, tx, tenantID, sessionID, userID, req.ClosingAmount, req.Notes)
+	result, err := s.cash.CloseSession(ctx, tx, tenantID, sessionID, userID, req.ClosingAmount, req.Notes)
 	if err != nil {
-		return err
+		return sales.CashCloseResult{}, err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return sales.CashCloseResult{}, err
+	}
+	return result, nil
 }

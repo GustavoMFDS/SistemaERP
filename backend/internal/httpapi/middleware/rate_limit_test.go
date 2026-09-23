@@ -6,10 +6,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func TestRateLimitReturnsStandardJSON429(t *testing.T) {
-	handler := RateLimit(nil, "test", 1, time.Minute, RateLimitByIP)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RateLimit(nil, "test", 1, time.Minute, false, RateLimitByIP)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -41,5 +43,28 @@ func TestHashRateLimitIdentifierNormalizesAndHidesEmail(t *testing.T) {
 	}
 	if strings.Contains(first, "john") || strings.Contains(first, "@") || len(first) != 64 {
 		t.Fatalf("hash leaks raw identifier or has unexpected shape: %q", first)
+	}
+}
+
+func TestRateLimitFailsClosedWhenRedisUnavailable(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:         "127.0.0.1:1",
+		DialTimeout:  20 * time.Millisecond,
+		ReadTimeout:  20 * time.Millisecond,
+		WriteTimeout: 20 * time.Millisecond,
+	})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	handler := RateLimit(rdb, "test-prod", 10, time.Minute, true, RateLimitByIP)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/login", nil)
+	req.RemoteAddr = "192.0.2.20:1234"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 }

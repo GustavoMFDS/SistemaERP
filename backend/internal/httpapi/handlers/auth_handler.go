@@ -43,7 +43,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Email = strings.TrimSpace(req.Email)
-	if !h.allowLoginIdentifier(r, req.Email) {
+	allowed, limitErr := h.allowLoginIdentifier(r, req.Email)
+	if limitErr != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "service_unavailable", "rate limit backend unavailable", nil)
+		return
+	}
+	if !allowed {
 		writeError(w, r, http.StatusTooManyRequests, "rate_limit", "rate limit exceeded", nil)
 		return
 	}
@@ -82,12 +87,18 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"token": publicTokenResponse(resp), "user": user})
 }
 
-func (h *AuthHandler) allowLoginIdentifier(r *http.Request, email string) bool {
+func (h *AuthHandler) allowLoginIdentifier(r *http.Request, email string) (bool, error) {
 	identifierHash := middleware.HashRateLimitIdentifier(email)
 	ip := middleware.RateLimitByIP(r)
-	idAllowed := middleware.AllowRateLimit(r.Context(), h.rdb, "auth_login_identifier", identifierHash, h.cfg.RateLimitLoginID, time.Minute)
-	combinedAllowed := middleware.AllowRateLimit(r.Context(), h.rdb, "auth_login_ip_identifier", ip+":"+identifierHash, h.cfg.RateLimitLoginIPID, time.Minute)
-	return idAllowed && combinedAllowed
+	idAllowed, err := middleware.AllowRateLimit(r.Context(), h.rdb, "auth_login_identifier", identifierHash, h.cfg.RateLimitLoginID, time.Minute, h.cfg.IsProdLike())
+	if err != nil {
+		return false, err
+	}
+	combinedAllowed, err := middleware.AllowRateLimit(r.Context(), h.rdb, "auth_login_ip_identifier", ip+":"+identifierHash, h.cfg.RateLimitLoginIPID, time.Minute, h.cfg.IsProdLike())
+	if err != nil {
+		return false, err
+	}
+	return idAllowed && combinedAllowed, nil
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +106,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	token := refreshTokenFromCookie(r)
 	resp, userID, tenantID, err := h.auth.RefreshWithSubject(r.Context(), token)
 	if err != nil {
+		clearRefreshCookie(w, h.cfg)
 		requestID, ip, userAgent := audit.RequestContext(r)
 		h.audit.Record(r.Context(), audit.Event{
 			Action:       "auth.refresh",
@@ -127,9 +139,25 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	token := refreshTokenFromCookie(r)
 	userID, tenantID, _ := h.auth.IdentifyRefreshToken(token)
-	_ = h.auth.Logout(r.Context(), token)
-	clearRefreshCookie(w, h.cfg)
 	requestID, ip, userAgent := audit.RequestContext(r)
+
+	if err := h.auth.Logout(r.Context(), token); err != nil {
+		h.audit.Record(r.Context(), audit.Event{
+			TenantID:     tenantID,
+			ActorUserID:  userID,
+			Action:       "auth.logout",
+			ResourceType: "refresh_token",
+			Outcome:      "failure",
+			Metadata:     map[string]any{"reason": "revocation_unavailable"},
+			RequestID:    requestID,
+			IP:           ip,
+			UserAgent:    userAgent,
+		})
+		writeError(w, r, http.StatusServiceUnavailable, "service_unavailable", "nao foi possivel revogar a sessao", nil)
+		return
+	}
+
+	clearRefreshCookie(w, h.cfg)
 	h.audit.Record(r.Context(), audit.Event{
 		TenantID:     tenantID,
 		ActorUserID:  userID,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson, errorMessage } from '../lib/api'
 import {
   claimLegacyQueue,
   discardLegacyQueue,
@@ -10,6 +10,7 @@ import {
   getLegacyQueueCount,
   getQueueItems,
   getQueueSummary,
+  markQueueItemAttention,
   rebindQueueItemToCashSession,
   retryQueueItem,
   type QueuedRequest,
@@ -33,6 +34,12 @@ type Product = {
 type ProductsListResponse = { items: Product[]; total: number }
 
 type CashOpenResponse = { id: string }
+type CashCloseResponse = {
+  status: string
+  expected_cash: number
+  closing_amount: number
+  closing_difference: number
+}
 
 type SaleCreateResponse = { id: string; status: string; total: number }
 
@@ -62,6 +69,7 @@ export default function PDVPage() {
   const [cashSessionId, setCashSessionIdState] = useState(getCashSessionId())
   const [openingAmount, setOpeningAmount] = useState<number>(0)
   const [closingAmount, setClosingAmount] = useState<number>(0)
+  const [cashCloseSummary, setCashCloseSummary] = useState<CashCloseResponse | null>(null)
 
   const [itemProductId, setItemProductId] = useState('')
   const [itemQty, setItemQty] = useState<number>(1)
@@ -174,6 +182,7 @@ export default function PDVPage() {
       })
       setCashSessionId(res.id)
       setCashSessionIdState(res.id)
+      setCashCloseSummary(null)
     } catch (e: unknown) {
       setError(errorMessage(e))
     }
@@ -183,10 +192,14 @@ export default function PDVPage() {
     if (!cashSessionId) return
     setError('')
     try {
-      await apiJson(`/api/v1/cash/sessions/${cashSessionId}/close`, {
-        method: 'POST',
-        body: { closing_amount: Number(closingAmount) || 0, notes: null },
-      })
+      const result = await apiJson<CashCloseResponse>(
+        `/api/v1/cash/sessions/${cashSessionId}/close`,
+        {
+          method: 'POST',
+          body: { closing_amount: Number(closingAmount) || 0, notes: null },
+        },
+      )
+      setCashCloseSummary(result)
       clearCashSessionId()
       setCashSessionIdState('')
       setClosingAmount(0)
@@ -279,22 +292,33 @@ export default function PDVPage() {
       })),
       payments,
     }
-    // Generate exactly once per user intent. The synchronous in-flight lock
-    // prevents a second click from creating a second key/request.
     const idempotencyKey = crypto.randomUUID()
+
+    let queuedId = ''
+    try {
+      // Write-ahead: persist the exact intent before the first network send.
+      // If storage is unavailable, abort without creating an ambiguous sale.
+      queuedId = enqueueRequest({
+        method: 'POST',
+        path: '/api/v1/sales',
+        body,
+        headers: { 'Idempotency-Key': idempotencyKey },
+      })
+      refreshPending()
+    } catch (e: unknown) {
+      setError(
+        `Não foi possível preservar a intenção de venda no navegador. Nenhuma venda foi enviada. ${errorMessage(e)}`,
+      )
+      finalizeInFlight.current = false
+      setFinalizing(false)
+      return
+    }
 
     try {
       if (!navigator.onLine) {
-        const queuedId = enqueueRequest({
-          method: 'POST',
-          path: '/api/v1/sales',
-          body,
-          headers: { 'Idempotency-Key': idempotencyKey },
-        })
         setSaleId(`offline:${queuedId}`)
         setSaleTotal(computedTotal)
         setItems([])
-        refreshPending()
         return
       }
 
@@ -304,33 +328,33 @@ export default function PDVPage() {
         body,
       })
 
+      discardQueueItem(queuedId)
+      refreshPending()
       setSaleId(res.id)
       setSaleTotal(res.total)
       setItems([])
     } catch (e: unknown) {
       const msg = errorMessage(e)
-      const networkLike =
-        !navigator.onLine || msg.includes('NetworkError') || msg.includes('Failed to fetch')
+      const permanent =
+        e instanceof APIError &&
+        e.status >= 400 &&
+        e.status < 500 &&
+        ![401, 408, 425, 429].includes(e.status)
 
-      if (networkLike) {
-        try {
-          const queuedId = enqueueRequest({
-            method: 'POST',
-            path: '/api/v1/sales',
-            body,
-            headers: { 'Idempotency-Key': idempotencyKey },
-          })
-          setSaleId(`offline:${queuedId}`)
-          setSaleTotal(computedTotal)
-          setItems([])
-          refreshPending()
-          return
-        } catch {
-          // fall-through to the original error
-        }
+      if (permanent) {
+        markQueueItemAttention(queuedId, 'request_rejected', msg)
+        refreshPending()
+        setError(msg)
+        return
       }
 
-      setError(msg)
+      // Network, auth retry exhaustion, rate limiting and server failures keep
+      // the already-persisted intent pending with the same key for safe replay.
+      setSaleId(`offline:${queuedId}`)
+      setSaleTotal(computedTotal)
+      setItems([])
+      refreshPending()
+      setError(`Venda preservada para reenvio seguro: ${msg}`)
     } finally {
       finalizeInFlight.current = false
       setFinalizing(false)
@@ -413,6 +437,17 @@ export default function PDVPage() {
           </div>
         </div>
       </div>
+
+      {cashCloseSummary ? (
+        <div className="mt-3 rounded-md border bg-gray-50 p-3 text-sm">
+          <div className="font-semibold">Conciliação do último fechamento</div>
+          <div className="mt-1 text-xs text-gray-700">
+            Esperado: R$ {cashCloseSummary.expected_cash.toFixed(2)} • Declarado: R 
+            {cashCloseSummary.closing_amount.toFixed(2)} • Diferença: R 
+            {cashCloseSummary.closing_difference.toFixed(2)}
+          </div>
+        </div>
+      ) : null}
 
       {legacyQueueCount > 0 ? (
         <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">

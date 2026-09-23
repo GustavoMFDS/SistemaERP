@@ -24,7 +24,7 @@ func New(cfg config.Config, mods *modules.Modules, logger *slog.Logger) *Handler
 		Auth:      NewAuthHandler(cfg, mods.Auth, mods.Audit, mods.Redis, logger),
 		Products:  NewProductsHandler(mods.Products, mods.Audit, logger),
 		Inventory: NewInventoryHandler(mods.Inventory, mods.Audit, logger),
-		Cash:      NewCashHandler(mods.Cash, logger),
+		Cash:      NewCashHandler(mods.Cash, mods.Audit, logger),
 		Sales:     NewSalesHandler(mods.Sales, mods.Audit, logger),
 		Finance:   NewFinanceHandler(mods.Finance, logger),
 		Fiscal:    NewFiscalHandler(mods.Fiscal, mods.Audit, logger),

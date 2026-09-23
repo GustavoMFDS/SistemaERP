@@ -8,6 +8,17 @@ async function login(page: import('@playwright/test').Page) {
   await expect(page).toHaveURL(/\/products$/)
 }
 
+async function waitForCashClosed(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe('')
+}
+
 test('double finalize intent produces only one sale request', async ({ page }) => {
   await login(page)
 
@@ -52,6 +63,7 @@ test('double finalize intent produces only one sale request', async ({ page }) =
   expect(after.total).toBe(before.total + 1)
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await waitForCashClosed(page)
 })
 
 test('rebinding an already committed legacy sale preserves key and cannot duplicate it', async ({

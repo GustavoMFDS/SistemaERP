@@ -16,16 +16,17 @@ Objetivo: permitir que o PDV continue operando em quedas de rede **curtas/interm
 
 Fluxo:
 1. PDV monta e tenta sincronizar pendências se `navigator.onLine`.
-2. Em `Finalizar`, uma trava síncrona permite apenas uma intenção em voo; uma única `Idempotency-Key` é gerada antes do primeiro envio, evitando venda duplicada por duplo clique.
-3. Se o browser estiver offline ou a resposta se perder após o envio, a venda é enfileirada reutilizando exatamente a mesma chave.
-4. Evento `online` dispara `flushQueue()` para sincronizar.
-5. Rejeições permanentes 4xx ficam preservadas como itens que requerem atenção e não bloqueiam vendas posteriores; falhas transitórias/rede interrompem o flush para retry posterior.
+2. Em `Finalizar`, uma trava síncrona permite apenas uma intenção em voo; uma única `Idempotency-Key` é gerada.
+3. **Write-ahead:** antes do primeiro `POST`, a intenção completa é persistida na fila local com essa chave. Se o browser não conseguir persistir a intenção (por exemplo, quota/storage indisponível), nenhum request de venda é enviado.
+4. Se o browser estiver offline, a venda já permanece pendente. Se a resposta se perder após o envio, a mesma intenção/chave já persistida é reutilizada no retry.
+5. Evento `online` dispara `flushQueue()` para sincronizar.
+6. Rejeições permanentes 4xx ficam preservadas como itens que requerem atenção e não bloqueiam vendas posteriores; falhas transitórias/rede interrompem o flush para retry posterior.
 
 Observação: o `cash_session_id` precisa já existir (caixa aberto previamente). Este MVP não tenta “abrir caixa offline”.
 
 ## Backend
 
-- Header suportado: `Idempotency-Key`
+- Header obrigatório: `Idempotency-Key`
 - Rota: `POST /api/v1/sales`
 - Implementação:
   - `pg_advisory_xact_lock` serializa concorrência por chave
@@ -50,7 +51,7 @@ Migração:
 - A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
 - Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo que outro tenant/usuário leia o estado anterior no mesmo navegador. Logout limpa apenas o escopo atual antes de remover o access token.
 - A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual.
-- Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova. Ao vincular um item a um novo caixa, a `Idempotency-Key` original é preservada: se a operação antiga já tiver sido commitada, o backend retorna conflito em vez de criar uma segunda venda.
+- Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova.
 - Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
 - O backend usa `request_hash`: mesma chave + mesmo hash reaproveita o resultado; mesma chave + hash diferente retorna `409 conflict`.
 
@@ -59,6 +60,8 @@ Migração:
 ## Cenarios E2E obrigatorios
 
 - duplo clique/submissão concorrente em Finalizar gera apenas uma intenção/requisição de venda;
+- falha de `localStorage` antes do write-ahead bloqueia o envio: nenhum `POST /sales` pode sair sem a intenção/chave persistida;
+- chamada direta de `POST /sales` sem `Idempotency-Key` deve ser rejeitada;
 - venda offline normal e sincronizacao ao reconectar;
 - resposta perdida depois de o backend processar a venda: retry deve usar a mesma `Idempotency-Key` e nao duplicar a venda;
 - duplo clique em `Finalizar`: somente um POST de venda e uma chave idempotente devem ser emitidos;
@@ -74,3 +77,4 @@ Migração:
 - O PDV fecha o caixa chamando `POST /api/v1/cash/sessions/{id}/close`; remover apenas a referência local não encerra uma sessão.
 - A migration `0013_single_open_cash_session` cria um índice único parcial para permitir somente uma sessão `open` por tenant/registro.
 - Se a migration encontrar duplicatas já abertas, ela aborta e exige reconciliação operacional; não fecha sessões automaticamente.
+- A migration `0014_cash_reconciliation` persiste `expected_cash` e `closing_difference`. No fechamento, o backend calcula abertura + pagamentos em dinheiro de vendas finalizadas, compara com o valor declarado e grava/audita a diferença.

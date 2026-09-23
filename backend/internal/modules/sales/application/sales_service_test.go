@@ -18,6 +18,20 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+func TestCreateAndFinalizeRequiresIdempotencyKey(t *testing.T) {
+	svc, _, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		Items:         []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(1_000)}},
+		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(1000)}},
+	}
+
+	_, _, _, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "   ", req)
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("want ErrValidation for blank idempotency key, got %v", err)
+	}
+}
+
 func TestCreateAndFinalizeIgnoresClientTamperedUnitPrice(t *testing.T) {
 	svc, salesRepo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
 	tampered := platform.NewMoneyCents(1)
@@ -325,8 +339,8 @@ func (fakeCashRepo) EnsureDefaultRegister(context.Context, string) (string, erro
 func (fakeCashRepo) OpenSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) (string, error) {
 	return "cash-1", nil
 }
-func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) error {
-	return nil
+func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) (sales.CashCloseResult, error) {
+	return sales.CashCloseResult{}, nil
 }
 func (fakeCashRepo) GetSession(context.Context, db.DBTX, string, string) (sales.CashSession, error) {
 	return sales.CashSession{ID: "cash-1", Status: "open"}, nil

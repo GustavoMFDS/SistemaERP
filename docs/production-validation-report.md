@@ -1,5 +1,26 @@
 # Production Validation Report
 
+## Revalidation — 2026-09-22 (round 5 hardening)
+
+- Base audited: `main` after merge commit `654a9eb53b12b4a8a30f432de49d64e2e0b9b88e`.
+- Hardening branch: `audit/e2e-hardening-round5-20260922`.
+- Implementation evidence run: GitHub Actions `35792634950` on commit `4a92f66b58c1566d1e1787b95f22ad031ce9c1ec`.
+- CI result: backend PASS, frontend PASS, integration PASS, security PASS, e2e PASS, e2e-prodlike PASS.
+- Browser E2E: 21 tests discovered; 20 passed and 1 production-like-only test was intentionally skipped in the normal job.
+- Production-like E2E: 1/1 passed with built frontend over HTTPS, PostgreSQL `sslmode=verify-full`, Redis `rediss://`, secure refresh-cookie behavior and invalid-cookie cleanup.
+- Sale creation requires `Idempotency-Key` at the backend boundary. The PDV writes the exact sale intent to its scoped offline queue before the first network send; storage failure blocks the send, eliminating the commit/response-loss/local-storage-loss ambiguity.
+- Logout is authoritative: refresh-token revocation failure returns `503`, does not clear the cookie, and is audited as failure. Only successful server-side revocation can confirm logout.
+- Invalid/expired refresh attempts expire the stale browser refresh cookie.
+- Redis rate limits use an atomic Lua increment+TTL operation. Production-like middleware fails closed on Redis limiter errors; real Redis integration tests verify positive TTL and limit behavior.
+- RBAC permissions are read from the current tenant-scoped repository for every protected request, removing the prior 30-second stale-permission window.
+- Migration `0014_cash_reconciliation` adds expected/difference fields. Cash close computes expected physical cash from opening amount plus cash payments of finalized sales, persists the declared difference, returns it to the PDV and records `cash.open`/`cash.close` audit events.
+- CI validates migration `0014` upgrade/rollback/reapply after the existing `0013` upgrade/duplicate-data checks.
+- `govulncheck` reported 0 vulnerabilities reachable by the Go code; the production npm audit reported 0 vulnerabilities. The npm install still reports 9 development-ecosystem vulnerabilities (2 low, 1 moderate, 6 high), outside the production dependency gate.
+
+### Round 5 verdict
+
+**All code/CI findings from the fifth E2E audit are closed by automated evidence.** Remaining prerequisites are operational/environmental: production backup/restore evidence, load/failure-mode exercises, monitoring/alerting, least-privilege infrastructure credentials, legal/accounting/LGPD approval, and a SEFAZ-ready fiscal provider before real NF-e production use.
+
 ## Revalidation — 2026-09-22 (round 4 hardening)
 
 - Base audited: `main` after merge commit `768fe7ffffe7944a3bdde256c05d4fdc857edfc9`.

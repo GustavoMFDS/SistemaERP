@@ -34,11 +34,12 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 	r.Get("/health/ready", readinessHealth(mods))
 
 	h := handlers.New(cfg, mods, logger)
-	authLoginLimit := middleware.RateLimit(mods.Redis, "auth_login", cfg.RateLimitLogin, time.Minute, middleware.RateLimitByIP)
-	authRefreshLimit := middleware.RateLimit(mods.Redis, "auth_refresh", cfg.RateLimitRefresh, time.Minute, middleware.RateLimitByIP)
-	authLogoutLimit := middleware.RateLimit(mods.Redis, "auth_logout", cfg.RateLimitLogout, time.Minute, middleware.RateLimitByIP)
-	salesLimit := middleware.RateLimit(mods.Redis, "sales_create", cfg.RateLimitSales, time.Minute, middleware.RateLimitByTenantUserOrIP)
-	fiscalLimit := middleware.RateLimit(mods.Redis, "fiscal", cfg.RateLimitFiscal, time.Minute, middleware.RateLimitByTenantUserOrIP)
+	failClosedRateLimit := cfg.IsProdLike()
+	authLoginLimit := middleware.RateLimit(mods.Redis, "auth_login", cfg.RateLimitLogin, time.Minute, failClosedRateLimit, middleware.RateLimitByIP)
+	authRefreshLimit := middleware.RateLimit(mods.Redis, "auth_refresh", cfg.RateLimitRefresh, time.Minute, failClosedRateLimit, middleware.RateLimitByIP)
+	authLogoutLimit := middleware.RateLimit(mods.Redis, "auth_logout", cfg.RateLimitLogout, time.Minute, failClosedRateLimit, middleware.RateLimitByIP)
+	salesLimit := middleware.RateLimit(mods.Redis, "sales_create", cfg.RateLimitSales, time.Minute, failClosedRateLimit, middleware.RateLimitByTenantUserOrIP)
+	fiscalLimit := middleware.RateLimit(mods.Redis, "fiscal", cfg.RateLimitFiscal, time.Minute, failClosedRateLimit, middleware.RateLimitByTenantUserOrIP)
 	trustedOrigin := middleware.RequireTrustedOrigin(cfg)
 
 	r.Route("/api/v1", func(api chi.Router) {

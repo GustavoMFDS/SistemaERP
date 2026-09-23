@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -16,20 +17,29 @@ import (
 
 type RateLimitKeyFunc func(*http.Request) string
 
-var sharedFallbackLimiter = newLocalRateLimiter()
+var (
+	sharedFallbackLimiter   = newLocalRateLimiter()
+	ErrRateLimitUnavailable = errors.New("rate limit backend unavailable")
+)
 
-func AllowRateLimit(ctx context.Context, rdb *redis.Client, name, key string, limit int, window time.Duration) bool {
+func AllowRateLimit(ctx context.Context, rdb *redis.Client, name, key string, limit int, window time.Duration, failClosed bool) (bool, error) {
 	if limit <= 0 || window <= 0 {
-		return true
+		return true, nil
+	}
+	if failClosed && rdb == nil {
+		return false, ErrRateLimitUnavailable
 	}
 	allowed, err := allowRequest(ctx, rdb, sharedFallbackLimiter, name, key, limit, window)
 	if err != nil {
-		return sharedFallbackLimiter.allow(name+":"+key, limit, window)
+		if failClosed {
+			return false, ErrRateLimitUnavailable
+		}
+		return sharedFallbackLimiter.allow(name+":"+key, limit, window), nil
 	}
-	return allowed
+	return allowed, nil
 }
 
-func RateLimit(rdb *redis.Client, name string, limit int, window time.Duration, keyFn RateLimitKeyFunc) func(http.Handler) http.Handler {
+func RateLimit(rdb *redis.Client, name string, limit int, window time.Duration, failClosed bool, keyFn RateLimitKeyFunc) func(http.Handler) http.Handler {
 	if limit <= 0 || window <= 0 {
 		return func(next http.Handler) http.Handler { return next }
 	}
@@ -41,8 +51,16 @@ func RateLimit(rdb *redis.Client, name string, limit int, window time.Duration, 
 			if keyPart == "" {
 				keyPart = "anonymous"
 			}
+			if failClosed && rdb == nil {
+				writeMiddlewareError(w, r, http.StatusServiceUnavailable, "service_unavailable", "rate limit backend unavailable")
+				return
+			}
 			allowed, err := allowRequest(r.Context(), rdb, local, name, keyPart, limit, window)
 			if err != nil {
+				if failClosed {
+					writeMiddlewareError(w, r, http.StatusServiceUnavailable, "service_unavailable", "rate limit backend unavailable")
+					return
+				}
 				allowed = local.allow(name+":"+keyPart, limit, window)
 			}
 			if !allowed {
@@ -81,20 +99,24 @@ func RateLimitByTenantUserOrIP(r *http.Request) string {
 
 func allowRequest(ctx context.Context, rdb *redis.Client, local *localRateLimiter, name, key string, limit int, window time.Duration) (bool, error) {
 	if rdb == nil {
+		if local == nil {
+			return false, ErrRateLimitUnavailable
+		}
 		return local.allow(name+":"+key, limit, window), nil
 	}
+
+	const script = `local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return count`
 	redisKey := "rl:" + name + ":" + key
 	redisCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
 
-	count, err := rdb.Incr(redisCtx, redisKey).Result()
+	count, err := rdb.Eval(redisCtx, script, []string{redisKey}, window.Milliseconds()).Int64()
 	if err != nil {
 		return false, err
-	}
-	if count == 1 {
-		if err := rdb.Expire(redisCtx, redisKey, window).Err(); err != nil {
-			return false, err
-		}
 	}
 	return count <= int64(limit), nil
 }

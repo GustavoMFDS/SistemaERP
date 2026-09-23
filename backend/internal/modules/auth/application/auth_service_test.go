@@ -62,6 +62,32 @@ func TestPermissionCacheIsTenantScoped(t *testing.T) {
 	}
 }
 
+func TestPermissionsReflectRoleChangesImmediately(t *testing.T) {
+	users := &fakeUsersRepo{
+		tenantPerms: map[string][]string{
+			"user-1:tenant-a": {"audit:read"},
+		},
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	first, err := svc.GetUserPermissions(context.Background(), "user-1", "tenant-a")
+	if err != nil {
+		t.Fatalf("initial permissions: %v", err)
+	}
+	if !first["audit:read"] {
+		t.Fatalf("expected initial audit permission: %#v", first)
+	}
+
+	users.tenantPerms["user-1:tenant-a"] = []string{"product:read"}
+	second, err := svc.GetUserPermissions(context.Background(), "user-1", "tenant-a")
+	if err != nil {
+		t.Fatalf("updated permissions: %v", err)
+	}
+	if second["audit:read"] || !second["product:read"] {
+		t.Fatalf("permission change was not immediate: %#v", second)
+	}
+}
+
 func TestLoginFailsWhenTenantMappingMissing(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {

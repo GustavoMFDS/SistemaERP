@@ -1,5 +1,16 @@
 import { expect, test } from '@playwright/test'
 
+async function waitForCashClosed(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe('')
+}
+
 test('login, sale offline queue and reconnect sync', async ({ page, context }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
@@ -23,4 +34,5 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
   await context.setOffline(false)
   await expect(page.getByText(/Pendências: 0/)).toBeVisible({ timeout: 15000 })
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await waitForCashClosed(page)
 })

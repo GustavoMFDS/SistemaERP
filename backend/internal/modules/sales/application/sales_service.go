@@ -72,6 +72,10 @@ func (s *SalesService) Get(ctx context.Context, tenantID string, id string) (sal
 }
 
 func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, actorUserID string, idempotencyKey string, req SaleCreateRequest) (string, platform.Money, bool, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		return "", 0, false, common.ErrValidation
+	}
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, false, common.ErrValidation
 	}
@@ -87,20 +91,17 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	idempotencyKey = strings.TrimSpace(idempotencyKey)
-	if idempotencyKey != "" {
-		if err := s.sales.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
-			return "", 0, false, err
+	if err := s.sales.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", 0, false, err
+	}
+	if saleID, total, storedHash, ok, err := s.sales.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", 0, false, err
+	} else if ok {
+		if storedHash != requestHash {
+			return "", 0, false, common.ErrConflict
 		}
-		if saleID, total, storedHash, ok, err := s.sales.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
-			return "", 0, false, err
-		} else if ok {
-			if storedHash != requestHash {
-				return "", 0, false, common.ErrConflict
-			}
-			_ = tx.Rollback(ctx)
-			return saleID, total, false, nil
-		}
+		_ = tx.Rollback(ctx)
+		return saleID, total, false, nil
 	}
 
 	cs, err := s.cash.GetSession(ctx, tx, tenantID, req.CashSessionID)
@@ -290,10 +291,8 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		return "", 0, false, err
 	}
 
-	if idempotencyKey != "" {
-		if err := s.sales.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, saleID, sale.Total); err != nil {
-			return "", 0, false, err
-		}
+	if err := s.sales.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, saleID, sale.Total); err != nil {
+		return "", 0, false, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

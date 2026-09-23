@@ -4,14 +4,14 @@ Implemented or prepared controls:
 
 - JWT access tokens are short-lived by configuration (`ACCESS_TOKEN_TTL_MINUTES`, example default 15 minutes; staging/production rejects values above 15).
 - Protected requests and refresh-token rotation recheck current user status and current tenant membership. Deactivated users or users removed from the token tenant are rejected before token expiry.
-- Refresh token rotation is backed by Redis and refresh tokens are issued as `HttpOnly`, `SameSite=Strict` cookies. Refresh tokens are not returned in JSON auth responses.
-- Logout is considered complete only after the server confirms refresh-token revocation and cookie expiration; a network failure leaves the authenticated UI in place with an explicit retry error.
+- Refresh token rotation is backed by Redis and refresh tokens are issued as `HttpOnly`, `SameSite=Strict` cookies. Refresh tokens are not returned in JSON auth responses. Invalid/expired refresh attempts expire the browser cookie.
+- Logout is considered complete only after Redis-backed refresh-token revocation succeeds and the server emits cookie expiration. Revocation failure returns `503` and does not clear the cookie or report success; a browser/network failure leaves the authenticated UI in place with an explicit retry error.
 - Cookie-authenticated refresh/logout endpoints validate `Origin`/`Referer` against `CORS_ALLOWED_ORIGINS`; staging/production requires one of those headers.
-- Sensitive endpoints use rate limiting. Login is limited by IP, normalized identifier, and IP plus identifier. Redis is used when available; a local in-memory limiter is used as a development/testing fallback.
+- Sensitive endpoints use rate limiting. Login is limited by IP, normalized identifier, and IP plus identifier. Redis counters use an atomic Lua `INCR` + TTL operation. Staging/production fail closed with `503` if Redis limiting is unavailable; the local in-memory limiter is development/testing fallback only.
 - Login identifier rate-limit keys are SHA-256 hashes of normalized identifiers; raw emails are not embedded in Redis/local limiter keys.
-- Best-effort audit logging records auth, product, inventory, sale, fiscal XML, and privacy/consent actions with tenant when known, actor, request ID, IP, user agent, outcome, and minimal metadata.
+- Best-effort audit logging records auth, product, inventory, cash open/close, sale, fiscal XML, and privacy/consent actions with tenant when known, actor, request ID, IP, user agent, outcome, and minimal metadata. Cash close audit metadata includes expected, declared, and difference values.
 - Audit metadata is sanitized recursively and size-limited before persistence. Sensitive keys such as password, token, cookie, authorization, secret, API key, credential, session, and JWT are redacted.
-- RBAC roles are tenant-scoped through `user_tenant_roles`; `user_roles` is retained only as legacy source data for migration/backward compatibility.
+- RBAC roles are tenant-scoped through `user_tenant_roles`; `user_roles` is retained only as legacy source data for migration/backward compatibility. Effective permissions are read from the tenant-scoped repository on each protected request so role/permission revocation is immediate.
 - Users must have explicit `user_tenants` membership in staging/production. The first-company tenant fallback is disabled outside development/test to avoid cross-tenant privilege surprises.
 - Passwords use bcrypt hashes; raw passwords and tokens must never be logged.
 - API errors use JSON with stable codes and `request_id`; internal details are not sent to clients.
