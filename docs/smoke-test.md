@@ -50,6 +50,8 @@ npm run build
 | Missing idempotency key | Call `POST /sales` without `Idempotency-Key`. | Request is rejected with `422`; no sale/stock/ledger mutation occurs. |
 | Price tampering | Attempt sale with client-supplied low `unit_price`. | Backend ignores client price; total uses product/promotional price. |
 | Insufficient stock | Attempt sale above available stock. | Standardized validation/conflict error; no stock mutation. |
+| Partial return | Finalize a sale with qty 2, return qty 1 with `restock=true`, replay the same idempotency key, then attempt qty 2 again. | Stock is credited exactly once, replay returns the same return ID, over-return is rejected, and full sale cancellation is blocked afterward. |
+| Damaged exchange item | Return the remaining item with `kind=exchange` and `restock=false`. | Refund due is calculated, but sellable stock does not increase; refund status remains pending. |
 | Sale cancellation | Cancel a finalized sale. | Stock restored in transaction; cancellation audit entry exists; no duplicate restoration. |
 | Inventory update | Adjust stock with authorized role. | Movement and balance updated for authenticated tenant only. |
 | Fiscal generation | Generate fiscal XML for a sale. | Fiscal record/XML reference created; audit event without full XML payload. |
