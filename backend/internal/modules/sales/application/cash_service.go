@@ -155,7 +155,7 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 		return sales.CashCloseResult{}, common.ErrValidation
 	}
 	for method, amount := range req.ClosingByMethod {
-		if !isCashReconciliationMethod(method) || amount < 0 {
+		if !isCashReconciliationMethod(method) || (method == "cash" && amount < 0) {
 			return sales.CashCloseResult{}, common.ErrValidation
 		}
 	}
