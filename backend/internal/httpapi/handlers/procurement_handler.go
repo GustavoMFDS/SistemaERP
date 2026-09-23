@@ -123,7 +123,7 @@ func (h *ProcurementHandler) GetPurchase(w http.ResponseWriter, r *http.Request)
 	}
 	purchase, items, receipts, err := h.svc.GetPurchase(r.Context(), au.TenantID, chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, r, http.StatusNotFound, "not_found", "compra nao encontrada", nil)
+		writeProcurementError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"purchase": purchase, "items": items, "receipts": receipts})
