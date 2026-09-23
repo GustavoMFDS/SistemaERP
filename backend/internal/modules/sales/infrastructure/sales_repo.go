@@ -150,6 +150,16 @@ func (r *SalesRepo) HasInvoiceForSale(ctx context.Context, tx db.DBTX, tenantID 
 	return exists, err
 }
 
+func (r *SalesRepo) HasReturnsForSale(ctx context.Context, tx db.DBTX, tenantID string, id string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM sale_returns WHERE tenant_id=$1 AND sale_id=$2
+		)
+	`, tenantID, id).Scan(&exists)
+	return exists, err
+}
+
 func (r *SalesRepo) CancelSale(ctx context.Context, tx db.DBTX, tenantID string, id string, reason string) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE sales
