@@ -283,6 +283,9 @@ func (r *fakeSalesRepo) CancelSale(context.Context, db.DBTX, string, string, str
 func (r *fakeSalesRepo) GetSaleForUpdate(context.Context, db.DBTX, string, string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
 	return sales.Sale{}, nil, nil, nil
 }
+func (r *fakeSalesRepo) HasInvoiceForSale(context.Context, db.DBTX, string, string) (bool, error) {
+	return false, nil
+}
 func (r *fakeSalesRepo) LockIdempotencyKey(context.Context, db.DBTX, string, string, string) error {
 	r.mu.Lock()
 	return nil
