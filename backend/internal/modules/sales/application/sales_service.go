@@ -53,8 +53,12 @@ type SaleItemRequest struct {
 }
 
 type SalePaymentRequest struct {
-	Method string         `json:"method" validate:"required,oneof=cash pix debit credit transfer voucher"`
-	Amount platform.Money `json:"amount" validate:"required,gt=0"`
+	Method            string         `json:"method" validate:"required,oneof=cash pix debit credit transfer voucher"`
+	Amount            platform.Money `json:"amount" validate:"required,gt=0"`
+	Provider          *string        `json:"provider" validate:"omitempty,max=100"`
+	TransactionRef    *string        `json:"transaction_ref" validate:"omitempty,max=200"`
+	AuthorizationCode *string        `json:"authorization_code" validate:"omitempty,max=100"`
+	Installments      int            `json:"installments" validate:"omitempty,min=1,max=60"`
 }
 
 type SaleCancelRequest struct {
@@ -77,6 +81,15 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey == "" {
 		return "", 0, false, common.ErrValidation
+	}
+	for i := range req.Payments {
+		req.Payments[i].Method = strings.TrimSpace(req.Payments[i].Method)
+		req.Payments[i].Provider = normalizeOptionalSalePayment(req.Payments[i].Provider)
+		req.Payments[i].TransactionRef = normalizeOptionalSalePayment(req.Payments[i].TransactionRef)
+		req.Payments[i].AuthorizationCode = normalizeOptionalSalePayment(req.Payments[i].AuthorizationCode)
+		if req.Payments[i].Installments == 0 {
+			req.Payments[i].Installments = 1
+		}
 	}
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, false, common.ErrValidation
@@ -166,7 +179,15 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 
 	pays := make([]sales.Payment, 0, len(req.Payments))
 	for _, p := range req.Payments {
-		pays = append(pays, sales.Payment{Method: p.Method, Amount: p.Amount})
+		status := "pending"
+		if p.Method == "cash" {
+			status = "not_applicable"
+		}
+		pays = append(pays, sales.Payment{
+			Method: p.Method, Amount: p.Amount, Provider: p.Provider,
+			TransactionRef: p.TransactionRef, AuthorizationCode: p.AuthorizationCode,
+			Installments: p.Installments, ReconciliationStatus: status,
+		})
 	}
 	if derr := sale.ValidarPagamentos(pays); derr != nil {
 		switch derr {
@@ -269,7 +290,15 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	}
 
 	for _, p := range req.Payments {
-		pay := sales.Payment{SaleID: saleID, Method: p.Method, Amount: p.Amount}
+		status := "pending"
+		if p.Method == "cash" {
+			status = "not_applicable"
+		}
+		pay := sales.Payment{
+			SaleID: saleID, Method: p.Method, Amount: p.Amount, Provider: p.Provider,
+			TransactionRef: p.TransactionRef, AuthorizationCode: p.AuthorizationCode,
+			Installments: p.Installments, ReconciliationStatus: status,
+		}
 		if err := s.sales.InsertPayment(ctx, tx, tenantID, pay); err != nil {
 			return "", 0, false, err
 		}
@@ -328,6 +357,17 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	return saleID, sale.Total, true, nil
 }
 
+func normalizeOptionalSalePayment(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*value)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 func saleRequestHash(req SaleCreateRequest) (string, error) {
 	type item struct {
 		ProductID     string            `json:"product_id"`
@@ -335,8 +375,12 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 		DiscountValue platform.Money    `json:"discount_value"`
 	}
 	type payment struct {
-		Method string         `json:"method"`
-		Amount platform.Money `json:"amount"`
+		Method            string         `json:"method"`
+		Amount            platform.Money `json:"amount"`
+		Provider          *string        `json:"provider"`
+		TransactionRef    *string        `json:"transaction_ref"`
+		AuthorizationCode *string        `json:"authorization_code"`
+		Installments      int            `json:"installments"`
 	}
 	payload := struct {
 		CashSessionID string         `json:"cash_session_id"`
@@ -355,7 +399,11 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 		payload.Items = append(payload.Items, item{ProductID: it.ProductID, Qty: it.Qty, DiscountValue: it.DiscountValue})
 	}
 	for _, p := range req.Payments {
-		payload.Payments = append(payload.Payments, payment{Method: p.Method, Amount: p.Amount})
+		payload.Payments = append(payload.Payments, payment{
+			Method: p.Method, Amount: p.Amount, Provider: p.Provider,
+			TransactionRef: p.TransactionRef, AuthorizationCode: p.AuthorizationCode,
+			Installments: p.Installments,
+		})
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
