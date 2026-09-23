@@ -256,7 +256,9 @@ export default function PDVPage() {
   }
 
   async function retryAttention(id: string) {
-    if (!retryQueueItem(id)) return
+    const retry = retryQueueItem(id)
+    refreshPending()
+    if (!retry) return
     await syncPending()
   }
 
@@ -277,7 +279,9 @@ export default function PDVPage() {
     ) {
       return
     }
-    if (!rebindQueueItemToCashSession(id, cashSessionId)) return
+    const rebound = rebindQueueItemToCashSession(id, cashSessionId)
+    refreshPending()
+    if (!rebound) return
     await syncPending()
   }
 
@@ -587,7 +591,11 @@ export default function PDVPage() {
           <div className="mt-2 space-y-2">
             {queueItems
               .filter((item) => item.state === 'attention')
-              .map((item) => (
+              .map((item) => {
+                const retentionBlocked =
+                  item.attentionReason === 'retention_expired' ||
+                  item.attentionReason === 'retention_unknown'
+                return (
                 <div key={item.id} className="rounded-md border p-2 text-xs">
                   <div className="font-mono">{item.id}</div>
                   <div className="mt-1 text-gray-700">
@@ -598,7 +606,8 @@ export default function PDVPage() {
                     <button
                       type="button"
                       onClick={() => void retryAttention(item.id)}
-                      className="rounded-md border px-2 py-1"
+                      disabled={retentionBlocked}
+                      className="rounded-md border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Tentar novamente
                     </button>
@@ -606,7 +615,8 @@ export default function PDVPage() {
                       <button
                         type="button"
                         onClick={() => void rebindAttentionToCurrentCash(item.id)}
-                        className="rounded-md border px-2 py-1"
+                        disabled={retentionBlocked}
+                        className="rounded-md border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Usar caixa atual
                       </button>
@@ -620,7 +630,8 @@ export default function PDVPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+                )
+              })}
           </div>
         </div>
       ) : null}
