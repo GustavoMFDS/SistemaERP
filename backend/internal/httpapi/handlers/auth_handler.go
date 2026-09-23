@@ -178,7 +178,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	info, err := h.auth.GetUserInfo(r.Context(), au.UserID)
+	info, err := h.auth.GetUserInfo(r.Context(), au.UserID, au.TenantID)
 	if err != nil {
 		writeError(w, r, http.StatusNotFound, "not_found", "usuario nao encontrado", nil)
 		return
