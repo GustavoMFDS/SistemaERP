@@ -29,7 +29,7 @@ type FiscalRepository interface {
 }
 
 type SalesRepository interface {
-	GetSale(ctx context.Context, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error)
+	GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error)
 }
 
 type ProductsRepository interface {
