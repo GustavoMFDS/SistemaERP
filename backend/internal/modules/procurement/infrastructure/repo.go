@@ -100,15 +100,6 @@ func (r *Repo) UpdateSupplier(ctx context.Context, tx db.DBTX, tenantID, id stri
 	return nil
 }
 
-func purchaseScan(row interface{ Scan(...any) error }) (proc.Purchase, error) {
-	var p proc.Purchase
-	err := row.Scan(
-		&p.ID, &p.SupplierID, &p.SupplierName, &p.Status, &p.InvoiceNumber, &p.PaymentDueDate,
-		new(string), &p.Notes, &p.CreatedBy, &p.OrderedAt, &p.ReceivedAt, &p.CancelledAt, &p.CreatedAt, &p.UpdatedAt,
-	)
-	return p, err
-}
-
 func scanPurchase(row interface{ Scan(...any) error }) (proc.Purchase, error) {
 	var p proc.Purchase
 	var total string
@@ -197,10 +188,6 @@ func (r *Repo) GetPurchase(ctx context.Context, tenantID, id string) (proc.Purch
 		receipts = append(receipts, receipt)
 	}
 	return p, items, receipts, rows.Err()
-}
-
-type rowQuerier interface {
-	Query(ctx context.Context, sql string, args ...any) (db.Rows, error)
 }
 
 func (r *Repo) listPurchaseItems(ctx context.Context, q db.DBTX, tenantID, purchaseID string, forUpdate bool) ([]proc.PurchaseItem, error) {
