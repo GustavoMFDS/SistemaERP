@@ -49,6 +49,7 @@ export default function ReturnsPage() {
   const [reason, setReason] = useState('')
   const [qtyByItem, setQtyByItem] = useState<Record<string, number>>({})
   const [restockByItem, setRestockByItem] = useState<Record<string, boolean>>({})
+  const [returnedByItem, setReturnedByItem] = useState<Record<string, number>>({})
   const [returns, setReturns] = useState<ReturnRecord[]>([])
   const [result, setResult] = useState<ReturnCreateResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -75,7 +76,21 @@ export default function ReturnsPage() {
     setError('')
     try {
       const data = await apiJson<SaleDetail>(`/api/v1/sales/${encodeURIComponent(id)}`)
+      const history = await apiJson<ReturnsList>(
+        `/api/v1/returns?sale_id=${encodeURIComponent(id)}&limit=200&offset=0`,
+      )
+      const returned: Record<string, number> = {}
+      for (const record of history.items) {
+        const detail = await apiJson<{
+          items: Array<{ sale_item_id: string; qty: number }>
+        }>(`/api/v1/returns/${record.id}`)
+        for (const item of detail.items) {
+          returned[item.sale_item_id] = (returned[item.sale_item_id] ?? 0) + item.qty
+        }
+      }
+
       setDetail(data)
+      setReturnedByItem(returned)
       const qty: Record<string, number> = {}
       const restock: Record<string, boolean> = {}
       for (const item of data.items) {
@@ -184,6 +199,7 @@ export default function ReturnsPage() {
                   <tr>
                     <th className="px-3 py-2">Produto</th>
                     <th className="px-3 py-2">Vendido</th>
+                    <th className="px-3 py-2">Restante</th>
                     <th className="px-3 py-2">Devolver</th>
                     <th className="px-3 py-2">Volta ao estoque</th>
                   </tr>
@@ -194,10 +210,13 @@ export default function ReturnsPage() {
                       <td className="px-3 py-2 font-mono text-xs">{item.product_id}</td>
                       <td className="px-3 py-2">{item.qty.toFixed(3)}</td>
                       <td className="px-3 py-2">
+                        {Math.max(0, item.qty - (returnedByItem[item.id] ?? 0)).toFixed(3)}
+                      </td>
+                      <td className="px-3 py-2">
                         <input
                           type="number"
                           min="0"
-                          max={item.qty}
+                          max={Math.max(0, item.qty - (returnedByItem[item.id] ?? 0))}
                           step="0.001"
                           value={qtyByItem[item.id] ?? 0}
                           onChange={(e) =>
