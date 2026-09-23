@@ -381,6 +381,14 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 		}
 	}
 
+	session, err := s.cash.GetSession(ctx, tx, tenantID, sale.CashSessionID)
+	if err != nil {
+		return common.ErrCashSessionClosed
+	}
+	if session.Status != "open" {
+		return common.ErrCashSessionClosed
+	}
+
 	if err := s.sales.CancelSale(ctx, tx, tenantID, saleID, req.Reason); err != nil {
 		return err
 	}
