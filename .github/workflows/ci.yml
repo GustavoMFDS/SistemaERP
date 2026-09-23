@@ -233,6 +233,53 @@ jobs:
             -path=/migrations \
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             up 1
+
+          # Upgrade 0016 -> 0017, verify tenant-scoped barcode uniqueness,
+          # then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='products_tenant_barcode_unique';"
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          WITH new_tenant AS (
+            INSERT INTO companies(legal_name, trade_name, cnpj)
+            VALUES ('Barcode CI Tenant', 'Barcode CI Tenant', '99999999999990')
+            RETURNING id
+          )
+          INSERT INTO products(tenant_id, sku, barcode, name, unit, price_cash)
+          SELECT id, 'CI-CROSS-TENANT-BARCODE', '7890000000000', 'Cross tenant barcode product', 'UN', 1
+          FROM new_tenant;
+          SQL
+
+          if docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO products(tenant_id, sku, barcode, name, unit, price_cash) SELECT tenant_id, 'CI-DUPLICATE-BARCODE', barcode, 'Duplicate barcode product', 'UN', 1 FROM products WHERE barcode='7890000000000' ORDER BY created_at LIMIT 1;"; then
+            echo "migration 0017 unexpectedly accepted a duplicate barcode inside one tenant"
+            exit 1
+          fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DELETE FROM products WHERE sku='CI-CROSS-TENANT-BARCODE';" \
+            -c "DELETE FROM companies WHERE cnpj='99999999999990';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
       - name: Run tagged integration tests
         working-directory: backend
         env:
