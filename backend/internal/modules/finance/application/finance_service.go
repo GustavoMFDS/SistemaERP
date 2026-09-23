@@ -206,9 +206,6 @@ func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actor
 	if req.Method == "cash" && req.CashSessionID == nil {
 		return "", "", 0, false, common.ErrValidation
 	}
-	if req.Method != "cash" && req.CashSessionID != nil {
-		return "", "", 0, false, common.ErrValidation
-	}
 	hash, err := financeHash(struct {
 		ReturnID string              `json:"return_id"`
 		Request  ReturnRefundRequest `json:"request"`
@@ -258,20 +255,22 @@ func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actor
 		return "", "", remaining, false, common.ErrConflict
 	}
 
-	if req.Method == "cash" {
+	if req.CashSessionID != nil {
 		available, err := s.repo.GetOpenCashAvailable(ctx, tx, tenantID, *req.CashSessionID)
 		if err != nil {
 			return "", "", remaining, false, err
 		}
-		if req.Amount > available {
-			return "", "", remaining, false, common.ErrInsufficientCash
-		}
-		noteText := "Reembolso de devolucao " + returnID
-		if req.Notes != nil {
-			noteText += ": " + *req.Notes
-		}
-		if _, err := s.repo.InsertCashWithdrawal(ctx, tx, tenantID, *req.CashSessionID, actorUserID, req.Amount, &noteText); err != nil {
-			return "", "", remaining, false, err
+		if req.Method == "cash" {
+			if req.Amount > available {
+				return "", "", remaining, false, common.ErrInsufficientCash
+			}
+			noteText := "Reembolso de devolucao " + returnID
+			if req.Notes != nil {
+				noteText += ": " + *req.Notes
+			}
+			if _, err := s.repo.InsertCashWithdrawal(ctx, tx, tenantID, *req.CashSessionID, actorUserID, req.Amount, &noteText); err != nil {
+				return "", "", remaining, false, err
+			}
 		}
 	}
 
