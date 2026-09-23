@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sort"
 	"strings"
@@ -257,7 +257,8 @@ func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID, ide
 	items := make([]proc.PurchaseItem, 0, len(req.Items))
 	var total platform.Money
 	for _, item := range req.Items {
-		if _, ok := products[item.ProductID]; !ok {
+		product, ok := products[item.ProductID]
+		if !ok || !product.Active {
 			return "", false, common.ErrValidation
 		}
 		lineTotal := item.UnitCost.MulQty(item.Qty)
