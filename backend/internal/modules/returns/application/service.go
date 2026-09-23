@@ -367,7 +367,7 @@ func allocateSaleTotal(sale sales.Sale, items []sales.SaleItem) map[string]platf
 			out[item.ID] = remaining
 			break
 		}
-		amount := proportionalMoney(sale.Total, platform.Quantity(item.Subtotal.Cents()), platform.Quantity(basis.Cents()))
+		amount := proportionalMoneyByInt(sale.Total, item.Subtotal.Cents(), basis.Cents())
 		if amount < 0 {
 			amount = 0
 		}
@@ -381,12 +381,15 @@ func allocateSaleTotal(sale sales.Sale, items []sales.SaleItem) map[string]platf
 }
 
 func proportionalMoney(total platform.Money, part, whole platform.Quantity) platform.Money {
+	return proportionalMoneyByInt(total, part.Milli(), whole.Milli())
+}
+
+func proportionalMoneyByInt(total platform.Money, part, whole int64) platform.Money {
 	if total <= 0 || part <= 0 || whole <= 0 {
 		return 0
 	}
-	numerator := total.Cents() * part.Milli()
-	denominator := whole.Milli()
-	return platform.NewMoneyCents((numerator + denominator/2) / denominator)
+	numerator := total.Cents() * part
+	return platform.NewMoneyCents((numerator + whole/2) / whole)
 }
 
 func uniqueStrings(values []string) []string {
