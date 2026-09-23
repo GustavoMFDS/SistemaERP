@@ -98,6 +98,8 @@ func friendlyErrorMessage(err error) string {
 		return "dados invalidos"
 	case errors.Is(err, common.ErrInsufficientStock):
 		return "estoque insuficiente"
+	case errors.Is(err, common.ErrInsufficientCash):
+		return "saldo de caixa insuficiente"
 	case errors.Is(err, common.ErrCashSessionClosed):
 		return "sessao de caixa fechada"
 	case errors.Is(err, common.ErrCashSessionAlreadyOpen):

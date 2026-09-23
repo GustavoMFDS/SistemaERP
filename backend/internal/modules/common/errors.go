@@ -11,6 +11,7 @@ var (
 	ErrConflict               = errors.New("conflict")
 	ErrValidation             = errors.New("validation")
 	ErrInsufficientStock      = errors.New("insufficient stock")
+	ErrInsufficientCash       = errors.New("insufficient cash")
 	ErrCashSessionClosed      = errors.New("cash session is closed")
 	ErrCashSessionAlreadyOpen = errors.New("cash session already open")
 	ErrPaymentsMismatch       = errors.New("payments mismatch")

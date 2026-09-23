@@ -120,7 +120,7 @@ test('cash close persists expected cash, difference and audit evidence', async (
       body: { opening_amount: opening, notes: 'round5 reconciliation' },
     })
 
-    const sale = await apiJson<{ id: string }>('/api/v1/sales', {
+    await apiJson<{ id: string }>('/api/v1/sales', {
       method: 'POST',
       headers: { 'Idempotency-Key': `round5-cash-${crypto.randomUUID()}` },
       body: {
@@ -151,11 +151,6 @@ test('cash close persists expected cash, difference and audit evidence', async (
         metadata?: Record<string, unknown>
       }>
     }>('/api/v1/audit/logs?limit=200&offset=0')
-
-    await apiJson(`/api/v1/sales/${sale.id}/cancel`, {
-      method: 'POST',
-      body: { reason: 'round5 cleanup' },
-    })
 
     return {
       expected,

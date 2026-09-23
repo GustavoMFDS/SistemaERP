@@ -106,7 +106,8 @@ func allowRequest(ctx context.Context, rdb *redis.Client, local *localRateLimite
 	}
 
 	const script = `local count = redis.call('INCR', KEYS[1])
-if count == 1 then
+local ttl = redis.call('PTTL', KEYS[1])
+if count == 1 or ttl < 0 then
   redis.call('PEXPIRE', KEYS[1], ARGV[1])
 end
 return count`

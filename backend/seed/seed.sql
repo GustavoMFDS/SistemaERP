@@ -48,6 +48,7 @@ INSERT INTO permissions (id, code, description) VALUES
   (gen_random_uuid(), 'inventory:read', 'Consultar estoque e movimentações'),
   (gen_random_uuid(), 'inventory:adjust', 'Ajuste manual de estoque'),
   (gen_random_uuid(), 'cash:open', 'Abrir caixa'),
+  (gen_random_uuid(), 'cash:move', 'Registrar sangria e suprimento de caixa'),
   (gen_random_uuid(), 'cash:close', 'Fechar caixa'),
   (gen_random_uuid(), 'sale:read', 'Consultar vendas'),
   (gen_random_uuid(), 'sale:write', 'Criar/finalizar venda'),
@@ -75,7 +76,7 @@ SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.code IN (
   'product:read','product:write','inventory:read','inventory:adjust',
-  'cash:open','cash:close','sale:read','sale:write','sale:cancel',
+  'cash:open','cash:move','cash:close','sale:read','sale:write','sale:cancel',
   'finance:read','invoice:generate','invoice:read'
 )
 WHERE r.name='manager'

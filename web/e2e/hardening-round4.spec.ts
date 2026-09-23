@@ -101,6 +101,10 @@ test('rebinding an already committed legacy sale preserves key and cannot duplic
       headers: { 'Idempotency-Key': originalKey },
       body: originalBody,
     })
+    await apiJson(`/api/v1/sales/${sale.id}/cancel`, {
+      method: 'POST',
+      body: { reason: 'round4 pre-close cleanup' },
+    })
     await apiJson(`/api/v1/cash/sessions/${firstCash.id}/close`, {
       method: 'POST',
       body: { closing_amount: 0, notes: 'round4 original close' },
@@ -148,10 +152,6 @@ test('rebinding an already committed legacy sale preserves key and cannot duplic
     const after = await apiJson<{ total: number }>('/api/v1/sales?limit=200&offset=0')
 
     queue.discardQueueItem(itemID)
-    await apiJson(`/api/v1/sales/${sale.id}/cancel`, {
-      method: 'POST',
-      body: { reason: 'round4 cleanup' },
-    })
     await apiJson(`/api/v1/cash/sessions/${secondCash.id}/close`, {
       method: 'POST',
       body: { closing_amount: 0, notes: 'round4 cleanup' },

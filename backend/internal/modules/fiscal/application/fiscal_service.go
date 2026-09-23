@@ -54,20 +54,20 @@ func (s *FiscalService) GenerateNFeXML(ctx context.Context, tenantID string, act
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	sale, items, _, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, req.SaleID)
+	if err != nil {
+		return "", "", common.ErrNotFound
+	}
+	if sale.Status != "finalized" {
+		return "", "", common.ErrSaleNotFinalized
+	}
+
 	exists, err := s.fiscal.ExistsInvoiceForSale(ctx, tx, tenantID, req.SaleID)
 	if err != nil {
 		return "", "", err
 	}
 	if exists {
 		return "", "", common.ErrInvoiceAlreadyExists
-	}
-
-	sale, items, _, err := s.sales.GetSale(ctx, tenantID, req.SaleID)
-	if err != nil {
-		return "", "", common.ErrNotFound
-	}
-	if sale.Status != "finalized" {
-		return "", "", common.ErrSaleNotFinalized
 	}
 
 	companyID := tenantID

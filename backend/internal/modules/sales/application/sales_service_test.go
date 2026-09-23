@@ -202,7 +202,7 @@ func newSalesServiceFixture(stock platform.Quantity) (*SalesService, *fakeSalesR
 	productsRepo := &fakeProductsRepo{products: map[string]inv.Product{
 		"prod-1": {ID: "prod-1", Active: true, PriceCash: platform.NewMoneyCents(1000), CostPrice: platform.NewMoneyCents(600)},
 	}}
-	svc := NewSalesService(config.Config{}, fakeUOW{}, salesRepo, invRepo, fakeFinanceRepo{}, fakeCashRepo{}, productsRepo, nil, validator.New(), nil)
+	svc := NewSalesService(config.Config{}, fakeUOW{}, salesRepo, invRepo, fakeFinanceRepo{}, fakeCashRepo{}, productsRepo, nil, nil, validator.New(), nil)
 	return svc, salesRepo, invRepo, productsRepo
 }
 
@@ -283,6 +283,9 @@ func (r *fakeSalesRepo) CancelSale(context.Context, db.DBTX, string, string, str
 func (r *fakeSalesRepo) GetSaleForUpdate(context.Context, db.DBTX, string, string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
 	return sales.Sale{}, nil, nil, nil
 }
+func (r *fakeSalesRepo) HasInvoiceForSale(context.Context, db.DBTX, string, string) (bool, error) {
+	return false, nil
+}
 func (r *fakeSalesRepo) LockIdempotencyKey(context.Context, db.DBTX, string, string, string) error {
 	r.mu.Lock()
 	return nil
@@ -339,11 +342,23 @@ func (fakeCashRepo) EnsureDefaultRegister(context.Context, string) (string, erro
 func (fakeCashRepo) OpenSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) (string, error) {
 	return "cash-1", nil
 }
-func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) (sales.CashCloseResult, error) {
-	return sales.CashCloseResult{}, nil
+func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, platform.Money, *string) error {
+	return nil
 }
 func (fakeCashRepo) GetSession(context.Context, db.DBTX, string, string) (sales.CashSession, error) {
-	return sales.CashSession{ID: "cash-1", Status: "open"}, nil
+	return sales.CashSession{ID: "cash-1", Status: "open", OpeningAmount: 0}, nil
+}
+func (fakeCashRepo) InsertMovement(context.Context, db.DBTX, string, string, string, string, platform.Money, *string) (string, error) {
+	return "movement-1", nil
+}
+func (fakeCashRepo) SumPaymentsByMethod(context.Context, db.DBTX, string, string) (map[string]platform.Money, error) {
+	return map[string]platform.Money{}, nil
+}
+func (fakeCashRepo) SumMovements(context.Context, db.DBTX, string, string) (platform.Money, platform.Money, error) {
+	return 0, 0, nil
+}
+func (fakeCashRepo) SaveReconciliation(context.Context, db.DBTX, string, string, map[string]platform.Money, map[string]platform.Money) error {
+	return nil
 }
 
 type fakeFinanceRepo struct{}

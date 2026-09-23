@@ -18,6 +18,7 @@ type SalesRepository interface {
 	ListSales(ctx context.Context, tenantID string, limit, offset int) ([]sales.Sale, int, error)
 	CancelSale(ctx context.Context, tx db.DBTX, tenantID string, id string, reason string) error
 	GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error)
+	HasInvoiceForSale(ctx context.Context, tx db.DBTX, tenantID string, id string) (bool, error)
 
 	LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error
 	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (saleID string, total platform.Money, requestHash string, ok bool, err error)
@@ -27,8 +28,12 @@ type SalesRepository interface {
 type CashRepository interface {
 	EnsureDefaultRegister(ctx context.Context, tenantID string) (string, error)
 	OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error)
-	CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, closingAmount platform.Money, notes *string) (sales.CashCloseResult, error)
+	CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, expectedCash, closingAmount platform.Money, notes *string) error
 	GetSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID string) (sales.CashSession, error)
+	InsertMovement(ctx context.Context, tx db.DBTX, tenantID, sessionID, userID, movementType string, amount platform.Money, notes *string) (string, error)
+	SumPaymentsByMethod(ctx context.Context, tx db.DBTX, tenantID, sessionID string) (map[string]platform.Money, error)
+	SumMovements(ctx context.Context, tx db.DBTX, tenantID, sessionID string) (supply platform.Money, withdrawal platform.Money, err error)
+	SaveReconciliation(ctx context.Context, tx db.DBTX, tenantID, sessionID string, expected, declared map[string]platform.Money) error
 }
 
 type InventoryRepository interface {

@@ -13,7 +13,8 @@ BEGIN;
 INSERT INTO permissions (id, code, description) VALUES
   (gen_random_uuid(), 'privacy:read', 'Consultar requisicoes LGPD e consentimentos'),
   (gen_random_uuid(), 'privacy:write', 'Processar requisicoes LGPD e consentimentos'),
-  (gen_random_uuid(), 'audit:read', 'Consultar logs de auditoria')
+  (gen_random_uuid(), 'audit:read', 'Consultar logs de auditoria'),
+  (gen_random_uuid(), 'cash:move', 'Registrar sangria e suprimento de caixa')
 ON CONFLICT (code) DO NOTHING;
 
 COMMIT;

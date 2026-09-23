@@ -131,10 +131,22 @@ type CashSession struct {
 	RegisterID     string
 	OpenedByUserID string
 	Status         string
+	OpeningAmount  platform.Money
+}
+
+type CashMovement struct {
+	ID        string         `json:"id"`
+	SessionID string         `json:"cash_session_id"`
+	Type      string         `json:"movement_type"`
+	Amount    platform.Money `json:"amount"`
+	Notes     *string        `json:"notes,omitempty"`
 }
 
 type CashCloseResult struct {
-	ExpectedCash      platform.Money `json:"expected_cash"`
-	ClosingAmount     platform.Money `json:"closing_amount"`
-	ClosingDifference platform.Money `json:"closing_difference"`
+	ExpectedCash       platform.Money            `json:"expected_cash"`
+	ClosingAmount      platform.Money            `json:"closing_amount"`
+	ClosingDifference  platform.Money            `json:"closing_difference"`
+	ExpectedByMethod   map[string]platform.Money `json:"expected_by_method"`
+	DeclaredByMethod   map[string]platform.Money `json:"declared_by_method"`
+	DifferenceByMethod map[string]platform.Money `json:"difference_by_method"`
 }

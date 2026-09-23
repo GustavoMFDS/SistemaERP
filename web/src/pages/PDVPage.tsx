@@ -39,6 +39,9 @@ type CashCloseResponse = {
   expected_cash: number
   closing_amount: number
   closing_difference: number
+  expected_by_method: Record<string, number>
+  declared_by_method: Record<string, number>
+  difference_by_method: Record<string, number>
 }
 
 type SaleCreateResponse = { id: string; status: string; total: number }
@@ -53,6 +56,13 @@ type SaleItem = {
 type SalePayment = { method: string; amount: number }
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
+const CLOSE_METHODS = [
+  ['pix', 'PIX'],
+  ['debit', 'Débito'],
+  ['credit', 'Crédito'],
+  ['transfer', 'Transferência'],
+  ['voucher', 'Voucher'],
+] as const
 
 export default function PDVPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -69,6 +79,14 @@ export default function PDVPage() {
   const [cashSessionId, setCashSessionIdState] = useState(getCashSessionId())
   const [openingAmount, setOpeningAmount] = useState<number>(0)
   const [closingAmount, setClosingAmount] = useState<number>(0)
+  const [closingByMethod, setClosingByMethod] = useState<Record<string, number>>({
+    pix: 0,
+    debit: 0,
+    credit: 0,
+    transfer: 0,
+    voucher: 0,
+  })
+  const [movementAmount, setMovementAmount] = useState<number>(0)
   const [cashCloseSummary, setCashCloseSummary] = useState<CashCloseResponse | null>(null)
 
   const [itemProductId, setItemProductId] = useState('')
@@ -188,6 +206,24 @@ export default function PDVPage() {
     }
   }
 
+  async function recordCashMovement(movementType: 'supply' | 'withdrawal') {
+    if (!cashSessionId || movementAmount <= 0) return
+    setError('')
+    try {
+      await apiJson(`/api/v1/cash/sessions/${cashSessionId}/movements`, {
+        method: 'POST',
+        body: {
+          movement_type: movementType,
+          amount: Number(movementAmount) || 0,
+          notes: null,
+        },
+      })
+      setMovementAmount(0)
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
   async function closeCash() {
     if (!cashSessionId) return
     setError('')
@@ -196,13 +232,24 @@ export default function PDVPage() {
         `/api/v1/cash/sessions/${cashSessionId}/close`,
         {
           method: 'POST',
-          body: { closing_amount: Number(closingAmount) || 0, notes: null },
+          body: {
+            closing_amount: Number(closingAmount) || 0,
+            closing_by_method: closingByMethod,
+            notes: null,
+          },
         },
       )
       setCashCloseSummary(result)
       clearCashSessionId()
       setCashSessionIdState('')
       setClosingAmount(0)
+      setClosingByMethod({
+        pix: 0,
+        debit: 0,
+        credit: 0,
+        transfer: 0,
+        voucher: 0,
+      })
     } catch (e: unknown) {
       setError(errorMessage(e))
     }
@@ -414,17 +461,65 @@ export default function PDVPage() {
               <div className="font-mono text-xs">{cashSessionId || '—'}</div>
             </div>
             {cashSessionId ? (
-              <div className="flex items-end gap-2">
-                <label className="block">
-                  <span className="text-xs text-gray-600">Fechamento (R$)</span>
-                  <input
-                    value={String(closingAmount)}
-                    onChange={(e) => setClosingAmount(Number(e.target.value))}
-                    type="number"
-                    step="0.01"
-                    className="mt-1 w-32 rounded-md border px-3 py-2 text-sm"
-                  />
-                </label>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-end gap-2">
+                  <label className="block">
+                    <span className="text-xs text-gray-600">Movimento (R$)</span>
+                    <input
+                      value={String(movementAmount)}
+                      onChange={(e) => setMovementAmount(Number(e.target.value))}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-32 rounded-md border px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void recordCashMovement('supply')}
+                    className="rounded-md border px-3 py-2 text-xs hover:bg-gray-50"
+                  >
+                    Suprimento
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void recordCashMovement('withdrawal')}
+                    className="rounded-md border px-3 py-2 text-xs hover:bg-gray-50"
+                  >
+                    Sangria
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                  <label className="block">
+                    <span className="text-xs text-gray-600">Dinheiro declarado</span>
+                    <input
+                      value={String(closingAmount)}
+                      onChange={(e) => setClosingAmount(Number(e.target.value))}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
+                    />
+                  </label>
+                  {CLOSE_METHODS.map(([method, label]) => (
+                    <label key={method} className="block">
+                      <span className="text-xs text-gray-600">{label} declarado</span>
+                      <input
+                        value={String(closingByMethod[method] ?? 0)}
+                        onChange={(e) =>
+                          setClosingByMethod((prev) => ({
+                            ...prev,
+                            [method]: Number(e.target.value) || 0,
+                          }))
+                        }
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
+                      />
+                    </label>
+                  ))}
+                </div>
                 <button
                   type="button"
                   onClick={() => void closeCash()}
@@ -442,9 +537,20 @@ export default function PDVPage() {
         <div className="mt-3 rounded-md border bg-gray-50 p-3 text-sm">
           <div className="font-semibold">Conciliação do último fechamento</div>
           <div className="mt-1 text-xs text-gray-700">
-            Esperado: R$ {cashCloseSummary.expected_cash.toFixed(2)} • Declarado: R 
-            {cashCloseSummary.closing_amount.toFixed(2)} • Diferença: R 
+            Dinheiro — esperado R$ {cashCloseSummary.expected_cash.toFixed(2)} • declarado R 
+            {cashCloseSummary.closing_amount.toFixed(2)} • diferença R 
             {cashCloseSummary.closing_difference.toFixed(2)}
+          </div>
+          <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-gray-700 md:grid-cols-2">
+            {CLOSE_METHODS.map(([method, label]) => (
+              <div key={method}>
+                {label}: esperado R$ {(cashCloseSummary.expected_by_method[method] ?? 0).toFixed(2)}
+                {' • '}declarado R 
+                {(cashCloseSummary.declared_by_method[method] ?? 0).toFixed(2)}
+                {' • '}diferença R 
+                {(cashCloseSummary.difference_by_method[method] ?? 0).toFixed(2)}
+              </div>
+            ))}
           </div>
         </div>
       ) : null}

@@ -62,3 +62,38 @@ func TestRedisRateLimitIsAtomicAndKeepsTTL(t *testing.T) {
 		t.Fatalf("rate-limit key lost its TTL: %v", ttlAfter)
 	}
 }
+
+func TestRedisRateLimitRepairsLegacyKeyWithoutTTL(t *testing.T) {
+	addr := os.Getenv("TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("TEST_REDIS_ADDR not configured")
+	}
+
+	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	ctx := context.Background()
+	name := "integration_legacy_no_ttl"
+	key := "legacy-key"
+	redisKey := "rl:" + name + ":" + key
+	if err := rdb.Set(ctx, redisKey, 7, 0).Err(); err != nil {
+		t.Fatalf("seed legacy key: %v", err)
+	}
+	t.Cleanup(func() { _ = rdb.Del(context.Background(), redisKey).Err() })
+
+	allowed, err := middleware.AllowRateLimit(ctx, rdb, name, key, 20, 10*time.Second, true)
+	if err != nil {
+		t.Fatalf("AllowRateLimit: %v", err)
+	}
+	if !allowed {
+		t.Fatal("repaired legacy key should remain below the configured limit")
+	}
+
+	ttl, err := rdb.PTTL(ctx, redisKey).Result()
+	if err != nil {
+		t.Fatalf("PTTL: %v", err)
+	}
+	if ttl <= 0 || ttl > 10*time.Second {
+		t.Fatalf("legacy key was not repaired with a bounded TTL: %v", ttl)
+	}
+}
