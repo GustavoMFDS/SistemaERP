@@ -29,19 +29,19 @@ import (
 )
 
 type Modules struct {
-	Auth      *authapp.AuthService
-	Products  *invapp.ProductsService
-	Inventory *invapp.InventoryService
-	Cash      *salesapp.CashService
-	Sales     *salesapp.SalesService
-	Finance   *finapp.FinanceService
-	Fiscal    *fiscapp.FiscalService
-	Privacy   *privacyapp.Service
+	Auth        *authapp.AuthService
+	Products    *invapp.ProductsService
+	Inventory   *invapp.InventoryService
+	Cash        *salesapp.CashService
+	Sales       *salesapp.SalesService
+	Finance     *finapp.FinanceService
+	Fiscal      *fiscapp.FiscalService
+	Privacy     *privacyapp.Service
 	Procurement *procapp.Service
-	Events    *events.Bus
-	DB        *pgxpool.Pool
-	Redis     *redis.Client
-	Audit     *audit.Service
+	Events      *events.Bus
+	DB          *pgxpool.Pool
+	Redis       *redis.Client
+	Audit       *audit.Service
 }
 
 func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) *Modules {
@@ -101,18 +101,18 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, v, logger)
 
 	return &Modules{
-		Auth:      authSvc,
-		Products:  productsSvc,
-		Inventory: inventorySvc,
-		Cash:      cashSvc,
-		Sales:     salesSvc,
-		Finance:   financeSvc,
-		Fiscal:    fiscalSvc,
-		Privacy:   privacySvc,
+		Auth:        authSvc,
+		Products:    productsSvc,
+		Inventory:   inventorySvc,
+		Cash:        cashSvc,
+		Sales:       salesSvc,
+		Finance:     financeSvc,
+		Fiscal:      fiscalSvc,
+		Privacy:     privacySvc,
 		Procurement: procurementSvc,
-		Events:    bus,
-		DB:        pool,
-		Redis:     rdb,
-		Audit:     auditSvc,
+		Events:      bus,
+		DB:          pool,
+		Redis:       rdb,
+		Audit:       auditSvc,
 	}
 }
