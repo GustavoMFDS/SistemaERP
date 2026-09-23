@@ -191,7 +191,7 @@ export default function InventoryPage() {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              placeholder="Ex.: Entrada por compra, ajuste de inventário…"
+              placeholder="Ex.: correção de inventário, perda identificada…"
               required
             />
           </label>
