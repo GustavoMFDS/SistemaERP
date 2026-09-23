@@ -89,21 +89,6 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 	if !created {
 		code = http.StatusOK
 	}
-	if created {
-		requestID, ip, userAgent := audit.RequestContext(r)
-		h.audit.Record(r.Context(), audit.Event{
-			TenantID:     au.TenantID,
-			ActorUserID:  au.UserID,
-			Action:       "sale.create",
-			ResourceType: "sale",
-			ResourceID:   saleID,
-			Outcome:      "success",
-			Metadata:     map[string]any{"total": total.String()},
-			RequestID:    requestID,
-			IP:           ip,
-			UserAgent:    userAgent,
-		})
-	}
 	writeJSON(w, code, map[string]any{"id": saleID, "status": "finalized", "total": total, "replayed": !created})
 }
 
@@ -132,17 +117,5 @@ func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	requestID, ip, userAgent := audit.RequestContext(r)
-	h.audit.Record(r.Context(), audit.Event{
-		TenantID:     au.TenantID,
-		ActorUserID:  au.UserID,
-		Action:       "sale.cancel",
-		ResourceType: "sale",
-		ResourceID:   saleID,
-		Outcome:      "success",
-		RequestID:    requestID,
-		IP:           ip,
-		UserAgent:    userAgent,
-	})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled"})
 }
