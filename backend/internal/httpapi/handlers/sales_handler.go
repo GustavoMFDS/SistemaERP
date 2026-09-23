@@ -109,7 +109,7 @@ func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		switch err {
 		case common.ErrNotFound:
 			status = http.StatusNotFound
-		case common.ErrSaleNotFinalized, common.ErrSaleAlreadyCancelled, common.ErrCashSessionClosed:
+		case common.ErrSaleNotFinalized, common.ErrSaleAlreadyCancelled, common.ErrCashSessionClosed, common.ErrConflict:
 			status = http.StatusConflict
 		case common.ErrValidation:
 			status = http.StatusUnprocessableEntity
