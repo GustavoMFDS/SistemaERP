@@ -21,7 +21,7 @@ type AdjustRequest = {
   product_id: string
   delta: number
   reason: string
-  type: 'purchase' | 'adjustment' | 'loss' | 'damage' | 'return'
+  type: 'adjustment' | 'loss' | 'damage'
 }
 
 export default function InventoryPage() {
@@ -29,6 +29,7 @@ export default function InventoryPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [canAdjustPermission, setCanAdjustPermission] = useState(false)
 
   const [productId, setProductId] = useState('')
   const [delta, setDelta] = useState<number>(0)
@@ -58,6 +59,9 @@ export default function InventoryPage() {
 
   useEffect(() => {
     void load()
+    void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
+      .then((me) => setCanAdjustPermission(me.permissions.includes('inventory:adjust')))
+      .catch((e: unknown) => setError(errorMessage(e)))
   }, [])
 
   async function onAdjust(e: FormEvent) {
@@ -135,8 +139,9 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <div className="mt-6">
-        <h3 className="text-sm font-semibold">Ajuste de estoque</h3>
+      {canAdjustPermission ? (
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold">Ajuste de estoque</h3>
         <form onSubmit={onAdjust} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-4">
           <label className="block md:col-span-2">
             <span className="text-xs text-gray-600">Produto</span>
@@ -162,8 +167,6 @@ export default function InventoryPage() {
               onChange={(e) => setType(e.target.value as AdjustRequest['type'])}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             >
-              <option value="purchase">Entrada (compra)</option>
-              <option value="return">Entrada (devolução)</option>
               <option value="adjustment">Ajuste</option>
               <option value="loss">Perda</option>
               <option value="damage">Avaria</option>
@@ -202,7 +205,8 @@ export default function InventoryPage() {
             </button>
           </div>
         </form>
-      </div>
+        </div>
+      ) : null}
     </div>
   )
 }
