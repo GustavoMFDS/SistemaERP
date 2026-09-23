@@ -26,4 +26,8 @@ type Repository interface {
 	UpdateProductCost(ctx context.Context, tx db.DBTX, tenantID, productID string, cost platform.Money) error
 	CreateAccountPayable(ctx context.Context, tx db.DBTX, tenantID, purchaseID, supplierID string, description string, amount platform.Money, dueDate string) error
 	CancelAccountPayable(ctx context.Context, tx db.DBTX, tenantID, purchaseID string) error
+
+	LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error
+	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (resourceID, resultStatus, requestHash string, ok bool, err error)
+	SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, requestHash, resourceID, resultStatus string) error
 }
