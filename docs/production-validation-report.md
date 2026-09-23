@@ -7,14 +7,14 @@
 - Last fully executed green implementation run: GitHub Actions `35808100170` on commit `8f07a6b841f4ce341ebbbcef8433d8cb38af5916`.
 - That run passed backend, frontend, integration, security, e2e and e2e-prodlike.
 - Browser E2E on that run: 23 discovered, 22 passed, 1 production-like-only skipped. Production-like E2E: 1/1 passed.
-- Production code at the later branch head is unchanged from that green implementation commit; later commits only add deterministic waits in four E2E files.
-- Subsequent attempts for those test-only commits ended as GitHub Actions startup failures with `steps: []`; repository code was not executed in those failed attempts.
+- The later branch head additionally hardens the browser offline queue: the server retains idempotency results for 30 days, while manual browser retry/rebind is capped at 28 days from the original intent timestamp. Older items remain visible for reconciliation but cannot emit a sale request. Integration coverage also verifies startup retention cleanup of a 31-day key while preserving a recent key.
+- Subsequent attempts after the last fully green implementation run have ended as GitHub Actions startup failures with `steps: []`; those later retention/test/documentation changes have therefore not yet been executed by GitHub Actions.
 - Cash operations now serialize through the session row, close waits for in-flight sale work, and cancel after close is rejected.
 - `0015` adds supply/withdrawal and per-method reconciliation. Supply/withdrawal also write finance ledger entries atomically.
 - Critical sale/cash audit events are transactional.
 - Fiscal XML generation locks the sale and a fiscalized sale cannot be normally cancelled.
 - Redis limiter repairs no-TTL legacy keys.
-- Idempotency retention is bounded to 30 days and `0016` adds a retention index.
+- Idempotency retention is bounded to 30 days and `0016` adds a retention index. Browser manual replay/rebind is bounded to 28 days so the server-side key cannot expire immediately before a client retry.
 
 ### Round 6 verdict
 
