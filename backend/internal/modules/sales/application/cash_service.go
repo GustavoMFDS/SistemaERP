@@ -66,6 +66,14 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	session, err := s.cash.GetSession(ctx, tx, tenantID, sessionID)
+	if err != nil {
+		return sales.CashCloseResult{}, common.ErrCashSessionClosed
+	}
+	if session.Status != "open" {
+		return sales.CashCloseResult{}, common.ErrCashSessionClosed
+	}
+
 	result, err := s.cash.CloseSession(ctx, tx, tenantID, sessionID, userID, req.ClosingAmount, req.Notes)
 	if err != nil {
 		return sales.CashCloseResult{}, err
