@@ -43,13 +43,17 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
         type: 'purchase',
       },
     })
+    const productDetail = await apiJson<{ cost_price: number }>(`/api/v1/products/${product.id}`)
     return {
       productId: product.id,
+      barcode: `BAR-${suffix}`,
+      adminCostPrice: productDetail.cost_price,
       canDiscount: me.permissions.includes('sale:discount'),
     }
   }, suffix)
 
   expect(setup.canDiscount).toBe(true)
+  expect(setup.adminCostPrice).toBe(4)
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
