@@ -173,7 +173,7 @@ func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID stri
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	supplier, err := s.repo.GetSupplier(ctx, tenantID, req.SupplierID)
+	supplier, err := s.repo.GetSupplier(ctx, tx, tenantID, req.SupplierID)
 	if err != nil || !supplier.Active {
 		return "", common.ErrValidation
 	}
