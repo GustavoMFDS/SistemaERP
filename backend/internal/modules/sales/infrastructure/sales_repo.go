@@ -2,14 +2,27 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func mapSalesWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return common.ErrConflict
+	}
+	return err
+}
 
 type SalesRepo struct {
 	db *pgxpool.Pool
@@ -56,7 +69,7 @@ func (r *SalesRepo) InsertPayment(ctx context.Context, tx db.DBTX, tenantID stri
 		)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 	`, tenantID, p.SaleID, p.Method, p.Amount.DBString(), p.Provider, p.TransactionRef, p.AuthorizationCode, installments, status)
-	return err
+	return mapSalesWriteError(err)
 }
 
 func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
