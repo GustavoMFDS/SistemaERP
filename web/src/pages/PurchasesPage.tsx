@@ -119,6 +119,7 @@ export default function PurchasesPage() {
 
   useEffect(() => {
     void loadBase()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function createSupplier(e: FormEvent) {
