@@ -19,6 +19,7 @@ type SalesRepository interface {
 	CancelSale(ctx context.Context, tx db.DBTX, tenantID string, id string, reason string) error
 	GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error)
 	HasInvoiceForSale(ctx context.Context, tx db.DBTX, tenantID string, id string) (bool, error)
+	HasReturnsForSale(ctx context.Context, tx db.DBTX, tenantID string, id string) (bool, error)
 
 	LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error
 	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (saleID string, total platform.Money, requestHash string, ok bool, err error)
