@@ -120,6 +120,14 @@ ALTER TABLE accounts_payable
   ADD COLUMN IF NOT EXISTS supplier_id uuid NULL REFERENCES suppliers(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS purchase_id uuid NULL REFERENCES purchases(id) ON DELETE SET NULL;
 
+ALTER TABLE accounts_payable
+  DROP CONSTRAINT IF EXISTS accounts_payable_supplier_tenant_fk,
+  ADD CONSTRAINT accounts_payable_supplier_tenant_fk
+    FOREIGN KEY (tenant_id, supplier_id) REFERENCES suppliers(tenant_id, id) ON DELETE SET NULL,
+  DROP CONSTRAINT IF EXISTS accounts_payable_purchase_tenant_fk,
+  ADD CONSTRAINT accounts_payable_purchase_tenant_fk
+    FOREIGN KEY (tenant_id, purchase_id) REFERENCES purchases(tenant_id, id) ON DELETE SET NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS accounts_payable_tenant_purchase_unique
   ON accounts_payable(tenant_id, purchase_id)
   WHERE purchase_id IS NOT NULL;
