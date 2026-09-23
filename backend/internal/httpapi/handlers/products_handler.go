@@ -78,6 +78,9 @@ func (h *ProductsHandler) GetByBarcode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
 		return
 	}
+	if !middleware.HasPermission(r.Context(), "finance:read") {
+		p.CostPrice = 0
+	}
 	writeJSON(w, http.StatusOK, p)
 }
 
