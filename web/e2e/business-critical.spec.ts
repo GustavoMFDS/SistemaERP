@@ -8,11 +8,11 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await expect(page).toHaveURL(/\/products$/)
 }
 
-test('admin online sale updates stock and finance, generates fiscal XML, then cancellation restores stock', async ({ page }) => {
+test('admin sale cancellation restores stock and fiscalized sale cannot be cancelled', async ({ page }) => {
   await login(page, 'admin@sistema.local')
 
   const result = await page.evaluate(async () => {
-    const { apiJson } = await import('/src/lib/api.ts')
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
 
     type Product = {
       id: string
@@ -52,12 +52,6 @@ test('admin online sale updates stock and finance, generates fiscal XML, then ca
     const productAfterSale = await apiJson<Product>(`/api/v1/products/${product.id}`)
     const ledgerAfterSale = await apiJson<Ledger>('/api/v1/finance/ledger?limit=200&offset=0')
 
-    const fiscal = await apiJson<FiscalGenerate>('/api/v1/fiscal/nfe/xml', {
-      method: 'POST',
-      body: { sale_id: sale.id },
-    })
-    const fiscalList = await apiJson<FiscalList>('/api/v1/fiscal/nfe/xml?limit=200&offset=0')
-
     const privacy = await apiJson<{ items: unknown[] }>('/api/v1/privacy/requests?limit=10&offset=0')
 
     await apiJson(`/api/v1/sales/${sale.id}/cancel`, {
@@ -68,6 +62,36 @@ test('admin online sale updates stock and finance, generates fiscal XML, then ca
     const productAfterCancel = await apiJson<Product>(`/api/v1/products/${product.id}`)
     const ledgerAfterCancel = await apiJson<Ledger>('/api/v1/finance/ledger?limit=200&offset=0')
     const saleAfterCancel = await apiJson<{ sale: { status: string } }>(`/api/v1/sales/${sale.id}`)
+
+    const fiscalSale = await apiJson<SaleCreate>('/api/v1/sales', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        cash_session_id: cash.id,
+        customer_id: null,
+        discount_value: 0,
+        items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
+        payments: [{ method: 'pix', amount: product.price_cash }],
+      },
+    })
+
+    const fiscal = await apiJson<FiscalGenerate>('/api/v1/fiscal/nfe/xml', {
+      method: 'POST',
+      body: { sale_id: fiscalSale.id },
+    })
+    const fiscalList = await apiJson<FiscalList>('/api/v1/fiscal/nfe/xml?limit=200&offset=0')
+
+    let fiscalCancelStatus = 0
+    try {
+      await apiJson(`/api/v1/sales/${fiscalSale.id}/cancel`, {
+        method: 'POST',
+        body: { reason: 'must be blocked after fiscal XML generation' },
+      })
+      fiscalCancelStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) fiscalCancelStatus = error.status
+      else throw error
+    }
 
     await apiJson(`/api/v1/cash/sessions/${cash.id}/close`, {
       method: 'POST',
@@ -89,6 +113,7 @@ test('admin online sale updates stock and finance, generates fiscal XML, then ca
       ),
       fiscalId: fiscal.xml_file_id,
       fiscalListed: fiscalList.items.some((item) => item.id === fiscal.xml_file_id),
+      fiscalCancelStatus,
       privacyListReadable: Object.prototype.hasOwnProperty.call(privacy, 'items'),
     }
   })
@@ -101,6 +126,7 @@ test('admin online sale updates stock and finance, generates fiscal XML, then ca
   expect(result.cancelLedger).toBe(true)
   expect(result.fiscalId).not.toBe('')
   expect(result.fiscalListed).toBe(true)
+  expect(result.fiscalCancelStatus).toBe(409)
   expect(result.privacyListReadable).toBe(true)
 })
 
