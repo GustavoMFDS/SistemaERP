@@ -42,6 +42,7 @@ export default function ProductsPage() {
   const [error, setError] = useState('')
 
   const [sku, setSku] = useState('')
+  const [barcode, setBarcode] = useState('')
   const [name, setName] = useState('')
   const [unit, setUnit] = useState('un')
   const [priceCash, setPriceCash] = useState<number>(0)
@@ -81,6 +82,7 @@ export default function ProductsPage() {
     try {
       const payload: ProductCreateRequest = {
         sku: sku.trim(),
+        barcode: barcode.trim() || null,
         name: name.trim(),
         unit: unit.trim() || 'un',
         cost_price: 0,
@@ -93,6 +95,7 @@ export default function ProductsPage() {
         body: payload,
       })
       setSku('')
+      setBarcode('')
       setName('')
       setPriceCash(0)
       setMinStock(0)
@@ -144,6 +147,7 @@ export default function ProductsPage() {
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
               <th className="px-3 py-2">SKU</th>
+              <th className="px-3 py-2">Código de barras</th>
               <th className="px-3 py-2">Nome</th>
               <th className="px-3 py-2">Un</th>
               <th className="px-3 py-2">Preço</th>
@@ -156,6 +160,7 @@ export default function ProductsPage() {
             {items.map((p) => (
               <tr key={p.id}>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
+                <td className="px-3 py-2 font-mono text-xs">{p.barcode || '—'}</td>
                 <td className="px-3 py-2">{p.name}</td>
                 <td className="px-3 py-2">{p.unit}</td>
                 <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
@@ -170,7 +175,7 @@ export default function ProductsPage() {
 
       <div className="mt-6">
         <h3 className="text-sm font-semibold">Cadastrar produto</h3>
-        <form onSubmit={onCreate} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-5">
+        <form onSubmit={onCreate} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-6">
           <label className="block md:col-span-1">
             <span className="text-xs text-gray-600">SKU</span>
             <input
@@ -178,6 +183,16 @@ export default function ProductsPage() {
               onChange={(e) => setSku(e.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               required
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="text-xs text-gray-600">Código de barras</span>
+            <input
+              value={barcode}
+              onChange={(e) => setBarcode(e.target.value)}
+              placeholder="EAN / GTIN"
+              autoComplete="off"
+              className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
             />
           </label>
           <label className="block md:col-span-2">
@@ -220,7 +235,7 @@ export default function ProductsPage() {
             />
           </label>
 
-          <div className="md:col-span-5">
+          <div className="md:col-span-6">
             <button
               disabled={!canCreate}
               className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
