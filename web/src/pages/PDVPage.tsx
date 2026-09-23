@@ -671,7 +671,7 @@ export default function PDVPage() {
                   </label>
                   {CLOSE_METHODS.map(([method, label]) => (
                     <label key={method} className="block">
-                      <span className="text-xs text-gray-600">{label} declarado</span>
+                      <span className="text-xs text-gray-600">{label} líquido declarado</span>
                       <input
                         value={String(closingByMethod[method] ?? 0)}
                         onChange={(e) =>
@@ -681,7 +681,6 @@ export default function PDVPage() {
                           }))
                         }
                         type="number"
-                        min="0"
                         step="0.01"
                         className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
                       />
