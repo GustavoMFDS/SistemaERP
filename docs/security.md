@@ -50,3 +50,10 @@ Production notes:
 - Production bootstrap must create the first administrator with an explicit tenant membership and tenant-scoped role assignment; default demo credentials are never created by the production seed.
 - Validate backups and restores before production. Migration rollback should be a planned operational procedure, not improvised during an incident.
 - See `docs/deployment.md` for backup, restore, migration validation, and rollback procedures.
+
+## Round 6 security/integrity controls
+- Critical `sale.create`, `sale.cancel`, `cash.open`, `cash.supply`, `cash.withdrawal` and `cash.close` audit rows are inserted in the same PostgreSQL transaction as the business mutation.
+- Redis rate limiting repairs legacy keys that have no TTL by reapplying `PEXPIRE` when `PTTL < 0`.
+- Cash-session `FOR UPDATE` serialization prevents sale/cancel/movement operations from racing past cash close.
+- Normal cancellation is blocked once a fiscal invoice exists; a SEFAZ-ready fiscal cancellation flow is required before production fiscal cancellation can be supported.
+- Idempotency retention runs on startup/hourly in bounded batches and is backed by the `idempotency_keys_created_at_idx` index.

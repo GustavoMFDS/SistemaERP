@@ -328,3 +328,20 @@ Metadata keys containing secrets, tokens, cookies, authorization values, credent
 RBAC is tenant-scoped. Effective permissions come from `user_tenant_roles` joined with `role_permissions`, filtered by the authenticated `tenant_id` and `user_id`. A role assigned in tenant A does not grant permissions in tenant B.
 
 In staging/production, users must have an explicit `user_tenants` membership. The legacy fallback to the first company is available only for development/test databases that predate tenant membership migrations.
+
+## Round 6 — Cash/Fiscal integrity API notes
+### POST `/cash/sessions/{id}/movements`
+Requires `cash:move`.
+```json
+{ "movement_type": "supply", "amount": 20, "notes": "Troco adicional" }
+```
+Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry and critical audit event commit atomically.
+
+### Cash close reconciliation
+`POST /cash/sessions/{id}/close` accepts optional `closing_by_method` and returns `expected_by_method`, `declared_by_method` and `difference_by_method` for supported payment methods. Physical cash includes opening amount, finalized cash payments, supplies and withdrawals.
+
+### Cancellation/fiscal constraints
+`POST /sales/{id}/cancel` returns `409 conflict` when the original cash session is closed or when an invoice/XML already exists. Fiscal XML generation locks the sale row in the same transaction and requires `finalized` status.
+
+### Retention
+`idempotency_keys` remain immutable during the replay window. App maintenance deletes entries older than 30 days in bounded batches; migration `0016` indexes `created_at` for this path.

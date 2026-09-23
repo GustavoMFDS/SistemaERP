@@ -1,5 +1,24 @@
 # Production Validation Report
 
+## Revalidation — 2026-09-23 (round 6 hardening)
+
+- Base audited: `main` merge commit `646312aaa8b60be63906d21ffb29a3a14b6c213f`.
+- Hardening branch / PR: `audit/e2e-hardening-round6-20260923` / PR #8.
+- Last fully executed green implementation run: GitHub Actions `35808100170` on commit `8f07a6b841f4ce341ebbbcef8433d8cb38af5916`.
+- That run passed backend, frontend, integration, security, e2e and e2e-prodlike.
+- Browser E2E on that run: 23 discovered, 22 passed, 1 production-like-only skipped. Production-like E2E: 1/1 passed.
+- Production code at the later branch head is unchanged from that green implementation commit; later commits only add deterministic waits in four E2E files.
+- Subsequent attempts for those test-only commits ended as GitHub Actions startup failures with `steps: []`; repository code was not executed in those failed attempts.
+- Cash operations now serialize through the session row, close waits for in-flight sale work, and cancel after close is rejected.
+- `0015` adds supply/withdrawal and per-method reconciliation. Supply/withdrawal also write finance ledger entries atomically.
+- Critical sale/cash audit events are transactional.
+- Fiscal XML generation locks the sale and a fiscalized sale cannot be normally cancelled.
+- Redis limiter repairs no-TTL legacy keys.
+- Idempotency retention is bounded to 30 days and `0016` adds a retention index.
+
+### Round 6 verdict
+
+**The sixth-audit code findings are implemented, and the production-code SHA was fully green.** A same-HEAD rerun of the later test-only stabilization commits remains pending because GitHub Actions is currently returning runner startup failures before any step executes. These startup failures are infrastructure evidence, not repository test failures.
 ## Revalidation — 2026-09-22 (round 5 hardening)
 
 - Base audited: `main` after merge commit `654a9eb53b12b4a8a30f432de49d64e2e0b9b88e`.

@@ -96,3 +96,13 @@ After restoring a backup into isolated staging:
 - Request IDs for critical flows.
 - Audit event IDs for auth, sale, fiscal, and privacy flows.
 - Any failed checks and remediation tickets.
+
+## Round 6 automated regression cases
+- Sale vs cash-close concurrency: close waits on the cash-session lock and includes the committed in-flight sale.
+- Cancel after cash close: returns `409` and the stored reconciliation remains immutable.
+- Supply/withdrawal: cash movement, finance ledger and audit evidence are committed together; over-withdrawal is rejected.
+- Mixed payment close: expected/declared/difference maps are checked for cash and non-cash methods.
+- Fiscalized sale: normal cancellation after XML generation returns `409`.
+- Redis legacy limiter key without TTL: next limiter call repairs a positive TTL.
+- Migration path validates `v12 -> v16`, including rollback/reapply of `0015` and `0016`.
+- UI tests wait for async cash-open/cash-close completion before continuing, preventing cross-test state leakage.

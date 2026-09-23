@@ -22,3 +22,13 @@
 - XML é gerado a partir de uma venda finalizada.
 - XML fica armazenado e disponível para download.
 - Estrutura preparada para assinatura/transmissão futura (camada separada de montagem do XML).
+
+## Round 6 — integridade transacional de caixa
+- Venda, cancelamento, sangria/suprimento e fechamento serializam na linha da sessão de caixa.
+- Cancelamento só é permitido enquanto o caixa original permanece aberto.
+- Venda com invoice/XML fiscal existente não pode ser cancelada pelo fluxo comum.
+- Sangria (`withdrawal`) e suprimento (`supply`) entram no caixa e no razão financeiro na mesma transação.
+- Sangria acima do dinheiro físico disponível é rejeitada.
+- Fechamento reconcilia esperado, declarado e diferença por `cash`, `pix`, `debit`, `credit`, `transfer` e `voucher`.
+- Dinheiro físico esperado = abertura + vendas em dinheiro + suprimentos - sangrias.
+- XML fiscal é gerado somente de venda `finalized` e bloqueia a venda enquanto a invoice é criada.
