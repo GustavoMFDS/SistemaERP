@@ -314,8 +314,8 @@ func (r *FinanceRepo) ListReturnRefunds(ctx context.Context, tenantID, status st
 	if err := r.db.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	limitIdx := len(args)+1
-	offsetIdx := len(args)+2
+	limitIdx := len(args) + 1
+	offsetIdx := len(args) + 2
 	args = append(args, limit, offset)
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
 		WITH rr AS (
@@ -491,7 +491,7 @@ func (r *FinanceRepo) SaveIdempotencyResult(ctx context.Context, tx db.DBTX, ten
 		VALUES ($1,$2,$3,$4,$5,$6)
 		ON CONFLICT (tenant_id, operation, idem_key) DO NOTHING
 	`, tenantID, operation, key, requestHash, resourceID, resultStatus)
-	if err == nil && tag.RowsAffected()==0 {
+	if err == nil && tag.RowsAffected() == 0 {
 		return common.ErrConflict
 	}
 	return err
