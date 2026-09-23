@@ -34,6 +34,11 @@ func (h *InventoryHandler) LowStock(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao listar estoque", nil)
 		return
 	}
+	if !middleware.HasPermission(r.Context(), "finance:read") {
+		for i := range items {
+			items[i].CostPrice = 0
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
