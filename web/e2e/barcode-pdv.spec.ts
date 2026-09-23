@@ -21,7 +21,8 @@ test('barcode lookup and PDV scanner add and increment the product', async ({ pa
   expect(lookup.sku).toBe('SKU-COCA-2L')
   expect(lookup.barcode).toBe('7890000000000')
 
-  await page.goto('/pdv')
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await expect(page).toHaveURL(/\/pdv$/)
   const scanner = page.getByLabel('Código de barras')
   await scanner.fill('7890000000000')
   await scanner.press('Enter')
