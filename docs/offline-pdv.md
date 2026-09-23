@@ -45,6 +45,7 @@ Migração:
 ## Seguranca e privacidade operacional
 
 - Após 24 horas, itens ainda não sincronizados deixam de ser reenviados automaticamente e passam para estado de atenção; o registro local é preservado para reconciliação.
+- O backend retém resultados idempotentes por 30 dias. Para manter margem contra clock skew/maintenance, retry/rebind manual no browser só é permitido até 28 dias desde a criação original da intenção. Itens mais antigos permanecem visíveis em `attention`, mas exigem conferência manual no servidor e não são reenviados automaticamente.
 - A fila guarda somente o payload necessario para recriar a venda, o cabecalho `Idempotency-Key` e metadados mínimos de reconciliação (estado/erro/última tentativa).
 - Evite incluir dados pessoais sensiveis no payload de venda offline. Quando o cliente for opcional, prefira venda sem identificacao.
 - `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
@@ -70,6 +71,7 @@ Migração:
 - rejeicao permanente de um item nao impede a sincronizacao dos itens posteriores;
 - item com mais de 24 horas permanece armazenado em estado de atencao, sem exclusao silenciosa;
 - rebind de venda legada já commitada preserva a chave original e não duplica a venda;
+- item com mais de 28 dias não pode ser retry/rebindado; permanece em `attention` com motivo `retention_expired` e nenhum `POST /sales` é emitido;
 - falha de rede durante logout não limpa estado local nem simula revogação do cookie HttpOnly.
 
 ## Ciclo de caixa
