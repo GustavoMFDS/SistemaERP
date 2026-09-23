@@ -147,7 +147,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
 
   await login(page, 'caixa@sistema.local')
 
-  const cashierResult = await page.evaluate(async (productId) => {
+  const cashierResult = await page.evaluate(async (input) => {
     const { APIError, apiJson } = await import('/src/lib/api.ts')
     const me = await apiJson<{ permissions: string[] }>('/api/v1/auth/me')
     const cash = await apiJson<{ id: string }>('/api/v1/cash/sessions/open', {
@@ -164,7 +164,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
           cash_session_id: cash.id,
           customer_id: null,
           discount_value: 1,
-          items: [{ product_id: productId, qty: 1, discount_value: 0 }],
+          items: [{ product_id: input.productId, qty: 1, discount_value: 0 }],
           payments: [{ method: 'pix', amount: 9 }],
         },
       })
@@ -189,12 +189,29 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
       },
     })
 
+    const productDetail = await apiJson<{ cost_price: number }>(`/api/v1/products/${input.productId}`)
+    const barcodeDetail = await apiJson<{ cost_price: number }>(`/api/v1/products/barcode/${encodeURIComponent(input.barcode)}`)
+    const saleDetail = await apiJson<{
+      sale: { profit_estimated: number }
+      items: Array<{ cost_unit: number }>
+    }>(`/api/v1/sales/${input.saleId}`)
+
     return {
       hasDiscountPermission: me.permissions.includes('sale:discount'),
+      hasFinancePermission: me.permissions.includes('finance:read'),
       discountedSaleStatus: status,
+      productCost: productDetail.cost_price,
+      barcodeCost: barcodeDetail.cost_price,
+      saleProfit: saleDetail.sale.profit_estimated,
+      saleCostUnit: saleDetail.items[0].cost_unit,
     }
-  }, setup.productId)
+  }, { productId: setup.productId, barcode: setup.barcode, saleId: sale.id })
 
   expect(cashierResult.hasDiscountPermission).toBe(false)
+  expect(cashierResult.hasFinancePermission).toBe(false)
   expect(cashierResult.discountedSaleStatus).toBe(403)
+  expect(cashierResult.productCost).toBe(0)
+  expect(cashierResult.barcodeCost).toBe(0)
+  expect(cashierResult.saleProfit).toBe(0)
+  expect(cashierResult.saleCostUnit).toBe(0)
 })
