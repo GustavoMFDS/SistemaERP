@@ -198,3 +198,75 @@ test('permanent queue conflict does not block later sales and expired items are 
   expect(result.summary.total).toBe(2)
   expect(result.preservedCount).toBe(2)
 })
+
+
+test('offline sale older than safe replay window cannot retry or rebind', async ({ page }) => {
+  await page.goto('/login')
+
+  let salePosts = 0
+  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+    if (route.request().method() === 'POST') salePosts += 1
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'must-not-be-created', status: 'finalized', total: 10 }),
+    })
+  })
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const queue = await import('/src/lib/offlineQueue.ts')
+
+    const payload = btoa(JSON.stringify({ sub: 'retention-user', tenant_id: 'retention-tenant' }))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+    auth.setToken(`x.${payload}.x`)
+
+    const id = queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: { cash_session_id: 'old-cash', items: [], payments: [] },
+      headers: { 'Idempotency-Key': 'too-old-idempotency-key' },
+    })
+
+    const storageKey = auth.scopedStorageKey('sistemaemgo:offlineQueue:v2')
+    if (!storageKey) throw new Error('missing queue scope')
+
+    const stored = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as Array<{
+      id: string
+      createdAt: number
+      state?: string
+    }>
+    const item = stored.find((candidate) => candidate.id === id)
+    if (!item) throw new Error('retention test item missing')
+    item.createdAt = Date.now() - 29 * 24 * 60 * 60 * 1000
+    item.state = 'attention'
+    localStorage.setItem(storageKey, JSON.stringify(stored))
+
+    const retry = queue.retryQueueItem(id)
+    const rebind = queue.rebindQueueItemToCashSession(id, 'new-cash')
+    const flushed = await queue.flushQueue()
+    const finalItem = queue.getQueueItems().find((candidate) => candidate.id === id)
+
+    return {
+      retry,
+      rebind,
+      flushed,
+      state: finalItem?.state,
+      reason: finalItem?.attentionReason,
+      cashSessionID:
+        finalItem?.body && typeof finalItem.body === 'object'
+          ? (finalItem.body as { cash_session_id?: string }).cash_session_id
+          : undefined,
+    }
+  })
+
+  expect(result.retry).toBe(false)
+  expect(result.rebind).toBe(false)
+  expect(result.state).toBe('attention')
+  expect(result.reason).toBe('retention_expired')
+  expect(result.cashSessionID).toBe('old-cash')
+  expect(result.flushed.processed).toBe(0)
+  expect(salePosts).toBe(0)
+})
