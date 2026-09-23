@@ -87,7 +87,7 @@ func TestCashCloseWaitsForInFlightSaleAndIncludesIt(t *testing.T) {
 	}
 
 	auditSvc := audit.New(pool, slog.Default())
-	cashSvc := salesapp.NewCashService(db.NewPgxUnitOfWork(pool), cashRepo, auditSvc, validator.New(), slog.Default())
+	cashSvc := salesapp.NewCashService(db.NewPgxUnitOfWork(pool), cashRepo, nil, auditSvc, validator.New(), slog.Default())
 
 	type closeResult struct {
 		resultExpected platform.Money
