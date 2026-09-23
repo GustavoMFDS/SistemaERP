@@ -793,6 +793,46 @@ export default function PDVPage() {
         </div>
       ) : null}
 
+      {suspendedCarts.length > 0 ? (
+        <div className="mt-4 rounded-md border p-3">
+          <h3 className="text-sm font-semibold">Vendas suspensas</h3>
+          <p className="mt-1 text-xs text-gray-600">
+            Carrinhos locais deste operador/tenant. Nenhuma venda foi enviada ao servidor.
+          </p>
+          <div className="mt-2 space-y-2">
+            {suspendedCarts.map((cart) => (
+              <div key={cart.id} className="flex flex-col gap-2 rounded-md border p-2 text-xs md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div>
+                    {new Date(cart.createdAt).toLocaleString()} • {cart.items.length} item(ns) •{' '}
+                    {cart.payMethod.toUpperCase()}
+                  </div>
+                  {cart.saleDiscount > 0 ? (
+                    <div className="text-gray-600">Desconto salvo: R$ {cart.saleDiscount.toFixed(2)}</div>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => resumeSuspended(cart)}
+                    className="rounded-md border px-2 py-1"
+                  >
+                    Retomar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => discardSuspended(cart.id)}
+                    className="rounded-md border border-red-300 px-2 py-1 text-red-700"
+                  >
+                    Descartar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-4 rounded-md border p-3">
         <h3 className="text-sm font-semibold">Itens</h3>
 
