@@ -236,11 +236,14 @@ test('offline sale older than safe replay window cannot retry or rebind', async 
     const stored = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as Array<{
       id: string
       createdAt: number
+      intentCreatedAt?: number
       state?: string
     }>
     const item = stored.find((candidate) => candidate.id === id)
     if (!item) throw new Error('retention test item missing')
-    item.createdAt = Date.now() - 29 * 24 * 60 * 60 * 1000
+    const oldCreatedAt = Date.now() - 29 * 24 * 60 * 60 * 1000
+    item.createdAt = oldCreatedAt
+    item.intentCreatedAt = oldCreatedAt
     item.state = 'attention'
     localStorage.setItem(storageKey, JSON.stringify(stored))
 
