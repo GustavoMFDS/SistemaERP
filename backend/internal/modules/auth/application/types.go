@@ -3,11 +3,12 @@ package application
 import "github.com/golang-jwt/jwt/v5"
 
 type AuthUserInfo struct {
-	ID       string   `json:"id"`
-	Email    string   `json:"email"`
-	Name     string   `json:"name"`
-	TenantID string   `json:"tenant_id"`
-	Roles    []string `json:"roles"`
+	ID          string   `json:"id"`
+	Email       string   `json:"email"`
+	Name        string   `json:"name"`
+	TenantID    string   `json:"tenant_id"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
 }
 
 type TokenResponse struct {
