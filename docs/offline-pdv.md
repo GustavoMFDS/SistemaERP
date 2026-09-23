@@ -46,6 +46,7 @@ Migração:
 
 - Após 24 horas, itens ainda não sincronizados deixam de ser reenviados automaticamente e passam para estado de atenção; o registro local é preservado para reconciliação.
 - O backend retém resultados idempotentes por 30 dias. Para manter margem contra clock skew/maintenance, retry/rebind manual no browser só é permitido até 28 dias desde a criação original da intenção. Itens mais antigos permanecem visíveis em `attention`, mas exigem conferência manual no servidor e não são reenviados automaticamente.
+- Em upgrade de filas v2 anteriores que já tiveram retry/rebind, a versão antiga pode ter sobrescrito `createdAt`; nesses casos a idade original é considerada não confiável. O item entra em `attention` com motivo `retention_unknown` e fica bloqueado para retry/rebind até conferência manual.
 - A fila guarda somente o payload necessario para recriar a venda, o cabecalho `Idempotency-Key` e metadados mínimos de reconciliação (estado/erro/última tentativa).
 - Evite incluir dados pessoais sensiveis no payload de venda offline. Quando o cliente for opcional, prefira venda sem identificacao.
 - `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
@@ -72,6 +73,7 @@ Migração:
 - item com mais de 24 horas permanece armazenado em estado de atencao, sem exclusao silenciosa;
 - rebind de venda legada já commitada preserva a chave original e não duplica a venda;
 - item com mais de 28 dias não pode ser retry/rebindado; permanece em `attention` com motivo `retention_expired` e nenhum `POST /sales` é emitido;
+- item v2 pré-upgrade que já possua `lastAttemptAt` mas não `intentCreatedAt` é tratado como idade original desconhecida (`retention_unknown`) e também não pode emitir `POST /sales`;
 - falha de rede durante logout não limpa estado local nem simula revogação do cookie HttpOnly.
 
 ## Ciclo de caixa
