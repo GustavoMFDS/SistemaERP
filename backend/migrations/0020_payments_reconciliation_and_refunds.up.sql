@@ -108,8 +108,12 @@ CREATE TABLE IF NOT EXISTS finance_idempotency_keys (
   request_hash text NOT NULL,
   resource_id uuid NOT NULL,
   result_status text NULL,
+  result_amount numeric(12,2) NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT finance_idempotency_key_unique UNIQUE (tenant_id, operation, idem_key)
+  CONSTRAINT finance_idempotency_key_unique UNIQUE (tenant_id, operation, idem_key),
+  CONSTRAINT finance_idempotency_result_amount_nonnegative CHECK (
+    result_amount IS NULL OR result_amount >= 0
+  )
 );
 CREATE INDEX IF NOT EXISTS finance_idempotency_tenant_created_idx
   ON finance_idempotency_keys(tenant_id, operation, created_at DESC);
