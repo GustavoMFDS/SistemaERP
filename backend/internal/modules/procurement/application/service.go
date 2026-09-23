@@ -100,27 +100,54 @@ func (s *Service) ListSuppliers(ctx context.Context, tenantID, query string, lim
 	return s.repo.ListSuppliers(ctx, tenantID, query, limit, offset)
 }
 
-func (s *Service) CreateSupplier(ctx context.Context, tenantID string, req SupplierRequest) (string, error) {
+func (s *Service) CreateSupplier(ctx context.Context, tenantID, idempotencyKey string, req SupplierRequest) (string, bool, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		return "", false, common.ErrValidation
+	}
 	req = normalizeSupplierRequest(req)
 	if err := s.validate.Struct(req); err != nil {
-		return "", common.ErrValidation
+		return "", false, common.ErrValidation
 	}
+	requestHash, err := procurementRequestHash(req)
+	if err != nil {
+		return "", false, common.ErrValidation
+	}
+	op := "supplier.create"
+
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.repo.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", false, err
+	}
+	if resourceID, _, storedHash, ok, err := s.repo.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", false, err
+	} else if ok {
+		if storedHash != requestHash {
+			return "", false, common.ErrConflict
+		}
+		_ = tx.Rollback(ctx)
+		return resourceID, false, nil
+	}
+
 	id, err := s.repo.CreateSupplier(ctx, tx, tenantID, proc.Supplier{
 		Name: req.Name, Document: req.Document, Email: req.Email, Phone: req.Phone,
 		ContactName: req.ContactName, Notes: req.Notes, Active: req.Active,
 	})
 	if err != nil {
-		return "", err
+		return "", false, err
+	}
+	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, id, "created"); err != nil {
+		return "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return id, nil
+	return id, true, nil
 }
 
 func (s *Service) UpdateSupplier(ctx context.Context, tenantID, id string, req SupplierRequest) error {
@@ -442,7 +469,8 @@ func (s *Service) CancelPurchase(ctx context.Context, tenantID, purchaseID strin
 		return common.ErrNotFound
 	}
 	if purchase.Status == proc.PurchaseCancelled {
-		return common.ErrConflict
+		_ = tx.Rollback(ctx)
+		return nil
 	}
 	for _, item := range items {
 		if item.QtyReceived > 0 {
