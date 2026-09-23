@@ -99,11 +99,11 @@ func TestAppStartupCleansOnlyExpiredIdempotencyKeys(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	application, err := app.New(ctx, config.Config{
-		Env:          "test",
-		DatabaseURL:  databaseURL,
-		DisableRedis: true,
-		JWTSecret:    "integration-idempotency-retention-secret-32-chars",
-		JWTIssuer:    "sistemaemgo-integration",
+		Env:            "test",
+		DatabaseURL:    databaseURL,
+		DisableRedis:   true,
+		JWTSecret:      "integration-idempotency-retention-secret-32-chars",
+		JWTIssuer:      "sistemaemgo-integration",
 		FiscalProvider: "mvp",
 	}, logger)
 	if err != nil {
