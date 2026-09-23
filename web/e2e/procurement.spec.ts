@@ -190,6 +190,40 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       receipts: Array<{ id: string }>
     }>(`/api/v1/purchases/${purchase.id}`)
 
+    const cancellable = await apiJson<{ id: string; status: string }>('/api/v1/purchases', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        supplier_id: supplier.id,
+        invoice_number: `NF-CANCEL-${suffix}`,
+        payment_due_date: '2026-12-31',
+        notes: 'Compra a cancelar',
+        items: [{ product_id: productCreated.id, qty: 1, unit_cost: 6.25 }],
+      },
+    })
+    await apiJson(`/api/v1/purchases/${cancellable.id}/cancel`, { method: 'POST' })
+    const cancelledDetail = await apiJson<{
+      purchase: { status: string }
+      items: Array<{ id: string }>
+      receipts: Array<{ id: string }>
+    }>(`/api/v1/purchases/${cancellable.id}`)
+
+    let receiveCancelledStatus = 0
+    try {
+      await apiJson(`/api/v1/purchases/${cancellable.id}/receive`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          items: [{ purchase_item_id: cancelledDetail.items[0].id, qty: 1 }],
+          notes: 'Recebimento de compra cancelada deve falhar',
+        },
+      })
+      receiveCancelledStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) receiveCancelledStatus = error.status
+      else throw error
+    }
+
     const after = await apiJson<{
       items: Array<{ id: string; qty_on_hand: number; cost_price: number }>
       total: number
@@ -206,6 +240,9 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
     const receiveAudit = await apiJson<{
       items: Array<{ action: string; resource_id: string }>
     }>('/api/v1/audit/logs?action=purchase.receive&resource_type=purchase&limit=200&offset=0')
+    const cancelAudit = await apiJson<{
+      items: Array<{ action: string; resource_id: string }>
+    }>('/api/v1/audit/logs?action=purchase.cancel&resource_type=purchase&limit=200&offset=0')
 
     return {
       purchaseId: purchase.id,
@@ -223,6 +260,8 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       completedStatus: completed.status,
       finalStatus: finalDetail.purchase.status,
       finalReceived: finalDetail.items[0].qty_received,
+      cancelledStatus: cancelledDetail.purchase.status,
+      receiveCancelledStatus,
       receiptCount: finalDetail.receipts.length,
       afterQty: after.items[0].qty_on_hand,
       afterCost: after.items[0].cost_price,
@@ -233,6 +272,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       ).length,
       purchaseCreateAuditCount: createAudit.items.filter((item) => item.resource_id === purchase.id).length,
       purchaseReceiveAuditCount: receiveAudit.items.filter((item) => item.resource_id === purchase.id).length,
+      purchaseCancelAuditCount: cancelAudit.items.filter((item) => item.resource_id === cancellable.id).length,
     }
   }, suffix)
 
@@ -249,12 +289,15 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
   expect(result.completedStatus).toBe('received')
   expect(result.finalStatus).toBe('received')
   expect(result.finalReceived).toBe(4)
+  expect(result.cancelledStatus).toBe('cancelled')
+  expect(result.receiveCancelledStatus).toBe(409)
   expect(result.receiptCount).toBe(2)
   expect(result.afterQty).toBe(4)
   expect(result.afterCost).toBe(6.25)
   expect(result.purchaseMovements).toBe(2)
   expect(result.purchaseCreateAuditCount).toBe(1)
   expect(result.purchaseReceiveAuditCount).toBe(2)
+  expect(result.purchaseCancelAuditCount).toBe(1)
 
   await page.getByRole('link', { name: 'Compras' }).click()
   await expect(page).toHaveURL(/\/purchases$/)
