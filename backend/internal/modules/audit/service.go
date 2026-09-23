@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
+	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -67,8 +68,27 @@ func New(pool *pgxpool.Pool, logger *slog.Logger) *Service {
 }
 
 func (s *Service) Record(ctx context.Context, ev Event) {
-	if s == nil || s.pool == nil || strings.TrimSpace(ev.Action) == "" {
+	if s == nil || s.pool == nil {
 		return
+	}
+	if err := recordWithExecutor(ctx, s.pool, ev); err != nil && s.logger != nil {
+		s.logger.Warn("audit_log_failed", slog.String("action", ev.Action), slog.String("request_id", ev.RequestID), slog.Any("err", err))
+	}
+}
+
+// RecordTx persists a critical audit event using the caller's transaction.
+// Returning the database error lets the business operation roll back rather
+// than commit without its required audit evidence.
+func (s *Service) RecordTx(ctx context.Context, tx db.DBTX, ev Event) error {
+	if s == nil || tx == nil {
+		return nil
+	}
+	return recordWithExecutor(ctx, tx, ev)
+}
+
+func recordWithExecutor(ctx context.Context, exec db.DBTX, ev Event) error {
+	if strings.TrimSpace(ev.Action) == "" {
+		return nil
 	}
 	if ev.CreatedAt.IsZero() {
 		ev.CreatedAt = time.Now()
@@ -93,7 +113,7 @@ func (s *Service) Record(ctx context.Context, ev Event) {
 		metadata = []byte(`{"truncated":true}`)
 	}
 
-	_, err = s.pool.Exec(ctx, `
+	_, err = exec.Exec(ctx, `
 		INSERT INTO audit_logs (
 			tenant_id, actor_user_id, action, entity_type, entity_id,
 			resource_type, resource_id, metadata, ip, user_agent, request_id, created_at
@@ -103,9 +123,7 @@ func (s *Service) Record(ctx context.Context, ev Event) {
 			$4, NULLIF($5, '')::uuid, $6::jsonb, NULLIF($7, '')::inet, $8, $9, $10
 		)
 	`, ev.TenantID, ev.ActorUserID, ev.Action, ev.ResourceType, ev.ResourceID, string(metadata), ev.IP, ev.UserAgent, ev.RequestID, ev.CreatedAt)
-	if err != nil && s.logger != nil {
-		s.logger.Warn("audit_log_failed", slog.String("action", ev.Action), slog.String("request_id", ev.RequestID), slog.Any("err", err))
-	}
+	return err
 }
 
 func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter) ([]LogEntry, error) {
