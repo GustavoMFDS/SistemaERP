@@ -256,8 +256,18 @@ func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserI
 	if err != nil {
 		return AuthUserInfo{}, err
 	}
-	roles, _ := s.users.ListUserRoles(ctx, userID, tenantID)
-	return AuthUserInfo{ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles}, nil
+	roles, err := s.users.ListUserRoles(ctx, userID, tenantID)
+	if err != nil {
+		return AuthUserInfo{}, err
+	}
+	permissions, err := s.users.ListUserPermissions(ctx, userID, tenantID)
+	if err != nil {
+		return AuthUserInfo{}, err
+	}
+	return AuthUserInfo{
+		ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID,
+		Roles: roles, Permissions: permissions,
+	}, nil
 }
 
 func (s *AuthService) ensureUserActive(ctx context.Context, userID string) error {
