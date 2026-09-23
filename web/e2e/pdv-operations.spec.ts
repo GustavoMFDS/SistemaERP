@@ -40,7 +40,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
         product_id: product.id,
         delta: 5,
         reason: 'Carga E2E operacional',
-        type: 'purchase',
+        type: 'adjustment',
       },
     })
     const productDetail = await apiJson<{ cost_price: number }>(`/api/v1/products/${product.id}`)
