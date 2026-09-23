@@ -317,3 +317,133 @@ test('reconciles digital payments and settles return refunds without double-coun
   await expect(page).toHaveURL(/\/finance$/)
   await expect(page.getByText('Financeiro e conciliação')).toBeVisible()
 })
+
+
+test('supports a net-negative digital close after refunding an earlier sale', async ({ page }) => {
+  await login(page)
+  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+
+  const result = await page.evaluate(async (suffix) => {
+    const { apiJson } = await import('/src/lib/api.ts')
+
+    const product = await apiJson<{ id: string }>('/api/v1/products', {
+      method: 'POST',
+      body: {
+        category_id: null,
+        sku: `E2E-NEG-REFUND-${suffix}`,
+        barcode: null,
+        name: `Produto Refund Negativo ${suffix}`,
+        description: null,
+        unit: 'UN',
+        cost_price: 3,
+        price_cash: 10,
+        promo_price: null,
+        min_stock: 0,
+        active: true,
+      },
+    })
+
+    await apiJson('/api/v1/inventory/adjust', {
+      method: 'POST',
+      body: {
+        product_id: product.id,
+        delta: 1,
+        reason: 'Carga E2E refund negativo',
+        type: 'purchase',
+      },
+    })
+
+    const originalCash = await apiJson<{ id: string }>('/api/v1/cash/sessions/open', {
+      method: 'POST',
+      body: { opening_amount: 0, notes: 'original sale for negative refund close' },
+    })
+
+    const sale = await apiJson<{ id: string }>('/api/v1/sales', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        cash_session_id: originalCash.id,
+        customer_id: null,
+        discount_value: 0,
+        items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
+        payments: [{ method: 'pix', amount: 10 }],
+      },
+    })
+
+    await apiJson(`/api/v1/cash/sessions/${originalCash.id}/close`, {
+      method: 'POST',
+      body: {
+        closing_amount: 0,
+        closing_by_method: {
+          pix: 10,
+          debit: 0,
+          credit: 0,
+          transfer: 0,
+          voucher: 0,
+        },
+        notes: 'close original sale session',
+      },
+    })
+
+    const saleDetail = await apiJson<{ items: Array<{ id: string }> }>(
+      `/api/v1/sales/${sale.id}`,
+    )
+    const saleReturn = await apiJson<{ id: string; refund_due: number }>(
+      `/api/v1/sales/${sale.id}/returns`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          kind: 'return',
+          reason: 'Refund em sessao posterior',
+          items: [{ sale_item_id: saleDetail.items[0].id, qty: 1, restock: true }],
+        },
+      },
+    )
+
+    const refundCash = await apiJson<{ id: string }>('/api/v1/cash/sessions/open', {
+      method: 'POST',
+      body: { opening_amount: 0, notes: 'refund-only session' },
+    })
+
+    await apiJson(`/api/v1/finance/returns/${saleReturn.id}/refunds`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        method: 'pix',
+        amount: 10,
+        provider: 'e2e-provider',
+        external_ref: `NEG-REFUND-${suffix}`,
+        cash_session_id: refundCash.id,
+        notes: 'refund without same-session pix sale',
+      },
+    })
+
+    return apiJson<{
+      expected_by_method: Record<string, number>
+      declared_by_method: Record<string, number>
+      difference_by_method: Record<string, number>
+      expected_cash: number
+      closing_difference: number
+    }>(`/api/v1/cash/sessions/${refundCash.id}/close`, {
+      method: 'POST',
+      body: {
+        closing_amount: 0,
+        closing_by_method: {
+          pix: -10,
+          debit: 0,
+          credit: 0,
+          transfer: 0,
+          voucher: 0,
+        },
+        notes: 'net-negative digital close E2E',
+      },
+    })
+  }, suffix)
+
+  expect(result.expected_cash).toBe(0)
+  expect(result.closing_difference).toBe(0)
+  expect(result.expected_by_method.pix).toBe(-10)
+  expect(result.declared_by_method.pix).toBe(-10)
+  expect(result.difference_by_method.pix).toBe(0)
+})
