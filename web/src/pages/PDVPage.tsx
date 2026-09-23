@@ -201,6 +201,16 @@ export default function PDVPage() {
 
   useEffect(() => {
     void loadProducts()
+    apiJson<MeResponse>('/api/v1/auth/me')
+      .then((me) => {
+        const allowed = Boolean(me.permissions?.includes('sale:discount'))
+        setCanDiscount(allowed)
+        if (!allowed) setSaleDiscount(0)
+      })
+      .catch(() => {
+        setCanDiscount(false)
+        setSaleDiscount(0)
+      })
   }, [])
 
   useEffect(() => {
@@ -396,8 +406,54 @@ export default function PDVPage() {
     }
   }
 
+  function updateItemQty(idx: number, qty: number) {
+    const normalized = Math.round(Math.max(0, Number(qty) || 0) * 1000) / 1000
+    if (normalized <= 0) {
+      removeItem(idx)
+      return
+    }
+    setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, qty: normalized } : item)))
+  }
+
   function removeItem(idx: number) {
     setItems((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  function refreshSuspended() {
+    setSuspendedCarts(getSuspendedCarts())
+  }
+
+  function suspendCurrentCart() {
+    if (items.length === 0) return
+    try {
+      suspendCart({
+        items,
+        payMethod,
+        saleDiscount: canDiscount ? saleDiscount : 0,
+      })
+      setItems([])
+      setSaleDiscount(0)
+      refreshSuspended()
+      barcodeInputRef.current?.focus()
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
+  function resumeSuspended(cart: SuspendedCart) {
+    if (items.length > 0 && !window.confirm('Substituir o carrinho atual pela venda suspensa?')) return
+    setItems(cart.items)
+    setPayMethod(cart.payMethod)
+    setSaleDiscount(canDiscount ? cart.saleDiscount : 0)
+    removeSuspendedCart(cart.id)
+    refreshSuspended()
+    barcodeInputRef.current?.focus()
+  }
+
+  function discardSuspended(id: string) {
+    if (!window.confirm('Descartar esta venda suspensa?')) return
+    removeSuspendedCart(id)
+    refreshSuspended()
   }
 
   const canFinalize = useMemo(
@@ -418,7 +474,7 @@ export default function PDVPage() {
     const body = {
       cash_session_id: cashSessionId,
       customer_id: null,
-      discount_value: 0,
+      discount_value: canDiscount ? saleDiscount : 0,
       items: items.map(({ product_id, qty, discount_value }) => ({
         product_id,
         qty,
@@ -453,6 +509,7 @@ export default function PDVPage() {
         setSaleId(`offline:${queuedId}`)
         setSaleTotal(computedTotal)
         setItems([])
+        setSaleDiscount(0)
         return
       }
 
@@ -467,6 +524,8 @@ export default function PDVPage() {
       setSaleId(res.id)
       setSaleTotal(res.total)
       setItems([])
+      setSaleDiscount(0)
+      void loadProducts()
     } catch (e: unknown) {
       const msg = errorMessage(e)
       const permanent =
@@ -487,13 +546,32 @@ export default function PDVPage() {
       setSaleId(`offline:${queuedId}`)
       setSaleTotal(computedTotal)
       setItems([])
+      setSaleDiscount(0)
       refreshPending()
       setError(`Venda preservada para reenvio seguro: ${msg}`)
     } finally {
       finalizeInFlight.current = false
       setFinalizing(false)
+      barcodeInputRef.current?.focus()
     }
   }
+
+  useEffect(() => {
+    function onShortcut(event: KeyboardEvent) {
+      if (event.key === 'F2') {
+        event.preventDefault()
+        barcodeInputRef.current?.focus()
+      } else if (event.key === 'F4') {
+        event.preventDefault()
+        productSearchRef.current?.focus()
+      } else if (event.key === 'F8') {
+        event.preventDefault()
+        document.getElementById('pdv-finalize')?.click()
+      }
+    }
+    window.addEventListener('keydown', onShortcut)
+    return () => window.removeEventListener('keydown', onShortcut)
+  }, [])
 
   return (
     <div>
