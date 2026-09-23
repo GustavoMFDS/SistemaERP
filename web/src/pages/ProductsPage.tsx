@@ -41,6 +41,7 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [canWrite, setCanWrite] = useState(false)
 
   const [sku, setSku] = useState('')
   const [barcode, setBarcode] = useState('')
@@ -73,6 +74,9 @@ export default function ProductsPage() {
 
   useEffect(() => {
     void load()
+    void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
+      .then((me) => setCanWrite(me.permissions.includes('product:write')))
+      .catch((e: unknown) => setError(errorMessage(e)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -194,24 +198,28 @@ export default function ProductsPage() {
               <tr key={p.id}>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
                 <td className="px-3 py-2">
-                  <div className="flex min-w-64 items-center gap-2">
-                    <input
-                      value={barcodeDrafts[p.id] ?? p.barcode ?? ''}
-                      onChange={(e) =>
-                        setBarcodeDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
-                      }
-                      placeholder="Sem código"
-                      autoComplete="off"
-                      className="w-full rounded-md border px-2 py-1 font-mono text-xs"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void saveBarcode(p)}
-                      className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
-                    >
-                      Salvar
-                    </button>
-                  </div>
+                  {canWrite ? (
+                    <div className="flex min-w-64 items-center gap-2">
+                      <input
+                        value={barcodeDrafts[p.id] ?? p.barcode ?? ''}
+                        onChange={(e) =>
+                          setBarcodeDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
+                        }
+                        placeholder="Sem código"
+                        autoComplete="off"
+                        className="w-full rounded-md border px-2 py-1 font-mono text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveBarcode(p)}
+                        className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
+                      >
+                        Salvar
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="font-mono text-xs">{p.barcode ?? '—'}</span>
+                  )}
                 </td>
                 <td className="px-3 py-2">{p.name}</td>
                 <td className="px-3 py-2">{p.unit}</td>
@@ -225,8 +233,9 @@ export default function ProductsPage() {
         </table>
       </div>
 
-      <div className="mt-6">
-        <h3 className="text-sm font-semibold">Cadastrar produto</h3>
+      {canWrite ? (
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold">Cadastrar produto</h3>
         <form onSubmit={onCreate} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-6">
           <label className="block md:col-span-1">
             <span className="text-xs text-gray-600">SKU</span>
@@ -296,7 +305,8 @@ export default function ProductsPage() {
             </button>
           </div>
         </form>
-      </div>
+        </div>
+      ) : null}
     </div>
   )
 }
