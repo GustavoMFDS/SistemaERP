@@ -332,8 +332,17 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             down 1
 
-          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
-            -c "SELECT count(*) FROM permissions WHERE code='sale:return';"
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $
+          BEGIN
+            IF EXISTS (SELECT 1 FROM permissions WHERE code='sale:return') THEN
+              RAISE EXCEPTION 'rollback 0019 left sale:return permission behind';
+            END IF;
+            IF to_regclass('public.sale_returns') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0019 left sale_returns behind';
+            END IF;
+          END $;
+          SQL
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
