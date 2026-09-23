@@ -48,3 +48,13 @@
 - Reembolso em dinheiro exige sessão aberta e disponibilidade física; gera movimento `withdrawal`.
 - Reembolso digital pode ser associado a uma sessão aberta para compor a conciliação líquida por método.
 - Cada liquidação gera lançamento negativo `return_refund` no ledger e evento crítico de auditoria.
+
+
+## Operação rápida do PDV
+
+- Desconto positivo em qualquer item ou no total exige `sale:discount`; a regra é validada no backend antes da transação de venda.
+- Admin e manager recebem `sale:discount` por padrão; cashier não recebe.
+- Carrinhos suspensos são rascunhos locais, não alteram estoque, caixa, ledger ou auditoria.
+- Carrinhos suspensos usam armazenamento escopado por tenant e usuário e não atravessam identidades no mesmo navegador.
+- O write-ahead offline continua ocorrendo somente no momento da finalização; suspender um carrinho não cria uma intenção de venda.
+- Comprovante impresso pela UI antes da integração fiscal real é sempre identificado como não fiscal.
