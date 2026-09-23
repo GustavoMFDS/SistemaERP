@@ -123,12 +123,12 @@ func (s *CashService) RecordMovement(ctx context.Context, tenantID, userID, sess
 		cashID := sessionID
 		actor := userID
 		if _, err := s.fin.InsertLedgerEntry(ctx, tx, tenantID, fin.LedgerEntry{
-			EntryType:      req.Type,
-			CashSessionID:  &cashID,
-			AmountGross:    signedAmount,
-			AmountNet:      signedAmount,
-			Notes:          req.Notes,
-			CreatedAt:      time.Now().Format(time.RFC3339),
+			EntryType:     req.Type,
+			CashSessionID: &cashID,
+			AmountGross:   signedAmount,
+			AmountNet:     signedAmount,
+			Notes:         req.Notes,
+			CreatedAt:     time.Now().Format(time.RFC3339),
 		}, &actor); err != nil {
 			return "", err
 		}
