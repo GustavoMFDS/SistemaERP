@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test'
 
-async function login(page: import('@playwright/test').Page) {
+async function login(
+  page: import('@playwright/test').Page,
+  email = 'admin@sistema.local',
+) {
   await page.goto('/login')
-  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/products$/)
@@ -195,4 +198,31 @@ test('partial return is idempotent, bounded by sold quantity and blocks full can
   await page.getByRole('link', { name: 'Devoluções/Trocas' }).click()
   await expect(page).toHaveURL(/\/returns$/)
   await expect(page.getByText('Últimas devoluções/trocas')).toBeVisible()
+})
+
+
+test('cashier cannot read return records', async ({ page }) => {
+  await login(page, 'caixa@sistema.local')
+  await expect(page.getByText('caixa@sistema.local')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Devoluções/Trocas' })).toHaveCount(0)
+
+  const statuses = await page.evaluate(async () => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    const statusFor = async (path: string) => {
+      try {
+        await apiJson(path)
+        return 200
+      } catch (error) {
+        if (error instanceof APIError) return error.status
+        throw error
+      }
+    }
+    return {
+      list: await statusFor('/api/v1/returns?limit=1&offset=0'),
+      missingDetail: await statusFor('/api/v1/returns/00000000-0000-0000-0000-000000000000'),
+    }
+  })
+
+  expect(statuses.list).toBe(403)
+  expect(statuses.missingDetail).toBe(403)
 })
