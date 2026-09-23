@@ -2,6 +2,19 @@
 
 BEGIN;
 
+INSERT INTO permissions(id, code, description) VALUES
+  (gen_random_uuid(), 'procurement:read', 'Consultar fornecedores e compras'),
+  (gen_random_uuid(), 'procurement:write', 'Criar e alterar fornecedores e compras'),
+  (gen_random_uuid(), 'procurement:receive', 'Receber compras e atualizar estoque')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO role_permissions(role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code IN ('procurement:read','procurement:write','procurement:receive')
+WHERE r.name IN ('admin','manager')
+ON CONFLICT DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS suppliers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
