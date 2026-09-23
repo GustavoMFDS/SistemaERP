@@ -128,18 +128,25 @@ func (h *ProcurementHandler) CreatePurchase(w http.ResponseWriter, r *http.Reque
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
+	idemKey := r.Header.Get("Idempotency-Key")
 	var req procapp.PurchaseCreateRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	id, err := h.svc.CreatePurchase(r.Context(), au.TenantID, au.UserID, req)
+	id, created, err := h.svc.CreatePurchase(r.Context(), au.TenantID, au.UserID, idemKey, req)
 	if err != nil {
 		writeProcurementError(w, r, err)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "purchase.create", "purchase", id, "success", map[string]any{"supplier_id": req.SupplierID})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "ordered"})
+	if created {
+		recordAudit(h.audit, r, au.TenantID, au.UserID, "purchase.create", "purchase", id, "success", map[string]any{"supplier_id": req.SupplierID})
+	}
+	code := http.StatusCreated
+	if !created {
+		code = http.StatusOK
+	}
+	writeJSON(w, code, map[string]any{"id": id, "status": "ordered", "replayed": !created})
 }
 
 func (h *ProcurementHandler) ReceivePurchase(w http.ResponseWriter, r *http.Request) {
@@ -149,18 +156,21 @@ func (h *ProcurementHandler) ReceivePurchase(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	purchaseID := chi.URLParam(r, "id")
+	idemKey := r.Header.Get("Idempotency-Key")
 	var req procapp.PurchaseReceiveRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	receiptID, status, err := h.svc.ReceivePurchase(r.Context(), au.TenantID, au.UserID, purchaseID, req)
+	receiptID, status, created, err := h.svc.ReceivePurchase(r.Context(), au.TenantID, au.UserID, purchaseID, idemKey, req)
 	if err != nil {
 		writeProcurementError(w, r, err)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "purchase.receive", "purchase", purchaseID, "success", map[string]any{"receipt_id": receiptID, "status": status})
-	writeJSON(w, http.StatusOK, map[string]any{"receipt_id": receiptID, "status": status})
+	if created {
+		recordAudit(h.audit, r, au.TenantID, au.UserID, "purchase.receive", "purchase", purchaseID, "success", map[string]any{"receipt_id": receiptID, "status": status})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"receipt_id": receiptID, "status": status, "replayed": !created})
 }
 
 func (h *ProcurementHandler) CancelPurchase(w http.ResponseWriter, r *http.Request) {
