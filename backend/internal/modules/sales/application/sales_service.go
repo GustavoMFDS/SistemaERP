@@ -12,6 +12,7 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/config"
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fin "github.com/example/sistemaemgo/internal/modules/finance/domain"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
@@ -30,6 +31,7 @@ type SalesService struct {
 	fin      FinanceRepository
 	cash     CashRepository
 	products ProductsRepository
+	audit    *audit.Service
 	events   *events.Bus
 	validate *validator.Validate
 	logger   *slog.Logger
@@ -59,8 +61,8 @@ type SaleCancelRequest struct {
 	Reason string `json:"reason" validate:"required,min=3,max=250"`
 }
 
-func NewSalesService(cfg config.Config, uow db.UnitOfWork, salesRepo SalesRepository, invRepo InventoryRepository, finRepo FinanceRepository, cashRepo CashRepository, productsRepo ProductsRepository, bus *events.Bus, v *validator.Validate, logger *slog.Logger) *SalesService {
-	return &SalesService{cfg: cfg, uow: uow, sales: salesRepo, inv: invRepo, fin: finRepo, cash: cashRepo, products: productsRepo, events: bus, validate: v, logger: logger}
+func NewSalesService(cfg config.Config, uow db.UnitOfWork, salesRepo SalesRepository, invRepo InventoryRepository, finRepo FinanceRepository, cashRepo CashRepository, productsRepo ProductsRepository, auditSvc *audit.Service, bus *events.Bus, v *validator.Validate, logger *slog.Logger) *SalesService {
+	return &SalesService{cfg: cfg, uow: uow, sales: salesRepo, inv: invRepo, fin: finRepo, cash: cashRepo, products: productsRepo, audit: auditSvc, events: bus, validate: v, logger: logger}
 }
 
 func (s *SalesService) List(ctx context.Context, tenantID string, limit, offset int) ([]sales.Sale, int, error) {
@@ -294,6 +296,13 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	if err := s.sales.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, saleID, sale.Total); err != nil {
 		return "", 0, false, err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "sale.create",
+		ResourceType: "sale", ResourceID: saleID, Outcome: "success",
+		Metadata: map[string]any{"total": sale.Total.String()},
+	}); err != nil {
+		return "", 0, false, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return "", 0, false, err
@@ -461,6 +470,13 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 		CreatedAt:       time.Now().Format(time.RFC3339),
 	}, &actorUserID)
 	if err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "sale.cancel",
+		ResourceType: "sale", ResourceID: saleID, Outcome: "success",
+		Metadata: map[string]any{"reason": req.Reason},
+	}); err != nil {
 		return err
 	}
 
