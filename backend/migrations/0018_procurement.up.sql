@@ -14,13 +14,18 @@ CREATE TABLE IF NOT EXISTS suppliers (
   active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT suppliers_name_nonempty CHECK (length(trim(name)) > 0)
+  CONSTRAINT suppliers_name_nonempty CHECK (length(trim(name)) > 0),
+  CONSTRAINT suppliers_tenant_id_id_unique UNIQUE (tenant_id, id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS suppliers_tenant_document_unique
   ON suppliers(tenant_id, document)
   WHERE document IS NOT NULL;
 CREATE INDEX IF NOT EXISTS suppliers_tenant_name_idx ON suppliers(tenant_id, name);
+
+-- Required for composite tenant-safe foreign keys from procurement tables.
+CREATE UNIQUE INDEX IF NOT EXISTS products_tenant_id_id_unique
+  ON products(tenant_id, id);
 
 CREATE TABLE IF NOT EXISTS purchases (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -38,7 +43,10 @@ CREATE TABLE IF NOT EXISTS purchases (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT purchases_status_check CHECK (status IN ('ordered','partially_received','received','cancelled')),
-  CONSTRAINT purchases_total_nonnegative CHECK (total >= 0)
+  CONSTRAINT purchases_total_nonnegative CHECK (total >= 0),
+  CONSTRAINT purchases_tenant_id_id_unique UNIQUE (tenant_id, id),
+  CONSTRAINT purchases_supplier_tenant_fk
+    FOREIGN KEY (tenant_id, supplier_id) REFERENCES suppliers(tenant_id, id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS purchases_tenant_status_created_idx
@@ -60,7 +68,12 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   CONSTRAINT purchase_items_qty_received_valid CHECK (qty_received >= 0 AND qty_received <= qty_ordered),
   CONSTRAINT purchase_items_unit_cost_positive CHECK (unit_cost > 0),
   CONSTRAINT purchase_items_line_total_nonnegative CHECK (line_total >= 0),
-  CONSTRAINT purchase_items_purchase_product_unique UNIQUE (purchase_id, product_id)
+  CONSTRAINT purchase_items_purchase_product_unique UNIQUE (purchase_id, product_id),
+  CONSTRAINT purchase_items_tenant_id_id_unique UNIQUE (tenant_id, id),
+  CONSTRAINT purchase_items_purchase_tenant_fk
+    FOREIGN KEY (tenant_id, purchase_id) REFERENCES purchases(tenant_id, id) ON DELETE CASCADE,
+  CONSTRAINT purchase_items_product_tenant_fk
+    FOREIGN KEY (tenant_id, product_id) REFERENCES products(tenant_id, id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS purchase_items_tenant_product_idx
@@ -72,7 +85,10 @@ CREATE TABLE IF NOT EXISTS purchase_receipts (
   purchase_id uuid NOT NULL REFERENCES purchases(id) ON DELETE RESTRICT,
   received_by_user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   notes text NULL,
-  received_at timestamptz NOT NULL DEFAULT now()
+  received_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT purchase_receipts_tenant_id_id_unique UNIQUE (tenant_id, id),
+  CONSTRAINT purchase_receipts_purchase_tenant_fk
+    FOREIGN KEY (tenant_id, purchase_id) REFERENCES purchases(tenant_id, id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS purchase_receipts_tenant_purchase_idx
@@ -88,7 +104,13 @@ CREATE TABLE IF NOT EXISTS purchase_receipt_items (
   unit_cost numeric(12,2) NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT purchase_receipt_items_qty_positive CHECK (qty > 0),
-  CONSTRAINT purchase_receipt_items_unit_cost_positive CHECK (unit_cost > 0)
+  CONSTRAINT purchase_receipt_items_unit_cost_positive CHECK (unit_cost > 0),
+  CONSTRAINT purchase_receipt_items_receipt_tenant_fk
+    FOREIGN KEY (tenant_id, receipt_id) REFERENCES purchase_receipts(tenant_id, id) ON DELETE CASCADE,
+  CONSTRAINT purchase_receipt_items_purchase_item_tenant_fk
+    FOREIGN KEY (tenant_id, purchase_item_id) REFERENCES purchase_items(tenant_id, id) ON DELETE RESTRICT,
+  CONSTRAINT purchase_receipt_items_product_tenant_fk
+    FOREIGN KEY (tenant_id, product_id) REFERENCES products(tenant_id, id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS purchase_receipt_items_tenant_product_idx
