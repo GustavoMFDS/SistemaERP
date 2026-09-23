@@ -95,8 +95,8 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			})
 
 			pr.Route("/returns", func(rr chi.Router) {
-				rr.With(middleware.RequirePermission("sale:read")).Get("/", h.Returns.List)
-				rr.With(middleware.RequirePermission("sale:read")).Get("/{id}", h.Returns.Get)
+				rr.With(middleware.RequirePermission("sale:return")).Get("/", h.Returns.List)
+				rr.With(middleware.RequirePermission("sale:return")).Get("/{id}", h.Returns.Get)
 			})
 
 			pr.Route("/finance", func(rr chi.Router) {
