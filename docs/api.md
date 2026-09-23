@@ -195,6 +195,8 @@ Supports `query`, `limit`, and `offset`.
 
 ### POST `/suppliers`
 
+Requires `Idempotency-Key`. Replaying the same key with the same normalized request returns the original supplier with `"replayed": true`; reusing the key with a different request returns `409 conflict`.
+
 ```json
 {
   "name": "Distribuidora Exemplo",
@@ -217,6 +219,8 @@ Supports `status` with `ordered`, `partially_received`, `received`, or `cancelle
 
 ### POST `/purchases`
 
+Requires `Idempotency-Key`. Replaying the same key and request returns the original purchase instead of creating another order or account payable. A changed request with the same key returns `409 conflict`.
+
 Creates an ordered purchase. Creating the purchase does **not** change inventory.
 
 ```json
@@ -238,6 +242,8 @@ When `payment_due_date` is present, an open account-payable record is linked to 
 Returns the purchase, ordered/received quantities per item, and receipt history.
 
 ### POST `/purchases/{id}/receive`
+
+Requires `Idempotency-Key`. The key is persisted in the same transaction as the receipt and stock movement, so retrying after an ambiguous/lost response cannot credit inventory twice.
 
 Receives any positive quantity up to the remaining ordered quantity.
 
