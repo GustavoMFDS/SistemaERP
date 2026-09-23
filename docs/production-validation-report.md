@@ -1,5 +1,37 @@
 # Production Validation Report
 
+
+## Revalidation — 2026-09-23 (retail roadmap integration / static hardening)
+
+- Integration PR: #15, `ops/pilot-readiness-20260923` → `main`.
+- Scope integrated: barcode/PDV scanner, suppliers and purchases, partial receiving, returns/exchanges, payment reconciliation/refunds, PDV shortcuts/suspended carts/discount RBAC, and pilot-readiness documentation.
+- This round also performed a static E2E/code audit while GitHub-hosted runners were unavailable before job startup.
+- Representative blocked run: GitHub Actions `35926193338`; all six jobs (`backend`, `frontend`, `integration`, `security`, `e2e`, `e2e-prodlike`) completed as failure with zero executed steps and no assigned runner. Therefore this round does **not** claim dynamic CI evidence for the final SHA.
+- Merge gate remains closed until the final PR SHA executes on real runners and all required jobs pass.
+
+### Findings closed in the integration branch
+
+- Sales test fake updated for the return guard interface; multiple Go formatting/import blockers found by static review were corrected.
+- Cash closing now supports negative net digital methods when refunds in the session exceed sales, while physical cash remains non-negative.
+- Procurement payables gained tenant-safe composite foreign keys; direct cross-tenant supplier/purchase linkage is covered by integration checks.
+- Procurement uses dedicated `procurement:read`, `procurement:write`, and `procurement:receive` permissions; cashier has no procurement access by default.
+- Purchase creation rejects inactive suppliers/products; stock and cost still change only on receipt.
+- Purchase create/receive/cancel audit events are written in the same transaction as the business mutation.
+- Manual inventory adjustment can no longer forge `purchase` or `return` movements; these types are reserved to the dedicated transactional modules.
+- Product duplicate SKU/barcode writes map to HTTP 409; missing product update targets map to 404.
+- Product cost, sale item cost and estimated profit are redacted from users without `finance:read`; hidden cost is preserved server-side on product updates.
+- Product/stock write controls are hidden when the current tenant permissions do not allow them; backend RBAC remains authoritative.
+- Return list/detail reads now require `sale:return`.
+- Each digital payment accepts one reconciliation record. Same-key replay remains idempotent; a second reconciliation with another key returns conflict and the database has a unique tenant/payment guard.
+- Refund close logic remains single-counted: cash refunds use cash withdrawal; digital refunds linked to a session reduce that method directly.
+- Barcode uniqueness conflicts, cashier procurement denial, cashier cost/profit redaction, reserved inventory movement types, negative digital close, inactive purchase products, purchase cancellation and transactional purchase audit have E2E coverage added to the suite.
+
+### Current verdict
+
+The integrated branch is **statically hardened and mergeable, but not merge-approved**. Dynamic validation is still blocked outside the application because GitHub Actions is not provisioning a runner. Once Actions can execute again, the final SHA must pass backend, frontend, integration, security, browser E2E and production-like E2E before merge.
+
+The fiscal limitation is unchanged: staging/production must keep the MVP fiscal provider disabled until a real SEFAZ-ready provider is implemented and homologated. Backup/restore evidence in the target environment, monitoring/alerting, failure/load exercises, infrastructure least privilege, and legal/accounting/LGPD approvals remain external prerequisites.
+
 ## Revalidation — 2026-09-22 (round 5 hardening)
 
 - Base audited: `main` after merge commit `654a9eb53b12b4a8a30f432de49d64e2e0b9b88e`.
