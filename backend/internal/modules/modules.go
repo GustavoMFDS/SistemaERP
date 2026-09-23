@@ -17,6 +17,8 @@ import (
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
 	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
 	privacyinfra "github.com/example/sistemaemgo/internal/modules/privacy/infrastructure"
+	procapp "github.com/example/sistemaemgo/internal/modules/procurement/application"
+	procinfra "github.com/example/sistemaemgo/internal/modules/procurement/infrastructure"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
 	"github.com/example/sistemaemgo/internal/platform/db"
@@ -34,8 +36,9 @@ type Modules struct {
 	Sales     *salesapp.SalesService
 	Finance   *finapp.FinanceService
 	Fiscal    *fiscapp.FiscalService
-	Privacy   *privacyapp.Service
-	Events    *events.Bus
+	Privacy     *privacyapp.Service
+	Procurement *procapp.Service
+	Events      *events.Bus
 	DB        *pgxpool.Pool
 	Redis     *redis.Client
 	Audit     *audit.Service
@@ -75,6 +78,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	financeRepo := fininfra.NewFinanceRepo(pool)
 	fiscalRepo := fiscinfra.NewFiscalRepo(pool)
 	privacyRepo := privacyinfra.NewRepo(pool)
+	procurementRepo := procinfra.NewRepo(pool)
 	auditSvc := audit.New(pool, logger)
 
 	// application services
@@ -94,6 +98,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		fiscalSvc = fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, v, logger)
 	}
 	privacySvc := privacyapp.NewService(privacyRepo)
+	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, v, logger)
 
 	return &Modules{
 		Auth:      authSvc,
@@ -103,8 +108,9 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		Sales:     salesSvc,
 		Finance:   financeSvc,
 		Fiscal:    fiscalSvc,
-		Privacy:   privacySvc,
-		Events:    bus,
+		Privacy:     privacySvc,
+		Procurement: procurementSvc,
+		Events:      bus,
 		DB:        pool,
 		Redis:     rdb,
 		Audit:     auditSvc,
