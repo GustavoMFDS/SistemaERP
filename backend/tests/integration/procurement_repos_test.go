@@ -79,6 +79,15 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 	supplierA := createSupplier(tenantA, "Fornecedor Tenant A")
 	supplierB := createSupplier(tenantB, "Fornecedor Tenant B")
 
+	// The database must reject cross-tenant references even if a caller bypasses
+	// the application service and writes directly to the procurement tables.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO purchases(tenant_id, supplier_id, status, total, created_by_user_id)
+		VALUES ($1,$2,'ordered',1,$3)
+	`, tenantA, supplierB, actorA); err == nil {
+		t.Fatal("database unexpectedly accepted a cross-tenant supplier on purchase")
+	}
+
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM purchase_items WHERE purchase_id IN (SELECT id FROM purchases WHERE supplier_id=$1)`, supplierA)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM purchases WHERE supplier_id=$1`, supplierA)
