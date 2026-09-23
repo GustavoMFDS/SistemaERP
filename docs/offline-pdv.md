@@ -78,3 +78,12 @@ Migração:
 - A migration `0013_single_open_cash_session` cria um índice único parcial para permitir somente uma sessão `open` por tenant/registro.
 - Se a migration encontrar duplicatas já abertas, ela aborta e exige reconciliação operacional; não fecha sessões automaticamente.
 - A migration `0014_cash_reconciliation` persiste `expected_cash` e `closing_difference`. No fechamento, o backend calcula abertura + pagamentos em dinheiro de vendas finalizadas, compara com o valor declarado e grava/audita a diferença.
+
+
+## Leitura de codigo de barras
+
+- Produtos possuem `barcode` opcional e a unicidade e por tenant/loja, permitindo o mesmo EAN/GTIN em empresas independentes.
+- No PDV, leitores USB/Bluetooth que operam como teclado podem preencher o campo de codigo e enviar `Enter`.
+- O primeiro scan adiciona o produto ao carrinho; scans seguintes do mesmo produto incrementam a quantidade em vez de criar linhas duplicadas.
+- O PDV tenta resolver primeiro pelo catalogo ja carregado no navegador. Se o codigo nao estiver no cache e houver conexao, consulta `GET /api/v1/products/barcode/{barcode}`.
+- Offline, um codigo so pode ser resolvido se o produto estiver no cache local previamente carregado. O sistema nao inventa nem aceita produto desconhecido durante a queda de rede.
