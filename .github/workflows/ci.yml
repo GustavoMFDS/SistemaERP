@@ -63,7 +63,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v19 migration upgrade and rollback
+      - name: Verify v12 to v20 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -340,6 +340,49 @@ jobs:
             END IF;
             IF to_regclass('public.sale_returns') IS NOT NULL THEN
               RAISE EXCEPTION 'rollback 0019 left sale_returns behind';
+            END IF;
+          END $;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0019 -> 0020, verify payment reconciliation/refund schema
+          # and the dedicated finance permission, then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('payment_reconciliations','return_refunds','finance_idempotency_keys') ORDER BY table_name;" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='payments' AND column_name IN ('provider','transaction_ref','authorization_code','installments','reconciliation_status','reconciled_amount','reconciled_fee','reconciled_at') ORDER BY column_name;" \
+            -c "SELECT code FROM permissions WHERE code='finance:reconcile';" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('payment_reconciliation_payment_tenant_fk','return_refunds_return_tenant_fk','return_refunds_sale_tenant_fk','return_refunds_cash_session_tenant_fk') ORDER BY conname;" \
+            -c "SELECT tgname FROM pg_trigger WHERE tgrelid='finance_idempotency_keys'::regclass AND tgname='finance_idempotency_keys_immutable';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $
+          BEGIN
+            IF EXISTS (SELECT 1 FROM permissions WHERE code='finance:reconcile') THEN
+              RAISE EXCEPTION 'rollback 0020 left finance:reconcile permission behind';
+            END IF;
+            IF to_regclass('public.payment_reconciliations') IS NOT NULL
+               OR to_regclass('public.return_refunds') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0020 left finance reconciliation tables behind';
             END IF;
           END $;
           SQL
