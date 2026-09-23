@@ -54,6 +54,7 @@ func TestProductsRepo_TenantIsolation(t *testing.T) {
 		t.Fatalf("create tenant B: %v", err)
 	}
 	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM products WHERE tenant_id=$1`, tenantB)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
 	})
 
@@ -77,5 +78,48 @@ func TestProductsRepo_TenantIsolation(t *testing.T) {
 
 	if _, err := repo.Get(ctx, tenantB, itemsA[0].ID); err == nil {
 		t.Fatal("tenant B unexpectedly fetched tenant A product by id")
+	}
+
+	var barcode string
+	var tenantAProductID string
+	if err := pool.QueryRow(ctx, `
+		SELECT id::text, barcode
+		FROM products
+		WHERE tenant_id=$1 AND barcode IS NOT NULL
+		ORDER BY created_at
+		LIMIT 1
+	`, tenantA).Scan(&tenantAProductID, &barcode); err != nil {
+		t.Fatalf("seeded product with barcode required: %v", err)
+	}
+
+	var tenantBProductID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO products(tenant_id, sku, barcode, name, unit, price_cash)
+		VALUES ($1, 'BARCODE-TENANT-B', $2, 'Barcode tenant B', 'UN', 1)
+		RETURNING id::text
+	`, tenantB, barcode).Scan(&tenantBProductID); err != nil {
+		t.Fatalf("same barcode must be allowed in another tenant: %v", err)
+	}
+
+	productA, err := repo.GetByBarcode(ctx, tenantA, barcode)
+	if err != nil {
+		t.Fatalf("lookup barcode in tenant A: %v", err)
+	}
+	productB, err := repo.GetByBarcode(ctx, tenantB, barcode)
+	if err != nil {
+		t.Fatalf("lookup barcode in tenant B: %v", err)
+	}
+	if productA.ID != tenantAProductID {
+		t.Fatalf("tenant A barcode lookup returned wrong product: got=%s want=%s", productA.ID, tenantAProductID)
+	}
+	if productB.ID != tenantBProductID {
+		t.Fatalf("tenant B barcode lookup returned wrong product: got=%s want=%s", productB.ID, tenantBProductID)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO products(tenant_id, sku, barcode, name, unit, price_cash)
+		VALUES ($1, 'BARCODE-DUPLICATE-B', $2, 'Duplicate barcode tenant B', 'UN', 1)
+	`, tenantB, barcode); err == nil {
+		t.Fatal("duplicate barcode inside the same tenant must be rejected")
 	}
 }
