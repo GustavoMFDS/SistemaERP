@@ -7,6 +7,7 @@ export type AttentionReason =
   | 'request_rejected'
   | 'legacy_migration'
   | 'retention_expired'
+  | 'retention_unknown'
 
 export type QueuedRequest = {
   id: string
@@ -86,7 +87,18 @@ function loadQueue(): QueuedRequest[] {
       changed = true
     }
     if (typeof item.intentCreatedAt !== 'number') {
-      item.intentCreatedAt = item.createdAt
+      if (typeof item.lastAttemptAt === 'number') {
+        // Older v2 clients reset createdAt on retry/rebind, so once an item
+        // has an attempt timestamp its original intent age is not trustworthy.
+        // Preserve it for reconciliation but never auto-send an ambiguous
+        // pre-upgrade intent after server idempotency retention may have ended.
+        item.state = 'attention'
+        item.attentionReason = 'retention_unknown'
+        item.lastError =
+          'A idade original desta venda não é confiável após a atualização. Confira no servidor antes de qualquer reenvio ou ajuste.'
+      } else {
+        item.intentCreatedAt = item.createdAt
+      }
       changed = true
     }
     if (item.state === 'pending' && now - item.createdAt > QUEUE_TTL_MS) {
