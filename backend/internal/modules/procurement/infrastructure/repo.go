@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	proc "github.com/example/sistemaemgo/internal/modules/procurement/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,6 +20,17 @@ type Repo struct {
 
 func NewRepo(pool *pgxpool.Pool) *Repo {
 	return &Repo{db: pool}
+}
+
+func mapConstraintError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return common.ErrConflict
+	}
+	return err
 }
 
 func (r *Repo) ListSuppliers(ctx context.Context, tenantID, query string, limit, offset int) ([]proc.Supplier, int, error) {
@@ -82,7 +95,7 @@ func (r *Repo) CreateSupplier(ctx context.Context, tx db.DBTX, tenantID string, 
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING id::text
 	`, tenantID, s.Name, s.Document, s.Email, s.Phone, s.ContactName, s.Notes, s.Active).Scan(&id)
-	return id, err
+	return id, mapConstraintError(err)
 }
 
 func (r *Repo) UpdateSupplier(ctx context.Context, tx db.DBTX, tenantID, id string, s proc.Supplier) error {
@@ -92,7 +105,7 @@ func (r *Repo) UpdateSupplier(ctx context.Context, tx db.DBTX, tenantID, id stri
 		WHERE tenant_id=$1 AND id=$2
 	`, tenantID, id, s.Name, s.Document, s.Email, s.Phone, s.ContactName, s.Notes, s.Active)
 	if err != nil {
-		return err
+		return mapConstraintError(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return common.ErrNotFound
@@ -249,7 +262,7 @@ func (r *Repo) CreatePurchase(ctx context.Context, tx db.DBTX, tenantID string, 
 		INSERT INTO purchases(tenant_id, supplier_id, status, invoice_number, payment_due_date, total, notes, created_by_user_id)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING id::text
-	`, tenantID, p.SupplierID, p.Status, p.InvoiceNumber, p.PaymentDueDate, p.Total.DBString(), p.Notes, p.CreatedBy).Scan(&id)
+	`, tenantID, p.SupplierID, string(p.Status), p.InvoiceNumber, p.PaymentDueDate, p.Total.DBString(), p.Notes, p.CreatedBy).Scan(&id)
 	if err != nil {
 		return "", err
 	}
@@ -301,7 +314,7 @@ func (r *Repo) UpdatePurchaseStatus(ctx context.Context, tx db.DBTX, tenantID, p
 		UPDATE purchases
 		SET status=$3, received_at=CASE WHEN $4::text IS NULL THEN received_at ELSE $4::timestamptz END, updated_at=now()
 		WHERE tenant_id=$1 AND id=$2
-	`, tenantID, purchaseID, status, receivedAt)
+	`, tenantID, purchaseID, string(status), receivedAt)
 	if err != nil {
 		return err
 	}
