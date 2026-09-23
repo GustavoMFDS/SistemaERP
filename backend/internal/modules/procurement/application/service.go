@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
@@ -25,6 +26,7 @@ type Service struct {
 	repo      Repository
 	products  invapp.ProductsRepository
 	inventory invapp.InventoryRepository
+	audit     *audit.Service
 	validate  *validator.Validate
 	logger    *slog.Logger
 }
@@ -63,8 +65,8 @@ type PurchaseReceiveRequest struct {
 	Notes *string                      `json:"notes" validate:"omitempty,max=1000"`
 }
 
-func NewService(uow db.UnitOfWork, repo Repository, products invapp.ProductsRepository, inventory invapp.InventoryRepository, v *validator.Validate, logger *slog.Logger) *Service {
-	return &Service{uow: uow, repo: repo, products: products, inventory: inventory, validate: v, logger: logger}
+func NewService(uow db.UnitOfWork, repo Repository, products invapp.ProductsRepository, inventory invapp.InventoryRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *Service {
+	return &Service{uow: uow, repo: repo, products: products, inventory: inventory, audit: auditSvc, validate: v, logger: logger}
 }
 
 func normalizeOptional(value *string) *string {
@@ -280,6 +282,16 @@ func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID, ide
 			return "", false, err
 		}
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "purchase.create",
+		ResourceType: "purchase", ResourceID: purchaseID, Outcome: "success",
+		Metadata: map[string]any{
+			"supplier_id": req.SupplierID,
+			"total":       total.String(),
+		},
+	}); err != nil {
+		return "", false, err
+	}
 	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, purchaseID, string(proc.PurchaseOrdered)); err != nil {
 		return "", false, err
 	}
@@ -459,6 +471,16 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 	if err := s.repo.UpdatePurchaseStatus(ctx, tx, tenantID, purchaseID, status, receivedAt); err != nil {
 		return "", "", false, err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "purchase.receive",
+		ResourceType: "purchase", ResourceID: purchaseID, Outcome: "success",
+		Metadata: map[string]any{
+			"receipt_id": receiptID,
+			"status":     status,
+		},
+	}); err != nil {
+		return "", "", false, err
+	}
 	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, receiptID, string(status)); err != nil {
 		return "", "", false, err
 	}
@@ -469,7 +491,7 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 	return receiptID, status, true, nil
 }
 
-func (s *Service) CancelPurchase(ctx context.Context, tenantID, purchaseID string) error {
+func (s *Service) CancelPurchase(ctx context.Context, tenantID, actorUserID, purchaseID string) error {
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return err
@@ -495,6 +517,12 @@ func (s *Service) CancelPurchase(ctx context.Context, tenantID, purchaseID strin
 		return err
 	}
 	if err := s.repo.CancelAccountPayable(ctx, tx, tenantID, purchaseID); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "purchase.cancel",
+		ResourceType: "purchase", ResourceID: purchaseID, Outcome: "success",
+	}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
