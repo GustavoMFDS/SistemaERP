@@ -46,6 +46,7 @@
 - Valor bruto diferente do esperado produz status `divergent`; taxa de adquirente é armazenada separadamente.
 - Cada pagamento aceita uma única conciliação. Replay da mesma `Idempotency-Key` retorna o resultado original; uma nova chave para um pagamento já conciliado/divergente retorna conflito até existir um fluxo explícito de estorno/correção.
 - Reembolso de devolução pode ser parcial e multimétodo, mas a soma nunca ultrapassa `refund_due`.
+- Replay de uma liquidação com a mesma `Idempotency-Key` devolve o mesmo ID, status e `remaining_amount` registrados na resposta original, mesmo que outras liquidações ocorram depois.
 - Reembolso em dinheiro exige sessão aberta e disponibilidade física; gera movimento `withdrawal`.
 - Reembolso digital pode ser associado a uma sessão aberta para compor a conciliação líquida por método.
 - Cada liquidação gera lançamento negativo `return_refund` no ledger e evento crítico de auditoria.
