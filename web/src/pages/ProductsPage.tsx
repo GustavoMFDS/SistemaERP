@@ -37,6 +37,7 @@ type ProductCreateRequest = {
 export default function ProductsPage() {
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<Product[]>([])
+  const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -74,6 +75,38 @@ export default function ProductsPage() {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function saveBarcode(product: Product) {
+    setError('')
+    const nextBarcode = (barcodeDrafts[product.id] ?? product.barcode ?? '').trim()
+    try {
+      const payload: ProductCreateRequest = {
+        category_id: product.category_id ?? null,
+        sku: product.sku,
+        barcode: nextBarcode || null,
+        name: product.name,
+        description: product.description ?? null,
+        unit: product.unit,
+        cost_price: product.cost_price,
+        price_cash: product.price_cash,
+        promo_price: product.promo_price ?? null,
+        min_stock: product.min_stock,
+        active: product.active,
+      }
+      await apiJson<{ id: string }>(`/api/v1/products/${product.id}`, {
+        method: 'PUT',
+        body: payload,
+      })
+      setBarcodeDrafts((prev) => {
+        const next = { ...prev }
+        delete next[product.id]
+        return next
+      })
+      await load()
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault()
@@ -160,7 +193,26 @@ export default function ProductsPage() {
             {items.map((p) => (
               <tr key={p.id}>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
-                <td className="px-3 py-2 font-mono text-xs">{p.barcode || '—'}</td>
+                <td className="px-3 py-2">
+                  <div className="flex min-w-64 items-center gap-2">
+                    <input
+                      value={barcodeDrafts[p.id] ?? p.barcode ?? ''}
+                      onChange={(e) =>
+                        setBarcodeDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
+                      }
+                      placeholder="Sem código"
+                      autoComplete="off"
+                      className="w-full rounded-md border px-2 py-1 font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveBarcode(p)}
+                      className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
+                    >
+                      Salvar
+                    </button>
+                  </div>
+                </td>
                 <td className="px-3 py-2">{p.name}</td>
                 <td className="px-3 py-2">{p.unit}</td>
                 <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
