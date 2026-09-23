@@ -348,9 +348,15 @@ func (r *FinanceRepo) ListReturnRefunds(ctx context.Context, tenantID, status st
 			return nil, 0, err
 		}
 		var err error
-		if item.RefundDue, err = platform.ParseMoney(due); err != nil { return nil, 0, err }
-		if item.SettledAmount, err = platform.ParseMoney(settled); err != nil { return nil, 0, err }
-		if item.Remaining, err = platform.ParseMoney(remaining); err != nil { return nil, 0, err }
+		if item.RefundDue, err = platform.ParseMoney(due); err != nil {
+			return nil, 0, err
+		}
+		if item.SettledAmount, err = platform.ParseMoney(settled); err != nil {
+			return nil, 0, err
+		}
+		if item.Remaining, err = platform.ParseMoney(remaining); err != nil {
+			return nil, 0, err
+		}
 		items = append(items, item)
 	}
 	return items, total, rows.Err()
