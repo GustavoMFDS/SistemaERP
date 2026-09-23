@@ -60,6 +60,9 @@ jobs:
   integration:
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 60
+    concurrency:
+      group: sistemaerp-compose-self-hosted
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -206,6 +209,9 @@ jobs:
   e2e:
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 75
+    concurrency:
+      group: sistemaerp-compose-self-hosted
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
