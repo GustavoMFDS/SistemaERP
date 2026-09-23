@@ -582,6 +582,9 @@ export default function PDVPage() {
           <p className="mt-1 text-xs text-gray-600">
             Status: {online ? 'online' : 'offline'} • Pendências: {pendingSync} • Atenção: {attentionSync}
           </p>
+          <p className="mt-1 text-xs text-gray-500">
+            Atalhos: F2 scanner • F4 busca rápida • F8 finalizar venda
+          </p>
         </div>
         <button
           onClick={() => void loadProducts()}
@@ -818,6 +821,16 @@ export default function PDVPage() {
         </p>
 
         <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-6">
+          <label className="block md:col-span-6">
+            <span className="text-xs text-gray-600">Busca rápida por nome, SKU ou código</span>
+            <input
+              ref={productSearchRef}
+              value={productQuery}
+              onChange={(e) => setProductQuery(e.target.value)}
+              placeholder="Digite para filtrar produtos"
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            />
+          </label>
           <label className="block md:col-span-4">
             <span className="text-xs text-gray-600">Produto</span>
             <select
@@ -826,9 +839,9 @@ export default function PDVPage() {
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             >
               <option value="">Selecione…</option>
-              {products.map((p) => (
+              {filteredProducts.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.sku} — {p.name}
+                  {p.sku} — {p.name} • estoque {p.qty_on_hand ?? '—'}
                 </option>
               ))}
             </select>
@@ -872,7 +885,35 @@ export default function PDVPage() {
                 return (
                   <tr key={idx}>
                     <td className="px-3 py-2">{name}</td>
-                    <td className="px-3 py-2">{it.qty.toFixed(2)}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => updateItemQty(idx, it.qty - 1)}
+                          className="rounded border px-2 py-1 text-xs"
+                          aria-label={`Diminuir quantidade de ${name}`}
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          min="0.001"
+                          step="0.001"
+                          value={String(it.qty)}
+                          onChange={(e) => updateItemQty(idx, Number(e.target.value))}
+                          className="w-20 rounded border px-2 py-1 text-center text-xs"
+                          aria-label={`Quantidade de ${name}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateItemQty(idx, it.qty + 1)}
+                          className="rounded border px-2 py-1 text-xs"
+                          aria-label={`Aumentar quantidade de ${name}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </td>
                     <td className="px-3 py-2">{it.unit_price.toFixed(2)}</td>
                     <td className="px-3 py-2">
                       {(it.unit_price * it.qty - it.discount_value).toFixed(2)}
@@ -901,12 +942,37 @@ export default function PDVPage() {
         </div>
 
         <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div className="text-sm">
-            <div className="text-xs text-gray-600">Total</div>
-            <div className="text-lg font-semibold">R$ {computedTotal.toFixed(2)}</div>
+          <div className="flex items-end gap-3">
+            <div className="text-sm">
+              <div className="text-xs text-gray-600">Total</div>
+              <div className="text-lg font-semibold">R$ {computedTotal.toFixed(2)}</div>
+            </div>
+            {canDiscount ? (
+              <label className="block">
+                <span className="text-xs text-gray-600">Desconto da venda (R$)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={String(saleDiscount)}
+                  onChange={(e) => setSaleDiscount(Math.max(0, Number(e.target.value) || 0))}
+                  className="mt-1 w-32 rounded-md border px-2 py-2 text-sm"
+                />
+              </label>
+            ) : (
+              <span className="text-xs text-gray-500">Desconto requer permissão.</span>
+            )}
           </div>
 
           <div className="flex items-end gap-2">
+            <button
+              type="button"
+              onClick={suspendCurrentCart}
+              disabled={items.length === 0}
+              className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+            >
+              Suspender
+            </button>
             <label className="block">
               <span className="text-xs text-gray-600">Pagamento</span>
               <select
@@ -923,6 +989,7 @@ export default function PDVPage() {
               </select>
             </label>
             <button
+              id="pdv-finalize"
               type="button"
               onClick={() => void finalizeSale()}
               disabled={!canFinalize || finalizing}
@@ -942,6 +1009,13 @@ export default function PDVPage() {
             ) : (
               <>
                 Venda finalizada: <span className="font-mono text-xs">{saleId}</span> • Total R$ {saleTotal.toFixed(2)}
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="ml-3 rounded border border-green-300 px-2 py-1 text-xs"
+                >
+                  Imprimir comprovante não fiscal
+                </button>
               </>
             )}
           </div>
