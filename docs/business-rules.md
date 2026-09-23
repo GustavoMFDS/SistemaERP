@@ -34,3 +34,17 @@
 - Troca é registrada com `kind=exchange`; a mercadoria substituta deve ser registrada em uma nova venda normal.
 - Registrar devolução não liquida dinheiro/Pix/cartão. O valor fica como reembolso devido para o fluxo financeiro.
 - Após qualquer devolução, o cancelamento integral da venda original é bloqueado para impedir dupla recomposição de estoque.
+
+
+## Conciliação de pagamentos e reembolsos
+
+- A venda continua sendo a fonte do valor cobrado; conciliação não reescreve total da venda.
+- Dinheiro é conciliado pelo fechamento da sessão de caixa e não pelo endpoint de adquirentes.
+- Pagamentos não monetários podem registrar provedor, referência da transação, autorização e parcelas.
+- A conciliação registra recebido bruto, taxa, líquido e diferença contra o pagamento esperado.
+- Valor bruto diferente do esperado produz status `divergent`; taxa de adquirente é armazenada separadamente.
+- Reconciliar novamente com outra chave é permitido como novo ajuste auditável; replay da mesma chave é idempotente.
+- Reembolso de devolução pode ser parcial e multimétodo, mas a soma nunca ultrapassa `refund_due`.
+- Reembolso em dinheiro exige sessão aberta e disponibilidade física; gera movimento `withdrawal`.
+- Reembolso digital pode ser associado a uma sessão aberta para compor a conciliação líquida por método.
+- Cada liquidação gera lançamento negativo `return_refund` no ledger e evento crítico de auditoria.
