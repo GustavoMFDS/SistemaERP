@@ -78,6 +78,12 @@ Response:
 { "items": [{ "id": "...", "sku": "SKU001", "name": "Coca 2L", "price_cash": 10.9, "active": true }], "total": 1 }
 ```
 
+### GET `/products/barcode/{barcode}`
+
+Returns the active tenant's product with an exact barcode match. Barcode uniqueness is tenant-scoped, so independent stores can register the same manufacturer EAN/GTIN without sharing catalog data.
+
+This endpoint is intended for PDV scanner fallback when the product is not already available in the browser's local catalog cache.
+
 ### POST `/products`
 
 ```json
