@@ -87,6 +87,12 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 	`, tenantA, supplierB, actorA); err == nil {
 		t.Fatal("database unexpectedly accepted a cross-tenant supplier on purchase")
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO accounts_payable(tenant_id, description, amount, due_date, supplier_id)
+		VALUES ($1,'Cross-tenant supplier payable',1,current_date,$2)
+	`, tenantA, supplierB); err == nil {
+		t.Fatal("database unexpectedly accepted a cross-tenant supplier on accounts payable")
+	}
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM purchase_items WHERE purchase_id IN (SELECT id FROM purchases WHERE supplier_id=$1)`, supplierA)
@@ -146,6 +152,13 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit purchase tenant A: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO accounts_payable(tenant_id, description, amount, due_date, purchase_id)
+		VALUES ($1,'Cross-tenant purchase payable',1,current_date,$2)
+	`, tenantB, purchaseID); err == nil {
+		t.Fatal("database unexpectedly accepted a cross-tenant purchase on accounts payable")
 	}
 
 	if _, _, _, err := repo.GetPurchase(ctx, tenantB, purchaseID); err == nil {
