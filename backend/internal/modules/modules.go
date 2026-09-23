@@ -75,6 +75,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	financeRepo := fininfra.NewFinanceRepo(pool)
 	fiscalRepo := fiscinfra.NewFiscalRepo(pool)
 	privacyRepo := privacyinfra.NewRepo(pool)
+	auditSvc := audit.New(pool, logger)
 
 	// application services
 	var refreshStore authapp.RefreshTokenStore
@@ -84,15 +85,14 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	authSvc := authapp.NewAuthService(cfg, usersRepo, refreshStore, logger)
 	productsSvc := invapp.NewProductsService(uow, productsRepo, v, logger)
 	inventorySvc := invapp.NewInventoryService(cfg, uow, inventoryRepo, productsRepo, v, logger)
-	cashSvc := salesapp.NewCashService(uow, cashRepo, v, logger)
-	salesSvc := salesapp.NewSalesService(cfg, uow, salesRepo, inventoryRepo, financeRepo, cashRepo, productsRepo, bus, v, logger)
+	cashSvc := salesapp.NewCashService(uow, cashRepo, auditSvc, v, logger)
+	salesSvc := salesapp.NewSalesService(cfg, uow, salesRepo, inventoryRepo, financeRepo, cashRepo, productsRepo, auditSvc, bus, v, logger)
 	financeSvc := finapp.NewFinanceService(financeRepo, v, logger)
 	var fiscalSvc *fiscapp.FiscalService
 	if cfg.FiscalProvider == "" || cfg.FiscalProvider == "mvp" {
 		nfeProvider := fiscmvp.New()
 		fiscalSvc = fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, v, logger)
 	}
-	auditSvc := audit.New(pool, logger)
 	privacySvc := privacyapp.NewService(privacyRepo)
 
 	return &Modules{
