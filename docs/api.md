@@ -185,6 +185,77 @@ Idempotency behavior:
 { "reason": "Erro de operacao" }
 ```
 
+## Suppliers and Purchases
+
+All routes are tenant-scoped.
+
+### GET `/suppliers`
+
+Supports `query`, `limit`, and `offset`.
+
+### POST `/suppliers`
+
+```json
+{
+  "name": "Distribuidora Exemplo",
+  "document": "11222333000199",
+  "email": "compras@example.com",
+  "phone": "34999999999",
+  "contact_name": "Representante",
+  "notes": null,
+  "active": true
+}
+```
+
+### PUT `/suppliers/{id}`
+
+Updates one tenant-scoped supplier.
+
+### GET `/purchases`
+
+Supports `status` with `ordered`, `partially_received`, `received`, or `cancelled`, plus `limit` and `offset`.
+
+### POST `/purchases`
+
+Creates an ordered purchase. Creating the purchase does **not** change inventory.
+
+```json
+{
+  "supplier_id": "...",
+  "invoice_number": "NF-123",
+  "payment_due_date": "2026-12-31",
+  "notes": "Entrega em duas etapas",
+  "items": [
+    { "product_id": "...", "qty": 10, "unit_cost": 7.5 }
+  ]
+}
+```
+
+When `payment_due_date` is present, an open account-payable record is linked to the purchase.
+
+### GET `/purchases/{id}`
+
+Returns the purchase, ordered/received quantities per item, and receipt history.
+
+### POST `/purchases/{id}/receive`
+
+Receives any positive quantity up to the remaining ordered quantity.
+
+```json
+{
+  "items": [
+    { "purchase_item_id": "...", "qty": 4.5 }
+  ],
+  "notes": "Primeira entrega"
+}
+```
+
+The operation is transactional: it updates purchase quantities, credits inventory, writes `purchase` inventory movements with `purchase_receipt` references, updates the current product cost, and records a receipt. Partial receipts set the purchase to `partially_received`; the final receipt sets it to `received`.
+
+### POST `/purchases/{id}/cancel`
+
+Cancels only purchases with no received quantity. An associated open account payable is cancelled as part of the same transaction.
+
 ## Finance
 
 ### GET `/finance/dashboard?from=2026-01-01&to=2026-01-31`
