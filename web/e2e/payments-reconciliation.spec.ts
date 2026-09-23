@@ -202,6 +202,24 @@ test('reconciles digital payments and settles return refunds without double-coun
       },
     })
 
+    const cashRefundLateReplay = await apiJson<{
+      id: string
+      status: string
+      remaining_amount: number
+      replayed: boolean
+    }>(`/api/v1/finance/returns/${saleReturn.id}/refunds`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': cashRefundKey },
+      body: {
+        method: 'cash',
+        amount: 5,
+        provider: null,
+        external_ref: null,
+        cash_session_id: cash.id,
+        notes: 'parcial em dinheiro',
+      },
+    })
+
     let overRefundStatus = 0
     try {
       await apiJson(`/api/v1/finance/returns/${saleReturn.id}/refunds`, {
@@ -293,6 +311,9 @@ test('reconciles digital payments and settles return refunds without double-coun
       cashRefundRemaining: cashRefund.remaining_amount,
       cashRefundReplaySameId: cashRefundReplay.id === cashRefund.id,
       cashRefundReplayFlag: cashRefundReplay.replayed,
+      cashRefundLateReplaySameId: cashRefundLateReplay.id === cashRefund.id,
+      cashRefundLateReplayFlag: cashRefundLateReplay.replayed,
+      cashRefundLateReplayRemaining: cashRefundLateReplay.remaining_amount,
       pixRefundStatus: pixRefund.status,
       pixRefundRemaining: pixRefund.remaining_amount,
       overRefundStatus,
@@ -322,6 +343,9 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.cashRefundRemaining).toBe(15)
   expect(result.cashRefundReplaySameId).toBe(true)
   expect(result.cashRefundReplayFlag).toBe(true)
+  expect(result.cashRefundLateReplaySameId).toBe(true)
+  expect(result.cashRefundLateReplayFlag).toBe(true)
+  expect(result.cashRefundLateReplayRemaining).toBe(15)
   expect(result.pixRefundStatus).toBe('settled')
   expect(result.pixRefundRemaining).toBe(0)
   expect(result.overRefundStatus).toBe(409)
