@@ -430,10 +430,22 @@ func (r *FinanceRepo) GetOpenCashAvailable(ctx context.Context, tx db.DBTX, tena
 		}
 		return 0, err
 	}
-	opening, err := platform.ParseMoney(openingRaw); if err != nil { return 0, err }
-	cashSales, err := platform.ParseMoney(cashSalesRaw); if err != nil { return 0, err }
-	supply, err := platform.ParseMoney(supplyRaw); if err != nil { return 0, err }
-	withdrawal, err := platform.ParseMoney(withdrawalRaw); if err != nil { return 0, err }
+	opening, err := platform.ParseMoney(openingRaw)
+	if err != nil {
+		return 0, err
+	}
+	cashSales, err := platform.ParseMoney(cashSalesRaw)
+	if err != nil {
+		return 0, err
+	}
+	supply, err := platform.ParseMoney(supplyRaw)
+	if err != nil {
+		return 0, err
+	}
+	withdrawal, err := platform.ParseMoney(withdrawalRaw)
+	if err != nil {
+		return 0, err
+	}
 	return opening.Add(cashSales).Add(supply).Sub(withdrawal), nil
 }
 
