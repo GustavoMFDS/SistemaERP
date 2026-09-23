@@ -335,7 +335,10 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 
 	purchase, items, err := s.repo.GetPurchaseForUpdate(ctx, tx, tenantID, purchaseID)
 	if err != nil {
-		return "", "", false, common.ErrNotFound
+		if errors.Is(err, common.ErrNotFound) {
+			return "", "", false, common.ErrNotFound
+		}
+		return "", "", false, err
 	}
 	if purchase.Status == proc.PurchaseCancelled || purchase.Status == proc.PurchaseReceived {
 		return "", "", false, common.ErrConflict
@@ -473,7 +476,10 @@ func (s *Service) CancelPurchase(ctx context.Context, tenantID, purchaseID strin
 	defer func() { _ = tx.Rollback(ctx) }()
 	purchase, items, err := s.repo.GetPurchaseForUpdate(ctx, tx, tenantID, purchaseID)
 	if err != nil {
-		return common.ErrNotFound
+		if errors.Is(err, common.ErrNotFound) {
+			return common.ErrNotFound
+		}
+		return err
 	}
 	if purchase.Status == proc.PurchaseCancelled {
 		_ = tx.Rollback(ctx)
