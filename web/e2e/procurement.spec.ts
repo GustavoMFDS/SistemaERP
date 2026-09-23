@@ -44,8 +44,10 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       },
     })
 
-    const purchase = await apiJson<{ id: string; status: string }>('/api/v1/purchases', {
+    const purchaseKey = crypto.randomUUID()
+    const purchase = await apiJson<{ id: string; status: string; replayed: boolean }>('/api/v1/purchases', {
       method: 'POST',
+      headers: { 'Idempotency-Key': purchaseKey },
       body: {
         supplier_id: supplier.id,
         invoice_number: 'NF-E2E-001',
@@ -54,6 +56,21 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
         items: [{ product_id: productCreated.id, qty: 4, unit_cost: 6.25 }],
       },
     })
+
+    const purchaseReplay = await apiJson<{ id: string; status: string; replayed: boolean }>(
+      '/api/v1/purchases',
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': purchaseKey },
+        body: {
+          supplier_id: supplier.id,
+          invoice_number: 'NF-E2E-001',
+          payment_due_date: '2026-12-31',
+          notes: 'Compra criada pelo E2E',
+          items: [{ product_id: productCreated.id, qty: 4, unit_cost: 6.25 }],
+        },
+      },
+    )
 
     const before = await apiJson<{
       items: Array<{ id: string; qty_on_hand: number; cost_price: number }>
@@ -68,10 +85,12 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
 
     const purchaseItemId = detail.items[0].id
 
-    const partial = await apiJson<{ receipt_id: string; status: string }>(
+    const partialKey = crypto.randomUUID()
+    const partial = await apiJson<{ receipt_id: string; status: string; replayed: boolean }>(
       `/api/v1/purchases/${purchase.id}/receive`,
       {
         method: 'POST',
+        headers: { 'Idempotency-Key': partialKey },
         body: {
           items: [{ purchase_item_id: purchaseItemId, qty: 1.5 }],
           notes: 'Recebimento parcial',
@@ -79,15 +98,29 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       },
     )
 
+    const partialReplay = await apiJson<{
+      receipt_id: string
+      status: string
+      replayed: boolean
+    }>(`/api/v1/purchases/${purchase.id}/receive`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': partialKey },
+      body: {
+        items: [{ purchase_item_id: purchaseItemId, qty: 1.5 }],
+        notes: 'Recebimento parcial',
+      },
+    })
+
     const middle = await apiJson<{
       items: Array<{ id: string; qty_on_hand: number; cost_price: number }>
       total: number
     }>('/api/v1/products?query=E2E-PURCHASE-ITEM')
 
-    const completed = await apiJson<{ receipt_id: string; status: string }>(
+    const completed = await apiJson<{ receipt_id: string; status: string; replayed: boolean }>(
       `/api/v1/purchases/${purchase.id}/receive`,
       {
         method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
         body: {
           items: [{ purchase_item_id: purchaseItemId, qty: 2.5 }],
           notes: 'Recebimento final',
@@ -114,8 +147,12 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
     return {
       purchaseId: purchase.id,
       supplierId: supplier.id,
+      purchaseReplaySameId: purchaseReplay.id === purchase.id,
+      purchaseReplayFlag: purchaseReplay.replayed,
       beforeQty: before.items[0].qty_on_hand,
       partialStatus: partial.status,
+      partialReplaySameReceipt: partialReplay.receipt_id === partial.receipt_id,
+      partialReplayFlag: partialReplay.replayed,
       middleQty: middle.items[0].qty_on_hand,
       completedStatus: completed.status,
       finalStatus: finalDetail.purchase.status,
@@ -131,8 +168,12 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
     }
   })
 
+  expect(result.purchaseReplaySameId).toBe(true)
+  expect(result.purchaseReplayFlag).toBe(true)
   expect(result.beforeQty).toBe(0)
   expect(result.partialStatus).toBe('partially_received')
+  expect(result.partialReplaySameReceipt).toBe(true)
+  expect(result.partialReplayFlag).toBe(true)
   expect(result.middleQty).toBe(1.5)
   expect(result.completedStatus).toBe('received')
   expect(result.finalStatus).toBe('received')
