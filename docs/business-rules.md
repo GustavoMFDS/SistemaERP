@@ -5,7 +5,8 @@
 - Bloqueia venda acima do saldo, a menos que `ALLOW_NEGATIVE_STOCK=true`.
 - Baixo estoque: `qty_on_hand <= min_stock` gera alerta/relatório.
 - Toda entrada/saída gera `inventory_movements` com `type`, usuário e observação.
-- Ajuste manual exige `reason`.
+- Ajuste manual exige `reason` e só aceita `adjustment`, `loss` ou `damage`.
+- Movimentos `purchase` e `return` são reservados aos fluxos transacionais de compras e devoluções; não podem ser forjados pelo endpoint de ajuste manual.
 
 ## Financeiro
 - Toda venda finalizada gera `ledger_entries` com bruto, desconto, líquido e lucro estimado.
@@ -43,7 +44,7 @@
 - Pagamentos não monetários podem registrar provedor, referência da transação, autorização e parcelas.
 - A conciliação registra recebido bruto, taxa, líquido e diferença contra o pagamento esperado.
 - Valor bruto diferente do esperado produz status `divergent`; taxa de adquirente é armazenada separadamente.
-- Reconciliar novamente com outra chave é permitido como novo ajuste auditável; replay da mesma chave é idempotente.
+- Cada pagamento aceita uma única conciliação. Replay da mesma `Idempotency-Key` retorna o resultado original; uma nova chave para um pagamento já conciliado/divergente retorna conflito até existir um fluxo explícito de estorno/correção.
 - Reembolso de devolução pode ser parcial e multimétodo, mas a soma nunca ultrapassa `refund_due`.
 - Reembolso em dinheiro exige sessão aberta e disponibilidade física; gera movimento `withdrawal`.
 - Reembolso digital pode ser associado a uma sessão aberta para compor a conciliação líquida por método.
@@ -65,3 +66,25 @@
 - Dinheiro físico declarado nunca pode ser negativo.
 - Meios digitais podem ter saldo líquido negativo na sessão quando reembolsos vinculados à sessão excedem as vendas daquele método.
 - Nessa situação, o fechamento deve registrar o valor líquido negativo declarado e comparar diretamente com o esperado negativo, em vez de forçar zero e criar uma divergência artificial.
+
+
+## Compras e fornecedores
+
+- Fornecedores e compras são sempre tenant-scoped.
+- Leitura, escrita e recebimento usam permissões próprias: `procurement:read`, `procurement:write` e `procurement:receive`.
+- Cashier não recebe permissões de procurement por padrão; admin e manager recebem.
+- Nova compra exige fornecedor ativo e produtos ativos do mesmo tenant.
+- Criar a compra não altera estoque. Estoque e custo são atualizados somente no recebimento.
+- Recebimento parcial é permitido; a quantidade acumulada nunca pode exceder a quantidade pedida.
+- Compra com qualquer quantidade já recebida não pode ser cancelada.
+- Se houver vencimento financeiro, a compra cria contas a pagar tenant-safe; cancelamento da compra cancela o título ainda aberto.
+- Criação, recebimento e cancelamento de compra gravam auditoria crítica na mesma transação das alterações de negócio.
+
+
+## Visibilidade de custo e menor privilégio
+
+- `cost_price`, `cost_unit` e `profit_estimated` só são expostos por HTTP quando o usuário possui `finance:read`.
+- Cashier pode consultar produtos, estoque e vendas necessários ao PDV sem receber custo ou lucro.
+- Um usuário com `product:write` sem `finance:read` não pode sobrescrever custo oculto: criação força custo zero e atualização preserva o custo atual.
+- A UI oculta ações de escrita de produto/estoque quando as permissões correspondentes não estão presentes; a API continua sendo a barreira autoritativa.
+- Leitura do módulo de devoluções exige `sale:return`, não apenas `sale:read`.
