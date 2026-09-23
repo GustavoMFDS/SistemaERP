@@ -469,27 +469,41 @@ func (r *FinanceRepo) LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenant
 	return err
 }
 
-func (r *FinanceRepo) GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (resourceID, resultStatus, requestHash string, ok bool, err error) {
+func (r *FinanceRepo) GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (resourceID, resultStatus, requestHash string, resultAmount *platform.Money, ok bool, err error) {
+	var rawAmount *string
 	err = tx.QueryRow(ctx, `
-		SELECT resource_id::text, COALESCE(result_status,''), request_hash
+		SELECT resource_id::text, COALESCE(result_status,''), request_hash, result_amount::text
 		FROM finance_idempotency_keys
 		WHERE tenant_id=$1 AND operation=$2 AND idem_key=$3
-	`, tenantID, operation, key).Scan(&resourceID, &resultStatus, &requestHash)
+	`, tenantID, operation, key).Scan(&resourceID, &resultStatus, &requestHash, &rawAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", "", "", false, nil
+			return "", "", "", nil, false, nil
 		}
-		return "", "", "", false, err
+		return "", "", "", nil, false, err
 	}
-	return resourceID, resultStatus, requestHash, true, nil
+	if rawAmount != nil {
+		amount, parseErr := platform.ParseMoney(*rawAmount)
+		if parseErr != nil {
+			return "", "", "", nil, false, parseErr
+		}
+		resultAmount = &amount
+	}
+	return resourceID, resultStatus, requestHash, resultAmount, true, nil
 }
 
-func (r *FinanceRepo) SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, requestHash, resourceID, resultStatus string) error {
+func (r *FinanceRepo) SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, requestHash, resourceID, resultStatus string, resultAmount *platform.Money) error {
+	var amount any
+	if resultAmount != nil {
+		amount = resultAmount.DBString()
+	}
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO finance_idempotency_keys(tenant_id, operation, idem_key, request_hash, resource_id, result_status)
-		VALUES ($1,$2,$3,$4,$5,$6)
+		INSERT INTO finance_idempotency_keys(
+			tenant_id, operation, idem_key, request_hash, resource_id, result_status, result_amount
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
 		ON CONFLICT (tenant_id, operation, idem_key) DO NOTHING
-	`, tenantID, operation, key, requestHash, resourceID, resultStatus)
+	`, tenantID, operation, key, requestHash, resourceID, resultStatus, amount)
 	if err == nil && tag.RowsAffected() == 0 {
 		return common.ErrConflict
 	}
