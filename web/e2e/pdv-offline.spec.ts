@@ -1,5 +1,16 @@
 import { expect, test } from '@playwright/test'
 
+async function waitForCashOpen(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .not.toBe('')
+}
+
 async function waitForCashClosed(page: import('@playwright/test').Page) {
   await expect
     .poll(async () =>
