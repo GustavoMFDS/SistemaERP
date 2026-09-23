@@ -8,6 +8,17 @@ async function login(page: import('@playwright/test').Page) {
   await expect(page).toHaveURL(/\/products$/)
 }
 
+async function waitForCashOpen(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .not.toBe('')
+}
+
 async function waitForCashClosed(page: import('@playwright/test').Page) {
   await expect
     .poll(async () =>
@@ -29,6 +40,7 @@ test('double finalize intent produces only one sale request', async ({ page }) =
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
+  await waitForCashOpen(page)
   await page.getByLabel('Produto').selectOption({ index: 1 })
   await page.getByRole('button', { name: 'Adicionar' }).click()
 
