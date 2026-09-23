@@ -67,17 +67,17 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			})
 
 			pr.Route("/suppliers", func(rr chi.Router) {
-				rr.With(middleware.RequirePermission("inventory:read")).Get("/", h.Procurement.ListSuppliers)
-				rr.With(middleware.RequirePermission("product:write")).Post("/", h.Procurement.CreateSupplier)
-				rr.With(middleware.RequirePermission("product:write")).Put("/{id}", h.Procurement.UpdateSupplier)
+				rr.With(middleware.RequirePermission("procurement:read")).Get("/", h.Procurement.ListSuppliers)
+				rr.With(middleware.RequirePermission("procurement:write")).Post("/", h.Procurement.CreateSupplier)
+				rr.With(middleware.RequirePermission("procurement:write")).Put("/{id}", h.Procurement.UpdateSupplier)
 			})
 
 			pr.Route("/purchases", func(rr chi.Router) {
-				rr.With(middleware.RequirePermission("inventory:read")).Get("/", h.Procurement.ListPurchases)
-				rr.With(middleware.RequirePermission("inventory:read")).Get("/{id}", h.Procurement.GetPurchase)
-				rr.With(middleware.RequirePermission("product:write")).Post("/", h.Procurement.CreatePurchase)
-				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/{id}/receive", h.Procurement.ReceivePurchase)
-				rr.With(middleware.RequirePermission("product:write")).Post("/{id}/cancel", h.Procurement.CancelPurchase)
+				rr.With(middleware.RequirePermission("procurement:read")).Get("/", h.Procurement.ListPurchases)
+				rr.With(middleware.RequirePermission("procurement:read")).Get("/{id}", h.Procurement.GetPurchase)
+				rr.With(middleware.RequirePermission("procurement:write")).Post("/", h.Procurement.CreatePurchase)
+				rr.With(middleware.RequirePermission("procurement:receive")).Post("/{id}/receive", h.Procurement.ReceivePurchase)
+				rr.With(middleware.RequirePermission("procurement:write")).Post("/{id}/cancel", h.Procurement.CancelPurchase)
 			})
 
 			pr.Route("/cash", func(rr chi.Router) {
