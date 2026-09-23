@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage'
 import PDVPage from './pages/PDVPage'
 import ProductsPage from './pages/ProductsPage'
 import PurchasesPage from './pages/PurchasesPage'
+import ReturnsPage from './pages/ReturnsPage'
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/purchases" element={<PurchasesPage />} />
+          <Route path="/returns" element={<ReturnsPage />} />
           <Route path="/pdv" element={<PDVPage />} />
           <Route path="/finance" element={<FinancePage />} />
           <Route path="/fiscal" element={<FiscalPage />} />
