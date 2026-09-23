@@ -63,7 +63,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v20 migration upgrade and rollback
+      - name: Verify v12 to v21 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -386,6 +386,38 @@ jobs:
             END IF;
           END $do$;
           SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0020 -> 0021, verify discount permission, then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT code FROM permissions WHERE code='sale:discount';" \
+            -c "SELECT r.name FROM roles r JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id WHERE p.code='sale:discount' AND r.name IN ('admin','manager') ORDER BY r.name;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          DISCOUNT_PERMISSION_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM permissions WHERE code='sale:discount';" | tr -d '[:space:]')"
+          if [ "$DISCOUNT_PERMISSION_COUNT" != "0" ]; then
+            echo "rollback 0021 left sale:discount permission behind"
+            exit 1
+          fi
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
