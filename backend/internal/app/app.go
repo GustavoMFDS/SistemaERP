@@ -99,6 +99,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		logger.Warn("redis_disabled_dev_mode", slog.String("impact", "refresh tokens and optional caches are unavailable"))
 	}
 
+	startIdempotencyMaintenance(ctx, pool, logger)
+
 	mods := modules.New(cfg, pool, rdb, logger)
 	router := httpapi.NewRouter(cfg, mods, logger)
 
@@ -117,4 +119,54 @@ func (a *App) Close() {
 	if a.Redis != nil {
 		_ = a.Redis.Close()
 	}
+}
+
+const (
+	idempotencyRetention = 30 * 24 * time.Hour
+	idempotencyBatchSize = 2000
+)
+
+func startIdempotencyMaintenance(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
+	run := func() {
+		maintenanceCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+
+		for batch := 0; batch < 5; batch++ {
+			tag, err := pool.Exec(maintenanceCtx, `
+				WITH doomed AS (
+					SELECT id
+					FROM idempotency_keys
+					WHERE created_at < now() - ($1::bigint * interval '1 second')
+					ORDER BY created_at
+					LIMIT $2
+				)
+				DELETE FROM idempotency_keys k
+				USING doomed
+				WHERE k.id=doomed.id
+			`, int64(idempotencyRetention/time.Second), idempotencyBatchSize)
+			if err != nil {
+				if maintenanceCtx.Err() == nil {
+					logger.Warn("idempotency_retention_cleanup_failed", slog.Any("err", err))
+				}
+				return
+			}
+			if tag.RowsAffected() < idempotencyBatchSize {
+				return
+			}
+		}
+	}
+
+	run()
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				run()
+			}
+		}
+	}()
 }
