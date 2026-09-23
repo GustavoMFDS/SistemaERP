@@ -47,6 +47,9 @@ INSERT INTO permissions (id, code, description) VALUES
   (gen_random_uuid(), 'product:write', 'Criar/editar produtos'),
   (gen_random_uuid(), 'inventory:read', 'Consultar estoque e movimentações'),
   (gen_random_uuid(), 'inventory:adjust', 'Ajuste manual de estoque'),
+  (gen_random_uuid(), 'procurement:read', 'Consultar fornecedores e compras'),
+  (gen_random_uuid(), 'procurement:write', 'Criar e alterar fornecedores e compras'),
+  (gen_random_uuid(), 'procurement:receive', 'Receber compras e atualizar estoque'),
   (gen_random_uuid(), 'cash:open', 'Abrir caixa'),
   (gen_random_uuid(), 'cash:move', 'Registrar sangria e suprimento de caixa'),
   (gen_random_uuid(), 'cash:close', 'Fechar caixa'),
@@ -79,6 +82,7 @@ SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.code IN (
   'product:read','product:write','inventory:read','inventory:adjust',
+  'procurement:read','procurement:write','procurement:receive',
   'cash:open','cash:move','cash:close','sale:read','sale:write','sale:cancel','sale:return','sale:discount',
   'finance:read','finance:reconcile','invoice:generate','invoice:read'
 )
