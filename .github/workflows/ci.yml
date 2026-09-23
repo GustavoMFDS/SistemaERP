@@ -293,6 +293,7 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
             -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('suppliers','purchases','purchase_items','purchase_receipts','purchase_receipt_items','procurement_idempotency_keys') ORDER BY table_name;" \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='accounts_payable' AND column_name IN ('supplier_id','purchase_id') ORDER BY column_name;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('purchases_supplier_tenant_fk','purchase_items_purchase_tenant_fk','purchase_items_product_tenant_fk','purchase_receipts_purchase_tenant_fk','purchase_receipt_items_receipt_tenant_fk','purchase_receipt_items_purchase_item_tenant_fk','purchase_receipt_items_product_tenant_fk') ORDER BY conname;" \
             -c "SELECT tgname FROM pg_trigger WHERE tgrelid='procurement_idempotency_keys'::regclass AND tgname='procurement_idempotency_keys_immutable';"
 
           docker run --rm --network host \
