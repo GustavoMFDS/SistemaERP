@@ -102,4 +102,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS accounts_payable_tenant_purchase_unique
   ON accounts_payable(tenant_id, purchase_id)
   WHERE purchase_id IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS procurement_idempotency_keys (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  operation text NOT NULL,
+  idem_key text NOT NULL,
+  request_hash text NOT NULL,
+  resource_id uuid NOT NULL,
+  result_status text NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT procurement_idempotency_operation_key_unique UNIQUE (tenant_id, operation, idem_key)
+);
+
+CREATE INDEX IF NOT EXISTS procurement_idempotency_tenant_created_idx
+  ON procurement_idempotency_keys(tenant_id, operation, created_at DESC);
+
 COMMIT;
