@@ -89,6 +89,10 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("sale:read")).Get("/", h.Sales.List)
 				rr.With(middleware.RequirePermission("sale:read")).Get("/{id}", h.Sales.Get)
 				rr.With(middleware.RequirePermission("sale:write"), salesLimit).Post("/", h.Sales.CreateAndFinalize)
+				rr.With(middleware.RequirePermission("sale:read")).Get("/{id}/returns", h.Returns.List)
+				rr.With(middleware.RequirePermission("sale:read")).Get("/{id}/returns/{returnID}", h.Returns.Get)
+				rr.With(middleware.RequirePermission("sale:cancel")).Post("/{id}/returns", h.Returns.Create)
+				rr.With(middleware.RequirePermission("sale:cancel")).Post("/{id}/returns/{returnID}/refunds", h.Returns.CreateRefund)
 				rr.With(middleware.RequirePermission("sale:cancel")).Post("/{id}/cancel", h.Sales.Cancel)
 			})
 
