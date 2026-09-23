@@ -109,6 +109,33 @@ func (r *ProductsRepo) Get(ctx context.Context, tenantID string, id string) (inv
 	return p, nil
 }
 
+func (r *ProductsRepo) GetByBarcode(ctx context.Context, tenantID string, barcode string) (inv.Product, error) {
+	var p inv.Product
+	var categoryID *string
+	var storedBarcode *string
+	var desc *string
+	var costPrice, priceCash, minStock, qtyOnHand string
+	var promo *string
+	err := r.db.QueryRow(ctx, `
+		SELECT p.id::text, p.category_id::text, p.sku, p.barcode, p.name, p.description, p.unit,
+		       p.cost_price::text, p.price_cash::text, p.promo_price::text, p.min_stock::text, p.active,
+		       COALESCE(b.qty_on_hand, 0)::text
+		FROM products p
+		LEFT JOIN inventory_balances b ON b.product_id = p.id AND b.tenant_id = p.tenant_id
+		WHERE p.tenant_id=$1 AND p.barcode=$2
+	`, tenantID, barcode).Scan(&p.ID, &categoryID, &p.SKU, &storedBarcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand)
+	if err != nil {
+		return p, err
+	}
+	if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, qtyOnHand); err != nil {
+		return p, err
+	}
+	p.CategoryID = categoryID
+	p.Barcode = storedBarcode
+	p.Description = desc
+	return p, nil
+}
+
 func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `
