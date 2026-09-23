@@ -63,6 +63,7 @@ npm run build
 | Payment reconciliation | Create a PIX/card sale, reconcile it with received amount, fee, provider and external reference, then replay the same idempotency key. | Reconciliation history is written once; replay returns the original result; payment shows reconciled/divergent state without changing the sale. |
 | Return refund settlement | Create a return with refund due, settle part in cash and the remainder by PIX, replay one settlement, then try to exceed the remaining amount. | Cash withdrawal is recorded once; digital refund can be tied to the session; refund moves pending → partial → settled; over-refund returns conflict; ledger contains negative return_refund entries. |
 | Net method close | In one open session, create a PIX R$20 sale, refund R$15 PIX tied to that session and R$5 cash. | Closing expects PIX R$5 and physical cash reduced by the R$5 withdrawal, with no double subtraction. |
+| Net-negative digital close | Refund by PIX in a new session a R$10 sale from a prior closed session, with no new PIX sale in the refund session. | Closing accepts expected/declared PIX = -R$10.00 and records zero difference; physical cash remains non-negative. |
 | Finance listing | Open dashboard/list ledger entries. | Tenant-scoped results only; pagination remains usable. |
 | Audit log listing | Query audit logs as admin/audit role. | Tenant-scoped sanitized metadata returned; unauthorized role denied. |
 | Privacy request create | Create a data subject request. | Request stored under authenticated tenant; audit event exists. |
