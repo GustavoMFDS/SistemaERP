@@ -128,7 +128,7 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 	if err := s.repo.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
 		return "", "", false, err
 	}
-	if resourceID, status, storedHash, ok, err := s.repo.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+	if resourceID, status, storedHash, _, ok, err := s.repo.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
 		return "", "", false, err
 	} else if ok {
 		if storedHash != hash {
@@ -167,7 +167,7 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 	if err := s.repo.UpdatePaymentReconciliation(ctx, tx, tenantID, paymentID, status, req.ReceivedAmount, req.FeeAmount, req.Provider, req.ExternalRef, req.Notes, actorUserID); err != nil {
 		return "", "", false, err
 	}
-	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, hash, reconciliationID, status); err != nil {
+	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, hash, reconciliationID, status, nil); err != nil {
 		return "", "", false, err
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
@@ -224,12 +224,17 @@ func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actor
 	if err := s.repo.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
 		return "", "", 0, false, err
 	}
-	if resourceID, status, storedHash, ok, err := s.repo.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+	if resourceID, status, storedHash, storedRemaining, ok, err := s.repo.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
 		return "", "", 0, false, err
 	} else if ok {
 		if storedHash != hash {
 			return "", "", 0, false, common.ErrConflict
 		}
+		if storedRemaining != nil {
+			_ = tx.Rollback(ctx)
+			return resourceID, status, *storedRemaining, false, nil
+		}
+		// Backward-compatible fallback for rows created before result_amount existed.
 		item, err := s.repo.GetReturnForUpdate(ctx, tx, tenantID, returnID)
 		if err != nil {
 			return "", "", 0, false, err
@@ -299,7 +304,7 @@ func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actor
 	if remainingAfter == 0 {
 		status = "settled"
 	}
-	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, hash, refundID, status); err != nil {
+	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, hash, refundID, status, &remainingAfter); err != nil {
 		return "", "", remaining, false, err
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
