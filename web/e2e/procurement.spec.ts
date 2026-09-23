@@ -31,8 +31,24 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       },
     })
 
-    const supplier = await apiJson<{ id: string }>('/api/v1/suppliers', {
+    const supplierKey = crypto.randomUUID()
+    const supplier = await apiJson<{ id: string; replayed: boolean }>('/api/v1/suppliers', {
       method: 'POST',
+      headers: { 'Idempotency-Key': supplierKey },
+      body: {
+        name: 'Fornecedor E2E',
+        document: '11222333000199',
+        email: null,
+        phone: '34999999999',
+        contact_name: null,
+        notes: null,
+        active: true,
+      },
+    })
+
+    const supplierReplay = await apiJson<{ id: string; replayed: boolean }>('/api/v1/suppliers', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': supplierKey },
       body: {
         name: 'Fornecedor E2E',
         document: '11222333000199',
@@ -147,6 +163,8 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
     return {
       purchaseId: purchase.id,
       supplierId: supplier.id,
+      supplierReplaySameId: supplierReplay.id === supplier.id,
+      supplierReplayFlag: supplierReplay.replayed,
       purchaseReplaySameId: purchaseReplay.id === purchase.id,
       purchaseReplayFlag: purchaseReplay.replayed,
       beforeQty: before.items[0].qty_on_hand,
@@ -168,6 +186,8 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
     }
   })
 
+  expect(result.supplierReplaySameId).toBe(true)
+  expect(result.supplierReplayFlag).toBe(true)
   expect(result.purchaseReplaySameId).toBe(true)
   expect(result.purchaseReplayFlag).toBe(true)
   expect(result.beforeQty).toBe(0)
