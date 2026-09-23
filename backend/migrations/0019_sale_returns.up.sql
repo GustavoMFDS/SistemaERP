@@ -2,6 +2,19 @@
 
 BEGIN;
 
+-- Devolucoes/trocas have their own permission. Existing roles that were
+-- allowed to cancel sales inherit it during the migration.
+INSERT INTO permissions(id, code, description)
+VALUES (gen_random_uuid(), 'sale:return', 'Registrar devolucoes e trocas')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO role_permissions(role_id, permission_id)
+SELECT rp.role_id, target.id
+FROM role_permissions rp
+JOIN permissions source ON source.id=rp.permission_id AND source.code='sale:cancel'
+JOIN permissions target ON target.code='sale:return'
+ON CONFLICT DO NOTHING;
+
 -- Composite keys are used by the returns module so direct SQL cannot connect
 -- rows belonging to different tenants.
 CREATE UNIQUE INDEX IF NOT EXISTS sales_tenant_id_id_unique
