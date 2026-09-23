@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
@@ -46,7 +47,27 @@ func (s *ProductsService) Get(ctx context.Context, tenantID string, id string) (
 	return s.repo.Get(ctx, tenantID, id)
 }
 
+func (s *ProductsService) GetByBarcode(ctx context.Context, tenantID string, barcode string) (inv.Product, error) {
+	barcode = strings.TrimSpace(barcode)
+	if err := s.validate.Var(barcode, "required,min=8,max=32"); err != nil {
+		return inv.Product{}, common.ErrValidation
+	}
+	return s.repo.GetByBarcode(ctx, tenantID, barcode)
+}
+
+func normalizeBarcode(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	barcode := strings.TrimSpace(*value)
+	if barcode == "" {
+		return nil
+	}
+	return &barcode
+}
+
 func (s *ProductsService) Create(ctx context.Context, tenantID string, req ProductCreateRequest) (string, error) {
+	req.Barcode = normalizeBarcode(req.Barcode)
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
 	}
@@ -87,6 +108,7 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 }
 
 func (s *ProductsService) Update(ctx context.Context, tenantID string, id string, req ProductUpdateRequest) error {
+	req.Barcode = normalizeBarcode(req.Barcode)
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
