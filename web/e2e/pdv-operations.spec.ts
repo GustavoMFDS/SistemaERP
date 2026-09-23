@@ -16,7 +16,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 14)
 
   const setup = await page.evaluate(async (suffix) => {
-    const { apiJson } = await import('/src/lib/api.ts')
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
     const me = await apiJson<{ permissions: string[] }>('/api/v1/auth/me')
     const product = await apiJson<{ id: string }>('/api/v1/products', {
       method: 'POST',
@@ -34,6 +34,23 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
         active: true,
       },
     })
+    let reservedMovementStatus = 0
+    try {
+      await apiJson('/api/v1/inventory/adjust', {
+        method: 'POST',
+        body: {
+          product_id: product.id,
+          delta: 1,
+          reason: 'Tentativa de forjar compra',
+          type: 'purchase',
+        },
+      })
+      reservedMovementStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) reservedMovementStatus = error.status
+      else throw error
+    }
+
     await apiJson('/api/v1/inventory/adjust', {
       method: 'POST',
       body: {
@@ -48,12 +65,14 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
       productId: product.id,
       barcode: `BAR-${suffix}`,
       adminCostPrice: productDetail.cost_price,
+      reservedMovementStatus,
       canDiscount: me.permissions.includes('sale:discount'),
     }
   }, suffix)
 
   expect(setup.canDiscount).toBe(true)
   expect(setup.adminCostPrice).toBe(4)
+  expect(setup.reservedMovementStatus).toBe(422)
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
@@ -146,6 +165,12 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   await expect(page).toHaveURL(/\/login$/)
 
   await login(page, 'caixa@sistema.local')
+  await expect(page.getByRole('heading', { name: 'Cadastrar produto' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Salvar' })).toHaveCount(0)
+
+  await page.getByRole('link', { name: 'Estoque' }).click()
+  await expect(page).toHaveURL(/\/inventory$/)
+  await expect(page.getByRole('heading', { name: 'Ajuste de estoque' })).toHaveCount(0)
 
   const cashierResult = await page.evaluate(async (input) => {
     const { APIError, apiJson } = await import('/src/lib/api.ts')
