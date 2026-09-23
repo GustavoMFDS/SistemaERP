@@ -41,7 +41,7 @@ Criterios de aceite:
 - divergencias e ajustes auditados;
 - preparar integracao TEF/adquirentes sem acoplar o dominio a um unico provedor.
 
-## 6. Melhorias operacionais do PDV
+## 6. Melhorias operacionais do PDV — implementado na branch
 
 - atalhos de teclado;
 - busca rapida;
@@ -91,3 +91,16 @@ A integracao fiscal real fica para a etapa final, depois que o fluxo comercial e
 - reembolsos digitais associados a uma sessão reduzem o esperado daquele método no fechamento;
 - toda liquidação gera lançamento negativo `return_refund` no ledger;
 - TEF/adquirentes futuros podem preencher os mesmos campos sem alterar o domínio de venda.
+
+
+### Etapa 6 — decisões implementadas
+
+- F2 move o foco para o scanner, F4 para a busca rápida e F8 finaliza a venda;
+- busca rápida filtra por nome, SKU ou código de barras;
+- quantidade pode ser alterada inline com botões +/- ou entrada direta;
+- carrinhos podem ser suspensos e retomados localmente, sempre escopados por tenant+usuário;
+- carrinho suspenso não é tratado como venda nem enviado ao servidor até a finalização;
+- desconto de venda é exibido apenas para quem possui `sale:discount`;
+- o backend também bloqueia qualquer desconto sem `sale:discount`, inclusive chamadas API manipuladas;
+- após venda online, o catálogo/estoque é atualizado e o foco retorna ao scanner;
+- vendas finalizadas exibem opção de impressão de comprovante explicitamente não fiscal.
