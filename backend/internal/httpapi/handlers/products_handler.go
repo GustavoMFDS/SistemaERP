@@ -141,6 +141,8 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusUnprocessableEntity
 		case common.ErrConflict:
 			status = http.StatusConflict
+		case common.ErrNotFound:
+			status = http.StatusNotFound
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
