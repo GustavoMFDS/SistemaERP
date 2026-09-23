@@ -286,6 +286,9 @@ func (r *fakeSalesRepo) GetSaleForUpdate(context.Context, db.DBTX, string, strin
 func (r *fakeSalesRepo) HasInvoiceForSale(context.Context, db.DBTX, string, string) (bool, error) {
 	return false, nil
 }
+func (r *fakeSalesRepo) HasReturnsForSale(context.Context, db.DBTX, string, string) (bool, error) {
+	return false, nil
+}
 func (r *fakeSalesRepo) LockIdempotencyKey(context.Context, db.DBTX, string, string, string) error {
 	r.mu.Lock()
 	return nil
