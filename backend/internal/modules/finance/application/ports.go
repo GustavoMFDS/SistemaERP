@@ -27,6 +27,6 @@ type FinanceRepository interface {
 	InsertCashWithdrawal(ctx context.Context, tx db.DBTX, tenantID, cashSessionID, actorUserID string, amount platform.Money, notes *string) (string, error)
 
 	LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error
-	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (resourceID, resultStatus, requestHash string, ok bool, err error)
-	SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, requestHash, resourceID, resultStatus string) error
+	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (resourceID, resultStatus, requestHash string, resultAmount *platform.Money, ok bool, err error)
+	SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, requestHash, resourceID, resultStatus string, resultAmount *platform.Money) error
 }
