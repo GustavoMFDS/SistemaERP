@@ -15,4 +15,6 @@ DROP TABLE IF EXISTS purchase_items;
 DROP TABLE IF EXISTS purchases;
 DROP TABLE IF EXISTS suppliers;
 
+DROP INDEX IF EXISTS products_tenant_id_id_unique;
+
 COMMIT;
