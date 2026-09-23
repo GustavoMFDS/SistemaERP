@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -11,7 +12,6 @@ import (
 	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/redis/go-redis/v9"
-	"log/slog"
 )
 
 type AuthHandler struct {
