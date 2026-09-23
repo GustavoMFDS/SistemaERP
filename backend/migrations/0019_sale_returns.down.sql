@@ -9,4 +9,8 @@ DROP TABLE IF EXISTS sale_returns;
 DROP INDEX IF EXISTS sale_items_tenant_id_id_unique;
 DROP INDEX IF EXISTS sales_tenant_id_id_unique;
 
+DELETE FROM role_permissions
+WHERE permission_id IN (SELECT id FROM permissions WHERE code='sale:return');
+DELETE FROM permissions WHERE code='sale:return';
+
 COMMIT;
