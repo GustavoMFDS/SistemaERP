@@ -87,3 +87,14 @@ Migração:
 - O primeiro scan adiciona o produto ao carrinho; scans seguintes do mesmo produto incrementam a quantidade em vez de criar linhas duplicadas.
 - O PDV tenta resolver primeiro pelo catalogo ja carregado no navegador. Se o codigo nao estiver no cache e houver conexao, consulta `GET /api/v1/products/barcode/{barcode}`.
 - Offline, um codigo so pode ser resolvido se o produto estiver no cache local previamente carregado. O sistema nao inventa nem aceita produto desconhecido durante a queda de rede.
+
+
+## Carrinhos suspensos
+
+Carrinho suspenso e fila offline são conceitos diferentes:
+
+- carrinho suspenso é um rascunho local ainda não finalizado e não possui `Idempotency-Key`;
+- fila offline representa uma intenção exata de venda já finalizada pelo operador e persistida por write-ahead;
+- carrinhos suspensos são escopados por tenant+usuário no navegador;
+- retomar um carrinho não envia nenhuma requisição; o write-ahead só ocorre quando o operador finaliza;
+- descontos continuam sujeitos à permissão server-side `sale:discount` quando a venda é enviada ou reexecutada.
