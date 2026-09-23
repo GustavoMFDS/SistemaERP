@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 
@@ -78,6 +78,7 @@ export default function PurchasesPage() {
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [paymentDueDate, setPaymentDueDate] = useState('')
   const [purchaseNotes, setPurchaseNotes] = useState('')
+  const purchaseCreateKeyRef = useRef('')
   const [lineProductId, setLineProductId] = useState('')
   const [lineQty, setLineQty] = useState(1)
   const [lineCost, setLineCost] = useState(0)
@@ -86,6 +87,7 @@ export default function PurchasesPage() {
   const [selected, setSelected] = useState<PurchaseDetail | null>(null)
   const [receiveQty, setReceiveQty] = useState<Record<string, number>>({})
   const [receiveNotes, setReceiveNotes] = useState('')
+  const receiveKeyRef = useRef('')
 
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
@@ -171,8 +173,10 @@ export default function PurchasesPage() {
     if (!supplierId || lines.length === 0) return
     setError('')
     try {
-      await apiJson<{ id: string }>('/api/v1/purchases', {
+      if (!purchaseCreateKeyRef.current) purchaseCreateKeyRef.current = crypto.randomUUID()
+      await apiJson<{ id: string; replayed: boolean }>('/api/v1/purchases', {
         method: 'POST',
+        headers: { 'Idempotency-Key': purchaseCreateKeyRef.current },
         body: {
           supplier_id: supplierId,
           invoice_number: invoiceNumber.trim() || null,
@@ -186,6 +190,7 @@ export default function PurchasesPage() {
       setPaymentDueDate('')
       setPurchaseNotes('')
       setLines([])
+      purchaseCreateKeyRef.current = ''
       await loadBase()
     } catch (e: unknown) {
       setError(errorMessage(e))
@@ -201,6 +206,7 @@ export default function PurchasesPage() {
       for (const item of detail.items) initial[item.id] = 0
       setReceiveQty(initial)
       setReceiveNotes('')
+      receiveKeyRef.current = ''
     } catch (e: unknown) {
       setError(errorMessage(e))
     }
@@ -228,13 +234,16 @@ export default function PurchasesPage() {
 
     setError('')
     try {
-      await apiJson<{ receipt_id: string; status: Purchase['status'] }>(
+      if (!receiveKeyRef.current) receiveKeyRef.current = crypto.randomUUID()
+      await apiJson<{ receipt_id: string; status: Purchase['status']; replayed: boolean }>(
         `/api/v1/purchases/${selected.purchase.id}/receive`,
         {
           method: 'POST',
+          headers: { 'Idempotency-Key': receiveKeyRef.current },
           body: { items, notes: receiveNotes.trim() || null },
         },
       )
+      receiveKeyRef.current = ''
       await loadBase()
       await openPurchase(selected.purchase.id)
     } catch (e: unknown) {
