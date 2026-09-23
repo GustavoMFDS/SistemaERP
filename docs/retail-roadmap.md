@@ -66,3 +66,14 @@ Criterios de aceite:
 ## 1. NFC-e / SEFAZ — por ultimo
 
 A integracao fiscal real fica para a etapa final, depois que o fluxo comercial e operacional estiver estabilizado. O provider MVP permanece proibido em staging/producao.
+
+
+### Etapa 4 — decisões implementadas
+
+- devolução parcial ou total vinculada aos itens da venda original;
+- quantidade acumulada nunca pode exceder a quantidade vendida;
+- valor devido é calculado pelo backend a partir do valor líquido original;
+- `restock=true` devolve estoque vendável; `restock=false` preserva a baixa para item avariado/não revendável;
+- troca é uma devolução do tipo `exchange` seguida por uma nova venda normal no PDV;
+- reembolso financeiro permanece pendente para a etapa 5;
+- uma venda com qualquer devolução registrada não pode mais ser cancelada integralmente.
