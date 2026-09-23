@@ -55,7 +55,7 @@ test('partial return is idempotent, bounded by sold quantity and blocks full can
         product_id: product.id,
         delta: 5,
         reason: 'Carga E2E devolucao',
-        type: 'purchase',
+        type: 'adjustment',
       },
     })
 
