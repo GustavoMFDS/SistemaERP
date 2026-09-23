@@ -7,9 +7,11 @@ The project is currently a pre-production / staging candidate. It implements tec
 ## Features
 
 - Multi-tenant POS/backoffice with tenant-scoped RBAC.
-- Sales creation, server-side price calculation, idempotent offline retry support, and sale cancellation.
-- Inventory balances, movements, low-stock checks, and stock validation.
-- Finance ledger and dashboard endpoints.
+- Sales creation, server-side price calculation, barcode lookup/scanner support, idempotent offline retry, discounts with RBAC, suspended carts, and sale cancellation.
+- Inventory balances, movements, low-stock checks, stock validation, and dedicated purchase/return movement provenance.
+- Supplier and procurement workflows with tenant-scoped RBAC, partial receiving, stock/cost updates on receipt, and optional accounts payable linkage.
+- Returns/exchanges with quantity guards, optional restock, refund-due calculation, and cancellation protection after a return.
+- Finance ledger/dashboard, digital payment reconciliation, partial/multimethod refund settlement, and per-method cash-session closing.
 - Fiscal XML/NFe preparation and access flows. The bundled provider is an MVP test provider and is blocked in staging/production.
 - Offline POS queue with TTL, idempotency keys, and minimal browser storage.
 - JWT access tokens plus HttpOnly refresh-token cookies with rotation.
@@ -132,7 +134,7 @@ npm run lint
 npm run build
 ```
 
-For the current production-readiness pass, the frontend production build was already validated with `cd web && npm run build`. Re-run the frontend commands when frontend files change.
+A prior production-readiness pass validated the production build. The current retail-integration PR changes backend, frontend, migrations and E2E coverage, so its final SHA must rerun the complete GitHub Actions matrix before merge. See `docs/production-validation-report.md` for the current evidence status.
 
 Smoke testing:
 
