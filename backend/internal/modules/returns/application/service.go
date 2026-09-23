@@ -165,6 +165,7 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 	}
 
 	productIDs := make([]string, 0, len(req.Items))
+	restockProducts := make(map[string]struct{}, len(req.Items))
 	resultItems := make([]ret.Item, 0, len(req.Items))
 	var refundDue platform.Money
 	allFullyReturned := true
@@ -188,7 +189,10 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 			Restock: requested.Restock, RefundValue: itemRefund,
 		})
 		if requested.Restock {
-			productIDs = append(productIDs, item.ProductID)
+			if _, exists := restockProducts[item.ProductID]; !exists {
+				restockProducts[item.ProductID] = struct{}{}
+				productIDs = append(productIDs, item.ProductID)
+			}
 		}
 	}
 	for _, item := range saleItems {
