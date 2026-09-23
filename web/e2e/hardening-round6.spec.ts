@@ -104,6 +104,13 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
     const audit = await apiJson<{
       items: Array<{ action: string; resource_id?: string | null }>
     }>('/api/v1/audit/logs?limit=200&offset=0')
+    const ledger = await apiJson<{
+      items: Array<{
+        entry_type: string
+        cash_session_id?: string | null
+        amount_net: number
+      }>
+    }>('/api/v1/finance/ledger?limit=200&offset=0')
 
     const count = (action: string, resourceId: string) =>
       audit.items.filter(
@@ -125,6 +132,14 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
         withdrawal: count('cash.withdrawal', withdrawal.id),
         close: count('cash.close', cash.id),
       },
+      ledgerMovements: {
+        supply: ledger.items.find(
+          (item) => item.entry_type === 'supply' && item.cash_session_id === cash.id,
+        )?.amount_net,
+        withdrawal: ledger.items.find(
+          (item) => item.entry_type === 'withdrawal' && item.cash_session_id === cash.id,
+        )?.amount_net,
+      },
     }
   })
 
@@ -144,6 +159,8 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
     withdrawal: 1,
     close: 1,
   })
+  expect(result.ledgerMovements.supply).toBeCloseTo(20, 2)
+  expect(result.ledgerMovements.withdrawal).toBeCloseTo(-10, 2)
 })
 
 test('cashier cannot perform cash supply or withdrawal without cash:move permission', async ({
