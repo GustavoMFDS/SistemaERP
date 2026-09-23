@@ -2,6 +2,9 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"log/slog"
 	"sort"
 	"strings"
@@ -84,6 +87,15 @@ func normalizeSupplierRequest(req SupplierRequest) SupplierRequest {
 	return req
 }
 
+func procurementRequestHash(value any) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 func (s *Service) ListSuppliers(ctx context.Context, tenantID, query string, limit, offset int) ([]proc.Supplier, int, error) {
 	return s.repo.ListSuppliers(ctx, tenantID, query, limit, offset)
 }
@@ -143,16 +155,20 @@ func (s *Service) GetPurchase(ctx context.Context, tenantID, id string) (proc.Pu
 	return s.repo.GetPurchase(ctx, tenantID, id)
 }
 
-func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID string, req PurchaseCreateRequest) (string, error) {
+func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID, idempotencyKey string, req PurchaseCreateRequest) (string, bool, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		return "", false, common.ErrValidation
+	}
 	req.InvoiceNumber = normalizeOptional(req.InvoiceNumber)
 	req.Notes = normalizeOptional(req.Notes)
 	req.PaymentDueDate = normalizeOptional(req.PaymentDueDate)
 	if err := s.validate.Struct(req); err != nil {
-		return "", common.ErrValidation
+		return "", false, common.ErrValidation
 	}
 	if req.PaymentDueDate != nil {
 		if _, err := time.Parse("2006-01-02", *req.PaymentDueDate); err != nil {
-			return "", common.ErrValidation
+			return "", false, common.ErrValidation
 		}
 	}
 
@@ -160,36 +176,55 @@ func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID stri
 	seen := make(map[string]struct{}, len(req.Items))
 	for _, item := range req.Items {
 		if _, exists := seen[item.ProductID]; exists {
-			return "", common.ErrValidation
+			return "", false, common.ErrValidation
 		}
 		seen[item.ProductID] = struct{}{}
 		productIDs = append(productIDs, item.ProductID)
 	}
 	sort.Strings(productIDs)
 
+	requestHash, err := procurementRequestHash(req)
+	if err != nil {
+		return "", false, common.ErrValidation
+	}
+	op := "purchase.create"
+
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := s.repo.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", false, err
+	}
+	if resourceID, _, storedHash, ok, err := s.repo.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", false, err
+	} else if ok {
+		if storedHash != requestHash {
+			return "", false, common.ErrConflict
+		}
+		_ = tx.Rollback(ctx)
+		return resourceID, false, nil
+	}
+
 	supplier, err := s.repo.GetSupplier(ctx, tx, tenantID, req.SupplierID)
 	if err != nil || !supplier.Active {
-		return "", common.ErrValidation
+		return "", false, common.ErrValidation
 	}
 	products, err := s.products.GetManyByIDs(ctx, tx, tenantID, productIDs)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(products) != len(productIDs) {
-		return "", common.ErrValidation
+		return "", false, common.ErrValidation
 	}
 
 	items := make([]proc.PurchaseItem, 0, len(req.Items))
 	var total platform.Money
 	for _, item := range req.Items {
 		if _, ok := products[item.ProductID]; !ok {
-			return "", common.ErrValidation
+			return "", false, common.ErrValidation
 		}
 		lineTotal := item.UnitCost.MulQty(item.Qty)
 		total = total.Add(lineTotal)
@@ -202,45 +237,74 @@ func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID stri
 		PaymentDueDate: req.PaymentDueDate, Total: total, Notes: req.Notes, CreatedBy: actorUserID,
 	}, items)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if req.PaymentDueDate != nil {
 		description := "Compra " + purchaseID + " - " + supplier.Name
 		if err := s.repo.CreateAccountPayable(ctx, tx, tenantID, purchaseID, req.SupplierID, description, total, *req.PaymentDueDate); err != nil {
-			return "", err
+			return "", false, err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", err
+	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, purchaseID, string(proc.PurchaseOrdered)); err != nil {
+		return "", false, err
 	}
-	return purchaseID, nil
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, err
+	}
+	return purchaseID, true, nil
 }
 
-func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, purchaseID string, req PurchaseReceiveRequest) (string, proc.PurchaseStatus, error) {
+func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, purchaseID, idempotencyKey string, req PurchaseReceiveRequest) (string, proc.PurchaseStatus, bool, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		return "", "", false, common.ErrValidation
+	}
 	req.Notes = normalizeOptional(req.Notes)
 	if err := s.validate.Struct(req); err != nil {
-		return "", "", common.ErrValidation
+		return "", "", false, common.ErrValidation
 	}
+	requestHash, err := procurementRequestHash(struct {
+		PurchaseID string                 `json:"purchase_id"`
+		Request    PurchaseReceiveRequest `json:"request"`
+	}{PurchaseID: purchaseID, Request: req})
+	if err != nil {
+		return "", "", false, common.ErrValidation
+	}
+	op := "purchase.receive"
+
 	seen := make(map[string]struct{}, len(req.Items))
 	for _, item := range req.Items {
 		if _, ok := seen[item.PurchaseItemID]; ok {
-			return "", "", common.ErrValidation
+			return "", "", false, common.ErrValidation
 		}
 		seen[item.PurchaseItemID] = struct{}{}
 	}
 
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := s.repo.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", "", false, err
+	}
+	if resourceID, resultStatus, storedHash, ok, err := s.repo.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", "", false, err
+	} else if ok {
+		if storedHash != requestHash {
+			return "", "", false, common.ErrConflict
+		}
+		_ = tx.Rollback(ctx)
+		return resourceID, proc.PurchaseStatus(resultStatus), false, nil
+	}
+
 	purchase, items, err := s.repo.GetPurchaseForUpdate(ctx, tx, tenantID, purchaseID)
 	if err != nil {
-		return "", "", common.ErrNotFound
+		return "", "", false, common.ErrNotFound
 	}
 	if purchase.Status == proc.PurchaseCancelled || purchase.Status == proc.PurchaseReceived {
-		return "", "", common.ErrConflict
+		return "", "", false, common.ErrConflict
 	}
 
 	itemByID := make(map[string]proc.PurchaseItem, len(items))
@@ -251,11 +315,11 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 	for _, requested := range req.Items {
 		item, ok := itemByID[requested.PurchaseItemID]
 		if !ok {
-			return "", "", common.ErrValidation
+			return "", "", false, common.ErrValidation
 		}
 		remaining := item.QtyOrdered - item.QtyReceived
 		if requested.Qty <= 0 || requested.Qty > remaining {
-			return "", "", common.ErrValidation
+			return "", "", false, common.ErrValidation
 		}
 		productIDs = append(productIDs, item.ProductID)
 	}
@@ -266,12 +330,12 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 		GetBalancesForUpdate(context.Context, db.DBTX, string, []string) (map[string]inv.InventoryBalance, error)
 	}); ok {
 		if err := batch.EnsureBalanceRows(ctx, tx, tenantID, productIDs); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 	} else {
 		for _, productID := range productIDs {
 			if err := s.inventory.EnsureBalanceRow(ctx, tx, tenantID, productID); err != nil {
-				return "", "", err
+				return "", "", false, err
 			}
 		}
 	}
@@ -282,13 +346,13 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 	}); ok {
 		balances, err = batch.GetBalancesForUpdate(ctx, tx, tenantID, productIDs)
 		if err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 	} else {
 		for _, productID := range productIDs {
 			bal, err := s.inventory.GetBalanceForUpdate(ctx, tx, tenantID, productID)
 			if err != nil {
-				return "", "", err
+				return "", "", false, err
 			}
 			balances[productID] = bal
 		}
@@ -296,7 +360,7 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 
 	receiptID, err := s.repo.CreateReceipt(ctx, tx, tenantID, purchaseID, actorUserID, req.Notes)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	updatedReceived := make(map[string]platform.Quantity, len(items))
@@ -307,30 +371,30 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 		item := itemByID[requested.PurchaseItemID]
 		bal, ok := balances[item.ProductID]
 		if !ok {
-			return "", "", common.ErrValidation
+			return "", "", false, common.ErrValidation
 		}
 		after, derr := bal.Creditar(requested.Qty)
 		if derr != nil {
-			return "", "", common.ErrValidation
+			return "", "", false, common.ErrValidation
 		}
 		if err := s.inventory.UpdateBalance(ctx, tx, tenantID, item.ProductID, after.QtyOnHand); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 		balances[item.ProductID] = after
 
 		newReceived := item.QtyReceived + requested.Qty
 		updatedReceived[item.ID] = newReceived
 		if err := s.repo.UpdateItemReceived(ctx, tx, tenantID, item.ID, newReceived); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 		if err := s.repo.UpdateProductCost(ctx, tx, tenantID, item.ProductID, item.UnitCost); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 		if err := s.repo.InsertReceiptItem(ctx, tx, tenantID, proc.ReceiptItem{
 			ReceiptID: receiptID, PurchaseItemID: item.ID, ProductID: item.ProductID,
 			Qty: requested.Qty, UnitCost: item.UnitCost,
 		}); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 		reason := "Recebimento de compra"
 		refType := "purchase_receipt"
@@ -338,7 +402,7 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 		actor := actorUserID
 		mv := inv.NewMovement(item.ProductID, inv.MovementPurchase, requested.Qty, bal, after, &reason, &refType, &refID, &actor, time.Now().Format(time.RFC3339))
 		if err := s.inventory.InsertMovement(ctx, tx, tenantID, mv); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 	}
 
@@ -355,13 +419,16 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 		receivedAt = &now
 	}
 	if err := s.repo.UpdatePurchaseStatus(ctx, tx, tenantID, purchaseID, status, receivedAt); err != nil {
-		return "", "", err
+		return "", "", false, err
+	}
+	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, receiptID, string(status)); err != nil {
+		return "", "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	s.invalidateProductCaches(context.WithoutCancel(ctx), tenantID, productIDs)
-	return receiptID, status, nil
+	return receiptID, status, true, nil
 }
 
 func (s *Service) CancelPurchase(ctx context.Context, tenantID, purchaseID string) error {
