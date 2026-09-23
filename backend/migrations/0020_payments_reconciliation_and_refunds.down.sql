@@ -7,6 +7,7 @@ DROP TABLE IF EXISTS return_refunds;
 DROP TABLE IF EXISTS payment_reconciliations;
 
 DROP INDEX IF EXISTS cash_sessions_tenant_id_id_unique;
+DROP INDEX IF EXISTS payments_tenant_provider_transaction_ref_unique;
 DROP INDEX IF EXISTS payments_tenant_reconciliation_idx;
 DROP INDEX IF EXISTS payments_tenant_id_id_unique;
 
