@@ -2,13 +2,13 @@
 
 ## Revalidation — 2026-09-23 (round 6 hardening)
 
-- Base audited: `main` merge commit `646312aaa8b60be63906d21ffb29a3a14b6c213f`.
+- Original audited base: `646312aaa8b60be63906d21ffb29a3a14b6c213f`; current `main` after the validated round-6 base merge: `bd1de27a24d3561e7d611f924bf3f693ef74f76f`.
 - Hardening branch / PR: `audit/e2e-hardening-round6-20260923` / PR #8.
 - Last fully executed green implementation run: GitHub Actions `35808100170` on commit `8f07a6b841f4ce341ebbbcef8433d8cb38af5916`.
 - That run passed backend, frontend, integration, security, e2e and e2e-prodlike.
 - Browser E2E on that run: 23 discovered, 22 passed, 1 production-like-only skipped. Production-like E2E: 1/1 passed.
 - The later branch head additionally hardens the browser offline queue: the server retains idempotency results for 30 days, while manual browser retry/rebind is capped at 28 days from the original intent timestamp. Older items remain visible for reconciliation but cannot emit a sale request. Integration coverage also verifies startup retention cleanup of a 31-day key while preserving a recent key.
-- Subsequent attempts after the last fully green implementation run have ended as GitHub Actions startup failures with `steps: []`; those later retention/test/documentation changes have therefore not yet been executed by GitHub Actions.
+- The PR branch was reconciled with current `main` and is mergeable/clean. Subsequent Actions attempts have ended as runner startup failures with `steps: []`; the later retention/offline hardening therefore still needs one normally executed same-HEAD run.
 - Cash operations now serialize through the session row, close waits for in-flight sale work, and cancel after close is rejected.
 - `0015` adds supply/withdrawal and per-method reconciliation. Supply/withdrawal also write finance ledger entries atomically.
 - Critical sale/cash audit events are transactional.
