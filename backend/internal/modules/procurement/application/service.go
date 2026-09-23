@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -236,7 +237,13 @@ func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID, ide
 	}
 
 	supplier, err := s.repo.GetSupplier(ctx, tx, tenantID, req.SupplierID)
-	if err != nil || !supplier.Active {
+	if err != nil {
+		if errors.Is(err, common.ErrNotFound) {
+			return "", false, common.ErrValidation
+		}
+		return "", false, err
+	}
+	if !supplier.Active {
 		return "", false, common.ErrValidation
 	}
 	products, err := s.products.GetManyByIDs(ctx, tx, tenantID, productIDs)
