@@ -38,7 +38,7 @@ test('reconciles digital payments and settles return refunds without double-coun
         product_id: product.id,
         delta: 3,
         reason: 'Carga E2E conciliacao',
-        type: 'purchase',
+        type: 'adjustment',
       },
     })
 
@@ -370,7 +370,7 @@ test('supports a net-negative digital close after refunding an earlier sale', as
         product_id: product.id,
         delta: 1,
         reason: 'Carga E2E refund negativo',
-        type: 'purchase',
+        type: 'adjustment',
       },
     })
 
