@@ -2,9 +2,9 @@ package application
 
 import (
 	"context"
-	"errors"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"encoding/json"
 	"log/slog"
 	"sort"
