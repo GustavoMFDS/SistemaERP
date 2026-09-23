@@ -115,7 +115,6 @@ func (r *FinanceRepo) ListLedger(ctx context.Context, tenantID string, limit, of
 	return items, total, rows.Err()
 }
 
-
 func (r *FinanceRepo) ListPayments(ctx context.Context, tenantID, from, to, method, status string, limit, offset int) ([]fin.PaymentRecord, int, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
