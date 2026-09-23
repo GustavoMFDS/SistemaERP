@@ -29,6 +29,8 @@ jobs:
             gofmt -d .
             exit 1
           fi
+      - name: Validate pilot readiness script syntax
+        run: bash -n ../scripts/pilot-readiness.sh
       - run: go test ./...
       - run: go vet ./...
 
