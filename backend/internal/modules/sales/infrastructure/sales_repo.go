@@ -141,12 +141,22 @@ func (r *SalesRepo) ListSales(ctx context.Context, tenantID string, limit, offse
 }
 
 func (r *SalesRepo) CancelSale(ctx context.Context, tx db.DBTX, tenantID string, id string, reason string) error {
-	_, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		UPDATE sales
 		SET status='cancelled', cancelled_at=now(), cancel_reason=$2
 		WHERE tenant_id=$1 AND id=$3 AND status='finalized'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM sale_returns r
+		    WHERE r.tenant_id=$1 AND r.sale_id=$3
+		  )
 	`, tenantID, reason, id)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return common.ErrConflict
+	}
+	return nil
 }
 
 func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
