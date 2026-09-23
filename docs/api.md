@@ -268,6 +268,64 @@ Cancels only purchases with no received quantity. An associated open account pay
 
 Returns aggregated ledger totals for the period.
 
+### GET `/finance/payments`
+
+Lists tenant-scoped payments. Optional filters: `from`, `to`, `method`, `status`, `limit`, and `offset`.
+
+Non-cash payments start as `pending`; cash payments use `not_applicable` because physical cash is reconciled at cash-session close.
+
+Sales may carry provider-neutral transaction metadata:
+
+```json
+{
+  "method": "credit",
+  "amount": 120,
+  "provider": "acquirer-name",
+  "transaction_ref": "provider-transaction-id",
+  "authorization_code": "ABC123",
+  "installments": 3
+}
+```
+
+All metadata fields except `method` and `amount` remain optional.
+
+### POST `/finance/payments/{id}/reconcile`
+
+Requires `finance:reconcile` and `Idempotency-Key`.
+
+```json
+{
+  "received_amount": 120,
+  "fee_amount": 3.5,
+  "provider": "acquirer-name",
+  "external_ref": "settlement-batch-id",
+  "notes": "Conciliação do lote"
+}
+```
+
+The backend stores immutable reconciliation history. A gross received amount different from the sale payment marks the payment `divergent`; provider fees are tracked separately and do not change the original sale.
+
+### GET `/finance/refunds`
+
+Lists return refund obligations and derives `pending`, `partial`, or `settled` from the amount already paid back.
+
+### POST `/finance/returns/{id}/refunds`
+
+Requires `finance:reconcile` and `Idempotency-Key`.
+
+```json
+{
+  "method": "pix",
+  "amount": 15,
+  "provider": "bank-or-acquirer",
+  "external_ref": "refund-id",
+  "cash_session_id": "optional-open-session-id",
+  "notes": "Saldo devolvido ao cliente"
+}
+```
+
+The sum of settlements can never exceed the return's `refund_due`. Cash refunds require an open cash session, sufficient physical cash, and create a real cash withdrawal. Digital refunds may optionally be associated with an open session so the method-level cash close reconciliation uses the net value. Every settlement also creates a negative `return_refund` ledger entry.
+
 ## Fiscal
 
 ### POST `/fiscal/nfe/xml`
