@@ -54,6 +54,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 			pr.Route("/products", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("product:read")).Get("/", h.Products.List)
+				rr.With(middleware.RequirePermission("product:read")).Get("/barcode/{barcode}", h.Products.GetByBarcode)
 				rr.With(middleware.RequirePermission("product:read")).Get("/{id}", h.Products.Get)
 				rr.With(middleware.RequirePermission("product:write")).Post("/", h.Products.Create)
 				rr.With(middleware.RequirePermission("product:write")).Put("/{id}", h.Products.Update)
