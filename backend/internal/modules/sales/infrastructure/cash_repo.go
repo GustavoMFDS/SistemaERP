@@ -113,13 +113,23 @@ func (r *CashRepo) InsertMovement(ctx context.Context, tx db.DBTX, tenantID, ses
 
 func (r *CashRepo) SumPaymentsByMethod(ctx context.Context, tx db.DBTX, tenantID, sessionID string) (map[string]platform.Money, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT p.method, COALESCE(SUM(p.amount),0)::text
-		FROM sales s
-		JOIN payments p ON p.sale_id=s.id AND p.tenant_id=s.tenant_id
-		WHERE s.tenant_id=$1
-		  AND s.cash_session_id=$2
-		  AND s.status='finalized'
-		GROUP BY p.method
+		WITH method_totals AS (
+			SELECT p.method, p.amount
+			FROM sales s
+			JOIN payments p ON p.sale_id=s.id AND p.tenant_id=s.tenant_id
+			WHERE s.tenant_id=$1
+			  AND s.cash_session_id=$2
+			  AND s.status='finalized'
+			UNION ALL
+			SELECT rr.method, -rr.amount
+			FROM return_refunds rr
+			WHERE rr.tenant_id=$1
+			  AND rr.cash_session_id=$2
+			  AND rr.method <> 'cash'
+		)
+		SELECT method, COALESCE(SUM(amount),0)::text
+		FROM method_totals
+		GROUP BY method
 	`, tenantID, sessionID)
 	if err != nil {
 		return nil, err
