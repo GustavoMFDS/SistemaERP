@@ -117,7 +117,12 @@ func (r *CashRepo) CloseSession(ctx context.Context, tx db.DBTX, tenantID string
 
 func (r *CashRepo) GetSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID string) (sales.CashSession, error) {
 	var s sales.CashSession
-	err := tx.QueryRow(ctx, `SELECT id::text, cash_register_id::text, opened_by_user_id::text, status FROM cash_sessions WHERE tenant_id=$1 AND id=$2`, tenantID, sessionID).
+	err := tx.QueryRow(ctx, `
+		SELECT id::text, cash_register_id::text, opened_by_user_id::text, status
+		FROM cash_sessions
+		WHERE tenant_id=$1 AND id=$2
+		FOR UPDATE
+	`, tenantID, sessionID).
 		Scan(&s.ID, &s.RegisterID, &s.OpenedByUserID, &s.Status)
 	return s, err
 }
