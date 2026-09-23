@@ -4,9 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
+	fin "github.com/example/sistemaemgo/internal/modules/finance/domain"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
@@ -18,6 +20,7 @@ var cashReconciliationMethods = []string{"cash", "pix", "debit", "credit", "tran
 type CashService struct {
 	uow      db.UnitOfWork
 	cash     CashRepository
+	fin      FinanceRepository
 	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
@@ -40,8 +43,8 @@ type CashMovementRequest struct {
 	Notes  *string        `json:"notes"`
 }
 
-func NewCashService(uow db.UnitOfWork, cash CashRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *CashService {
-	return &CashService{uow: uow, cash: cash, audit: auditSvc, validate: v, logger: logger}
+func NewCashService(uow db.UnitOfWork, cash CashRepository, finRepo FinanceRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *CashService {
+	return &CashService{uow: uow, cash: cash, fin: finRepo, audit: auditSvc, validate: v, logger: logger}
 }
 
 func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
@@ -111,6 +114,26 @@ func (s *CashService) RecordMovement(ctx context.Context, tenantID, userID, sess
 	if err != nil {
 		return "", err
 	}
+
+	signedAmount := req.Amount
+	if req.Type == "withdrawal" {
+		signedAmount = -signedAmount
+	}
+	if s.fin != nil {
+		cashID := sessionID
+		actor := userID
+		if _, err := s.fin.InsertLedgerEntry(ctx, tx, tenantID, fin.LedgerEntry{
+			EntryType:      req.Type,
+			CashSessionID:  &cashID,
+			AmountGross:    signedAmount,
+			AmountNet:      signedAmount,
+			Notes:          req.Notes,
+			CreatedAt:      time.Now().Format(time.RFC3339),
+		}, &actor); err != nil {
+			return "", err
+		}
+	}
+
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
 		TenantID: tenantID, ActorUserID: userID, Action: "cash." + req.Type,
 		ResourceType: "cash_movement", ResourceID: id, Outcome: "success",
