@@ -102,17 +102,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS accounts_payable_tenant_purchase_unique
   ON accounts_payable(tenant_id, purchase_id)
   WHERE purchase_id IS NOT NULL;
 
-INSERT INTO permissions (id, code, description) VALUES
-  (gen_random_uuid(), 'purchase:read', 'Consultar fornecedores, compras e recebimentos'),
-  (gen_random_uuid(), 'purchase:write', 'Cadastrar fornecedores e compras'),
-  (gen_random_uuid(), 'purchase:receive', 'Receber compras e dar entrada no estoque')
-ON CONFLICT (code) DO NOTHING;
-
-INSERT INTO role_permissions(role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-JOIN permissions p ON p.code IN ('purchase:read','purchase:write','purchase:receive')
-WHERE r.name IN ('admin','manager')
-ON CONFLICT DO NOTHING;
-
 COMMIT;
