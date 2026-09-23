@@ -111,6 +111,25 @@ test('reconciles digital payments and settles return refunds without double-coun
       },
     )
 
+    let duplicateReconcileStatus = 0
+    try {
+      await apiJson(`/api/v1/finance/payments/${payment.id}/reconcile`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          received_amount: 20,
+          fee_amount: 1,
+          provider: 'e2e-provider',
+          external_ref: `SETTLE-SECOND-${suffix}`,
+          notes: 'segunda conciliacao deve falhar',
+        },
+      })
+      duplicateReconcileStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) duplicateReconcileStatus = error.status
+      else throw error
+    }
+
     const saleDetail = await apiJson<{
       items: Array<{ id: string }>
     }>(`/api/v1/sales/${sale.id}`)
@@ -265,6 +284,7 @@ test('reconciles digital payments and settles return refunds without double-coun
       reconciliationStatus: reconciliation.status,
       reconciliationReplaySameId: reconciliationReplay.id === reconciliation.id,
       reconciliationReplayFlag: reconciliationReplay.replayed,
+      duplicateReconcileStatus,
       paymentAfterStatus: paymentAfter.reconciliation_status,
       paymentAfterAmount: paymentAfter.reconciled_amount,
       paymentAfterFee: paymentAfter.reconciled_fee,
@@ -293,6 +313,7 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.reconciliationStatus).toBe('reconciled')
   expect(result.reconciliationReplaySameId).toBe(true)
   expect(result.reconciliationReplayFlag).toBe(true)
+  expect(result.duplicateReconcileStatus).toBe(409)
   expect(result.paymentAfterStatus).toBe('reconciled')
   expect(result.paymentAfterAmount).toBe(20)
   expect(result.paymentAfterFee).toBe(1)
