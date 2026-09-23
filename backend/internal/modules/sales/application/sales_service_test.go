@@ -202,7 +202,7 @@ func newSalesServiceFixture(stock platform.Quantity) (*SalesService, *fakeSalesR
 	productsRepo := &fakeProductsRepo{products: map[string]inv.Product{
 		"prod-1": {ID: "prod-1", Active: true, PriceCash: platform.NewMoneyCents(1000), CostPrice: platform.NewMoneyCents(600)},
 	}}
-	svc := NewSalesService(config.Config{}, fakeUOW{}, salesRepo, invRepo, fakeFinanceRepo{}, fakeCashRepo{}, productsRepo, nil, validator.New(), nil)
+	svc := NewSalesService(config.Config{}, fakeUOW{}, salesRepo, invRepo, fakeFinanceRepo{}, fakeCashRepo{}, productsRepo, nil, nil, validator.New(), nil)
 	return svc, salesRepo, invRepo, productsRepo
 }
 
