@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test'
 
-async function login(page: import('@playwright/test').Page) {
+async function login(
+  page: import('@playwright/test').Page,
+  email = 'admin@sistema.local',
+) {
   await page.goto('/login')
-  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/products$/)
@@ -208,4 +211,31 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
   await expect(page).toHaveURL(/\/purchases$/)
   await expect(page.getByText(`Fornecedor E2E ${suffix}`).first()).toBeVisible()
   await expect(page.getByText('Recebida', { exact: true }).first()).toBeVisible()
+})
+
+
+test('cashier cannot read procurement data', async ({ page }) => {
+  await login(page, 'caixa@sistema.local')
+  await expect(page.getByText('caixa@sistema.local')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Compras' })).toHaveCount(0)
+
+  const statuses = await page.evaluate(async () => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    const statusFor = async (path: string) => {
+      try {
+        await apiJson(path)
+        return 200
+      } catch (error) {
+        if (error instanceof APIError) return error.status
+        throw error
+      }
+    }
+    return {
+      suppliers: await statusFor('/api/v1/suppliers?limit=1&offset=0'),
+      purchases: await statusFor('/api/v1/purchases?limit=1&offset=0'),
+    }
+  })
+
+  expect(statuses.suppliers).toBe(403)
+  expect(statuses.purchases).toBe(403)
 })
