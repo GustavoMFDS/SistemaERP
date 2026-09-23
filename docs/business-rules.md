@@ -58,3 +58,10 @@
 - Carrinhos suspensos usam armazenamento escopado por tenant e usuário e não atravessam identidades no mesmo navegador.
 - O write-ahead offline continua ocorrendo somente no momento da finalização; suspender um carrinho não cria uma intenção de venda.
 - Comprovante impresso pela UI antes da integração fiscal real é sempre identificado como não fiscal.
+
+
+### Fechamento líquido de meios digitais
+
+- Dinheiro físico declarado nunca pode ser negativo.
+- Meios digitais podem ter saldo líquido negativo na sessão quando reembolsos vinculados à sessão excedem as vendas daquele método.
+- Nessa situação, o fechamento deve registrar o valor líquido negativo declarado e comparar diretamente com o esperado negativo, em vez de forçar zero e criar uma divergência artificial.
