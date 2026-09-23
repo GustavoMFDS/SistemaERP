@@ -16,7 +16,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
   const suffix = `${testInfo.project.name}-${crypto.randomUUID()}`.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 24)
 
   const result = await page.evaluate(async (suffix) => {
-    const { apiJson } = await import('/src/lib/api.ts')
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
 
     const productCreated = await apiJson<{ id: string }>('/api/v1/products', {
       method: 'POST',
@@ -32,6 +32,23 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
         promo_price: null,
         min_stock: 0,
         active: true,
+      },
+    })
+
+    const inactiveProduct = await apiJson<{ id: string }>('/api/v1/products', {
+      method: 'POST',
+      body: {
+        category_id: null,
+        sku: `E2E-INACTIVE-PURCHASE-${suffix}`,
+        barcode: null,
+        name: `Produto Inativo Compra E2E ${suffix}`,
+        description: null,
+        unit: 'UN',
+        cost_price: 5,
+        price_cash: 10,
+        promo_price: null,
+        min_stock: 0,
+        active: false,
       },
     })
 
@@ -63,6 +80,25 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
         active: true,
       },
     })
+
+    let inactiveProductPurchaseStatus = 0
+    try {
+      await apiJson('/api/v1/purchases', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          supplier_id: supplier.id,
+          invoice_number: null,
+          payment_due_date: null,
+          notes: 'Produto inativo deve falhar',
+          items: [{ product_id: inactiveProduct.id, qty: 1, unit_cost: 5 }],
+        },
+      })
+      inactiveProductPurchaseStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) inactiveProductPurchaseStatus = error.status
+      else throw error
+    }
 
     const purchaseKey = crypto.randomUUID()
     const purchase = await apiJson<{ id: string; status: string; replayed: boolean }>('/api/v1/purchases', {
@@ -171,6 +207,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
       supplierReplayFlag: supplierReplay.replayed,
       purchaseReplaySameId: purchaseReplay.id === purchase.id,
       purchaseReplayFlag: purchaseReplay.replayed,
+      inactiveProductPurchaseStatus,
       beforeQty: before.items[0].qty_on_hand,
       partialStatus: partial.status,
       partialReplaySameReceipt: partialReplay.receipt_id === partial.receipt_id,
@@ -194,6 +231,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
   expect(result.supplierReplayFlag).toBe(true)
   expect(result.purchaseReplaySameId).toBe(true)
   expect(result.purchaseReplayFlag).toBe(true)
+  expect(result.inactiveProductPurchaseStatus).toBe(422)
   expect(result.beforeQty).toBe(0)
   expect(result.partialStatus).toBe('partially_received')
   expect(result.partialReplaySameReceipt).toBe(true)
