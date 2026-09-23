@@ -96,7 +96,7 @@ critical_tables="$(
         'inventory_balances','inventory_movements','cash_sessions','cash_movements',
         'sales','sale_items','payments','suppliers','purchases','purchase_receipts',
         'sale_returns','sale_return_items','return_refunds','payment_reconciliations',
-        'finance_ledger','audit_logs','idempotency_keys'
+        'ledger_entries','audit_logs','idempotency_keys'
       );
   "
 )"
