@@ -73,7 +73,6 @@ export default function ReturnsPage() {
     if (!id) return
     setLoading(true)
     setError('')
-    setResult(null)
     try {
       const data = await apiJson<SaleDetail>(`/api/v1/sales/${encodeURIComponent(id)}`)
       setDetail(data)
