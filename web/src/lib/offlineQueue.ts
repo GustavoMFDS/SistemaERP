@@ -210,6 +210,7 @@ export function retryQueueItem(id: string): boolean {
   const queue = loadQueue()
   const item = queue.find((candidate) => candidate.id === id)
   if (!item || item.state !== 'attention') return false
+  if (item.attentionReason === 'retention_unknown') return false
 
   const intentCreatedAt = item.intentCreatedAt ?? item.createdAt
   if (Date.now() - intentCreatedAt > SAFE_MANUAL_REPLAY_MS) {
@@ -262,6 +263,7 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   const item = queue.find((candidate) => candidate.id === id)
   if (!item || item.state !== 'attention' || !item.path.includes('/api/v1/sales')) return false
   if (!item.body || typeof item.body !== 'object') return false
+  if (item.attentionReason === 'retention_unknown') return false
 
   const intentCreatedAt = item.intentCreatedAt ?? item.createdAt
   if (Date.now() - intentCreatedAt > SAFE_MANUAL_REPLAY_MS) {
