@@ -102,6 +102,10 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/finance", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("finance:read")).Get("/dashboard", h.Finance.Dashboard)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/ledger", h.Finance.ListLedger)
+				rr.With(middleware.RequirePermission("finance:read")).Get("/payments", h.Finance.ListPayments)
+				rr.With(middleware.RequirePermission("finance:reconcile")).Post("/payments/{id}/reconcile", h.Finance.ReconcilePayment)
+				rr.With(middleware.RequirePermission("finance:read")).Get("/refunds", h.Finance.ListRefunds)
+				rr.With(middleware.RequirePermission("finance:reconcile")).Post("/returns/{id}/refunds", h.Finance.SettleRefund)
 			})
 
 			if mods.Fiscal != nil {
