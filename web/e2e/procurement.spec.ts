@@ -30,7 +30,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
         min_stock: 0,
         active: true,
       },
-    }, suffix)
+    })
 
     const supplierKey = crypto.randomUUID()
     const supplier = await apiJson<{ id: string; replayed: boolean }>('/api/v1/suppliers', {
@@ -185,7 +185,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
           movement.reference_type === 'purchase_receipt',
       ).length,
     }
-  })
+  }, suffix)
 
   expect(result.supplierReplaySameId).toBe(true)
   expect(result.supplierReplayFlag).toBe(true)
