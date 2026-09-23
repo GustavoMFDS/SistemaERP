@@ -63,7 +63,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v18 migration upgrade and rollback
+      - name: Verify v12 to v19 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -302,6 +302,38 @@ jobs:
             -path=/migrations \
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             down 1
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0018 -> 0019, verify returns schema, dedicated permission,
+          # immutable idempotency and rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('sale_returns','sale_return_items','return_idempotency_keys') ORDER BY table_name;" \
+            -c "SELECT code FROM permissions WHERE code='sale:return';" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('sale_returns_sale_tenant_fk','sale_return_items_return_tenant_fk','sale_return_items_sale_item_tenant_fk','sale_return_items_product_tenant_fk','return_idempotency_return_tenant_fk') ORDER BY conname;" \
+            -c "SELECT tgname FROM pg_trigger WHERE tgrelid='return_idempotency_keys'::regclass AND tgname='return_idempotency_keys_immutable';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT count(*) FROM permissions WHERE code='sale:return';"
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
