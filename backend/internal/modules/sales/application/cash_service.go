@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
@@ -10,6 +11,8 @@ import (
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
 )
+
+var cashReconciliationMethods = []string{"cash", "pix", "debit", "credit", "transfer", "voucher"}
 
 type CashService struct {
 	uow      db.UnitOfWork
@@ -24,8 +27,15 @@ type CashOpenRequest struct {
 }
 
 type CashCloseRequest struct {
-	ClosingAmount platform.Money `json:"closing_amount" validate:"min=0"`
-	Notes         *string        `json:"notes"`
+	ClosingAmount   platform.Money            `json:"closing_amount" validate:"min=0"`
+	ClosingByMethod map[string]platform.Money `json:"closing_by_method,omitempty"`
+	Notes           *string                   `json:"notes"`
+}
+
+type CashMovementRequest struct {
+	Type   string         `json:"movement_type" validate:"required,oneof=supply withdrawal"`
+	Amount platform.Money `json:"amount" validate:"required,gt=0"`
+	Notes  *string        `json:"notes"`
 }
 
 func NewCashService(uow db.UnitOfWork, cash CashRepository, v *validator.Validate, logger *slog.Logger) *CashService {
@@ -56,30 +66,140 @@ func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID s
 	return id, nil
 }
 
+func (s *CashService) RecordMovement(ctx context.Context, tenantID, userID, sessionID string, req CashMovementRequest) (string, error) {
+	req.Type = strings.TrimSpace(req.Type)
+	if err := s.validate.Struct(req); err != nil {
+		return "", common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	session, err := s.cash.GetSession(ctx, tx, tenantID, sessionID)
+	if err != nil || session.Status != "open" {
+		return "", common.ErrCashSessionClosed
+	}
+
+	if req.Type == "withdrawal" {
+		payments, err := s.cash.SumPaymentsByMethod(ctx, tx, tenantID, sessionID)
+		if err != nil {
+			return "", err
+		}
+		supply, withdrawal, err := s.cash.SumMovements(ctx, tx, tenantID, sessionID)
+		if err != nil {
+			return "", err
+		}
+		available := session.OpeningAmount.Add(payments["cash"]).Add(supply).Sub(withdrawal)
+		if req.Amount > available {
+			return "", common.ErrInsufficientCash
+		}
+	}
+
+	id, err := s.cash.InsertMovement(ctx, tx, tenantID, sessionID, userID, req.Type, req.Amount, req.Notes)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID, sessionID string, req CashCloseRequest) (sales.CashCloseResult, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return sales.CashCloseResult{}, common.ErrValidation
 	}
+	for method, amount := range req.ClosingByMethod {
+		if !isCashReconciliationMethod(method) || amount < 0 {
+			return sales.CashCloseResult{}, common.ErrValidation
+		}
+	}
+
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return sales.CashCloseResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// This row lock serializes sales, movements, cancellations and closure.
+	// It is intentionally acquired in a separate statement so the aggregate
+	// queries below get a fresh READ COMMITTED snapshot after any waiter.
 	session, err := s.cash.GetSession(ctx, tx, tenantID, sessionID)
-	if err != nil {
-		return sales.CashCloseResult{}, common.ErrCashSessionClosed
-	}
-	if session.Status != "open" {
+	if err != nil || session.Status != "open" {
 		return sales.CashCloseResult{}, common.ErrCashSessionClosed
 	}
 
-	result, err := s.cash.CloseSession(ctx, tx, tenantID, sessionID, userID, req.ClosingAmount, req.Notes)
+	payments, err := s.cash.SumPaymentsByMethod(ctx, tx, tenantID, sessionID)
 	if err != nil {
 		return sales.CashCloseResult{}, err
 	}
+	supply, withdrawal, err := s.cash.SumMovements(ctx, tx, tenantID, sessionID)
+	if err != nil {
+		return sales.CashCloseResult{}, err
+	}
+
+	expected := make(map[string]platform.Money, len(cashReconciliationMethods))
+	for _, method := range cashReconciliationMethods {
+		expected[method] = payments[method]
+	}
+	expected["cash"] = session.OpeningAmount.Add(payments["cash"]).Add(supply).Sub(withdrawal)
+
+	declared := make(map[string]platform.Money, len(cashReconciliationMethods))
+	if len(req.ClosingByMethod) == 0 {
+		// Legacy clients only declare physical cash. Non-cash methods are
+		// considered system-confirmed until the client adopts per-method close.
+		for _, method := range cashReconciliationMethods {
+			declared[method] = expected[method]
+		}
+	} else {
+		for _, method := range cashReconciliationMethods {
+			declared[method] = req.ClosingByMethod[method]
+		}
+	}
+	declared["cash"] = req.ClosingAmount
+
+	if err := s.cash.CloseSession(
+		ctx,
+		tx,
+		tenantID,
+		sessionID,
+		userID,
+		expected["cash"],
+		req.ClosingAmount,
+		req.Notes,
+	); err != nil {
+		return sales.CashCloseResult{}, err
+	}
+	if err := s.cash.SaveReconciliation(ctx, tx, tenantID, sessionID, expected, declared); err != nil {
+		return sales.CashCloseResult{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return sales.CashCloseResult{}, err
 	}
-	return result, nil
+
+	difference := make(map[string]platform.Money, len(cashReconciliationMethods))
+	for _, method := range cashReconciliationMethods {
+		difference[method] = declared[method].Sub(expected[method])
+	}
+	return sales.CashCloseResult{
+		ExpectedCash:       expected["cash"],
+		ClosingAmount:      req.ClosingAmount,
+		ClosingDifference:  req.ClosingAmount.Sub(expected["cash"]),
+		ExpectedByMethod:   expected,
+		DeclaredByMethod:   declared,
+		DifferenceByMethod: difference,
+	}, nil
+}
+
+func isCashReconciliationMethod(method string) bool {
+	for _, candidate := range cashReconciliationMethods {
+		if method == candidate {
+			return true
+		}
+	}
+	return false
 }
