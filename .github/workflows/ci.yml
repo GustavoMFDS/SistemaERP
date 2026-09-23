@@ -7,7 +7,7 @@ on:
 
 jobs:
   backend:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: backend
@@ -33,7 +33,7 @@ jobs:
       - run: go vet ./...
 
   frontend:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: web
@@ -50,7 +50,7 @@ jobs:
       - run: npm run build
 
   integration:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -262,7 +262,7 @@ jobs:
           exit 1
 
   e2e:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -326,7 +326,7 @@ jobs:
         run: npx playwright test
 
   security:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -364,7 +364,7 @@ jobs:
 
 
   e2e-prodlike:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
