@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
@@ -11,6 +11,7 @@ type MeResponse = {
   email: string
   name: string
   roles: string[]
+  permissions: string[]
 }
 
 function classNames(...xs: Array<string | false | undefined>): string {
@@ -38,19 +39,16 @@ export default function Layout() {
     }
   }, [])
 
-  const nav = useMemo(
-    () =>
-      [
-        { to: '/products', label: 'Produtos' },
-        { to: '/inventory', label: 'Estoque' },
-        { to: '/purchases', label: 'Compras' },
-        { to: '/returns', label: 'Devoluções/Trocas' },
-        { to: '/pdv', label: 'PDV' },
-        { to: '/finance', label: 'Financeiro' },
-        { to: '/fiscal', label: 'Fiscal (XML)' },
-      ] as const,
-    [],
-  )
+  const permissionSet = new Set(me?.permissions ?? [])
+  const nav = [
+    { to: '/products', label: 'Produtos', permission: 'product:read' },
+    { to: '/inventory', label: 'Estoque', permission: 'inventory:read' },
+    { to: '/purchases', label: 'Compras', permission: 'procurement:read' },
+    { to: '/returns', label: 'Devoluções/Trocas', permission: 'sale:return' },
+    { to: '/pdv', label: 'PDV', permission: 'sale:write' },
+    { to: '/finance', label: 'Financeiro', permission: 'finance:read' },
+    { to: '/fiscal', label: 'Fiscal (XML)', permission: 'invoice:read' },
+  ].filter((item) => permissionSet.has(item.permission))
 
   async function logout() {
     if (loggingOut) return
