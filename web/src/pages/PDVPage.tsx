@@ -601,7 +601,7 @@ export default function PDVPage() {
             type="submit"
             className="mt-5 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white"
           >
-            Adicionar
+            Ler código
           </button>
         </form>
         <p className="mt-1 text-xs text-gray-500">
