@@ -11,6 +11,7 @@ export type AttentionReason =
 export type QueuedRequest = {
   id: string
   createdAt: number
+  intentCreatedAt?: number
   method: string
   path: string
   body?: unknown
@@ -84,6 +85,10 @@ function loadQueue(): QueuedRequest[] {
       item.state = 'pending'
       changed = true
     }
+    if (typeof item.intentCreatedAt !== 'number') {
+      item.intentCreatedAt = item.createdAt
+      changed = true
+    }
     if (item.state === 'pending' && now - item.createdAt > QUEUE_TTL_MS) {
       item.state = 'attention'
       item.attentionReason = 'expired'
@@ -142,6 +147,7 @@ export function claimLegacyQueue(): number {
     current.push({
       id: crypto.randomUUID(),
       createdAt: old.createdAt,
+      intentCreatedAt: old.intentCreatedAt ?? old.createdAt,
       method: old.method,
       path: old.path,
       body: sanitizeQueuedBody(old.path, old.body),
@@ -171,9 +177,11 @@ export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt' | 'st
   if (req.path.includes('/api/v1/sales') && !headers['Idempotency-Key']) {
     headers['Idempotency-Key'] = id
   }
+  const createdAt = Date.now()
   const next: QueuedRequest = {
     id,
-    createdAt: Date.now(),
+    createdAt,
+    intentCreatedAt: createdAt,
     method: req.method,
     path: req.path,
     body: sanitizeQueuedBody(req.path, req.body),
@@ -191,7 +199,8 @@ export function retryQueueItem(id: string): boolean {
   const item = queue.find((candidate) => candidate.id === id)
   if (!item || item.state !== 'attention') return false
 
-  if (Date.now() - item.createdAt > SAFE_MANUAL_REPLAY_MS) {
+  const intentCreatedAt = item.intentCreatedAt ?? item.createdAt
+  if (Date.now() - intentCreatedAt > SAFE_MANUAL_REPLAY_MS) {
     item.attentionReason = 'retention_expired'
     item.lastError =
       'Venda antiga demais para reenvio idempotente seguro. Confira no servidor antes de descartar ou lançar um ajuste manual.'
@@ -201,9 +210,8 @@ export function retryQueueItem(id: string): boolean {
   }
 
   item.state = 'pending'
-  // Preserve original createdAt so the replay-safety age cannot be reset by
-  // repeated manual retry attempts.
-  item.lastAttemptAt = Date.now()
+  item.createdAt = Date.now()
+  item.lastAttemptAt = item.createdAt
   delete item.attentionReason
   delete item.lastError
   saveQueue(queue)
@@ -243,7 +251,8 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   if (!item || item.state !== 'attention' || !item.path.includes('/api/v1/sales')) return false
   if (!item.body || typeof item.body !== 'object') return false
 
-  if (Date.now() - item.createdAt > SAFE_MANUAL_REPLAY_MS) {
+  const intentCreatedAt = item.intentCreatedAt ?? item.createdAt
+  if (Date.now() - intentCreatedAt > SAFE_MANUAL_REPLAY_MS) {
     item.attentionReason = 'retention_expired'
     item.lastError =
       'Venda antiga demais para rebind/reenvio idempotente seguro. Confira no servidor antes de qualquer ajuste.'
@@ -261,7 +270,8 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   if (!headers['Idempotency-Key']) headers['Idempotency-Key'] = item.id
   item.headers = headers
   item.state = 'pending'
-  item.lastAttemptAt = Date.now()
+  item.createdAt = Date.now()
+  item.lastAttemptAt = item.createdAt
   delete item.attentionReason
   delete item.lastError
   saveQueue(queue)
