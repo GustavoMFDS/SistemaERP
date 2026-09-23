@@ -43,6 +43,7 @@ npm run build
 | Invalid refresh cookie | Attempt refresh with an invalid/expired refresh token. | Backend returns `401` and expires the invalid browser cookie. |
 | Cash lifecycle | Open a cash session, attempt a second open, close it, close again, then reopen. | Second open and second close return conflict; reopen after valid close succeeds. |
 | Cash reconciliation | Open with known amount, create a cash-method sale, close with a declared difference. | Response/database contain expected cash, declared amount and difference; `cash.open`/`cash.close` audit events exist with reconciliation metadata. |
+| Barcode scanner | In PDV, scan a known barcode twice using a keyboard-mode USB/Bluetooth scanner or type the code and press Enter twice. | The first scan adds the product; the second increments the same cart line to quantity 2. Unknown offline codes are rejected without inventing a product. |
 | Sale creation | Create a sale with valid stock and payment. | Backend calculates totals; inventory decreases; finance/audit entries exist. |
 | Sale double-submit | Trigger `Finalizar` twice in the same interaction window. | Exactly one sale POST and one idempotency key are emitted; sale count increases once. |
 | Sale write-ahead failure | Make queue `localStorage.setItem` fail before finalization. | No sale POST leaves the browser; operator sees that no sale was sent. |
