@@ -25,7 +25,7 @@ Criterios de aceite:
 - contas a pagar/ledger quando aplicavel;
 - auditoria e isolamento por tenant.
 
-## 4. Trocas e devolucoes
+## 4. Trocas e devolucoes — implementado na branch
 
 - devolucao total/parcial de venda;
 - motivo e operador responsavel;
