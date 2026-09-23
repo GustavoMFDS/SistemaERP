@@ -36,6 +36,11 @@ func (h *ProductsHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao listar produtos", nil)
 		return
 	}
+	if !middleware.HasPermission(r.Context(), "finance:read") {
+		for i := range items {
+			items[i].CostPrice = 0
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
 }
 
@@ -50,6 +55,9 @@ func (h *ProductsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
 		return
+	}
+	if !middleware.HasPermission(r.Context(), "finance:read") {
+		p.CostPrice = 0
 	}
 	writeJSON(w, http.StatusOK, p)
 }
