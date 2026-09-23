@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS payment_reconciliations (
   CONSTRAINT payment_reconciliation_payment_tenant_fk
     FOREIGN KEY (tenant_id, payment_id) REFERENCES payments(tenant_id, id) ON DELETE RESTRICT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS payment_reconciliations_tenant_payment_unique
+  ON payment_reconciliations(tenant_id, payment_id);
 CREATE INDEX IF NOT EXISTS payment_reconciliations_tenant_payment_created_idx
   ON payment_reconciliations(tenant_id, payment_id, created_at DESC);
 
