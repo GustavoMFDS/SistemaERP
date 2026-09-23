@@ -2,7 +2,11 @@ import { APIError, apiJson, errorMessage } from './api'
 import { scopedStorageKey } from './auth'
 
 export type QueueState = 'pending' | 'attention'
-export type AttentionReason = 'expired' | 'request_rejected' | 'legacy_migration'
+export type AttentionReason =
+  | 'expired'
+  | 'request_rejected'
+  | 'legacy_migration'
+  | 'retention_expired'
 
 export type QueuedRequest = {
   id: string
@@ -26,6 +30,10 @@ export type QueueSummary = {
 const LEGACY_QUEUE_KEY = 'sistemaemgo:offlineQueue:v1'
 const QUEUE_NAMESPACE = 'sistemaemgo:offlineQueue:v2'
 const QUEUE_TTL_MS = 24 * 60 * 60 * 1000
+// Server idempotency records are retained for 30 days. Keep the browser
+// replay window shorter so clock skew/maintenance cannot delete the server
+// key immediately before a manual retry.
+const SAFE_MANUAL_REPLAY_MS = 28 * 24 * 60 * 60 * 1000
 
 function queueKey(): string | null {
   return scopedStorageKey(QUEUE_NAMESPACE)
@@ -183,8 +191,18 @@ export function retryQueueItem(id: string): boolean {
   const item = queue.find((candidate) => candidate.id === id)
   if (!item || item.state !== 'attention') return false
 
+  if (Date.now() - item.createdAt > SAFE_MANUAL_REPLAY_MS) {
+    item.attentionReason = 'retention_expired'
+    item.lastError =
+      'Venda antiga demais para reenvio idempotente seguro. Confira no servidor antes de descartar ou lançar um ajuste manual.'
+    item.lastAttemptAt = Date.now()
+    saveQueue(queue)
+    return false
+  }
+
   item.state = 'pending'
-  item.createdAt = Date.now()
+  // Preserve original createdAt so the replay-safety age cannot be reset by
+  // repeated manual retry attempts.
   item.lastAttemptAt = Date.now()
   delete item.attentionReason
   delete item.lastError
@@ -225,6 +243,15 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   if (!item || item.state !== 'attention' || !item.path.includes('/api/v1/sales')) return false
   if (!item.body || typeof item.body !== 'object') return false
 
+  if (Date.now() - item.createdAt > SAFE_MANUAL_REPLAY_MS) {
+    item.attentionReason = 'retention_expired'
+    item.lastError =
+      'Venda antiga demais para rebind/reenvio idempotente seguro. Confira no servidor antes de qualquer ajuste.'
+    item.lastAttemptAt = Date.now()
+    saveQueue(queue)
+    return false
+  }
+
   const body = item.body as Record<string, unknown>
   item.body = { ...body, cash_session_id: normalizedCashSessionId }
   const headers = sanitizeQueuedHeaders(item.headers)
@@ -234,7 +261,6 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   if (!headers['Idempotency-Key']) headers['Idempotency-Key'] = item.id
   item.headers = headers
   item.state = 'pending'
-  item.createdAt = Date.now()
   item.lastAttemptAt = Date.now()
   delete item.attentionReason
   delete item.lastError
