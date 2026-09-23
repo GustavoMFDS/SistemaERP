@@ -392,9 +392,7 @@ jobs:
           apk add --no-cache openssl >/dev/null
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=SistemaEmGo CI CA" -keyout /tls/ca.key -out /tls/ca.crt
           openssl req -newkey rsa:2048 -nodes -subj "/CN=127.0.0.1" -keyout /tls/server.key -out /tls/server.csr
-          printf "subjectAltName=IP:127.0.0.1,DNS:pg-staging,DNS:redis-staging,DNS:host.docker.internal
-extendedKeyUsage=serverAuth
-" > /tls/server.ext
+          printf '%s\\n' 'subjectAltName=IP:127.0.0.1,DNS:pg-staging,DNS:redis-staging,DNS:host.docker.internal' 'extendedKeyUsage=serverAuth' > /tls/server.ext
           openssl x509 -req -days 1 -in /tls/server.csr -CA /tls/ca.crt -CAkey /tls/ca.key -CAcreateserial -extfile /tls/server.ext -out /tls/server.crt
           chown 999:999 /tls/server.key /tls/server.crt /tls/ca.crt
           chmod 600 /tls/server.key
