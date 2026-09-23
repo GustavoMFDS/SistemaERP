@@ -21,6 +21,12 @@ import {
   setCashSessionId,
   scopedStorageKey,
 } from '../lib/auth'
+import {
+  getSuspendedCarts,
+  removeSuspendedCart,
+  suspendCart,
+  type SuspendedCart,
+} from '../lib/suspendedCart'
 
 type Product = {
   id: string
@@ -29,7 +35,12 @@ type Product = {
   unit: string
   barcode?: string | null
   price_cash: number
+  qty_on_hand?: number
   active: boolean
+}
+
+type MeResponse = {
+  permissions?: string[]
 }
 
 type ProductsListResponse = { items: Product[]; total: number }
@@ -92,9 +103,14 @@ export default function PDVPage() {
 
   const [barcodeScan, setBarcodeScan] = useState('')
   const barcodeInputRef = useRef<HTMLInputElement>(null)
+  const productSearchRef = useRef<HTMLInputElement>(null)
+  const [productQuery, setProductQuery] = useState('')
   const [itemProductId, setItemProductId] = useState('')
   const [itemQty, setItemQty] = useState<number>(1)
   const [items, setItems] = useState<SaleItem[]>([])
+  const [saleDiscount, setSaleDiscount] = useState(0)
+  const [canDiscount, setCanDiscount] = useState(false)
+  const [suspendedCarts, setSuspendedCarts] = useState<SuspendedCart[]>(getSuspendedCarts())
 
   const [payMethod, setPayMethod] = useState('pix')
   const [saleId, setSaleId] = useState('')
@@ -117,11 +133,20 @@ export default function PDVPage() {
     return map
   }, [products])
 
+  const filteredProducts = useMemo(() => {
+    const q = productQuery.trim().toLowerCase()
+    if (!q) return products
+    return products.filter((p) =>
+      [p.sku, p.name, p.barcode ?? ''].some((value) => value.toLowerCase().includes(q)),
+    )
+  }, [products, productQuery])
+
   const computedTotal = useMemo(() => {
     let t = 0
     for (const it of items) t += it.unit_price * it.qty - it.discount_value
+    t -= canDiscount ? saleDiscount : 0
     return Math.max(0, Math.round(t * 100) / 100)
-  }, [items])
+  }, [items, saleDiscount, canDiscount])
 
   function refreshPending() {
     const summary = getQueueSummary()
