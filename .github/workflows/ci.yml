@@ -295,6 +295,8 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
             -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('suppliers','purchases','purchase_items','purchase_receipts','purchase_receipt_items','procurement_idempotency_keys') ORDER BY table_name;" \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='accounts_payable' AND column_name IN ('supplier_id','purchase_id') ORDER BY column_name;" \
+            -c "SELECT code FROM permissions WHERE code IN ('procurement:read','procurement:write','procurement:receive') ORDER BY code;" \
+            -c "SELECT r.name, p.code FROM roles r JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id WHERE r.name IN ('admin','manager') AND p.code IN ('procurement:read','procurement:write','procurement:receive') ORDER BY r.name,p.code;" \
             -c "SELECT conname FROM pg_constraint WHERE conname IN ('purchases_supplier_tenant_fk','purchase_items_purchase_tenant_fk','purchase_items_product_tenant_fk','purchase_receipts_purchase_tenant_fk','purchase_receipt_items_receipt_tenant_fk','purchase_receipt_items_purchase_item_tenant_fk','purchase_receipt_items_product_tenant_fk','accounts_payable_supplier_tenant_fk','accounts_payable_purchase_tenant_fk') ORDER BY conname;" \
             -c "SELECT tgname FROM pg_trigger WHERE tgrelid='procurement_idempotency_keys'::regclass AND tgname='procurement_idempotency_keys_immutable';"
 
@@ -304,6 +306,12 @@ jobs:
             -path=/migrations \
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             down 1
+
+          PROCUREMENT_PERMISSION_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM permissions WHERE code IN ('procurement:read','procurement:write','procurement:receive');" | tr -d '[:space:]')"
+          if [ "$PROCUREMENT_PERMISSION_COUNT" != "0" ]; then
+            echo "rollback 0018 left procurement permissions behind"
+            exit 1
+          fi
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
