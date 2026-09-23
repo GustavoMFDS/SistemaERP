@@ -56,6 +56,9 @@ npm run build
 | Inventory update | Adjust stock with authorized role. | Movement and balance updated for authenticated tenant only. |
 | Fiscal generation | Generate fiscal XML for a sale. | Fiscal record/XML reference created; audit event without full XML payload. |
 | Fiscal access/download | Download fiscal XML as authorized fiscal role. | XML returned; access audited; unauthorized role denied. |
+| Payment reconciliation | Create a PIX/card sale, reconcile it with received amount, fee, provider and external reference, then replay the same idempotency key. | Reconciliation history is written once; replay returns the original result; payment shows reconciled/divergent state without changing the sale. |
+| Return refund settlement | Create a return with refund due, settle part in cash and the remainder by PIX, replay one settlement, then try to exceed the remaining amount. | Cash withdrawal is recorded once; digital refund can be tied to the session; refund moves pending → partial → settled; over-refund returns conflict; ledger contains negative return_refund entries. |
+| Net method close | In one open session, create a PIX R$20 sale, refund R$15 PIX tied to that session and R$5 cash. | Closing expects PIX R$5 and physical cash reduced by the R$5 withdrawal, with no double subtraction. |
 | Finance listing | Open dashboard/list ledger entries. | Tenant-scoped results only; pagination remains usable. |
 | Audit log listing | Query audit logs as admin/audit role. | Tenant-scoped sanitized metadata returned; unauthorized role denied. |
 | Privacy request create | Create a data subject request. | Request stored under authenticated tenant; audit event exists. |
@@ -81,7 +84,7 @@ npm run build
 | Procurement retry idempotency | Repeat supplier creation, purchase creation, and a 1.5-unit receipt with the exact same Idempotency-Key and body. | Replays return the original resource with replayed=true; only one supplier/order/receipt is created and stock is credited once. Reusing a key with a different body returns 409. |
 | Purchase partial receiving | Create a purchase for 4 units without receiving it, then receive 1.5 and later 2.5. | Stock is unchanged at purchase creation, rises by 1.5 on the first receipt and reaches 4 on the second; purchase status moves ordered → partially_received → received; two purchase receipt movements exist. |
 | Purchase tenant isolation | Create suppliers/purchases in two tenants and try cross-tenant direct lookup. | Same supplier document may exist in different tenants; same-tenant duplicates are rejected; cross-tenant purchase lookup is not found. |
-| Migration upgrade/rollback | Upgrade a populated v12 DB through v13/v14/v15/v16, roll back/reapply, inject duplicate open cash sessions for v13 and reconcile. | v13 rejects duplicate-open data explicitly; v14 cash-reconciliation columns survive down/up; v17 barcode index and v18 procurement tables/AP links are present after reapply. |
+| Migration upgrade/rollback | Upgrade a populated v12 DB through v20, roll back/reapply, inject duplicate open cash sessions for v13 and reconcile. | v13 rejects duplicate-open data explicitly; v14 cash-reconciliation columns survive down/up; v17 barcode, v18 procurement, v19 returns and v20 payment-reconciliation/refund schema are present after reapply. |
 | Redis limiter atomicity | Exercise the real Redis limiter repeatedly and inspect PTTL. | Requests are counted correctly and the rate-limit key always retains a positive TTL. |
 | Redis limiter outage | Exercise a production-configured limiter with Redis unavailable. | Sensitive request returns `503 service_unavailable`; it does not silently fall back to a node-local allowance. |
 
