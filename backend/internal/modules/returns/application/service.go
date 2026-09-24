@@ -83,16 +83,6 @@ func requestHash(req CreateRequest, saleID string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func roundDiv(n, d int64) int64 {
-	if d == 0 {
-		return 0
-	}
-	if n < 0 {
-		return -roundDiv(-n, d)
-	}
-	return (n + d / 2) / d
-}
-
 func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, idempotencyKey string, req CreateRequest) (string, platform.Money, bool, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	saleID = strings.TrimSpace(saleID)
@@ -152,13 +142,16 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 
 	itemByID := make(map[string]salesItemView, len(saleItems))
 	itemIDs := make([]string, 0, len(saleItems))
-	var totalBasis int64
+	var totalBasis platform.Money
 	for _, item := range saleItems {
 		itemByID[item.ID] = salesItemView{
 			ID: item.ID, ProductID: item.ProductID, Qty: item.Qty, Subtotal: item.Subtotal,
 		}
 		itemIDs = append(itemIDs, item.ID)
-		totalBasis += item.Subtotal.Cents()
+		totalBasis, err = totalBasis.AddChecked(item.Subtotal)
+		if err != nil {
+			return "", 0, false, common.ErrValidation
+		}
 	}
 	if totalBasis <= 0 {
 		return "", 0, false, common.ErrConflict
@@ -194,9 +187,23 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 		newReturnedQty := alreadyReturned[item.ID] + requested.Qty
 		alreadyReturned[item.ID] = newReturnedQty
 
-		returnedLineBasis := roundDiv(item.Subtotal.Cents() * requested.Qty.Milli(), item.Qty.Milli())
-		itemRefund := platform.NewMoneyCents(roundDiv(sale.Total.Cents() * returnedLineBasis, totalBasis))
-		refundDue = refundDue.Add(itemRefund)
+		returnedLineBasis, calcErr := platform.MulDivRound(
+			item.Subtotal.Cents(), requested.Qty.Milli(), item.Qty.Milli(),
+		)
+		if calcErr != nil {
+			return "", 0, false, common.ErrValidation
+		}
+		itemRefundCents, calcErr := platform.MulDivRound(
+			sale.Total.Cents(), returnedLineBasis, totalBasis.Cents(),
+		)
+		if calcErr != nil {
+			return "", 0, false, common.ErrValidation
+		}
+		itemRefund := platform.NewMoneyCents(itemRefundCents)
+		refundDue, calcErr = refundDue.AddChecked(itemRefund)
+		if calcErr != nil {
+			return "", 0, false, common.ErrValidation
+		}
 		resultItems = append(resultItems, ret.Item{
 			SaleItemID: item.ID, ProductID: item.ProductID, Qty: requested.Qty,
 			Restock: requested.Restock, RefundValue: itemRefund,
