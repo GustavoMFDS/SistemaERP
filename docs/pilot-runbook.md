@@ -41,7 +41,19 @@ All items are mandatory before operator training.
 - [ ] Monitoring/alerts active for API, PostgreSQL, Redis, errors, and storage.
 - [ ] Owner/accountant understands the fiscal boundary of this pilot.
 
-Run the read-only preflight described in scripts/pilot-readiness.sh before proceeding.
+Run the read-only preflight against the exact tenant selected for the pilot:
+
+```bash
+APP_ENV=staging \
+API_BASE_URL=https://pilot.example.com \
+DATABASE_URL='postgres://...' \
+PILOT_TENANT_ID='<uuid-da-loja-piloto>' \
+FISCAL_PROVIDER=disabled \
+ALLOW_DEMO_SEED=0 \
+./scripts/pilot-readiness.sh
+```
+
+`PILOT_TENANT_ID` is mandatory. User, membership and permission checks are evaluated only for that tenant, so another configured store cannot make the target store appear ready.
 
 A successful preflight does not replace the manual checks above.
 
