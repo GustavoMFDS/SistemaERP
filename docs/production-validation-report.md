@@ -4,6 +4,8 @@
 ## Revalidation — 2026-09-23 (retail roadmap integration / static hardening)
 
 - Integration PR: #15, `ops/pilot-readiness-20260923` → `main`.
+- Current reviewed HEAD: `2b123b97e9e11c5e66355b4f09ccb0af47d248bf`.
+- Latest blocked run on this exact HEAD: GitHub Actions `35950196234`; all six required jobs completed as failure with zero executed steps and no assigned runner.
 - Scope integrated: barcode/PDV scanner, suppliers and purchases, partial receiving, returns/exchanges, payment reconciliation/refunds, PDV shortcuts/suspended carts/discount RBAC, and pilot-readiness documentation.
 - This round also performed a static E2E/code audit while GitHub-hosted runners were unavailable before job startup.
 - Representative blocked run: GitHub Actions `35926193338`; all six jobs (`backend`, `frontend`, `integration`, `security`, `e2e`, `e2e-prodlike`) completed as failure with zero executed steps and no assigned runner. Therefore this round does **not** claim dynamic CI evidence for the final SHA.
@@ -25,6 +27,11 @@
 - Each digital payment accepts one reconciliation record. Same-key replay remains idempotent; a second reconciliation with another key returns conflict and the database has a unique tenant/payment guard.
 - Refund close logic remains single-counted: cash refunds use cash withdrawal; digital refunds linked to a session reduce that method directly.
 - Barcode uniqueness conflicts, cashier procurement denial, cashier cost/profit redaction, reserved inventory movement types, negative digital close, inactive purchase products, purchase cancellation and transactional purchase audit have E2E coverage added to the suite.
+- Product create/update, supplier create/update, purchase create/receive/cancel and manual inventory adjustments now write audit events in the same transaction as the business mutation.
+- Product catalog text is normalized before validation; invalid promotional pricing (`promo_price > price_cash`) is rejected.
+- PDV now uses the same effective promotional price as the backend, refreshes prices before resuming a suspended cart, refuses stale offline catalog cache after 24 hours, and never silently evicts an older suspended cart when the local cap is reached.
+- Finance reconciliation requires provider/external-reference pairs when external metadata is supplied, prevents duplicate reconciliation per payment, preserves exact idempotent replay payloads for refunds, and maps payment-reference uniqueness collisions to HTTP 409.
+- Pilot preflight now validates 33 critical tables, a 14-digit CNPJ, active cash register, clean no-open-session baseline, sellable stock, active supplier, valid promotional pricing and separated operator/responsible-user duties.
 
 ### Current verdict
 
