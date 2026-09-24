@@ -156,17 +156,23 @@ export default function PurchasesPage() {
 
   function addLine() {
     const product = productById.get(lineProductId)
-    if (!product || lineQty <= 0 || lineCost <= 0) return
+    const qty = Math.round(Number(lineQty) * 1000) / 1000
+    const cost = Math.round(Number(lineCost) * 100) / 100
+    if (!product || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(cost) || cost <= 0) {
+      setError('Informe produto, quantidade e custo válidos.')
+      return
+    }
+    setError('')
     setLines((prev) => {
       const idx = prev.findIndex((line) => line.product_id === product.id)
       if (idx >= 0) {
         return prev.map((line, i) =>
           i === idx
-            ? { ...line, qty: line.qty + lineQty, unit_cost: lineCost }
+            ? { ...line, qty: Math.round((line.qty + qty) * 1000) / 1000, unit_cost: cost }
             : line,
         )
       }
-      return [...prev, { product_id: product.id, qty: lineQty, unit_cost: lineCost }]
+      return [...prev, { product_id: product.id, qty, unit_cost: cost }]
     })
     setLineProductId('')
     setLineQty(1)
@@ -590,12 +596,16 @@ export default function PurchasesPage() {
                             max={remaining}
                             disabled={remaining <= 0}
                             value={String(receiveQty[item.id] ?? 0)}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              const raw = Number(e.target.value)
+                              const normalized = Number.isFinite(raw)
+                                ? Math.min(remaining, Math.max(0, Math.round(raw * 1000) / 1000))
+                                : 0
                               setReceiveQty((prev) => ({
                                 ...prev,
-                                [item.id]: Number(e.target.value),
+                                [item.id]: normalized,
                               }))
-                            }
+                            }}
                             className="w-32 rounded-md border px-2 py-1 text-sm"
                           />
                           <span className="ml-2 text-xs text-gray-500">resta {remaining.toFixed(3)}</span>
