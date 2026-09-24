@@ -29,8 +29,12 @@ jobs:
             gofmt -d .
             exit 1
           fi
-      - name: Validate pilot readiness script syntax
-        run: bash -n ../scripts/pilot-readiness.sh
+      - name: Validate pilot readiness script
+        run: |
+          bash -n ../scripts/pilot-readiness.sh
+          grep -q 'require_env PILOT_TENANT_ID' ../scripts/pilot-readiness.sh
+          grep -q "p.code='sale:write'" ../scripts/pilot-readiness.sh
+          grep -q "p.code IN ('finance:read','audit:read')" ../scripts/pilot-readiness.sh
       - run: go test ./...
       - run: go vet ./...
 
