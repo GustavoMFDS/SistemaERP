@@ -32,4 +32,21 @@ CREATE TABLE IF NOT EXISTS payment_reconciliation_adjustments (
 CREATE INDEX IF NOT EXISTS payment_reconciliation_adjustments_tenant_payment_created_idx
   ON payment_reconciliation_adjustments(tenant_id, payment_id, created_at DESC);
 
+CREATE OR REPLACE FUNCTION prevent_payment_reconciliation_history_mutation()
+RETURNS trigger AS $history$
+BEGIN
+  RAISE EXCEPTION 'payment reconciliation history is immutable';
+END;
+$history$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS payment_reconciliations_immutable ON payment_reconciliations;
+CREATE TRIGGER payment_reconciliations_immutable
+  BEFORE UPDATE OR DELETE ON payment_reconciliations
+  FOR EACH ROW EXECUTE FUNCTION prevent_payment_reconciliation_history_mutation();
+
+DROP TRIGGER IF EXISTS payment_reconciliation_adjustments_immutable ON payment_reconciliation_adjustments;
+CREATE TRIGGER payment_reconciliation_adjustments_immutable
+  BEFORE UPDATE OR DELETE ON payment_reconciliation_adjustments
+  FOR EACH ROW EXECUTE FUNCTION prevent_payment_reconciliation_history_mutation();
+
 COMMIT;
