@@ -224,8 +224,8 @@ pilot_identity_ok="$(
     FROM companies
     WHERE id=:'tenant_id'::uuid
       AND length(trim(legal_name)) > 0
-      AND length(trim(cnpj)) > 0
-      AND cnpj NOT IN ('00000000000000','11111111111111');
+      AND length(regexp_replace(cnpj, '[^0-9]', '', 'g')) = 14
+      AND regexp_replace(cnpj, '[^0-9]', '', 'g') NOT IN ('00000000000000','11111111111111');
   "
 )"
 if [ "$pilot_identity_ok" != "1" ]; then
@@ -280,6 +280,50 @@ if [ "$sellable_stock" -lt 1 ]; then
   fail "pilot tenant has no active product with positive opening stock"
 else
   pass "pilot tenant has sellable opening stock"
+fi
+
+invalid_pricing="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM products
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true
+      AND promo_price IS NOT NULL
+      AND promo_price > price_cash;
+  "
+)"
+if [ "$invalid_pricing" != "0" ]; then
+  fail "pilot tenant has active products with promo_price above price_cash ($invalid_pricing)"
+else
+  pass "pilot tenant promotional pricing is consistent"
+fi
+
+active_registers="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM cash_registers
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true;
+  "
+)"
+if [ "$active_registers" -lt 1 ]; then
+  fail "pilot tenant has no active cash register"
+else
+  pass "pilot tenant has an active cash register"
+fi
+
+pilot_open_sessions="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM cash_sessions
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND status='open';
+  "
+)"
+if [ "$pilot_open_sessions" != "0" ]; then
+  fail "pilot tenant must start with no open cash session ($pilot_open_sessions found)"
+else
+  pass "pilot tenant starts with a clean cash-session baseline"
 fi
 
 active_suppliers="$(
