@@ -236,7 +236,7 @@ export default function ReturnsPage() {
                               ...prev,
                               [item.id]: normalized,
                             }))
-                          }
+                          }}
                           className="w-28 rounded-md border px-2 py-1"
                         />
                       </td>
