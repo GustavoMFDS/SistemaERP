@@ -99,8 +99,8 @@ read -r version dirty < <(
 )
 if [ "${dirty:-}" != "f" ]; then
   fail "database migration state is dirty"
-elif [ "${version:-0}" -lt 21 ]; then
-  fail "database migration version ${version:-unknown} is below required pilot version 21"
+elif [ "${version:-0}" -lt 22 ]; then
+  fail "database migration version ${version:-unknown} is below required pilot version 22"
 else
   pass "database schema version ${version} is clean"
 fi
@@ -118,13 +118,13 @@ critical_tables="$(
         'suppliers','purchases','purchase_items','purchase_receipts','purchase_receipt_items',
         'accounts_payable','procurement_idempotency_keys',
         'sale_returns','sale_return_items','return_idempotency_keys',
-        'return_refunds','payment_reconciliations','finance_idempotency_keys',
+        'return_refunds','payment_reconciliations','payment_reconciliation_adjustments','finance_idempotency_keys',
         'ledger_entries','audit_logs'
       );
   "
 )"
-if [ "$critical_tables" -lt 33 ]; then
-  fail "one or more critical pilot tables are missing ($critical_tables/33 found)"
+if [ "$critical_tables" -lt 34 ]; then
+  fail "one or more critical pilot tables are missing ($critical_tables/34 found)"
 else
   pass "critical pilot tables are present"
 fi
