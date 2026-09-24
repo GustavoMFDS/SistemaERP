@@ -35,6 +35,7 @@ require_cmd curl
 require_cmd psql
 require_env API_BASE_URL
 require_env DATABASE_URL
+require_env PILOT_TENANT_ID
 
 if [ "$failures" -gt 0 ]; then
   exit 1
@@ -144,26 +145,100 @@ else
   pass "at least one tenant/company is configured"
 fi
 
-active_user_count="$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM users WHERE active=true;")"
-if [ "$active_user_count" -lt 2 ]; then
-  warn "fewer than two active users; pilot should have at least an operator plus an admin/manager"
+pilot_tenant_exists="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM companies
+    WHERE id = :'tenant_id'::uuid;
+  "
+)"
+if [ "$pilot_tenant_exists" != "1" ]; then
+  fail "PILOT_TENANT_ID does not identify exactly one configured tenant"
 else
-  pass "active users are provisioned"
+  pass "pilot tenant exists"
+fi
+
+active_user_count="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(DISTINCT u.id)
+    FROM users u
+    JOIN user_tenants ut ON ut.user_id=u.id
+    WHERE ut.tenant_id=:'tenant_id'::uuid
+      AND u.active=true;
+  "
+)"
+if [ "$active_user_count" -lt 2 ]; then
+  fail "pilot tenant has fewer than two active users; provision an operator plus an admin/manager"
+else
+  pass "pilot tenant has at least two active users"
 fi
 
 orphan_roles="$(
-  psql "$DATABASE_URL" -At -c "
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
     SELECT count(*)
     FROM users u
     JOIN user_tenants ut ON ut.user_id=u.id
-    LEFT JOIN user_tenant_roles utr ON utr.user_id=u.id AND utr.tenant_id=ut.tenant_id
-    WHERE u.active=true AND utr.user_id IS NULL;
+    LEFT JOIN user_tenant_roles utr
+      ON utr.user_id=u.id
+     AND utr.tenant_id=ut.tenant_id
+    WHERE ut.tenant_id=:'tenant_id'::uuid
+      AND u.active=true
+      AND utr.user_id IS NULL;
   "
 )"
 if [ "$orphan_roles" != "0" ]; then
-  fail "active tenant memberships without tenant-scoped roles detected ($orphan_roles)"
+  fail "pilot tenant has active memberships without tenant-scoped roles ($orphan_roles)"
 else
-  pass "active tenant memberships have tenant-scoped roles"
+  pass "pilot tenant memberships have tenant-scoped roles"
+fi
+
+operator_count="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(DISTINCT u.id)
+    FROM users u
+    JOIN user_tenants ut
+      ON ut.user_id=u.id
+     AND ut.tenant_id=:'tenant_id'::uuid
+    JOIN user_tenant_roles utr
+      ON utr.user_id=u.id
+     AND utr.tenant_id=ut.tenant_id
+    JOIN role_permissions rp ON rp.role_id=utr.role_id
+    JOIN permissions p ON p.id=rp.permission_id
+    WHERE u.active=true
+      AND p.code='sale:write';
+  "
+)"
+if [ "$operator_count" -lt 1 ]; then
+  fail "pilot tenant has no active operator with sale:write"
+else
+  pass "pilot tenant has an active sales operator"
+fi
+
+manager_count="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM (
+      SELECT u.id
+      FROM users u
+      JOIN user_tenants ut
+        ON ut.user_id=u.id
+       AND ut.tenant_id=:'tenant_id'::uuid
+      JOIN user_tenant_roles utr
+        ON utr.user_id=u.id
+       AND utr.tenant_id=ut.tenant_id
+      JOIN role_permissions rp ON rp.role_id=utr.role_id
+      JOIN permissions p ON p.id=rp.permission_id
+      WHERE u.active=true
+        AND p.code IN ('finance:read','audit:read')
+      GROUP BY u.id
+      HAVING count(DISTINCT p.code)=2
+    ) q;
+  "
+)"
+if [ "$manager_count" -lt 1 ]; then
+  fail "pilot tenant has no active responsible user with finance:read and audit:read"
+else
+  pass "pilot tenant has an active responsible user for finance and audit"
 fi
 
 printf '\nPilot readiness summary: %d failure(s), %d warning(s).\n' "$failures" "$warnings"
