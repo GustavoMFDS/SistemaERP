@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 
@@ -55,6 +55,7 @@ export default function FinancePage() {
   const [provider, setProvider] = useState('')
   const [externalRef, setExternalRef] = useState('')
   const [reconcileNotes, setReconcileNotes] = useState('')
+  const reconcileKeyRef = useRef('')
 
   const [selectedRefund, setSelectedRefund] = useState<Refund | null>(null)
   const [refundMethod, setRefundMethod] = useState('pix')
@@ -63,6 +64,7 @@ export default function FinancePage() {
   const [refundExternalRef, setRefundExternalRef] = useState('')
   const [refundCashSessionId, setRefundCashSessionId] = useState('')
   const [refundNotes, setRefundNotes] = useState('')
+  const refundKeyRef = useRef('')
 
   async function loadAll(e?: FormEvent) {
     e?.preventDefault()
@@ -103,6 +105,7 @@ export default function FinancePage() {
   }, [])
 
   function choosePayment(payment: Payment) {
+    reconcileKeyRef.current = ''
     setSelectedPayment(payment)
     setReceivedAmount(payment.amount)
     setFeeAmount(0)
@@ -115,9 +118,10 @@ export default function FinancePage() {
     if (!selectedPayment) return
     setError('')
     try {
+      if (!reconcileKeyRef.current) reconcileKeyRef.current = crypto.randomUUID()
       await apiJson(`/api/v1/finance/payments/${selectedPayment.id}/reconcile`, {
         method: 'POST',
-        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Idempotency-Key': reconcileKeyRef.current },
         body: {
           received_amount: Number(receivedAmount) || 0,
           fee_amount: Number(feeAmount) || 0,
@@ -126,6 +130,7 @@ export default function FinancePage() {
           notes: reconcileNotes.trim() || null,
         },
       })
+      reconcileKeyRef.current = ''
       setSelectedPayment(null)
       await loadAll()
     } catch (e: unknown) {
@@ -134,6 +139,7 @@ export default function FinancePage() {
   }
 
   function chooseRefund(refund: Refund) {
+    refundKeyRef.current = ''
     setSelectedRefund(refund)
     setRefundAmount(refund.remaining_amount)
     setRefundMethod('pix')
@@ -147,9 +153,10 @@ export default function FinancePage() {
     if (!selectedRefund) return
     setError('')
     try {
+      if (!refundKeyRef.current) refundKeyRef.current = crypto.randomUUID()
       await apiJson(`/api/v1/finance/returns/${selectedRefund.return_id}/refunds`, {
         method: 'POST',
-        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Idempotency-Key': refundKeyRef.current },
         body: {
           method: refundMethod,
           amount: Number(refundAmount) || 0,
@@ -159,6 +166,7 @@ export default function FinancePage() {
           notes: refundNotes.trim() || null,
         },
       })
+      refundKeyRef.current = ''
       setSelectedRefund(null)
       await loadAll()
     } catch (e: unknown) {
@@ -253,12 +261,14 @@ export default function FinancePage() {
                   <td className="px-2 py-2 text-xs">{payment.provider ?? '—'} / {payment.transaction_ref ?? '—'}</td>
                   <td className="px-2 py-2">{payment.reconciliation_status}</td>
                   <td className="px-2 py-2">
-                    {payment.method !== 'cash' ? (
+                    {payment.method === 'cash' ? (
+                      <span className="text-xs text-gray-500">Fechamento do caixa</span>
+                    ) : payment.reconciliation_status === 'pending' ? (
                       <button type="button" onClick={() => choosePayment(payment)} className="rounded-md border px-2 py-1 text-xs">
                         Conciliar
                       </button>
                     ) : (
-                      <span className="text-xs text-gray-500">Fechamento do caixa</span>
+                      <span className="text-xs text-gray-500">Já conciliado</span>
                     )}
                   </td>
                 </tr>
@@ -289,7 +299,7 @@ export default function FinancePage() {
             </div>
             <div className="mt-2 flex gap-2">
               <button type="button" onClick={() => void reconcilePayment()} className="rounded-md bg-gray-900 px-3 py-2 text-xs text-white">Salvar conciliação</button>
-              <button type="button" onClick={() => setSelectedPayment(null)} className="rounded-md border px-3 py-2 text-xs">Cancelar</button>
+              <button type="button" onClick={() => { reconcileKeyRef.current = ''; setSelectedPayment(null) }} className="rounded-md border px-3 py-2 text-xs">Cancelar</button>
             </div>
           </div>
         ) : null}
@@ -358,7 +368,7 @@ export default function FinancePage() {
             </p>
             <div className="mt-2 flex gap-2">
               <button type="button" onClick={() => void settleRefund()} className="rounded-md bg-gray-900 px-3 py-2 text-xs text-white">Registrar liquidação</button>
-              <button type="button" onClick={() => setSelectedRefund(null)} className="rounded-md border px-3 py-2 text-xs">Cancelar</button>
+              <button type="button" onClick={() => { refundKeyRef.current = ''; setSelectedRefund(null) }} className="rounded-md border px-3 py-2 text-xs">Cancelar</button>
             </div>
           </div>
         ) : null}
