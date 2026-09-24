@@ -104,6 +104,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("finance:read")).Get("/ledger", h.Finance.ListLedger)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/payments", h.Finance.ListPayments)
 				rr.With(middleware.RequirePermission("finance:reconcile")).Post("/payments/{id}/reconcile", h.Finance.ReconcilePayment)
+				rr.With(middleware.RequirePermission("finance:reconcile")).Post("/payments/{id}/reconciliation-adjustments", h.Finance.AdjustPaymentReconciliation)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/refunds", h.Finance.ListRefunds)
 				rr.With(middleware.RequirePermission("finance:reconcile")).Post("/returns/{id}/refunds", h.Finance.SettleRefund)
 			})
