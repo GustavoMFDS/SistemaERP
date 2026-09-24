@@ -276,6 +276,22 @@ func (r *FinanceRepo) CreatePaymentReconciliation(ctx context.Context, tx db.DBT
 	return id, mapFinanceWriteError(err)
 }
 
+func (r *FinanceRepo) CreatePaymentReconciliationAdjustment(ctx context.Context, tx db.DBTX, tenantID string, item fin.PaymentReconciliationAdjustment) (string, error) {
+	var id string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO payment_reconciliation_adjustments(
+			tenant_id, payment_id, previous_received_amount, previous_fee_amount,
+			new_received_amount, new_fee_amount, difference_amount, status,
+			notes, created_by_user_id
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		RETURNING id::text
+	`, tenantID, item.PaymentID, item.PreviousReceivedAmount.DBString(), item.PreviousFeeAmount.DBString(),
+		item.NewReceivedAmount.DBString(), item.NewFeeAmount.DBString(), item.Difference.DBString(),
+		item.Status, item.Notes, item.CreatedBy).Scan(&id)
+	return id, mapFinanceWriteError(err)
+}
+
 func (r *FinanceRepo) UpdatePaymentReconciliation(ctx context.Context, tx db.DBTX, tenantID, paymentID, status string, received, fee platform.Money, provider, externalRef, notes *string, actorUserID string) error {
 	tag, err := tx.Exec(ctx, `
 		UPDATE payments
