@@ -89,3 +89,17 @@
 - Um usuário com `product:write` sem `finance:read` não pode sobrescrever custo oculto: criação força custo zero e atualização preserva o custo atual.
 - A UI oculta ações de escrita de produto/estoque quando as permissões correspondentes não estão presentes; a API continua sendo a barreira autoritativa.
 - Leitura do módulo de devoluções exige `sale:return`, não apenas `sale:read`.
+
+
+## Separação de custos, compras e ajustes manuais
+
+- Usuários sem `finance:read` podem consultar produtos e vendas necessárias ao PDV, mas recebem `cost_price`, `cost_unit` e `profit_estimated` redigidos como zero.
+- A redação é aplicada no backend; esconder campos na interface não é a barreira de segurança.
+- Usuários com `product:write` mas sem `finance:read` não podem alterar custo indiretamente: criação força custo zero e atualização preserva o custo existente.
+- Compras usam permissões próprias `procurement:read`, `procurement:write` e `procurement:receive`, concedidas por padrão apenas a admin/manager.
+- Cashier não pode listar fornecedores/compras, devoluções nem endpoints financeiros por acesso direto.
+- O endpoint manual `inventory/adjust` aceita apenas `adjustment`, `loss` e `damage`.
+- Movimentos `purchase` e `return` são reservados aos fluxos transacionais de recebimento de compra e devolução, preservando rastreabilidade.
+- Produto inativo não pode ser incluído em uma nova compra.
+- Criação, recebimento e cancelamento de compra, assim como ajuste manual de estoque, gravam auditoria na mesma transação da alteração operacional.
+- Cada pagamento digital pode ter no máximo uma conciliação. Replay com a mesma chave idempotente retorna o resultado existente; uma nova chave para o mesmo pagamento retorna conflito.
