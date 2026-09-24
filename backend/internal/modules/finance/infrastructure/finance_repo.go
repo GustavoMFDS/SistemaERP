@@ -292,7 +292,7 @@ func (r *FinanceRepo) CreatePaymentReconciliationAdjustment(ctx context.Context,
 	return id, mapFinanceWriteError(err)
 }
 
-func (r *FinanceRepo) UpdatePaymentReconciliation(ctx context.Context, tx db.DBTX, tenantID, paymentID, status string, received, fee platform.Money, provider, externalRef, notes *string, actorUserID string) error {
+func (r *FinanceRepo) UpdatePaymentReconciliation(ctx context.Context, tx db.DBTX, tenantID, paymentID, status string, received, fee platform.Money, notes *string, actorUserID string) error {
 	tag, err := tx.Exec(ctx, `
 		UPDATE payments
 		SET reconciliation_status=$3,
@@ -300,11 +300,9 @@ func (r *FinanceRepo) UpdatePaymentReconciliation(ctx context.Context, tx db.DBT
 		    reconciled_fee=$5,
 		    reconciled_at=now(),
 		    reconciled_by_user_id=$6,
-		    provider=COALESCE($7, provider),
-		    transaction_ref=COALESCE($8, transaction_ref),
-		    reconciliation_notes=$9
+		    reconciliation_notes=$7
 		WHERE tenant_id=$1 AND id=$2
-	`, tenantID, paymentID, status, received.DBString(), fee.DBString(), actorUserID, provider, externalRef, notes)
+	`, tenantID, paymentID, status, received.DBString(), fee.DBString(), actorUserID, notes)
 	if err != nil {
 		return mapFinanceWriteError(err)
 	}
