@@ -562,7 +562,19 @@ func (r *FinanceRepo) GetOpenCashAvailable(ctx context.Context, tx db.DBTX, tena
 	if err != nil {
 		return 0, err
 	}
-	return opening.Add(cashSales).Add(supply).Sub(withdrawal), nil
+	available, err := opening.AddChecked(cashSales)
+	if err != nil {
+		return 0, common.ErrValidation
+	}
+	available, err = available.AddChecked(supply)
+	if err != nil {
+		return 0, common.ErrValidation
+	}
+	available, err = available.SubChecked(withdrawal)
+	if err != nil {
+		return 0, common.ErrValidation
+	}
+	return available, nil
 }
 
 func (r *FinanceRepo) InsertCashWithdrawal(ctx context.Context, tx db.DBTX, tenantID, cashSessionID, actorUserID string, amount platform.Money, notes *string) (string, error) {
