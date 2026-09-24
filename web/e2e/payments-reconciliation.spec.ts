@@ -111,6 +111,25 @@ test('reconciles digital payments and settles return refunds without double-coun
       },
     )
 
+    let invalidReferencePairStatus = 0
+    try {
+      await apiJson(`/api/v1/finance/payments/${payment.id}/reconcile`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          received_amount: 20,
+          fee_amount: 1,
+          provider: 'e2e-provider',
+          external_ref: null,
+          notes: 'par externo incompleto deve falhar',
+        },
+      })
+      invalidReferencePairStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) invalidReferencePairStatus = error.status
+      else throw error
+    }
+
     let duplicateReconcileStatus = 0
     try {
       await apiJson(`/api/v1/finance/payments/${payment.id}/reconcile`, {
@@ -352,6 +371,7 @@ test('reconciles digital payments and settles return refunds without double-coun
       reconciliationStatus: reconciliation.status,
       reconciliationReplaySameId: reconciliationReplay.id === reconciliation.id,
       reconciliationReplayFlag: reconciliationReplay.replayed,
+      invalidReferencePairStatus,
       duplicateReconcileStatus,
       duplicateExternalRefStatus,
       paymentAfterStatus: paymentAfter.reconciliation_status,
@@ -385,6 +405,7 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.reconciliationStatus).toBe('reconciled')
   expect(result.reconciliationReplaySameId).toBe(true)
   expect(result.reconciliationReplayFlag).toBe(true)
+  expect(result.invalidReferencePairStatus).toBe(422)
   expect(result.duplicateReconcileStatus).toBe(409)
   expect(result.duplicateExternalRefStatus).toBe(409)
   expect(result.paymentAfterStatus).toBe('reconciled')
