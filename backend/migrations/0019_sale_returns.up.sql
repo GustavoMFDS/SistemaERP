@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS return_idempotency_keys (
 
 CREATE INDEX IF NOT EXISTS return_idempotency_tenant_created_idx
   ON return_idempotency_keys(tenant_id, operation, created_at DESC);
+CREATE INDEX IF NOT EXISTS return_idempotency_created_at_idx
+  ON return_idempotency_keys(created_at);
 
 DROP TRIGGER IF EXISTS return_idempotency_keys_immutable ON return_idempotency_keys;
 CREATE TRIGGER return_idempotency_keys_immutable
