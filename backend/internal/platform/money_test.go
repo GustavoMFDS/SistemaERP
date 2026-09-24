@@ -110,3 +110,22 @@ func TestMulDivRoundUsesSafeIntermediate(t *testing.T) {
 		t.Fatalf("expected halves away from zero, got %d", negative)
 	}
 }
+
+
+func TestCheckedQuantityArithmeticRejectsOverflow(t *testing.T) {
+	maxQty, err := platform.ParseQuantity("99999999999.999")
+	if err != nil {
+		t.Fatalf("parse max quantity: %v", err)
+	}
+	if _, err := maxQty.AddChecked(platform.NewQuantityMilli(1)); err == nil {
+		t.Fatal("expected checked quantity addition beyond numeric(14,3) to fail")
+	}
+
+	minQty, err := platform.ParseQuantity("-99999999999.999")
+	if err != nil {
+		t.Fatalf("parse min quantity: %v", err)
+	}
+	if _, err := minQty.SubChecked(platform.NewQuantityMilli(1)); err == nil {
+		t.Fatal("expected checked quantity subtraction beyond numeric(14,3) to fail")
+	}
+}
