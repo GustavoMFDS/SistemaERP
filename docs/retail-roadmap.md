@@ -84,7 +84,8 @@ A integracao fiscal real fica para a etapa final, depois que o fluxo comercial e
 - pagamentos aceitam metadados opcionais de provedor, transação, autorização e parcelas sem acoplamento a uma adquirente específica;
 - dinheiro continua conciliado no fechamento físico do caixa;
 - PIX, débito, crédito, transferência e voucher podem ser conciliados por valor recebido, taxa, provedor e referência externa;
-- divergências ficam explícitas e cada conciliação mantém histórico auditável;
+- divergências ficam explícitas e a conciliação inicial permanece imutável;
+- correções posteriores usam ajustes separados, idempotentes e auditados, preservando valores/taxas anteriores e novos;
 - reembolsos de devoluções podem ser liquidados parcialmente em um ou mais métodos;
 - a soma liquidada nunca pode exceder o `refund_due`;
 - reembolso em dinheiro exige caixa aberto, saldo físico suficiente e gera `withdrawal`;
@@ -111,7 +112,7 @@ A integracao fiscal real fica para a etapa final, depois que o fluxo comercial e
 - runbook de piloto controlado em uma loja;
 - template versionado de evidências e decisão go/no-go;
 - checker read-only de prontidão para ambiente production-like;
-- checker valida health/live, health/ready, migration limpa >= 21, objetos críticos, ausência de usuários demo, sessões de caixa duplicadas e papéis tenant-scoped;
+- checker valida health/live, health/ready, migration limpa >= 22, objetos críticos, ausência de usuários demo, sessões de caixa duplicadas e papéis tenant-scoped;
 - CI valida a sintaxe do checker;
 - backup/restore continua seguindo `docs/deployment.md` e só pode ser marcado como testado com evidência do ambiente real;
 - a execução do piloto, reconciliação com operação física, monitoramento real e aprovações de owner/accounting permanecem pendências externas;
