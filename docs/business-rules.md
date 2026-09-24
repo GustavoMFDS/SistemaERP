@@ -111,3 +111,17 @@
 - Promoção nunca pode superar `price_cash`; create/update rejeitam essa configuração.
 - Carrinho suspenso é rascunho e, quando retomado online, recebe o preço atual do catálogo.
 - Catálogo offline vencido não pode ser usado para iniciar novas vendas.
+
+
+### Retenção de idempotência
+
+- Chaves idempotentes de venda, compras/fornecedores, devoluções e financeiro são imutáveis enquanto retidas.
+- As quatro famílias de chaves idempotentes usam a mesma janela operacional de retenção de 30 dias.
+- A manutenção roda em lotes limitados e usa índice por `created_at` para evitar scan integral conforme o banco cresce.
+- Depois da janela de retenção, o sistema não promete replay histórico de uma chave antiga; clientes offline também têm janela própria mais curta para evitar reenvio inseguro.
+
+### Manutenção de fornecedores
+
+- Fornecedor pode ser editado, ativado ou desativado sem apagar o histórico de compras.
+- Fornecedor inativo permanece visível no histórico, mas não aparece para novas compras.
+- O backend rejeita criação de compra com fornecedor inativo mesmo em chamada API direta.
