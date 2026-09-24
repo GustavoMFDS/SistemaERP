@@ -136,7 +136,7 @@ var idempotencyRetentionTables = []string{
 
 func startIdempotencyMaintenance(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
 	run := func() {
-		maintenanceCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		maintenanceCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 
 		for _, table := range idempotencyRetentionTables {
