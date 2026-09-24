@@ -41,17 +41,24 @@ export function getSuspendedCarts(): SuspendedCart[] {
 function save(items: SuspendedCart[]): void {
   const key = storageKey()
   if (!key) throw new Error('authenticated tenant/user scope is required')
-  localStorage.setItem(key, JSON.stringify(items.slice(0, MAX_SUSPENDED_CARTS)))
+  if (items.length > MAX_SUSPENDED_CARTS) {
+    throw new Error(`limite de ${MAX_SUSPENDED_CARTS} vendas suspensas atingido`)
+  }
+  localStorage.setItem(key, JSON.stringify(items))
 }
 
 export function suspendCart(input: Omit<SuspendedCart, 'id' | 'createdAt'>): SuspendedCart {
   if (input.items.length === 0) throw new Error('empty cart cannot be suspended')
+  const current = getSuspendedCarts()
+  if (current.length >= MAX_SUSPENDED_CARTS) {
+    throw new Error(`limite de ${MAX_SUSPENDED_CARTS} vendas suspensas atingido`)
+  }
   const cart: SuspendedCart = {
     ...input,
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
   }
-  save([cart, ...getSuspendedCarts()])
+  save([cart, ...current])
   return cart
 }
 
