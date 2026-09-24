@@ -32,7 +32,7 @@ type Service struct {
 }
 
 type ItemRequest struct {
-	SaleItemID string            `json:"sale_item_id" validate:"required"`
+	SaleItemID string            `json:"sale_item_id" validate:"required,uuid"`
 	Qty        platform.Quantity `json:"qty" validate:"required,gt=0"`
 	Restock    bool              `json:"restock"`
 }
@@ -48,10 +48,20 @@ func NewService(uow db.UnitOfWork, repo Repository, inventory invapp.InventoryRe
 }
 
 func (s *Service) List(ctx context.Context, tenantID, saleID string, limit, offset int) ([]ret.SaleReturn, int, error) {
-	return s.repo.List(ctx, tenantID, strings.TrimSpace(saleID), limit, offset)
+	saleID = strings.TrimSpace(saleID)
+	if saleID != "" {
+		if err := s.validate.Var(saleID, "uuid"); err != nil {
+			return nil, 0, common.ErrValidation
+		}
+	}
+	return s.repo.List(ctx, tenantID, saleID, limit, offset)
 }
 
 func (s *Service) Get(ctx context.Context, tenantID, id string) (ret.SaleReturn, []ret.Item, error) {
+	id = strings.TrimSpace(id)
+	if err := s.validate.Var(id, "required,uuid"); err != nil {
+		return ret.SaleReturn{}, nil, common.ErrValidation
+	}
 	return s.repo.Get(ctx, tenantID, id)
 }
 
@@ -88,6 +98,9 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 	saleID = strings.TrimSpace(saleID)
 	req = normalizeCreateRequest(req)
 	if idempotencyKey == "" || saleID == "" {
+		return "", 0, false, common.ErrValidation
+	}
+	if err := s.validate.Var(saleID, "uuid"); err != nil {
 		return "", 0, false, common.ErrValidation
 	}
 	if err := s.validate.Struct(req); err != nil {
