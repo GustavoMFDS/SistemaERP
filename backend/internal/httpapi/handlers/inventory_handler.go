@@ -81,6 +81,5 @@ func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "inventory.adjust", "product", req.ProductID, "success", map[string]any{"type": req.Type})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
