@@ -158,6 +158,84 @@ else
   pass "pilot tenant exists"
 fi
 
+pilot_identity_ok="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM companies
+    WHERE id=:'tenant_id'::uuid
+      AND length(trim(legal_name)) > 0
+      AND length(trim(cnpj)) > 0
+      AND cnpj NOT IN ('00000000000000','11111111111111');
+  "
+)"
+if [ "$pilot_identity_ok" != "1" ]; then
+  fail "pilot tenant still uses incomplete or demo company identity"
+else
+  pass "pilot tenant company identity is configured"
+fi
+
+active_products="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM products
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true;
+  "
+)"
+if [ "$active_products" -lt 1 ]; then
+  fail "pilot tenant has no active products"
+else
+  pass "pilot tenant has active products"
+fi
+
+barcoded_products="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM products
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true
+      AND barcode IS NOT NULL
+      AND length(trim(barcode)) > 0;
+  "
+)"
+if [ "$barcoded_products" -lt 1 ]; then
+  fail "pilot tenant has no active barcoded product for scanner validation"
+else
+  pass "pilot tenant has active barcoded products"
+fi
+
+sellable_stock="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM inventory_balances b
+    JOIN products p
+      ON p.id=b.product_id
+     AND p.tenant_id=b.tenant_id
+    WHERE b.tenant_id=:'tenant_id'::uuid
+      AND p.active=true
+      AND b.qty_on_hand > 0;
+  "
+)"
+if [ "$sellable_stock" -lt 1 ]; then
+  fail "pilot tenant has no active product with positive opening stock"
+else
+  pass "pilot tenant has sellable opening stock"
+fi
+
+active_suppliers="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM suppliers
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true;
+  "
+)"
+if [ "$active_suppliers" -lt 1 ]; then
+  fail "pilot tenant has no active supplier for procurement validation"
+else
+  pass "pilot tenant has active suppliers"
+fi
+
 active_user_count="$(
   psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
     SELECT count(DISTINCT u.id)
