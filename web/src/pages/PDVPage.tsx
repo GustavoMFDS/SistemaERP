@@ -479,10 +479,16 @@ export default function PDVPage() {
       refreshedItems.push({ ...item, unit_price: currentPrice })
     }
 
+    try {
+      removeSuspendedCart(cart.id)
+    } catch (e: unknown) {
+      setError(`Não foi possível retirar a venda da lista de suspensas: ${errorMessage(e)}`)
+      return
+    }
+
     setItems(refreshedItems)
     setPayMethod(cart.payMethod)
     setSaleDiscount(canDiscount ? cart.saleDiscount : 0)
-    removeSuspendedCart(cart.id)
     refreshSuspended()
     if (priceChanged) {
       setError('A venda suspensa foi retomada com os preços atuais do catálogo.')
@@ -492,8 +498,12 @@ export default function PDVPage() {
 
   function discardSuspended(id: string) {
     if (!window.confirm('Descartar esta venda suspensa?')) return
-    removeSuspendedCart(id)
-    refreshSuspended()
+    try {
+      removeSuspendedCart(id)
+      refreshSuspended()
+    } catch (e: unknown) {
+      setError(`Não foi possível descartar a venda suspensa: ${errorMessage(e)}`)
+    }
   }
 
   const canFinalize = useMemo(
