@@ -10,6 +10,7 @@ import (
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -112,6 +113,9 @@ func (r *ProductsRepo) Get(ctx context.Context, tenantID string, id string) (inv
 		WHERE p.tenant_id=$1 AND p.id=$2
 	`, tenantID, id).Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return p, common.ErrNotFound
+		}
 		return p, err
 	}
 	if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, qtyOnHand); err != nil {
@@ -139,6 +143,9 @@ func (r *ProductsRepo) GetByBarcode(ctx context.Context, tenantID string, barcod
 		WHERE p.tenant_id=$1 AND p.barcode=$2
 	`, tenantID, barcode).Scan(&p.ID, &categoryID, &p.SKU, &storedBarcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return p, common.ErrNotFound
+		}
 		return p, err
 	}
 	if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, qtyOnHand); err != nil {
