@@ -7,19 +7,17 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 )
 
 type InventoryHandler struct {
 	svc    *invapp.InventoryService
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewInventoryHandler(svc *invapp.InventoryService, auditSvc *audit.Service, logger *slog.Logger) *InventoryHandler {
-	return &InventoryHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewInventoryHandler(svc *invapp.InventoryService, logger *slog.Logger) *InventoryHandler {
+	return &InventoryHandler{svc: svc, logger: logger}
 }
 
 func (h *InventoryHandler) LowStock(w http.ResponseWriter, r *http.Request) {
