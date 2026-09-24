@@ -352,7 +352,16 @@ export default function PDVPage() {
   }
 
   function addProductToCart(p: Product, qty = 1) {
-    const normalizedQty = Number(qty) || 1
+    const rawQty = Number(qty)
+    if (!Number.isFinite(rawQty) || rawQty <= 0) {
+      setError('Informe uma quantidade maior que zero.')
+      return
+    }
+    const normalizedQty = Math.round(rawQty * 1000) / 1000
+    if (normalizedQty <= 0) {
+      setError('Informe uma quantidade válida com até 3 casas decimais.')
+      return
+    }
     setItems((prev) => {
       const idx = prev.findIndex((item) => item.product_id === p.id && item.discount_value === 0)
       if (idx >= 0) {
