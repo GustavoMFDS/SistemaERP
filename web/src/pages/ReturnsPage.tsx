@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 
 type Sale = {
@@ -55,6 +55,7 @@ export default function ReturnsPage() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const returnKeyRef = useRef('')
 
   async function loadReturns() {
     try {
@@ -89,6 +90,7 @@ export default function ReturnsPage() {
         }
       }
 
+      returnKeyRef.current = ''
       setDetail(data)
       setReturnedByItem(returned)
       const qty: Record<string, number> = {}
@@ -125,11 +127,12 @@ export default function ReturnsPage() {
     setError('')
     setResult(null)
     try {
+      if (!returnKeyRef.current) returnKeyRef.current = crypto.randomUUID()
       const response = await apiJson<ReturnCreateResponse>(
         `/api/v1/sales/${detail.sale.id}/returns`,
         {
           method: 'POST',
-          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          headers: { 'Idempotency-Key': returnKeyRef.current },
           body: {
             kind,
             reason: reason.trim(),
@@ -137,6 +140,7 @@ export default function ReturnsPage() {
           },
         },
       )
+      returnKeyRef.current = ''
       setResult(response)
       setReason('')
       setQtyByItem((prev) =>
