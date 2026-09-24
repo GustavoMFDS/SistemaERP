@@ -61,10 +61,14 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
       },
     })
     const productDetail = await apiJson<{ cost_price: number }>(`/api/v1/products/${product.id}`)
+    const adjustmentAudit = await apiJson<{
+      items: Array<{ action: string; resource_id: string }>
+    }>('/api/v1/audit/logs?action=inventory.adjust&resource_type=product&limit=200&offset=0')
     return {
       productId: product.id,
       barcode: `BAR-${suffix}`,
       adminCostPrice: productDetail.cost_price,
+      inventoryAdjustAuditCount: adjustmentAudit.items.filter((item) => item.resource_id === product.id).length,
       reservedMovementStatus,
       canDiscount: me.permissions.includes('sale:discount'),
     }
@@ -72,6 +76,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
 
   expect(setup.canDiscount).toBe(true)
   expect(setup.adminCostPrice).toBe(4)
+  expect(setup.inventoryAdjustAuditCount).toBe(1)
   expect(setup.reservedMovementStatus).toBe(422)
 
   await page.getByRole('link', { name: 'PDV' }).click()
