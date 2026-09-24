@@ -130,6 +130,56 @@ test('reconciles digital payments and settles return refunds without double-coun
       else throw error
     }
 
+    const secondSale = await apiJson<{ id: string }>('/api/v1/sales', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        cash_session_id: cash.id,
+        customer_id: null,
+        discount_value: 0,
+        items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
+        payments: [{
+          method: 'pix',
+          amount: 20,
+          provider: 'e2e-provider',
+          transaction_ref: `TX-SECOND-${suffix}`,
+          authorization_code: null,
+          installments: 1,
+        }],
+      },
+    })
+
+    const secondPayments = await apiJson<{
+      items: Array<{ id: string; sale_id: string }>
+      total: number
+    }>('/api/v1/finance/payments?method=pix&status=pending&limit=200&offset=0')
+    const secondPayment = secondPayments.items.find((item) => item.sale_id === secondSale.id)
+    if (!secondPayment) throw new Error('second payment not found')
+
+    let duplicateExternalRefStatus = 0
+    try {
+      await apiJson(`/api/v1/finance/payments/${secondPayment.id}/reconcile`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          received_amount: 20,
+          fee_amount: 1,
+          provider: 'e2e-provider',
+          external_ref: `SETTLE-${suffix}`,
+          notes: 'referencia externa duplicada deve falhar',
+        },
+      })
+      duplicateExternalRefStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) duplicateExternalRefStatus = error.status
+      else throw error
+    }
+
+    await apiJson(`/api/v1/sales/${secondSale.id}/cancel`, {
+      method: 'POST',
+      body: { reason: 'cleanup duplicate external ref E2E' },
+    })
+
     const saleDetail = await apiJson<{
       items: Array<{ id: string }>
     }>(`/api/v1/sales/${sale.id}`)
@@ -303,6 +353,7 @@ test('reconciles digital payments and settles return refunds without double-coun
       reconciliationReplaySameId: reconciliationReplay.id === reconciliation.id,
       reconciliationReplayFlag: reconciliationReplay.replayed,
       duplicateReconcileStatus,
+      duplicateExternalRefStatus,
       paymentAfterStatus: paymentAfter.reconciliation_status,
       paymentAfterAmount: paymentAfter.reconciled_amount,
       paymentAfterFee: paymentAfter.reconciled_fee,
@@ -335,6 +386,7 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.reconciliationReplaySameId).toBe(true)
   expect(result.reconciliationReplayFlag).toBe(true)
   expect(result.duplicateReconcileStatus).toBe(409)
+  expect(result.duplicateExternalRefStatus).toBe(409)
   expect(result.paymentAfterStatus).toBe('reconciled')
   expect(result.paymentAfterAmount).toBe(20)
   expect(result.paymentAfterFee).toBe(1)
