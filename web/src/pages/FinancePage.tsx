@@ -58,6 +58,13 @@ export default function FinancePage() {
   const [reconciling, setReconciling] = useState(false)
   const reconcileKeyRef = useRef('')
 
+  const [selectedAdjustment, setSelectedAdjustment] = useState<Payment | null>(null)
+  const [adjustReceivedAmount, setAdjustReceivedAmount] = useState(0)
+  const [adjustFeeAmount, setAdjustFeeAmount] = useState(0)
+  const [adjustNotes, setAdjustNotes] = useState('')
+  const [adjusting, setAdjusting] = useState(false)
+  const adjustKeyRef = useRef('')
+
   const [selectedRefund, setSelectedRefund] = useState<Refund | null>(null)
   const [refundMethod, setRefundMethod] = useState('pix')
   const [refundAmount, setRefundAmount] = useState(0)
@@ -108,6 +115,8 @@ export default function FinancePage() {
 
   function choosePayment(payment: Payment) {
     reconcileKeyRef.current = ''
+    adjustKeyRef.current = ''
+    setSelectedAdjustment(null)
     setSelectedPayment(payment)
     setReceivedAmount(payment.amount)
     setFeeAmount(0)
@@ -150,6 +159,52 @@ export default function FinancePage() {
       setError(errorMessage(e))
     } finally {
       setReconciling(false)
+    }
+  }
+
+  function chooseAdjustment(payment: Payment) {
+    adjustKeyRef.current = ''
+    reconcileKeyRef.current = ''
+    setSelectedPayment(null)
+    setSelectedAdjustment(payment)
+    setAdjustReceivedAmount(payment.reconciled_amount ?? payment.amount)
+    setAdjustFeeAmount(payment.reconciled_fee ?? 0)
+    setAdjustNotes('')
+  }
+
+  async function adjustPaymentReconciliation() {
+    if (!selectedAdjustment || adjusting) return
+    const received = Number(adjustReceivedAmount)
+    const fee = Number(adjustFeeAmount)
+    const notes = adjustNotes.trim()
+    if (!Number.isFinite(received) || received < 0 || !Number.isFinite(fee) || fee < 0 || fee > received) {
+      setError('Informe valores válidos: a taxa não pode superar o valor recebido.')
+      return
+    }
+    if (notes.length < 3) {
+      setError('Informe uma justificativa para o ajuste da conciliação.')
+      return
+    }
+    setError('')
+    setAdjusting(true)
+    try {
+      if (!adjustKeyRef.current) adjustKeyRef.current = crypto.randomUUID()
+      await apiJson(`/api/v1/finance/payments/${selectedAdjustment.id}/reconciliation-adjustments`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': adjustKeyRef.current },
+        body: {
+          received_amount: Math.round(received * 100) / 100,
+          fee_amount: Math.round(fee * 100) / 100,
+          notes,
+        },
+      })
+      adjustKeyRef.current = ''
+      setSelectedAdjustment(null)
+      await loadAll()
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    } finally {
+      setAdjusting(false)
     }
   }
 
@@ -307,7 +362,9 @@ export default function FinancePage() {
                         Conciliar
                       </button>
                     ) : (
-                      <span className="text-xs text-gray-500">Já conciliado</span>
+                      <button type="button" onClick={() => chooseAdjustment(payment)} className="rounded-md border px-2 py-1 text-xs">
+                        Ajustar
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -339,6 +396,62 @@ export default function FinancePage() {
             <div className="mt-2 flex gap-2">
               <button type="button" disabled={reconciling} onClick={() => void reconcilePayment()} className="rounded-md bg-gray-900 px-3 py-2 text-xs text-white disabled:opacity-60">{reconciling ? 'Salvando…' : 'Salvar conciliação'}</button>
               <button type="button" onClick={() => { reconcileKeyRef.current = ''; setSelectedPayment(null) }} className="rounded-md border px-3 py-2 text-xs">Cancelar</button>
+            </div>
+          </div>
+        ) : null}
+        {selectedAdjustment ? (
+          <div className="mt-3 rounded-md border bg-gray-50 p-3">
+            <div className="text-sm font-semibold">Ajustar conciliação</div>
+            <p className="mt-1 text-xs text-gray-600">
+              O ajuste não apaga a conciliação original; ele registra uma correção auditável do valor recebido/taxa atuais.
+            </p>
+            <div className="mt-2 grid gap-2 md:grid-cols-3">
+              <label className="text-xs">Recebido corrigido
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={adjustReceivedAmount}
+                  onChange={(e) => setAdjustReceivedAmount(Number(e.target.value))}
+                  className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
+                />
+              </label>
+              <label className="text-xs">Taxa corrigida
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={adjustFeeAmount}
+                  onChange={(e) => setAdjustFeeAmount(Number(e.target.value))}
+                  className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
+                />
+              </label>
+              <label className="text-xs">Justificativa
+                <input
+                  value={adjustNotes}
+                  onChange={(e) => setAdjustNotes(e.target.value)}
+                  placeholder="Motivo da correção"
+                  className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
+                />
+              </label>
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                disabled={adjusting}
+                onClick={() => void adjustPaymentReconciliation()}
+                className="rounded-md bg-gray-900 px-3 py-2 text-xs text-white disabled:opacity-60"
+              >
+                {adjusting ? 'Ajustando…' : 'Salvar ajuste'}
+              </button>
+              <button
+                type="button"
+                disabled={adjusting}
+                onClick={() => { adjustKeyRef.current = ''; setSelectedAdjustment(null) }}
+                className="rounded-md border px-3 py-2 text-xs disabled:opacity-60"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         ) : null}
