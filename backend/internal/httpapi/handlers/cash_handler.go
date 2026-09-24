@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
@@ -14,12 +13,11 @@ import (
 
 type CashHandler struct {
 	svc    *salesapp.CashService
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewCashHandler(svc *salesapp.CashService, auditSvc *audit.Service, logger *slog.Logger) *CashHandler {
-	return &CashHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewCashHandler(svc *salesapp.CashService, logger *slog.Logger) *CashHandler {
+	return &CashHandler{svc: svc, logger: logger}
 }
 
 func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
