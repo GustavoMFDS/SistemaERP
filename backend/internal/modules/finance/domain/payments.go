@@ -35,6 +35,20 @@ type PaymentReconciliation struct {
 	CreatedAt      string         `json:"created_at"`
 }
 
+type PaymentReconciliationAdjustment struct {
+	ID                     string         `json:"id"`
+	PaymentID              string         `json:"payment_id"`
+	PreviousReceivedAmount platform.Money `json:"previous_received_amount"`
+	PreviousFeeAmount      platform.Money `json:"previous_fee_amount"`
+	NewReceivedAmount      platform.Money `json:"new_received_amount"`
+	NewFeeAmount           platform.Money `json:"new_fee_amount"`
+	Difference             platform.Money `json:"difference_amount"`
+	Status                 string         `json:"status"`
+	Notes                  *string        `json:"notes,omitempty"`
+	CreatedBy              string         `json:"created_by_user_id"`
+	CreatedAt              string         `json:"created_at"`
+}
+
 type ReturnRefundSummary struct {
 	ReturnID      string         `json:"return_id"`
 	SaleID        string         `json:"sale_id"`
