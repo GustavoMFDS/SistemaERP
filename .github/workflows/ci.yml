@@ -69,7 +69,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v21 migration upgrade and rollback
+      - name: Verify v12 to v22 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -486,6 +486,40 @@ jobs:
           DISCOUNT_PERMISSION_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM permissions WHERE code='sale:discount';" | tr -d '[:space:]')"
           if [ "$DISCOUNT_PERMISSION_COUNT" != "0" ]; then
             echo "rollback 0021 left sale:discount permission behind"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0021 -> 0022, verify reconciliation-adjustment history,
+          # then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='payment_reconciliation_adjustments';" \
+            -c "SELECT conname FROM pg_constraint WHERE conname='payment_reconciliation_adjustment_payment_tenant_fk';" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='payment_reconciliation_adjustments_tenant_payment_created_idx';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          ADJUSTMENT_TABLE="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT to_regclass('public.payment_reconciliation_adjustments') IS NOT NULL;" | tr -d '[:space:]')"
+          if [ "$ADJUSTMENT_TABLE" != "f" ]; then
+            echo "rollback 0022 left payment_reconciliation_adjustments behind"
             exit 1
           fi
 
