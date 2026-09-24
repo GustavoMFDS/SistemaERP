@@ -4,8 +4,9 @@
 ## Revalidation — 2026-09-23 (retail roadmap integration / static hardening)
 
 - Integration PR: #15, `ops/pilot-readiness-20260923` → `main`.
-- Current reviewed HEAD: `2b123b97e9e11c5e66355b4f09ccb0af47d248bf`.
-- Latest blocked run on this exact HEAD: GitHub Actions `35950196234`; all six required jobs completed as failure with zero executed steps and no assigned runner.
+- Reviewed application/docs HEAD before this report refresh: `916e17f237d2784b92f902d29c7449342db79784`.
+- Blocked run on that exact HEAD: GitHub Actions `35951869112`; all six required jobs completed as failure with zero executed steps and no assigned runner.
+- This report refresh itself changes documentation only; merge still requires a runner-backed execution of the final PR SHA.
 - Scope integrated: barcode/PDV scanner, suppliers and purchases, partial receiving, returns/exchanges, payment reconciliation/refunds, PDV shortcuts/suspended carts/discount RBAC, and pilot-readiness documentation.
 - This round also performed a static E2E/code audit while GitHub-hosted runners were unavailable before job startup.
 - Representative blocked run: GitHub Actions `35926193338`; all six jobs (`backend`, `frontend`, `integration`, `security`, `e2e`, `e2e-prodlike`) completed as failure with zero executed steps and no assigned runner. Therefore this round does **not** claim dynamic CI evidence for the final SHA.
