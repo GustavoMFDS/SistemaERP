@@ -11,9 +11,9 @@ The project is currently a pre-production / staging candidate. It implements tec
 - Inventory balances, movements, low-stock checks, stock validation, and dedicated purchase/return movement provenance.
 - Supplier and procurement workflows with tenant-scoped RBAC, partial receiving, stock/cost updates on receipt, and optional accounts payable linkage.
 - Returns/exchanges with quantity guards, optional restock, refund-due calculation, and cancellation protection after a return.
-- Finance ledger/dashboard, digital payment reconciliation, partial/multimethod refund settlement, and per-method cash-session closing.
+- Finance ledger/dashboard, immutable initial digital-payment reconciliation, audited reconciliation adjustments/history, partial/multimethod refund settlement, and per-method cash-session closing.
 - Fiscal XML/NFe preparation and access flows. The bundled provider is an MVP test provider and is blocked in staging/production.
-- Offline POS queue with TTL, idempotency keys, and minimal browser storage.
+- Offline POS queue with TTL/idempotency plus tenant+user-scoped product cache with a 24-hour freshness limit.
 - JWT access tokens plus HttpOnly refresh-token cookies with rotation.
 - Standardized JSON API errors with request IDs.
 - Audit logging with sanitized metadata.
