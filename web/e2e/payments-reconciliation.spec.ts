@@ -699,3 +699,152 @@ test('finance UI retries lost responses with the original idempotency key', asyn
   expect(refundKeys[1]).toBe(refundKeys[0])
   await expect(refundRow.getByText('0.00')).toBeVisible()
 })
+
+
+test('serializes competing cash refunds against available drawer cash', async ({ page }) => {
+  await login(page)
+  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+
+  const result = await page.evaluate(async (suffix) => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+
+    const product = await apiJson<{ id: string }>('/api/v1/products', {
+      method: 'POST',
+      body: {
+        category_id: null,
+        sku: `E2E-CASH-RACE-${suffix}`,
+        barcode: null,
+        name: `Produto Cash Race ${suffix}`,
+        description: null,
+        unit: 'UN',
+        cost_price: 20,
+        price_cash: 60,
+        promo_price: null,
+        min_stock: 0,
+        active: true,
+      },
+    })
+    await apiJson('/api/v1/inventory/adjust', {
+      method: 'POST',
+      body: {
+        product_id: product.id,
+        delta: 2,
+        reason: 'Carga E2E concorrencia reembolso',
+        type: 'adjustment',
+      },
+    })
+
+    const cash = await apiJson<{ id: string }>('/api/v1/cash/sessions/open', {
+      method: 'POST',
+      body: { opening_amount: 100, notes: 'cash refund race E2E' },
+    })
+
+    const createReturnedSale = async (label: string) => {
+      const sale = await apiJson<{ id: string }>('/api/v1/sales', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          cash_session_id: cash.id,
+          customer_id: null,
+          discount_value: 0,
+          items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
+          payments: [{ method: 'pix', amount: 60 }],
+        },
+      })
+      const detail = await apiJson<{ items: Array<{ id: string }> }>(
+        `/api/v1/sales/${sale.id}`,
+      )
+      const saleReturn = await apiJson<{ id: string }>(
+        `/api/v1/sales/${sale.id}/returns`,
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          body: {
+            kind: 'return',
+            reason: `Cash race ${label}`,
+            items: [{ sale_item_id: detail.items[0].id, qty: 1, restock: true }],
+          },
+        },
+      )
+      return saleReturn.id
+    }
+
+    const [returnA, returnB] = await Promise.all([
+      createReturnedSale('A'),
+      createReturnedSale('B'),
+    ])
+
+    const settle = async (returnId: string) => {
+      try {
+        await apiJson(`/api/v1/finance/returns/${returnId}/refunds`, {
+          method: 'POST',
+          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          body: {
+            method: 'cash',
+            amount: 60,
+            provider: null,
+            external_ref: null,
+            cash_session_id: cash.id,
+            notes: 'cash race E2E',
+          },
+        })
+        return 201
+      } catch (error) {
+        if (error instanceof APIError) return error.status
+        throw error
+      }
+    }
+
+    const statuses = await Promise.all([settle(returnA), settle(returnB)])
+    const refunds = await apiJson<{
+      items: Array<{
+        return_id: string
+        settled_amount: number
+        remaining_amount: number
+        status: string
+      }>
+    }>('/api/v1/finance/refunds?limit=200&offset=0')
+    const relevant = refunds.items.filter(
+      (item) => item.return_id === returnA || item.return_id === returnB,
+    )
+
+    const close = await apiJson<{
+      expected_cash: number
+      closing_difference: number
+      expected_by_method: Record<string, number>
+    }>(`/api/v1/cash/sessions/${cash.id}/close`, {
+      method: 'POST',
+      body: {
+        closing_amount: 40,
+        closing_by_method: {
+          pix: 120,
+          debit: 0,
+          credit: 0,
+          transfer: 0,
+          voucher: 0,
+        },
+        notes: 'cash refund race close',
+      },
+    })
+
+    return {
+      statuses: statuses.sort((a, b) => a - b),
+      settledTotal: relevant.reduce((sum, item) => sum + item.settled_amount, 0),
+      remainingTotal: relevant.reduce((sum, item) => sum + item.remaining_amount, 0),
+      settledCount: relevant.filter((item) => item.status === 'settled').length,
+      pendingCount: relevant.filter((item) => item.status === 'pending').length,
+      expectedCash: close.expected_cash,
+      cashDifference: close.closing_difference,
+      expectedPix: close.expected_by_method.pix,
+    }
+  }, suffix)
+
+  expect(result.statuses).toEqual([201, 409])
+  expect(result.settledTotal).toBe(60)
+  expect(result.remainingTotal).toBe(60)
+  expect(result.settledCount).toBe(1)
+  expect(result.pendingCount).toBe(1)
+  expect(result.expectedCash).toBe(40)
+  expect(result.cashDifference).toBe(0)
+  expect(result.expectedPix).toBe(120)
+})
