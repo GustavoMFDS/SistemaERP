@@ -10,6 +10,7 @@ import (
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,6 +20,17 @@ type FinanceRepo struct {
 
 func NewFinanceRepo(dbpool *pgxpool.Pool) *FinanceRepo {
 	return &FinanceRepo{db: dbpool}
+}
+
+func mapFinanceWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return common.ErrConflict
+	}
+	return err
 }
 
 func (r *FinanceRepo) InsertLedgerEntry(ctx context.Context, tx db.DBTX, tenantID string, e fin.LedgerEntry, createdByUserID *string) (string, error) {
@@ -261,7 +273,7 @@ func (r *FinanceRepo) CreatePaymentReconciliation(ctx context.Context, tx db.DBT
 	`, tenantID, item.PaymentID, item.ExpectedAmount.DBString(), item.ReceivedAmount.DBString(),
 		item.FeeAmount.DBString(), item.NetAmount.DBString(), item.Difference.DBString(),
 		item.Status, item.Provider, item.ExternalRef, item.Notes, item.CreatedBy).Scan(&id)
-	return id, err
+	return id, mapFinanceWriteError(err)
 }
 
 func (r *FinanceRepo) UpdatePaymentReconciliation(ctx context.Context, tx db.DBTX, tenantID, paymentID, status string, received, fee platform.Money, provider, externalRef, notes *string, actorUserID string) error {
@@ -403,7 +415,7 @@ func (r *FinanceRepo) CreateReturnRefund(ctx context.Context, tx db.DBTX, tenant
 		RETURNING id::text
 	`, tenantID, item.ReturnID, item.SaleID, item.Method, item.Amount.DBString(),
 		item.Provider, item.ExternalRef, item.CashSessionID, item.Notes, item.CreatedBy).Scan(&id)
-	return id, err
+	return id, mapFinanceWriteError(err)
 }
 
 func (r *FinanceRepo) GetOpenCashAvailable(ctx context.Context, tx db.DBTX, tenantID, cashSessionID string) (platform.Money, error) {
