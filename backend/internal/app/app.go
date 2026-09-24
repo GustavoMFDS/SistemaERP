@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -126,31 +127,54 @@ const (
 	idempotencyBatchSize = 2000
 )
 
+var idempotencyRetentionTables = []string{
+	"idempotency_keys",
+	"procurement_idempotency_keys",
+	"return_idempotency_keys",
+	"finance_idempotency_keys",
+}
+
 func startIdempotencyMaintenance(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
 	run := func() {
-		maintenanceCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		maintenanceCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		for batch := 0; batch < 5; batch++ {
-			tag, err := pool.Exec(maintenanceCtx, `
+		for _, table := range idempotencyRetentionTables {
+			query := fmt.Sprintf(`
 				WITH doomed AS (
 					SELECT id
-					FROM idempotency_keys
+					FROM %s
 					WHERE created_at < now() - ($1::bigint * interval '1 second')
 					ORDER BY created_at
 					LIMIT $2
 				)
-				DELETE FROM idempotency_keys k
+				DELETE FROM %s k
 				USING doomed
 				WHERE k.id=doomed.id
-			`, int64(idempotencyRetention/time.Second), idempotencyBatchSize)
-			if err != nil {
-				if maintenanceCtx.Err() == nil {
-					logger.Warn("idempotency_retention_cleanup_failed", slog.Any("err", err))
+			`, table, table)
+
+			for batch := 0; batch < 5; batch++ {
+				tag, err := pool.Exec(
+					maintenanceCtx,
+					query,
+					int64(idempotencyRetention/time.Second),
+					idempotencyBatchSize,
+				)
+				if err != nil {
+					if maintenanceCtx.Err() == nil {
+						logger.Warn(
+							"idempotency_retention_cleanup_failed",
+							slog.String("table", table),
+							slog.Any("err", err),
+						)
+					}
+					break
 				}
-				return
+				if tag.RowsAffected() < idempotencyBatchSize {
+					break
+				}
 			}
-			if tag.RowsAffected() < idempotencyBatchSize {
+			if maintenanceCtx.Err() != nil {
 				return
 			}
 		}
