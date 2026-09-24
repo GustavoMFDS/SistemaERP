@@ -144,6 +144,22 @@ func (q Quantity) String() string {
 	return q.DBString()
 }
 
+func (q Quantity) AddChecked(other Quantity) (Quantity, error) {
+	value, ok := checkedAddInt64(int64(q), int64(other))
+	if !ok || value > maxQuantityMilli || value < -maxQuantityMilli {
+		return 0, fmt.Errorf("quantity addition exceeds numeric(14,3) range")
+	}
+	return Quantity(value), nil
+}
+
+func (q Quantity) SubChecked(other Quantity) (Quantity, error) {
+	value, ok := checkedSubInt64(int64(q), int64(other))
+	if !ok || value > maxQuantityMilli || value < -maxQuantityMilli {
+		return 0, fmt.Errorf("quantity subtraction exceeds numeric(14,3) range")
+	}
+	return Quantity(value), nil
+}
+
 func (q Quantity) MarshalJSON() ([]byte, error) {
 	return []byte(q.DBString()), nil
 }
