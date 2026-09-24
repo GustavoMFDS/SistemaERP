@@ -389,7 +389,6 @@ export default function PDVPage() {
       if (!product && navigator.onLine) {
         const fetched = await apiJson<Product>(`/api/v1/products/barcode/${encodeURIComponent(code)}`)
         product = fetched
-        setProducts((prev) => (prev.some((item) => item.id === fetched.id) ? prev : [...prev, fetched]))
       }
       if (!product) {
         setError(
@@ -403,7 +402,7 @@ export default function PDVPage() {
         setError(`O produto ${product.name} está inativo.`)
         return
       }
-
+      setProducts((prev) => (prev.some((item) => item.id === product!.id) ? prev : [...prev, product!]))
       addProductToCart(product, 1)
       setBarcodeScan('')
     } catch (e: unknown) {
