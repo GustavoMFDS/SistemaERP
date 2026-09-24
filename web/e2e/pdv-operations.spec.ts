@@ -29,7 +29,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
         unit: 'UN',
         cost_price: 4,
         price_cash: 10,
-        promo_price: null,
+        promo_price: 8,
         min_stock: 0,
         active: true,
       },
@@ -109,14 +109,40 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   const discount = page.getByLabel('Desconto da venda (R$)')
   await expect(discount).toBeVisible()
   await discount.fill('2')
-  await expect(page.getByText('R$ 18.00', { exact: true })).toBeVisible()
+  await expect(page.getByText('R$ 14.00', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Suspender' }).click()
   await expect(page.getByText('Vendas suspensas')).toBeVisible()
   await expect(page.getByText('Nenhum item.')).toBeVisible()
+
+  await page.evaluate(
+    async ({ suffix, productId }) => {
+      const { apiJson } = await import('/src/lib/api.ts')
+      await apiJson(`/api/v1/products/${productId}`, {
+        method: 'PUT',
+        body: {
+          category_id: null,
+          sku: `E2E-PDV-${suffix}`,
+          barcode: `BAR-${suffix}`,
+          name: `Produto Operacional ${suffix}`,
+          description: null,
+          unit: 'UN',
+          cost_price: 4,
+          price_cash: 10,
+          promo_price: 7,
+          min_stock: 0,
+          active: true,
+        },
+      })
+    },
+    { suffix, productId: setup.productId },
+  )
+
   await page.getByRole('button', { name: 'Retomar' }).click()
   await expect(page.getByLabel(/Quantidade de E2E-PDV-/)).toHaveValue('2')
   await expect(page.getByLabel('Desconto da venda (R$)')).toHaveValue('2')
+  await expect(page.getByText('R$ 12.00', { exact: true })).toBeVisible()
+  await expect(page.getByText('A venda suspensa foi retomada com os preços atuais do catálogo.')).toBeVisible()
 
   await page.keyboard.press('F2')
   await expect(page.getByLabel('Código de barras')).toBeFocused()
@@ -130,7 +156,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   const saleResponse = await saleResponsePromise
   expect(saleResponse.ok()).toBe(true)
   const sale = (await saleResponse.json()) as { id: string; total: number }
-  expect(sale.total).toBe(18)
+  expect(sale.total).toBe(12)
 
   const adminSaleDetail = await page.evaluate(async (saleId) => {
     const { apiJson } = await import('/src/lib/api.ts')
@@ -153,7 +179,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
         body: {
           closing_amount: 0,
           closing_by_method: {
-            pix: 18,
+            pix: 12,
             debit: 0,
             credit: 0,
             transfer: 0,
