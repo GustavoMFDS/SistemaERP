@@ -9,6 +9,7 @@ type Supplier = {
   email?: string | null
   phone?: string | null
   contact_name?: string | null
+  notes?: string | null
   active: boolean
 }
 
@@ -74,6 +75,10 @@ export default function PurchasesPage() {
   const [supplierDocument, setSupplierDocument] = useState('')
   const [supplierPhone, setSupplierPhone] = useState('')
   const supplierCreateKeyRef = useRef('')
+  const [editingSupplierId, setEditingSupplierId] = useState('')
+  const [editSupplierName, setEditSupplierName] = useState('')
+  const [editSupplierDocument, setEditSupplierDocument] = useState('')
+  const [editSupplierPhone, setEditSupplierPhone] = useState('')
 
   const [supplierId, setSupplierId] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -152,6 +157,60 @@ export default function PurchasesPage() {
       if (e instanceof APIError && e.status === 409) supplierCreateKeyRef.current = ''
       setError(errorMessage(e))
     }
+  }
+
+  function startSupplierEdit(supplier: Supplier) {
+    setEditingSupplierId(supplier.id)
+    setEditSupplierName(supplier.name)
+    setEditSupplierDocument(supplier.document ?? '')
+    setEditSupplierPhone(supplier.phone ?? '')
+    setError('')
+  }
+
+  function cancelSupplierEdit() {
+    setEditingSupplierId('')
+    setEditSupplierName('')
+    setEditSupplierDocument('')
+    setEditSupplierPhone('')
+  }
+
+  async function updateSupplier(
+    supplier: Supplier,
+    changes: Partial<Pick<Supplier, 'name' | 'document' | 'phone' | 'active'>>,
+  ) {
+    setError('')
+    const next = { ...supplier, ...changes }
+    try {
+      await apiJson(`/api/v1/suppliers/${supplier.id}`, {
+        method: 'PUT',
+        body: {
+          name: next.name.trim(),
+          document: next.document?.trim() || null,
+          email: next.email?.trim() || null,
+          phone: next.phone?.trim() || null,
+          contact_name: next.contact_name?.trim() || null,
+          notes: next.notes?.trim() || null,
+          active: next.active,
+        },
+      })
+      if (editingSupplierId === supplier.id) cancelSupplierEdit()
+      if (!next.active && supplierId === supplier.id) setSupplierId('')
+      await loadBase()
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
+  async function saveSupplierEdit(supplier: Supplier) {
+    if (editSupplierName.trim().length < 2) {
+      setError('Informe um nome de fornecedor com pelo menos 2 caracteres.')
+      return
+    }
+    await updateSupplier(supplier, {
+      name: editSupplierName,
+      document: editSupplierDocument || null,
+      phone: editSupplierPhone || null,
+    })
   }
 
   function addLine() {
@@ -338,6 +397,113 @@ export default function PurchasesPage() {
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="mt-5 rounded-md border p-3">
+        <h3 className="text-sm font-semibold">Fornecedores cadastrados</h3>
+        <div className="mt-2 overflow-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-xs text-gray-600">
+              <tr>
+                <th className="px-2 py-2">Nome</th>
+                <th className="px-2 py-2">Documento</th>
+                <th className="px-2 py-2">Telefone</th>
+                <th className="px-2 py-2">Status</th>
+                <th className="px-2 py-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {suppliers.map((supplier) => {
+                const editing = editingSupplierId === supplier.id
+                return (
+                  <tr key={supplier.id}>
+                    <td className="px-2 py-2">
+                      {editing ? (
+                        <input
+                          aria-label={`Editar nome de ${supplier.name}`}
+                          value={editSupplierName}
+                          onChange={(e) => setEditSupplierName(e.target.value)}
+                          className="w-56 rounded-md border px-2 py-1"
+                        />
+                      ) : (
+                        supplier.name
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
+                      {editing ? (
+                        <input
+                          aria-label={`Editar documento de ${supplier.name}`}
+                          value={editSupplierDocument}
+                          onChange={(e) => setEditSupplierDocument(e.target.value)}
+                          className="w-44 rounded-md border px-2 py-1"
+                        />
+                      ) : (
+                        supplier.document ?? '—'
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
+                      {editing ? (
+                        <input
+                          aria-label={`Editar telefone de ${supplier.name}`}
+                          value={editSupplierPhone}
+                          onChange={(e) => setEditSupplierPhone(e.target.value)}
+                          className="w-40 rounded-md border px-2 py-1"
+                        />
+                      ) : (
+                        supplier.phone ?? '—'
+                      )}
+                    </td>
+                    <td className="px-2 py-2">{supplier.active ? 'Ativo' : 'Inativo'}</td>
+                    <td className="px-2 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        {editing ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void saveSupplierEdit(supplier)}
+                              className="rounded-md border px-2 py-1 text-xs"
+                            >
+                              Salvar edição
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelSupplierEdit}
+                              className="rounded-md border px-2 py-1 text-xs"
+                            >
+                              Cancelar edição
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startSupplierEdit(supplier)}
+                            className="rounded-md border px-2 py-1 text-xs"
+                          >
+                            Editar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void updateSupplier(supplier, { active: !supplier.active })}
+                          className="rounded-md border px-2 py-1 text-xs"
+                        >
+                          {supplier.active ? 'Desativar' : 'Ativar'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+              {suppliers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-2 py-5 text-center text-gray-500">
+                    Nenhum fornecedor cadastrado.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="mt-5 rounded-md border p-3">
