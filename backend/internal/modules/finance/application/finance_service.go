@@ -39,7 +39,7 @@ type ReturnRefundRequest struct {
 	Amount        platform.Money `json:"amount" validate:"required,gt=0"`
 	Provider      *string        `json:"provider" validate:"omitempty,max=100"`
 	ExternalRef   *string        `json:"external_ref" validate:"omitempty,max=200"`
-	CashSessionID *string        `json:"cash_session_id"`
+	CashSessionID *string        `json:"cash_session_id" validate:"omitempty,uuid"`
 	Notes         *string        `json:"notes" validate:"omitempty,max=1000"`
 }
 
@@ -137,6 +137,9 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 	if idempotencyKey == "" || paymentID == "" {
 		return "", "", false, common.ErrValidation
 	}
+	if err := s.validate.Var(paymentID, "uuid"); err != nil {
+		return "", "", false, common.ErrValidation
+	}
 	if err := s.validate.Struct(req); err != nil || req.FeeAmount > req.ReceivedAmount {
 		return "", "", false, common.ErrValidation
 	}
@@ -228,6 +231,9 @@ func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actor
 	req.CashSessionID = normalizeOptional(req.CashSessionID)
 	req.Notes = normalizeOptional(req.Notes)
 	if idempotencyKey == "" || returnID == "" {
+		return "", "", 0, false, common.ErrValidation
+	}
+	if err := s.validate.Var(returnID, "uuid"); err != nil {
 		return "", "", 0, false, common.ErrValidation
 	}
 	if err := s.validate.Struct(req); err != nil {
