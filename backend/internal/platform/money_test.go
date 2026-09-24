@@ -59,7 +59,6 @@ func TestQuantityRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-
 func TestScaledTypesRejectDatabaseRangeOverflow(t *testing.T) {
 	if _, err := platform.ParseMoney("10000000000.00"); err == nil {
 		t.Fatal("expected numeric(12,2) money overflow to be rejected")
