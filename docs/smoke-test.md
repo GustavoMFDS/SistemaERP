@@ -54,6 +54,7 @@ npm run build
 | Purchase audit atomicity | Create, partially/finally receive and cancel an unreceived purchase. | Audit contains one create, one event per real receipt and one cancel; cancelled purchase cannot be received. |
 | Discount RBAC | As admin/manager submit a discounted sale, then call the same flow as cashier using a crafted API request. | Authorized discount succeeds; cashier receives 403; no discounted sale is created for cashier. |
 | Non-fiscal receipt | Finalize an online sale. | UI shows sale ID/total and an explicit non-fiscal print action. |
+| Numeric overflow guard | Submit price/quantity combinations whose computed line or aggregate total exceeds the database numeric range. | Request is rejected as invalid; no sale/purchase/stock/ledger mutation occurs and no wrapped negative/zero amount is produced. |
 | Sale creation | Create a sale with valid stock and payment. | Backend calculates totals; inventory decreases; finance/audit entries exist. |
 | Sale double-submit | Trigger `Finalizar` twice in the same interaction window. | Exactly one sale POST and one idempotency key are emitted; sale count increases once. |
 | Sale write-ahead failure | Make queue `localStorage.setItem` fail before finalization. | No sale POST leaves the browser; operator sees that no sale was sent. |
