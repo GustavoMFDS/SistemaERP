@@ -128,7 +128,7 @@ func build(in input) ([]byte, string, error) {
 		ncm := "00000000"
 		cfop := "5102"
 		nfe.InfNFe.Det = append(nfe.InfNFe.Det, Det{
-			NItem: fmt.Sprintf("%d", i+1),
+			NItem: fmt.Sprintf("%d", i + 1),
 			Prod: Prod{
 				CProd:  p.SKU,
 				XProd:  p.Name,
