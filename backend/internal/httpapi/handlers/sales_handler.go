@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
@@ -15,12 +14,11 @@ import (
 
 type SalesHandler struct {
 	svc    *salesapp.SalesService
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewSalesHandler(svc *salesapp.SalesService, auditSvc *audit.Service, logger *slog.Logger) *SalesHandler {
-	return &SalesHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewSalesHandler(svc *salesapp.SalesService, logger *slog.Logger) *SalesHandler {
+	return &SalesHandler{svc: svc, logger: logger}
 }
 
 func (h *SalesHandler) List(w http.ResponseWriter, r *http.Request) {
