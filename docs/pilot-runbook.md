@@ -37,7 +37,7 @@ All items are mandatory before operator training.
 - [ ] Active product pricing is consistent (`promo_price` never exceeds `price_cash`).
 - [ ] At least one admin/manager and one cashier have individual accounts.
 - [ ] Tenant-scoped roles reviewed.
-- [ ] Schema version is clean and at least 21.
+- [ ] Schema version is clean and at least 22.
 - [ ] Pre-pilot backup created.
 - [ ] That backup restored into an isolated database and app startup verified.
 - [ ] Monitoring/alerts active for API, PostgreSQL, Redis, errors, and storage.
