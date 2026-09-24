@@ -95,6 +95,13 @@ func normalizeOptional(value *string) *string {
 	return &v
 }
 
+func validateExternalReference(provider, externalRef *string) error {
+	if (provider == nil) != (externalRef == nil) {
+		return common.ErrValidation
+	}
+	return nil
+}
+
 func validateFinanceDateRange(from, to string) error {
 	if from == "" && to == "" {
 		return nil
@@ -142,6 +149,9 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 	}
 	if err := s.validate.Struct(req); err != nil || req.FeeAmount > req.ReceivedAmount {
 		return "", "", false, common.ErrValidation
+	}
+	if err := validateExternalReference(req.Provider, req.ExternalRef); err != nil {
+		return "", "", false, err
 	}
 	hash, err := financeHash(struct {
 		PaymentID string                  `json:"payment_id"`
@@ -239,7 +249,10 @@ func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actor
 	if err := s.validate.Struct(req); err != nil {
 		return "", "", 0, false, common.ErrValidation
 	}
-	if req.Method == "cash" && req.CashSessionID == nil {
+	if err := validateExternalReference(req.Provider, req.ExternalRef); err != nil {
+		return "", "", 0, false, err
+	}
+	if req.Method == "cash" && (req.CashSessionID == nil || req.Provider != nil || req.ExternalRef != nil) {
 		return "", "", 0, false, common.ErrValidation
 	}
 	hash, err := financeHash(struct {
