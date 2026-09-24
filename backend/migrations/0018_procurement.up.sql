@@ -159,6 +159,8 @@ CREATE TABLE IF NOT EXISTS procurement_idempotency_keys (
 
 CREATE INDEX IF NOT EXISTS procurement_idempotency_tenant_created_idx
   ON procurement_idempotency_keys(tenant_id, operation, created_at DESC);
+CREATE INDEX IF NOT EXISTS procurement_idempotency_created_at_idx
+  ON procurement_idempotency_keys(created_at);
 
 DROP TRIGGER IF EXISTS procurement_idempotency_keys_immutable ON procurement_idempotency_keys;
 CREATE TRIGGER procurement_idempotency_keys_immutable
