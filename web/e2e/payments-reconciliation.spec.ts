@@ -222,6 +222,23 @@ test('reconciles digital payments and settles return refunds without double-coun
     const adjustmentAudit = await apiJson<{
       items: Array<{ action: string; resource_id: string }>
     }>('/api/v1/audit/logs?action=payment.reconcile.adjust&resource_type=payment&limit=200&offset=0')
+    const reconciliationHistory = await apiJson<{
+      initial: {
+        status: string
+        received_amount: number
+        fee_amount: number
+        provider?: string | null
+        external_ref?: string | null
+      }
+      adjustments: Array<{
+        previous_received_amount: number
+        previous_fee_amount: number
+        new_received_amount: number
+        new_fee_amount: number
+        status: string
+        notes?: string | null
+      }>
+    }>(`/api/v1/finance/payments/${payment.id}/reconciliation-history`)
 
     await apiJson(`/api/v1/sales/${secondSale.id}/cancel`, {
       method: 'POST',
@@ -409,6 +426,15 @@ test('reconciles digital payments and settles return refunds without double-coun
       adjustmentReplaySameId: adjustmentReplay.id === adjustment.id,
       adjustmentReplayFlag: adjustmentReplay.replayed,
       adjustmentAuditCount: adjustmentAudit.items.filter((item) => item.resource_id === payment.id).length,
+      historyInitialStatus: reconciliationHistory.initial.status,
+      historyInitialReceived: reconciliationHistory.initial.received_amount,
+      historyInitialFee: reconciliationHistory.initial.fee_amount,
+      historyInitialExternalRef: reconciliationHistory.initial.external_ref,
+      historyAdjustmentCount: reconciliationHistory.adjustments.length,
+      historyAdjustmentPreviousReceived: reconciliationHistory.adjustments[0]?.previous_received_amount,
+      historyAdjustmentNewReceived: reconciliationHistory.adjustments[0]?.new_received_amount,
+      historyAdjustmentStatus: reconciliationHistory.adjustments[0]?.status,
+      historyAdjustmentNotes: reconciliationHistory.adjustments[0]?.notes,
       paymentAfterStatus: paymentAfter.reconciliation_status,
       paymentAfterProvider: paymentAfter.provider,
       paymentAfterTransactionRef: paymentAfter.transaction_ref,
@@ -449,6 +475,15 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.adjustmentReplaySameId).toBe(true)
   expect(result.adjustmentReplayFlag).toBe(true)
   expect(result.adjustmentAuditCount).toBe(1)
+  expect(result.historyInitialStatus).toBe('divergent')
+  expect(result.historyInitialReceived).toBe(19)
+  expect(result.historyInitialFee).toBe(1)
+  expect(result.historyInitialExternalRef).toContain('SETTLE-')
+  expect(result.historyAdjustmentCount).toBe(1)
+  expect(result.historyAdjustmentPreviousReceived).toBe(19)
+  expect(result.historyAdjustmentNewReceived).toBe(20)
+  expect(result.historyAdjustmentStatus).toBe('reconciled')
+  expect(result.historyAdjustmentNotes).toBe('corrigir divergencia E2E')
   expect(result.paymentAfterStatus).toBe('reconciled')
   expect(result.paymentAfterProvider).toBe('e2e-provider')
   expect(result.paymentAfterTransactionRef).toContain('TX-')
@@ -478,6 +513,14 @@ test('reconciles digital payments and settles return refunds without double-coun
   await page.getByRole('link', { name: 'Financeiro' }).click()
   await expect(page).toHaveURL(/\/finance$/)
   await expect(page.getByText('Financeiro e conciliação')).toBeVisible()
+
+  const paymentRow = page.locator('tbody tr').filter({ hasText: sale.id }).first()
+  await expect(paymentRow).toBeVisible()
+  await paymentRow.getByRole('button', { name: 'Histórico' }).click()
+  await expect(page.getByText('Histórico da conciliação')).toBeVisible()
+  await expect(page.getByText(/Conciliação inicial .* divergent/)).toBeVisible()
+  await expect(page.getByText(/Recebido R\$ 19\.00 .* R\$ 20\.00/)).toBeVisible()
+  await expect(page.getByText('corrigir divergencia E2E')).toBeVisible()
 })
 
 
