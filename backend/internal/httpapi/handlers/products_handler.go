@@ -53,7 +53,11 @@ func (h *ProductsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	p, err := h.svc.Get(r.Context(), au.TenantID, id)
 	if err != nil {
-		writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
+		if err == common.ErrNotFound {
+			writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
+		} else {
+			writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar produto", nil)
+		}
 		return
 	}
 	if !middleware.HasPermission(r.Context(), "finance:read") {
@@ -71,11 +75,14 @@ func (h *ProductsHandler) GetByBarcode(w http.ResponseWriter, r *http.Request) {
 	barcode := chi.URLParam(r, "barcode")
 	p, err := h.svc.GetByBarcode(r.Context(), au.TenantID, barcode)
 	if err != nil {
-		if err == common.ErrValidation {
+		switch err {
+		case common.ErrValidation:
 			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "codigo de barras invalido", nil)
-			return
+		case common.ErrNotFound:
+			writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
+		default:
+			writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar produto", nil)
 		}
-		writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
 		return
 	}
 	if !middleware.HasPermission(r.Context(), "finance:read") {
@@ -129,7 +136,11 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if !middleware.HasPermission(r.Context(), "finance:read") {
 		current, err := h.svc.Get(r.Context(), au.TenantID, id)
 		if err != nil {
-			writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
+			if err == common.ErrNotFound {
+				writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
+			} else {
+				writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar produto", nil)
+			}
 			return
 		}
 		req.CostPrice = current.CostPrice
