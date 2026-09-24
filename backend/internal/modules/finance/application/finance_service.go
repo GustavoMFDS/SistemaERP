@@ -34,6 +34,12 @@ type PaymentReconcileRequest struct {
 	Notes          *string        `json:"notes" validate:"omitempty,max=1000"`
 }
 
+type PaymentReconciliationAdjustmentRequest struct {
+	ReceivedAmount platform.Money `json:"received_amount" validate:"min=0"`
+	FeeAmount      platform.Money `json:"fee_amount" validate:"min=0"`
+	Notes          string         `json:"notes" validate:"required,min=3,max=1000"`
+}
+
 type ReturnRefundRequest struct {
 	Method        string         `json:"method" validate:"required,oneof=cash pix debit credit transfer voucher"`
 	Amount        platform.Money `json:"amount" validate:"required,gt=0"`
@@ -230,6 +236,114 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 		return "", "", false, err
 	}
 	return reconciliationID, status, true, nil
+}
+
+func (s *FinanceService) AdjustPaymentReconciliation(ctx context.Context, tenantID, actorUserID, paymentID, idempotencyKey string, req PaymentReconciliationAdjustmentRequest) (string, string, bool, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	paymentID = strings.TrimSpace(paymentID)
+	req.Notes = strings.TrimSpace(req.Notes)
+	if idempotencyKey == "" || paymentID == "" {
+		return "", "", false, common.ErrValidation
+	}
+	if err := s.validate.Var(paymentID, "uuid"); err != nil {
+		return "", "", false, common.ErrValidation
+	}
+	if err := s.validate.Struct(req); err != nil || req.FeeAmount > req.ReceivedAmount {
+		return "", "", false, common.ErrValidation
+	}
+	hash, err := financeHash(struct {
+		PaymentID string                                 `json:"payment_id"`
+		Request   PaymentReconciliationAdjustmentRequest `json:"request"`
+	}{paymentID, req})
+	if err != nil {
+		return "", "", false, common.ErrValidation
+	}
+	op := "payment.reconcile.adjust:" + paymentID
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", "", false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.repo.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", "", false, err
+	}
+	if resourceID, status, storedHash, _, ok, err := s.repo.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", "", false, err
+	} else if ok {
+		if storedHash != hash {
+			return "", "", false, common.ErrConflict
+		}
+		_ = tx.Rollback(ctx)
+		return resourceID, status, false, nil
+	}
+
+	payment, err := s.repo.GetPaymentForUpdate(ctx, tx, tenantID, paymentID)
+	if err != nil {
+		return "", "", false, err
+	}
+	if payment.Method == "cash" || payment.ReconciliationStatus == "pending" || payment.ReconciliationStatus == "not_applicable" || payment.ReconciledAmount == nil {
+		return "", "", false, common.ErrConflict
+	}
+
+	previousReceived := *payment.ReconciledAmount
+	var previousFee platform.Money
+	if payment.ReconciledFee != nil {
+		previousFee = *payment.ReconciledFee
+	}
+	if previousReceived == req.ReceivedAmount && previousFee == req.FeeAmount {
+		return "", "", false, common.ErrValidation
+	}
+
+	difference := req.ReceivedAmount.Sub(payment.Amount)
+	status := "reconciled"
+	if difference != 0 {
+		status = "divergent"
+	}
+	notes := req.Notes
+	adjustmentID, err := s.repo.CreatePaymentReconciliationAdjustment(ctx, tx, tenantID, fin.PaymentReconciliationAdjustment{
+		PaymentID:              paymentID,
+		PreviousReceivedAmount: previousReceived,
+		PreviousFeeAmount:      previousFee,
+		NewReceivedAmount:      req.ReceivedAmount,
+		NewFeeAmount:           req.FeeAmount,
+		Difference:             difference,
+		Status:                 status,
+		Notes:                  &notes,
+		CreatedBy:              actorUserID,
+	})
+	if err != nil {
+		return "", "", false, err
+	}
+	if err := s.repo.UpdatePaymentReconciliation(
+		ctx, tx, tenantID, paymentID, status, req.ReceivedAmount, req.FeeAmount,
+		nil, nil, &notes, actorUserID,
+	); err != nil {
+		return "", "", false, err
+	}
+	resultAmount := req.ReceivedAmount
+	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, hash, adjustmentID, status, &resultAmount); err != nil {
+		return "", "", false, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "payment.reconcile.adjust",
+		ResourceType: "payment", ResourceID: paymentID, Outcome: "success",
+		Metadata: map[string]any{
+			"adjustment_id":             adjustmentID,
+			"previous_received_amount": previousReceived.String(),
+			"previous_fee_amount":      previousFee.String(),
+			"new_received_amount":      req.ReceivedAmount.String(),
+			"new_fee_amount":           req.FeeAmount.String(),
+			"status":                   status,
+		},
+	}); err != nil {
+		return "", "", false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", false, err
+	}
+	return adjustmentID, status, true, nil
 }
 
 func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actorUserID, returnID, idempotencyKey string, req ReturnRefundRequest) (string, string, platform.Money, bool, error) {
