@@ -84,10 +84,20 @@ func normalizeProductRequest(req ProductCreateRequest) ProductCreateRequest {
 	return req
 }
 
+func validateProductPricing(req ProductCreateRequest) error {
+	if req.PromoPrice != nil && *req.PromoPrice > req.PriceCash {
+		return common.ErrValidation
+	}
+	return nil
+}
+
 func (s *ProductsService) Create(ctx context.Context, tenantID, actorUserID string, req ProductCreateRequest) (string, error) {
 	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
+	}
+	if err := validateProductPricing(req); err != nil {
+		return "", err
 	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
@@ -139,6 +149,9 @@ func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id 
 	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
+	}
+	if err := validateProductPricing(req); err != nil {
+		return err
 	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
