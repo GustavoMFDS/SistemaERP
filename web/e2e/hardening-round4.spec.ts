@@ -179,16 +179,44 @@ test('network failure during logout does not pretend the HttpOnly session was re
 }) => {
   await login(page)
 
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await page.getByLabel('Produto').selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('button', { name: 'Suspender' }).click()
+  const suspendedBefore = await page.evaluate(async () => {
+    const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
+    return getSuspendedCarts().length
+  })
+  expect(suspendedBefore).toBe(1)
+
   await page.route('http://127.0.0.1:8080/api/v1/auth/logout', async (route) => {
     await route.abort('failed')
   })
 
+  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Sair' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/pdv$/)
   await expect(page.getByText(/Não foi possível encerrar a sessão no servidor/)).toBeVisible()
 
+  const suspendedAfterFailure = await page.evaluate(async () => {
+    const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
+    return getSuspendedCarts().length
+  })
+  expect(suspendedAfterFailure).toBe(1)
+
   await page.unroute('http://127.0.0.1:8080/api/v1/auth/logout')
+  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/login$/)
+
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  const suspendedAfterSuccess = await page.evaluate(async () => {
+    const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
+    return getSuspendedCarts().length
+  })
+  expect(suspendedAfterSuccess).toBe(0)
 
 })
