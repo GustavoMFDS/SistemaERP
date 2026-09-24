@@ -544,3 +544,28 @@ test('supports a net-negative digital close after refunding an earlier sale', as
   expect(result.declared_by_method.pix).toBe(-10)
   expect(result.difference_by_method.pix).toBe(0)
 })
+
+
+test('rejects invalid finance date filters', async ({ page }) => {
+  await login(page)
+
+  const result = await page.evaluate(async () => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    const statusFor = async (path: string) => {
+      try {
+        await apiJson(path)
+        return 200
+      } catch (error) {
+        if (error instanceof APIError) return error.status
+        throw error
+      }
+    }
+    return {
+      invalidDate: await statusFor('/api/v1/finance/payments?from=not-a-date&limit=1&offset=0'),
+      invertedRange: await statusFor('/api/v1/finance/dashboard?from=2026-09-23&to=2026-09-22'),
+    }
+  })
+
+  expect(result.invalidDate).toBe(422)
+  expect(result.invertedRange).toBe(422)
+})
