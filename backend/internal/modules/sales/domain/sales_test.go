@@ -87,7 +87,6 @@ func TestSale_PodeCancelar(t *testing.T) {
 	}
 }
 
-
 func TestSaleItem_CalcularSubtotal_RejectsMoneyRangeOverflow(t *testing.T) {
 	it := sales.SaleItem{
 		Qty:       platform.NewQuantityMilli(2_000),
