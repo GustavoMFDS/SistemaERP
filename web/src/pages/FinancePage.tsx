@@ -72,7 +72,6 @@ export default function FinancePage() {
     e?.preventDefault()
     setLoading(true)
     setError('')
-    setReconciling(true)
     try {
       const qs = new URLSearchParams()
       if (from) qs.set('from', from)
@@ -126,6 +125,7 @@ export default function FinancePage() {
       return
     }
     setError('')
+    setReconciling(true)
     try {
       if (!reconcileKeyRef.current) reconcileKeyRef.current = crypto.randomUUID()
       await apiJson(`/api/v1/finance/payments/${selectedPayment.id}/reconcile`, {
