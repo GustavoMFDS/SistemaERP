@@ -46,7 +46,7 @@ Run the read-only preflight against the exact tenant selected for the pilot:
 ```bash
 APP_ENV=staging \
 API_BASE_URL=https://pilot.example.com \
-DATABASE_URL='postgres://...' \
+DATABASE_URL='postgres://.../?sslmode=verify-full&sslrootcert=/path/to/ca.crt' \
 PILOT_TENANT_ID='<uuid-da-loja-piloto>' \
 FISCAL_PROVIDER=disabled \
 ALLOW_DEMO_SEED=0 \
