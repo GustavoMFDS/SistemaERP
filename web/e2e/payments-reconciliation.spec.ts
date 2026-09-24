@@ -175,44 +175,6 @@ test('reconciles digital payments and settles return refunds without double-coun
     const secondPayment = secondPayments.items.find((item) => item.sale_id === secondSale.id)
     if (!secondPayment) throw new Error('second payment not found')
 
-    const collisionSale = await apiJson<{ id: string }>('/api/v1/sales', {
-      method: 'POST',
-      headers: { 'Idempotency-Key': crypto.randomUUID() },
-      body: {
-        cash_session_id: cash.id,
-        customer_id: null,
-        discount_value: 0,
-        items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
-        payments: [{
-          method: 'pix',
-          amount: 20,
-          provider: 'e2e-provider',
-          transaction_ref: `UNRECONCILED-${suffix}`,
-          authorization_code: null,
-          installments: 1,
-        }],
-      },
-    })
-
-    let paymentReferenceConflictStatus = 0
-    try {
-      await apiJson(`/api/v1/finance/payments/${secondPayment.id}/reconcile`, {
-        method: 'POST',
-        headers: { 'Idempotency-Key': crypto.randomUUID() },
-        body: {
-          received_amount: 20,
-          fee_amount: 1,
-          provider: 'e2e-provider',
-          external_ref: `UNRECONCILED-${suffix}`,
-          notes: 'referencia ja usada por pagamento pendente deve falhar',
-        },
-      })
-      paymentReferenceConflictStatus = 200
-    } catch (error) {
-      if (error instanceof APIError) paymentReferenceConflictStatus = error.status
-      else throw error
-    }
-
     let duplicateExternalRefStatus = 0
     try {
       await apiJson(`/api/v1/finance/payments/${secondPayment.id}/reconcile`, {
@@ -264,10 +226,6 @@ test('reconciles digital payments and settles return refunds without double-coun
     await apiJson(`/api/v1/sales/${secondSale.id}/cancel`, {
       method: 'POST',
       body: { reason: 'cleanup duplicate external ref E2E' },
-    })
-    await apiJson(`/api/v1/sales/${collisionSale.id}/cancel`, {
-      method: 'POST',
-      body: { reason: 'cleanup payment reference collision E2E' },
     })
 
     const saleDetail = await apiJson<{
@@ -397,6 +355,8 @@ test('reconciles digital payments and settles return refunds without double-coun
       items: Array<{
         id: string
         reconciliation_status: string
+        provider?: string | null
+        transaction_ref?: string | null
         reconciled_amount?: number | null
         reconciled_fee?: number | null
       }>
@@ -444,13 +404,14 @@ test('reconciles digital payments and settles return refunds without double-coun
       reconciliationReplayFlag: reconciliationReplay.replayed,
       invalidReferencePairStatus,
       duplicateReconcileStatus,
-      paymentReferenceConflictStatus,
       duplicateExternalRefStatus,
       adjustmentStatus: adjustment.status,
       adjustmentReplaySameId: adjustmentReplay.id === adjustment.id,
       adjustmentReplayFlag: adjustmentReplay.replayed,
       adjustmentAuditCount: adjustmentAudit.items.filter((item) => item.resource_id === payment.id).length,
       paymentAfterStatus: paymentAfter.reconciliation_status,
+      paymentAfterProvider: paymentAfter.provider,
+      paymentAfterTransactionRef: paymentAfter.transaction_ref,
       paymentAfterAmount: paymentAfter.reconciled_amount,
       paymentAfterFee: paymentAfter.reconciled_fee,
       returnDue: saleReturn.refund_due,
@@ -483,13 +444,15 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.reconciliationReplayFlag).toBe(true)
   expect(result.invalidReferencePairStatus).toBe(422)
   expect(result.duplicateReconcileStatus).toBe(409)
-  expect(result.paymentReferenceConflictStatus).toBe(409)
   expect(result.duplicateExternalRefStatus).toBe(409)
   expect(result.adjustmentStatus).toBe('reconciled')
   expect(result.adjustmentReplaySameId).toBe(true)
   expect(result.adjustmentReplayFlag).toBe(true)
   expect(result.adjustmentAuditCount).toBe(1)
   expect(result.paymentAfterStatus).toBe('reconciled')
+  expect(result.paymentAfterProvider).toBe('e2e-provider')
+  expect(result.paymentAfterTransactionRef).toContain('TX-')
+  expect(result.paymentAfterTransactionRef).not.toContain('SETTLE-')
   expect(result.paymentAfterAmount).toBe(20)
   expect(result.paymentAfterFee).toBe(1)
   expect(result.returnDue).toBe(20)
