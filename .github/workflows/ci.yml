@@ -523,6 +523,16 @@ jobs:
             echo "rollback 0022 left payment_reconciliation_adjustments behind"
             exit 1
           fi
+          HISTORY_TRIGGER_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname IN ('payment_reconciliations_immutable','payment_reconciliation_adjustments_immutable') AND NOT tgisinternal;" | tr -d '[:space:]')"
+          if [ "$HISTORY_TRIGGER_COUNT" != "0" ]; then
+            echo "rollback 0022 left reconciliation history triggers behind"
+            exit 1
+          fi
+          HISTORY_FUNCTION="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT to_regprocedure('prevent_payment_reconciliation_history_mutation()') IS NOT NULL;" | tr -d '[:space:]')"
+          if [ "$HISTORY_FUNCTION" != "f" ]; then
+            echo "rollback 0022 left reconciliation history function behind"
+            exit 1
+          fi
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
