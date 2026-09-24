@@ -34,7 +34,7 @@ Response:
     "token_type": "Bearer",
     "expires_in": 900
   },
-  "user": { "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"] }
+  "user": { "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"], "permissions": ["sale:write", "sale:discount"] }
 }
 ```
 
@@ -68,6 +68,8 @@ Response:
 { "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"] }
 ```
 
+
+`permissions` reflects the effective tenant-scoped RBAC for the tenant in the current access token. It is useful for UI capability hints; protected endpoints still enforce permissions server-side.
 ## Products
 
 ### GET `/products?query=...&limit=...&offset=...`
@@ -113,11 +115,13 @@ Returns products with `qty_on_hand <= min_stock`.
 ### POST `/inventory/adjust`
 
 ```json
-{ "product_id": "...", "delta": 10, "reason": "Entrada por compra", "type": "purchase" }
+{ "product_id": "...", "delta": -2, "reason": "Perda identificada no inventário", "type": "loss" }
 ```
 
 ## Cash / PDV
 
+
+Manual inventory adjustment accepts only `adjustment`, `loss`, and `damage`. `purchase` and `return` movements are reserved for the transactional procurement and return workflows.
 ### POST `/cash/sessions/open`
 
 Opens the default cash register session for the authenticated tenant. Only one open session is allowed per tenant/register.
