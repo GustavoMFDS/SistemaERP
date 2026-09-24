@@ -93,18 +93,41 @@ critical_tables="$(
     FROM information_schema.tables
     WHERE table_schema='public'
       AND table_name IN (
-        'companies','users','user_tenants','user_tenant_roles','products',
-        'inventory_balances','inventory_movements','cash_sessions','cash_movements',
-        'sales','sale_items','payments','suppliers','purchases','purchase_receipts',
-        'sale_returns','sale_return_items','return_refunds','payment_reconciliations',
-        'ledger_entries','audit_logs','idempotency_keys'
+        'companies','users','user_tenants','user_tenant_roles','permissions','role_permissions',
+        'products','inventory_balances','inventory_movements',
+        'cash_registers','cash_sessions','cash_movements','cash_session_reconciliations',
+        'sales','sale_items','payments','idempotency_keys',
+        'suppliers','purchases','purchase_items','purchase_receipts','purchase_receipt_items',
+        'procurement_idempotency_keys',
+        'sale_returns','sale_return_items','return_idempotency_keys',
+        'return_refunds','payment_reconciliations','finance_idempotency_keys',
+        'ledger_entries','audit_logs'
       );
   "
 )"
-if [ "$critical_tables" -lt 22 ]; then
-  fail "one or more critical pilot tables are missing ($critical_tables/22 found)"
+if [ "$critical_tables" -lt 31 ]; then
+  fail "one or more critical pilot tables are missing ($critical_tables/31 found)"
 else
   pass "critical pilot tables are present"
+fi
+
+immutable_triggers="$(
+  psql "$DATABASE_URL" -At -c "
+    SELECT count(*)
+    FROM pg_trigger
+    WHERE NOT tgisinternal
+      AND tgname IN (
+        'idempotency_keys_immutable',
+        'procurement_idempotency_keys_immutable',
+        'return_idempotency_keys_immutable',
+        'finance_idempotency_keys_immutable'
+      );
+  "
+)"
+if [ "$immutable_triggers" -lt 4 ]; then
+  fail "one or more idempotency immutability triggers are missing ($immutable_triggers/4 found)"
+else
+  pass "idempotency immutability triggers are present"
 fi
 
 duplicate_open="$(
