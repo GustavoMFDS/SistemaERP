@@ -169,7 +169,16 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(adminSaleDetail.items[0].cost_unit).toBe(4)
 
   await expect(page.getByText(/Venda finalizada:/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Imprimir comprovante não fiscal' })).toBeVisible()
+  const printButton = page.getByRole('button', { name: 'Imprimir comprovante não fiscal' })
+  await expect(printButton).toBeVisible()
+
+  const popupPromise = page.waitForEvent('popup')
+  await printButton.click()
+  const receiptPage = await popupPromise
+  await expect(receiptPage.getByText('COMPROVANTE NÃO FISCAL', { exact: true })).toBeVisible()
+  await expect(receiptPage.getByText(`Venda: ${sale.id}`, { exact: true })).toBeVisible()
+  await expect(receiptPage.getByText('TOTAL R$ 12.00', { exact: true })).toBeVisible()
+  await receiptPage.close()
 
   await page.evaluate(
     async ({ cashId }) => {
