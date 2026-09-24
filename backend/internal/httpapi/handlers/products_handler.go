@@ -105,7 +105,7 @@ func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !middleware.HasPermission(r.Context(), "finance:read") {
 		req.CostPrice = 0
 	}
-	id, err := h.svc.Create(r.Context(), au.TenantID, req)
+	id, err := h.svc.Create(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch err {
@@ -117,7 +117,6 @@ func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "product.create", "product", id, "success", nil)
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
@@ -145,7 +144,7 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		req.CostPrice = current.CostPrice
 	}
-	if err := h.svc.Update(r.Context(), au.TenantID, id, req); err != nil {
+	if err := h.svc.Update(r.Context(), au.TenantID, au.UserID, id, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
 		case common.ErrValidation:
@@ -158,6 +157,5 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "product.update", "product", id, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }
