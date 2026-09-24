@@ -124,6 +124,10 @@ export default function FinancePage() {
       setError('Informe valores válidos: a taxa não pode superar o valor recebido.')
       return
     }
+    if (Boolean(provider.trim()) !== Boolean(externalRef.trim())) {
+      setError('Provedor e ID externo devem ser informados juntos.')
+      return
+    }
     setError('')
     setReconciling(true)
     try {
@@ -173,6 +177,14 @@ export default function FinancePage() {
     }
     if (refundMethod === 'cash' && !refundCashSessionId.trim()) {
       setError('Reembolso em dinheiro exige uma sessão de caixa aberta.')
+      return
+    }
+    if (refundMethod === 'cash' && (refundProvider.trim() || refundExternalRef.trim())) {
+      setError('Reembolso em dinheiro não usa provedor nem ID externo.')
+      return
+    }
+    if (Boolean(refundProvider.trim()) !== Boolean(refundExternalRef.trim())) {
+      setError('Provedor e ID externo devem ser informados juntos.')
       return
     }
     setError('')
