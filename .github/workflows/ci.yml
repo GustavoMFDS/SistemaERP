@@ -314,6 +314,7 @@ jobs:
             -c "SELECT code FROM permissions WHERE code IN ('procurement:read','procurement:write','procurement:receive') ORDER BY code;" \
             -c "SELECT r.name, p.code FROM roles r JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id WHERE r.name IN ('admin','manager') AND p.code IN ('procurement:read','procurement:write','procurement:receive') ORDER BY r.name,p.code;" \
             -c "SELECT conname FROM pg_constraint WHERE conname IN ('purchases_supplier_tenant_fk','purchase_items_purchase_tenant_fk','purchase_items_product_tenant_fk','purchase_receipts_purchase_tenant_fk','purchase_receipt_items_receipt_tenant_fk','purchase_receipt_items_purchase_item_tenant_fk','purchase_receipt_items_product_tenant_fk','accounts_payable_supplier_tenant_fk','accounts_payable_purchase_tenant_fk') ORDER BY conname;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='procurement_idempotency_created_at_idx';" \
             -c "SELECT tgname FROM pg_trigger WHERE tgrelid='procurement_idempotency_keys'::regclass AND tgname='procurement_idempotency_keys_immutable';"
 
           docker run --rm --network host \
@@ -371,6 +372,7 @@ jobs:
             -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('sale_returns','sale_return_items','return_idempotency_keys') ORDER BY table_name;" \
             -c "SELECT code FROM permissions WHERE code='sale:return';" \
             -c "SELECT conname FROM pg_constraint WHERE conname IN ('sale_returns_sale_tenant_fk','sale_return_items_return_tenant_fk','sale_return_items_sale_item_tenant_fk','sale_return_items_product_tenant_fk','return_idempotency_return_tenant_fk') ORDER BY conname;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='return_idempotency_created_at_idx';" \
             -c "SELECT tgname FROM pg_trigger WHERE tgrelid='return_idempotency_keys'::regclass AND tgname='return_idempotency_keys_immutable';"
 
           docker run --rm --network host \
@@ -415,6 +417,7 @@ jobs:
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='payments' AND column_name IN ('provider','transaction_ref','authorization_code','installments','reconciliation_status','reconciled_amount','reconciled_fee','reconciled_at') ORDER BY column_name;" \
             -c "SELECT code FROM permissions WHERE code='finance:reconcile';" \
             -c "SELECT conname FROM pg_constraint WHERE conname IN ('payment_reconciliation_payment_tenant_fk','return_refunds_return_tenant_fk','return_refunds_sale_tenant_fk','return_refunds_cash_session_tenant_fk') ORDER BY conname;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='finance_idempotency_created_at_idx';" \
             -c "SELECT tgname FROM pg_trigger WHERE tgrelid='finance_idempotency_keys'::regclass AND tgname='finance_idempotency_keys_immutable';"
 
           docker run --rm --network host \
