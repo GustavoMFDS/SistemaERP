@@ -25,7 +25,9 @@
 - Product cost, sale item cost and estimated profit are redacted from users without `finance:read`; hidden cost is preserved server-side on product updates.
 - Product/stock write controls are hidden when the current tenant permissions do not allow them; backend RBAC remains authoritative.
 - Return list/detail reads now require `sale:return`.
-- Each digital payment accepts one reconciliation record. Same-key replay remains idempotent; a second reconciliation with another key returns conflict and the database has a unique tenant/payment guard.
+- Each digital payment accepts one immutable initial reconciliation. Same-key replay remains idempotent; a second initial reconciliation with another key returns conflict and the database has a unique tenant/payment guard.
+- Migration `0022` adds immutable reconciliation-adjustment history. Corrections preserve the initial row, record prior/new received amount and fee plus justification/operator/timestamp, are idempotent, and are queryable through `finance:read`.
+- Payment `transaction_ref` remains the original sale/payment identifier; reconciliation `external_ref` is stored separately and never overwrites the original transaction metadata.
 - Refund close logic remains single-counted: cash refunds use cash withdrawal; digital refunds linked to a session reduce that method directly.
 - Barcode uniqueness conflicts, cashier procurement denial, cashier cost/profit redaction, reserved inventory movement types, negative digital close, inactive purchase products, purchase cancellation and transactional purchase audit have E2E coverage added to the suite.
 - Product create/update, supplier create/update, purchase create/receive/cancel and manual inventory adjustments now write audit events in the same transaction as the business mutation.
