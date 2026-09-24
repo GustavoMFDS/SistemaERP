@@ -16,6 +16,7 @@ type FinanceRepository interface {
 	ListPayments(ctx context.Context, tenantID, from, to, method, status string, limit, offset int) ([]fin.PaymentRecord, int, error)
 	GetPaymentForUpdate(ctx context.Context, tx db.DBTX, tenantID, paymentID string) (fin.PaymentRecord, error)
 	CreatePaymentReconciliation(ctx context.Context, tx db.DBTX, tenantID string, item fin.PaymentReconciliation) (string, error)
+	CreatePaymentReconciliationAdjustment(ctx context.Context, tx db.DBTX, tenantID string, item fin.PaymentReconciliationAdjustment) (string, error)
 	UpdatePaymentReconciliation(ctx context.Context, tx db.DBTX, tenantID, paymentID, status string, received, fee platform.Money, provider, externalRef, notes *string, actorUserID string) error
 
 	ListReturnRefunds(ctx context.Context, tenantID, status string, limit, offset int) ([]fin.ReturnRefundSummary, int, error)
