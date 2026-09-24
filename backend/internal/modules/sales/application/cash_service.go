@@ -104,7 +104,18 @@ func (s *CashService) RecordMovement(ctx context.Context, tenantID, userID, sess
 		if err != nil {
 			return "", err
 		}
-		available := session.OpeningAmount.Add(payments["cash"]).Add(supply).Sub(withdrawal)
+		available, err := session.OpeningAmount.AddChecked(payments["cash"])
+		if err != nil {
+			return "", common.ErrValidation
+		}
+		available, err = available.AddChecked(supply)
+		if err != nil {
+			return "", common.ErrValidation
+		}
+		available, err = available.SubChecked(withdrawal)
+		if err != nil {
+			return "", common.ErrValidation
+		}
 		if req.Amount > available {
 			return "", common.ErrInsufficientCash
 		}
@@ -187,7 +198,19 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 	for _, method := range cashReconciliationMethods {
 		expected[method] = payments[method]
 	}
-	expected["cash"] = session.OpeningAmount.Add(payments["cash"]).Add(supply).Sub(withdrawal)
+	expectedCash, err := session.OpeningAmount.AddChecked(payments["cash"])
+	if err != nil {
+		return sales.CashCloseResult{}, common.ErrValidation
+	}
+	expectedCash, err = expectedCash.AddChecked(supply)
+	if err != nil {
+		return sales.CashCloseResult{}, common.ErrValidation
+	}
+	expectedCash, err = expectedCash.SubChecked(withdrawal)
+	if err != nil {
+		return sales.CashCloseResult{}, common.ErrValidation
+	}
+	expected["cash"] = expectedCash
 
 	declared := make(map[string]platform.Money, len(cashReconciliationMethods))
 	if len(req.ClosingByMethod) == 0 {
@@ -202,6 +225,15 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 		}
 	}
 	declared["cash"] = req.ClosingAmount
+
+	difference := make(map[string]platform.Money, len(cashReconciliationMethods))
+	for _, method := range cashReconciliationMethods {
+		methodDifference, err := declared[method].SubChecked(expected[method])
+		if err != nil {
+			return sales.CashCloseResult{}, common.ErrValidation
+		}
+		difference[method] = methodDifference
+	}
 
 	if err := s.cash.CloseSession(
 		ctx,
@@ -224,7 +256,7 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 		Metadata: map[string]any{
 			"expected_cash":      expected["cash"].String(),
 			"closing_amount":     req.ClosingAmount.String(),
-			"closing_difference": req.ClosingAmount.Sub(expected["cash"]).String(),
+			"closing_difference": difference["cash"].String(),
 			"expected_by_method": moneyMapStrings(expected),
 			"declared_by_method": moneyMapStrings(declared),
 		},
@@ -236,14 +268,10 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 		return sales.CashCloseResult{}, err
 	}
 
-	difference := make(map[string]platform.Money, len(cashReconciliationMethods))
-	for _, method := range cashReconciliationMethods {
-		difference[method] = declared[method].Sub(expected[method])
-	}
 	return sales.CashCloseResult{
 		ExpectedCash:       expected["cash"],
 		ClosingAmount:      req.ClosingAmount,
-		ClosingDifference:  req.ClosingAmount.Sub(expected["cash"]),
+		ClosingDifference:  difference["cash"],
 		ExpectedByMethod:   expected,
 		DeclaredByMethod:   declared,
 		DifferenceByMethod: difference,
