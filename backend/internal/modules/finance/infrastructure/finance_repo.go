@@ -290,7 +290,7 @@ func (r *FinanceRepo) UpdatePaymentReconciliation(ctx context.Context, tx db.DBT
 		WHERE tenant_id=$1 AND id=$2
 	`, tenantID, paymentID, status, received.DBString(), fee.DBString(), actorUserID, provider, externalRef, notes)
 	if err != nil {
-		return err
+		return mapFinanceWriteError(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return common.ErrNotFound
