@@ -43,6 +43,24 @@ fi
 
 base="${API_BASE_URL%/}"
 
+case "$base" in
+  https://*)
+    pass "API_BASE_URL uses HTTPS"
+    ;;
+  *)
+    fail "API_BASE_URL must use HTTPS for a production-like pilot"
+    ;;
+esac
+
+case "$DATABASE_URL" in
+  *"sslmode=verify-full"*)
+    pass "DATABASE_URL requires PostgreSQL certificate and hostname verification"
+    ;;
+  *)
+    fail "DATABASE_URL must use sslmode=verify-full for a production-like pilot"
+    ;;
+esac
+
 case "${APP_ENV:-}" in
   staging|prod|production)
     pass "APP_ENV is production-like (${APP_ENV})"
