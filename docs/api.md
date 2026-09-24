@@ -65,7 +65,7 @@ Revokes the current refresh token and only then clears the refresh cookie. If se
 Response:
 
 ```json
-{ "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"] }
+{ "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"], "permissions": ["sale:write", "sale:discount"] }
 ```
 
 
@@ -307,7 +307,23 @@ Requires `finance:reconcile` and `Idempotency-Key`.
 }
 ```
 
-The backend stores immutable reconciliation history. A gross received amount different from the sale payment marks the payment `divergent`; provider fees are tracked separately and do not change the original sale.
+The backend stores the initial reconciliation as immutable history. A gross received amount different from the sale payment marks the payment `divergent`; provider fees are tracked separately and do not change the original sale. If `provider` or `external_ref` is supplied, both fields are required as a pair.
+
+A second initial reconciliation for the same payment returns `409 conflict`. Corrections use the explicit adjustment endpoint below.
+
+### POST `/finance/payments/{id}/reconciliation-adjustments`
+
+Requires `finance:reconcile` and `Idempotency-Key`. It is valid only after a non-cash payment has an initial `reconciled` or `divergent` result.
+
+```json
+{
+  "received_amount": 120,
+  "fee_amount": 3.5,
+  "notes": "Correção após conferência do extrato"
+}
+```
+
+The original reconciliation row is not changed. A new adjustment row records the previous and corrected received/fee values, the resulting status, operator, justification and timestamp. Same-key replay returns the original adjustment; a no-op adjustment is rejected.
 
 ### GET `/finance/refunds`
 
@@ -328,7 +344,7 @@ Requires `finance:reconcile` and `Idempotency-Key`.
 }
 ```
 
-The sum of settlements can never exceed the return's `refund_due`. Cash refunds require an open cash session, sufficient physical cash, and create a real cash withdrawal. Digital refunds may optionally be associated with an open session so the method-level cash close reconciliation uses the net value. Every settlement also creates a negative `return_refund` ledger entry.
+The sum of settlements can never exceed the return's `refund_due`. Cash refunds require an open cash session, sufficient physical cash, and create a real cash withdrawal. Cash refunds cannot carry provider/external-reference metadata. For digital refunds, provider and external reference remain optional, but when one is supplied the other is required. Digital refunds may optionally be associated with an open session so the method-level cash close reconciliation uses the net value. Every settlement also creates a negative `return_refund` ledger entry.
 
 ## Fiscal
 
