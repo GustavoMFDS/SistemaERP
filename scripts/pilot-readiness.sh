@@ -241,6 +241,50 @@ else
   pass "pilot tenant has an active responsible user for finance and audit"
 fi
 
+separated_duties_count="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    WITH operator_users AS (
+      SELECT DISTINCT u.id
+      FROM users u
+      JOIN user_tenants ut
+        ON ut.user_id=u.id
+       AND ut.tenant_id=:'tenant_id'::uuid
+      JOIN user_tenant_roles utr
+        ON utr.user_id=u.id
+       AND utr.tenant_id=ut.tenant_id
+      JOIN role_permissions rp ON rp.role_id=utr.role_id
+      JOIN permissions p ON p.id=rp.permission_id
+      WHERE u.active=true
+        AND p.code='sale:write'
+    ),
+    responsible_users AS (
+      SELECT u.id
+      FROM users u
+      JOIN user_tenants ut
+        ON ut.user_id=u.id
+       AND ut.tenant_id=:'tenant_id'::uuid
+      JOIN user_tenant_roles utr
+        ON utr.user_id=u.id
+       AND utr.tenant_id=ut.tenant_id
+      JOIN role_permissions rp ON rp.role_id=utr.role_id
+      JOIN permissions p ON p.id=rp.permission_id
+      WHERE u.active=true
+        AND p.code IN ('finance:read','audit:read')
+      GROUP BY u.id
+      HAVING count(DISTINCT p.code)=2
+    )
+    SELECT count(*)
+    FROM operator_users o
+    CROSS JOIN responsible_users r
+    WHERE o.id <> r.id;
+  "
+)"
+if [ "$separated_duties_count" -lt 1 ]; then
+  fail "pilot tenant needs distinct active operator and responsible-user accounts"
+else
+  pass "pilot tenant has separate operator and responsible-user accounts"
+fi
+
 printf '\nPilot readiness summary: %d failure(s), %d warning(s).\n' "$failures" "$warnings"
 if [ "$failures" -gt 0 ]; then
   exit 1
