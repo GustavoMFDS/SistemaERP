@@ -111,7 +111,6 @@ func TestMulDivRoundUsesSafeIntermediate(t *testing.T) {
 	}
 }
 
-
 func TestCheckedQuantityArithmeticRejectsOverflow(t *testing.T) {
 	maxQty, err := platform.ParseQuantity("99999999999.999")
 	if err != nil {
