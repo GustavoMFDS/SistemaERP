@@ -69,6 +69,21 @@ type SaleItem = {
 
 type SalePayment = { method: string; amount: number }
 
+type ReceiptSnapshot = {
+  saleId: string
+  total: number
+  saleDiscount: number
+  paymentMethod: string
+  createdAt: string
+  items: Array<{
+    label: string
+    qty: number
+    unitPrice: number
+    discountValue: number
+    lineTotal: number
+  }>
+}
+
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 const PRODUCTS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const CLOSE_METHODS = [
@@ -78,6 +93,15 @@ const CLOSE_METHODS = [
   ['transfer', 'Transferência'],
   ['voucher', 'Voucher'],
 ] as const
+
+const PAYMENT_LABELS: Record<string, string> = {
+  cash: 'Dinheiro',
+  pix: 'PIX',
+  debit: 'Débito',
+  credit: 'Crédito',
+  transfer: 'Transferência',
+  voucher: 'Voucher',
+}
 
 function productSalePrice(product: Product): number {
   const promo = Number(product.promo_price)
@@ -124,6 +148,7 @@ export default function PDVPage() {
   const [payMethod, setPayMethod] = useState('pix')
   const [saleId, setSaleId] = useState('')
   const [saleTotal, setSaleTotal] = useState<number>(0)
+  const [receipt, setReceipt] = useState<ReceiptSnapshot | null>(null)
   const [finalizing, setFinalizing] = useState(false)
   const finalizeInFlight = useRef(false)
 
@@ -545,6 +570,7 @@ export default function PDVPage() {
     setError('')
     setSaleId('')
     setSaleTotal(0)
+    setReceipt(null)
 
     const payments: SalePayment[] = [{ method: payMethod, amount: computedTotal }]
     const body = {
@@ -597,6 +623,27 @@ export default function PDVPage() {
 
       discardQueueItem(queuedId)
       refreshPending()
+      const receiptItems = items.map((item) => {
+        const product = productById.get(item.product_id)
+        const unitPrice = Number(item.unit_price) || 0
+        const qty = Number(item.qty) || 0
+        const discountValue = Number(item.discount_value) || 0
+        return {
+          label: product ? `${product.sku} — ${product.name}` : item.product_id,
+          qty,
+          unitPrice,
+          discountValue,
+          lineTotal: Math.round((unitPrice * qty - discountValue) * 100) / 100,
+        }
+      })
+      setReceipt({
+        saleId: res.id,
+        total: res.total,
+        saleDiscount: canDiscount ? saleDiscount : 0,
+        paymentMethod: payMethod,
+        createdAt: new Date().toISOString(),
+        items: receiptItems,
+      })
       setSaleId(res.id)
       setSaleTotal(res.total)
       setItems([])
@@ -630,6 +677,76 @@ export default function PDVPage() {
       setFinalizing(false)
       barcodeInputRef.current?.focus()
     }
+  }
+
+  function printNonFiscalReceipt() {
+    if (!receipt) return
+
+    const popup = window.open('', '_blank', 'width=420,height=640')
+    if (!popup) {
+      setError('O navegador bloqueou a janela do comprovante. Libere pop-ups e tente novamente.')
+      return
+    }
+    popup.opener = null
+    const doc = popup.document
+    doc.title = 'Comprovante não fiscal'
+
+    const style = doc.createElement('style')
+    style.textContent =
+      'body{font-family:ui-monospace,monospace;max-width:380px;margin:20px auto;padding:0 12px;color:#111}' +
+      'h1{font-size:18px;text-align:center;margin:0 0 4px}' +
+      '.warn{text-align:center;font-weight:700;border:2px solid #111;padding:8px;margin:8px 0}' +
+      '.muted{font-size:11px;color:#444}.row{display:flex;justify-content:space-between;gap:12px}' +
+      '.item{border-top:1px dashed #777;padding:6px 0}.total{font-size:18px;font-weight:700;border-top:2px solid #111;padding-top:8px;margin-top:8px}' +
+      '@media print{body{margin:0 auto}.no-print{display:none}}'
+    doc.head.appendChild(style)
+
+    const addText = (tag: 'h1' | 'div' | 'p', text: string, className?: string) => {
+      const node = doc.createElement(tag)
+      node.textContent = text
+      if (className) node.className = className
+      doc.body.appendChild(node)
+      return node
+    }
+
+    addText('h1', 'SistemaEmGo')
+    addText('div', 'COMPROVANTE NÃO FISCAL', 'warn')
+    addText('p', 'Não é documento fiscal e não substitui NFC-e/NF-e.', 'muted')
+    addText('p', `Venda: ${receipt.saleId}`, 'muted')
+    addText('p', `Data/hora do terminal: ${new Date(receipt.createdAt).toLocaleString('pt-BR')}`, 'muted')
+
+    for (const item of receipt.items) {
+      const box = doc.createElement('div')
+      box.className = 'item'
+      const label = doc.createElement('div')
+      label.textContent = item.label
+      box.appendChild(label)
+      const detail = doc.createElement('div')
+      detail.className = 'row muted'
+      const left = doc.createElement('span')
+      left.textContent = `${item.qty.toFixed(3)} x R$ ${item.unitPrice.toFixed(2)}`
+      const right = doc.createElement('span')
+      right.textContent = `R$ ${item.lineTotal.toFixed(2)}`
+      detail.append(left, right)
+      box.appendChild(detail)
+      if (item.discountValue > 0) {
+        const discount = doc.createElement('div')
+        discount.className = 'muted'
+        discount.textContent = `Desconto do item: R$ ${item.discountValue.toFixed(2)}`
+        box.appendChild(discount)
+      }
+      doc.body.appendChild(box)
+    }
+
+    if (receipt.saleDiscount > 0) {
+      addText('p', `Desconto da venda: R$ ${receipt.saleDiscount.toFixed(2)}`, 'muted')
+    }
+    addText('p', `Pagamento: ${PAYMENT_LABELS[receipt.paymentMethod] ?? receipt.paymentMethod}`, 'muted')
+    addText('div', `TOTAL R$ ${receipt.total.toFixed(2)}`, 'total')
+    addText('p', 'Guarde apenas como comprovante comercial interno/ao cliente.', 'muted')
+
+    popup.focus()
+    popup.print()
   }
 
   useEffect(() => {
@@ -1124,13 +1241,15 @@ export default function PDVPage() {
             ) : (
               <>
                 Venda finalizada: <span className="font-mono text-xs">{saleId}</span> • Total R$ {saleTotal.toFixed(2)}
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="ml-3 rounded border border-green-300 px-2 py-1 text-xs"
-                >
-                  Imprimir comprovante não fiscal
-                </button>
+                {receipt ? (
+                  <button
+                    type="button"
+                    onClick={printNonFiscalReceipt}
+                    className="ml-3 rounded border border-green-300 px-2 py-1 text-xs"
+                  >
+                    Imprimir comprovante não fiscal
+                  </button>
+                ) : null}
               </>
             )}
           </div>
