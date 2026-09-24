@@ -66,8 +66,24 @@ func normalizeBarcode(value *string) *string {
 	return &barcode
 }
 
-func (s *ProductsService) Create(ctx context.Context, tenantID string, req ProductCreateRequest) (string, error) {
+func normalizeProductRequest(req ProductCreateRequest) ProductCreateRequest {
+	req.SKU = strings.TrimSpace(req.SKU)
+	req.Name = strings.TrimSpace(req.Name)
+	req.Unit = strings.TrimSpace(req.Unit)
 	req.Barcode = normalizeBarcode(req.Barcode)
+	if req.Description != nil {
+		description := strings.TrimSpace(*req.Description)
+		if description == "" {
+			req.Description = nil
+		} else {
+			req.Description = &description
+		}
+	}
+	return req
+}
+
+func (s *ProductsService) Create(ctx context.Context, tenantID string, req ProductCreateRequest) (string, error) {
+	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
 	}
@@ -108,7 +124,7 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 }
 
 func (s *ProductsService) Update(ctx context.Context, tenantID string, id string, req ProductUpdateRequest) error {
-	req.Barcode = normalizeBarcode(req.Barcode)
+	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
