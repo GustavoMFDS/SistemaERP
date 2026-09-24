@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
@@ -15,6 +16,7 @@ import (
 type ProductsService struct {
 	uow      db.UnitOfWork
 	repo     ProductsRepository
+	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
 }
@@ -35,8 +37,8 @@ type ProductCreateRequest struct {
 
 type ProductUpdateRequest = ProductCreateRequest
 
-func NewProductsService(uow db.UnitOfWork, r ProductsRepository, v *validator.Validate, logger *slog.Logger) *ProductsService {
-	return &ProductsService{uow: uow, repo: r, validate: v, logger: logger}
+func NewProductsService(uow db.UnitOfWork, r ProductsRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *ProductsService {
+	return &ProductsService{uow: uow, repo: r, audit: auditSvc, validate: v, logger: logger}
 }
 
 func (s *ProductsService) List(ctx context.Context, tenantID string, query string, limit, offset int) ([]inv.Product, int, error) {
@@ -82,7 +84,7 @@ func normalizeProductRequest(req ProductCreateRequest) ProductCreateRequest {
 	return req
 }
 
-func (s *ProductsService) Create(ctx context.Context, tenantID string, req ProductCreateRequest) (string, error) {
+func (s *ProductsService) Create(ctx context.Context, tenantID, actorUserID string, req ProductCreateRequest) (string, error) {
 	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
@@ -109,6 +111,16 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 	if err != nil {
 		return "", err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "product.create",
+		ResourceType: "product", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{
+			"sku":        p.SKU,
+			"price_cash": p.PriceCash.String(),
+		},
+	}); err != nil {
+		return "", err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
@@ -123,7 +135,7 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 	return id, nil
 }
 
-func (s *ProductsService) Update(ctx context.Context, tenantID string, id string, req ProductUpdateRequest) error {
+func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id string, req ProductUpdateRequest) error {
 	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
@@ -147,6 +159,16 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 		Active:      req.Active,
 	}
 	if err := s.repo.Update(ctx, tx, tenantID, id, p); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "product.update",
+		ResourceType: "product", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{
+			"sku":        p.SKU,
+			"price_cash": p.PriceCash.String(),
+		},
+	}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
