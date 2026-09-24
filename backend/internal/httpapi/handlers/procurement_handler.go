@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	procapp "github.com/example/sistemaemgo/internal/modules/procurement/application"
 	"github.com/go-chi/chi/v5"
@@ -15,12 +14,11 @@ import (
 
 type ProcurementHandler struct {
 	svc    *procapp.Service
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewProcurementHandler(svc *procapp.Service, auditSvc *audit.Service, logger *slog.Logger) *ProcurementHandler {
-	return &ProcurementHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewProcurementHandler(svc *procapp.Service, logger *slog.Logger) *ProcurementHandler {
+	return &ProcurementHandler{svc: svc, logger: logger}
 }
 
 func writeProcurementError(w http.ResponseWriter, r *http.Request, err error) {
