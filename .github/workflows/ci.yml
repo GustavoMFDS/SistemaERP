@@ -508,7 +508,8 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
             -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='payment_reconciliation_adjustments';" \
             -c "SELECT conname FROM pg_constraint WHERE conname='payment_reconciliation_adjustment_payment_tenant_fk';" \
-            -c "SELECT indexname FROM pg_indexes WHERE indexname='payment_reconciliation_adjustments_tenant_payment_created_idx';"
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='payment_reconciliation_adjustments_tenant_payment_created_idx';" \
+            -c "SELECT tgname FROM pg_trigger WHERE tgname IN ('payment_reconciliations_immutable','payment_reconciliation_adjustments_immutable') AND NOT tgisinternal ORDER BY tgname;"
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
