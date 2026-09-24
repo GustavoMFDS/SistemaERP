@@ -120,6 +120,25 @@ func (h *FinanceHandler) ReconcilePayment(w http.ResponseWriter, r *http.Request
 	writeJSON(w, code, map[string]any{"id": id, "status": status, "replayed": !created})
 }
 
+func (h *FinanceHandler) GetPaymentReconciliationHistory(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	initial, adjustments, err := h.svc.GetPaymentReconciliationHistory(
+		r.Context(), au.TenantID, chi.URLParam(r, "id"),
+	)
+	if err != nil {
+		writeFinanceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"initial": initial,
+		"adjustments": adjustments,
+	})
+}
+
 func (h *FinanceHandler) AdjustPaymentReconciliation(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
