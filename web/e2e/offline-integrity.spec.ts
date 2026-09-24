@@ -235,3 +235,63 @@ test('offline catalog cache expires after the safe window', async ({ page }) => 
   ).toBeVisible()
   await expect(page.getByLabel('Produto').locator('option')).toHaveCount(1)
 })
+
+
+test('product authorization errors never fall back to offline cache', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await expect(page).toHaveURL(/\/pdv$/)
+  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+
+  await page.route('**/api/v1/products?**', async (route) => {
+    await route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'permissao revogada' }),
+    })
+  })
+
+  await page.reload()
+  await expect(page.getByText('permissao revogada')).toBeVisible()
+  await expect(page.getByLabel('Produto').locator('option')).toHaveCount(1)
+})
+
+test('expired access token cannot address tenant scoped local storage', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const original = auth.getToken()
+    const encode = (value: object) =>
+      btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+    const expired = `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
+      sub: 'expired-user',
+      tenant_id: 'expired-tenant',
+      exp: Math.floor(Date.now() / 1000) - 60,
+    })}.signature`
+
+    auth.setToken(expired)
+    const expiredResult = {
+      usable: auth.hasUsableAccessToken(),
+      scope: auth.getSessionScope(),
+      storageKey: auth.scopedStorageKey('test:scope'),
+      cashSessionId: auth.getCashSessionId(),
+    }
+    auth.setToken(original)
+    return expiredResult
+  })
+
+  expect(result.usable).toBe(false)
+  expect(result.scope).toBe('')
+  expect(result.storageKey).toBeNull()
+  expect(result.cashSessionId).toBe('')
+})
