@@ -103,3 +103,11 @@
 - Produto inativo não pode ser incluído em uma nova compra.
 - Criação, recebimento e cancelamento de compra, assim como ajuste manual de estoque, gravam auditoria na mesma transação da alteração operacional.
 - Cada pagamento digital pode ter no máximo uma conciliação. Replay com a mesma chave idempotente retorna o resultado existente; uma nova chave para o mesmo pagamento retorna conflito.
+
+
+### Preço efetivo no PDV
+
+- `promo_price` positivo, quando configurado, é o preço efetivo usado pelo PDV e pelo backend.
+- Promoção nunca pode superar `price_cash`; create/update rejeitam essa configuração.
+- Carrinho suspenso é rascunho e, quando retomado online, recebe o preço atual do catálogo.
+- Catálogo offline vencido não pode ser usado para iniciar novas vendas.
