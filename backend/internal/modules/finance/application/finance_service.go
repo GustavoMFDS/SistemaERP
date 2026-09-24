@@ -238,6 +238,22 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 	return reconciliationID, status, true, nil
 }
 
+func (s *FinanceService) GetPaymentReconciliationHistory(ctx context.Context, tenantID, paymentID string) (fin.PaymentReconciliation, []fin.PaymentReconciliationAdjustment, error) {
+	paymentID = strings.TrimSpace(paymentID)
+	if err := s.validate.Var(paymentID, "required,uuid"); err != nil {
+		return fin.PaymentReconciliation{}, nil, common.ErrValidation
+	}
+	initial, err := s.repo.GetPaymentReconciliation(ctx, tenantID, paymentID)
+	if err != nil {
+		return fin.PaymentReconciliation{}, nil, err
+	}
+	adjustments, err := s.repo.ListPaymentReconciliationAdjustments(ctx, tenantID, paymentID)
+	if err != nil {
+		return fin.PaymentReconciliation{}, nil, err
+	}
+	return initial, adjustments, nil
+}
+
 func (s *FinanceService) AdjustPaymentReconciliation(ctx context.Context, tenantID, actorUserID, paymentID, idempotencyKey string, req PaymentReconciliationAdjustmentRequest) (string, string, bool, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	paymentID = strings.TrimSpace(paymentID)
