@@ -139,8 +139,9 @@ func (s *ProductsService) Create(ctx context.Context, tenantID, actorUserID stri
 		InvalidateProduct(context.Context, string, string) error
 		BumpProductsListVersion(context.Context, string) error
 	}); ok {
-		_ = inv.InvalidateProduct(ctx, tenantID, id)
-		_ = inv.BumpProductsListVersion(ctx, tenantID)
+		cacheCtx := context.WithoutCancel(ctx)
+		_ = inv.InvalidateProduct(cacheCtx, tenantID, id)
+		_ = inv.BumpProductsListVersion(cacheCtx, tenantID)
 	}
 	return id, nil
 }
@@ -192,8 +193,9 @@ func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id 
 		InvalidateProduct(context.Context, string, string) error
 		BumpProductsListVersion(context.Context, string) error
 	}); ok {
-		_ = inv.InvalidateProduct(ctx, tenantID, id)
-		_ = inv.BumpProductsListVersion(ctx, tenantID)
+		cacheCtx := context.WithoutCancel(ctx)
+		_ = inv.InvalidateProduct(cacheCtx, tenantID, id)
+		_ = inv.BumpProductsListVersion(cacheCtx, tenantID)
 	}
 	return nil
 }
