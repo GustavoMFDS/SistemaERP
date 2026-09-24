@@ -126,6 +126,8 @@ CREATE TABLE IF NOT EXISTS finance_idempotency_keys (
 );
 CREATE INDEX IF NOT EXISTS finance_idempotency_tenant_created_idx
   ON finance_idempotency_keys(tenant_id, operation, created_at DESC);
+CREATE INDEX IF NOT EXISTS finance_idempotency_created_at_idx
+  ON finance_idempotency_keys(created_at);
 
 DROP TRIGGER IF EXISTS finance_idempotency_keys_immutable ON finance_idempotency_keys;
 CREATE TRIGGER finance_idempotency_keys_immutable
