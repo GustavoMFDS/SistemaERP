@@ -179,12 +179,16 @@ func (r *CashRepo) SaveReconciliation(ctx context.Context, tx db.DBTX, tenantID,
 	for _, method := range methods {
 		exp := expected[method]
 		dec := declared[method]
+		difference, err := dec.SubChecked(exp)
+		if err != nil {
+			return common.ErrValidation
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO cash_session_reconciliations(
 				tenant_id, cash_session_id, method, expected_amount, declared_amount, difference_amount
 			)
 			VALUES ($1,$2,$3,$4,$5,$6)
-		`, tenantID, sessionID, method, exp.DBString(), dec.DBString(), dec.Sub(exp).DBString()); err != nil {
+		`, tenantID, sessionID, method, exp.DBString(), dec.DBString(), difference.DBString()); err != nil {
 			return err
 		}
 	}
