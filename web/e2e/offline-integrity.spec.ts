@@ -186,3 +186,52 @@ test('permanent queue conflict does not block later sales and expired items are 
   expect(result.summary.total).toBe(2)
   expect(result.preservedCount).toBe(2)
 })
+
+
+test('offline catalog cache expires after the safe window', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await expect(page).toHaveURL(/\/pdv$/)
+  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+
+  const cacheKey = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const key = auth.scopedStorageKey('sistemaemgo:productsCache:v2')
+    if (!key) throw new Error('missing catalog cache scope')
+    const raw = localStorage.getItem(key)
+    if (!raw) throw new Error('catalog cache was not persisted')
+    const parsed = JSON.parse(raw) as { savedAt?: number; items?: unknown[] }
+    if (!Number.isFinite(parsed.savedAt) || !Array.isArray(parsed.items)) {
+      throw new Error('catalog cache is missing freshness metadata')
+    }
+    return key
+  })
+
+  await page.route('**/api/v1/products?**', async (route) => {
+    await route.abort('failed')
+  })
+
+  await page.reload()
+  await expect(page.getByText('Catálogo carregado do cache local porque o servidor está indisponível.')).toBeVisible()
+  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+
+  await page.evaluate((key) => {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '{}') as {
+      savedAt?: number
+      items?: unknown[]
+    }
+    parsed.savedAt = Date.now() - 25 * 60 * 60 * 1000
+    localStorage.setItem(key, JSON.stringify(parsed))
+  }, cacheKey)
+
+  await page.reload()
+  await expect(
+    page.getByText('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.'),
+  ).toBeVisible()
+  await expect(page.getByLabel('Produto').locator('option')).toHaveCount(1)
+})
