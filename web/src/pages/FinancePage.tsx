@@ -55,6 +55,7 @@ export default function FinancePage() {
   const [provider, setProvider] = useState('')
   const [externalRef, setExternalRef] = useState('')
   const [reconcileNotes, setReconcileNotes] = useState('')
+  const [reconciling, setReconciling] = useState(false)
   const reconcileKeyRef = useRef('')
 
   const [selectedRefund, setSelectedRefund] = useState<Refund | null>(null)
@@ -64,12 +65,14 @@ export default function FinancePage() {
   const [refundExternalRef, setRefundExternalRef] = useState('')
   const [refundCashSessionId, setRefundCashSessionId] = useState('')
   const [refundNotes, setRefundNotes] = useState('')
+  const [settlingRefund, setSettlingRefund] = useState(false)
   const refundKeyRef = useRef('')
 
   async function loadAll(e?: FormEvent) {
     e?.preventDefault()
     setLoading(true)
     setError('')
+    setReconciling(true)
     try {
       const qs = new URLSearchParams()
       if (from) qs.set('from', from)
@@ -115,7 +118,7 @@ export default function FinancePage() {
   }
 
   async function reconcilePayment() {
-    if (!selectedPayment) return
+    if (!selectedPayment || reconciling) return
     const received = Number(receivedAmount)
     const fee = Number(feeAmount)
     if (!Number.isFinite(received) || received < 0 || !Number.isFinite(fee) || fee < 0 || fee > received) {
@@ -141,6 +144,8 @@ export default function FinancePage() {
       await loadAll()
     } catch (e: unknown) {
       setError(errorMessage(e))
+    } finally {
+      setReconciling(false)
     }
   }
 
@@ -156,7 +161,7 @@ export default function FinancePage() {
   }
 
   async function settleRefund() {
-    if (!selectedRefund) return
+    if (!selectedRefund || settlingRefund) return
     const amount = Number(refundAmount)
     if (
       !Number.isFinite(amount) ||
@@ -171,6 +176,7 @@ export default function FinancePage() {
       return
     }
     setError('')
+    setSettlingRefund(true)
     try {
       if (!refundKeyRef.current) refundKeyRef.current = crypto.randomUUID()
       await apiJson(`/api/v1/finance/returns/${selectedRefund.return_id}/refunds`, {
@@ -190,6 +196,8 @@ export default function FinancePage() {
       await loadAll()
     } catch (e: unknown) {
       setError(errorMessage(e))
+    } finally {
+      setSettlingRefund(false)
     }
   }
 
@@ -317,7 +325,7 @@ export default function FinancePage() {
               </label>
             </div>
             <div className="mt-2 flex gap-2">
-              <button type="button" onClick={() => void reconcilePayment()} className="rounded-md bg-gray-900 px-3 py-2 text-xs text-white">Salvar conciliação</button>
+              <button type="button" disabled={reconciling} onClick={() => void reconcilePayment()} className="rounded-md bg-gray-900 px-3 py-2 text-xs text-white disabled:opacity-60">{reconciling ? 'Salvando…' : 'Salvar conciliação'}</button>
               <button type="button" onClick={() => { reconcileKeyRef.current = ''; setSelectedPayment(null) }} className="rounded-md border px-3 py-2 text-xs">Cancelar</button>
             </div>
           </div>
@@ -386,7 +394,7 @@ export default function FinancePage() {
               Em dinheiro, informe um caixa aberto. Para PIX/cartão, informar a sessão é opcional e permite abater o reembolso da conciliação daquele fechamento.
             </p>
             <div className="mt-2 flex gap-2">
-              <button type="button" onClick={() => void settleRefund()} className="rounded-md bg-gray-900 px-3 py-2 text-xs text-white">Registrar liquidação</button>
+              <button type="button" disabled={settlingRefund} onClick={() => void settleRefund()} className="rounded-md bg-gray-900 px-3 py-2 text-xs text-white disabled:opacity-60">{settlingRefund ? 'Registrando…' : 'Registrar liquidação'}</button>
               <button type="button" onClick={() => { refundKeyRef.current = ''; setSelectedRefund(null) }} className="rounded-md border px-3 py-2 text-xs">Cancelar</button>
             </div>
           </div>
