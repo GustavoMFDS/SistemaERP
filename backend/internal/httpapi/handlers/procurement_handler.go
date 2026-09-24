@@ -64,13 +64,10 @@ func (h *ProcurementHandler) CreateSupplier(w http.ResponseWriter, r *http.Reque
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	id, created, err := h.svc.CreateSupplier(r.Context(), au.TenantID, idemKey, req)
+	id, created, err := h.svc.CreateSupplier(r.Context(), au.TenantID, au.UserID, idemKey, req)
 	if err != nil {
 		writeProcurementError(w, r, err)
 		return
-	}
-	if created {
-		recordAudit(h.audit, r, au.TenantID, au.UserID, "supplier.create", "supplier", id, "success", nil)
 	}
 	code := http.StatusCreated
 	if !created {
@@ -91,11 +88,10 @@ func (h *ProcurementHandler) UpdateSupplier(w http.ResponseWriter, r *http.Reque
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if err := h.svc.UpdateSupplier(r.Context(), au.TenantID, id, req); err != nil {
+	if err := h.svc.UpdateSupplier(r.Context(), au.TenantID, au.UserID, id, req); err != nil {
 		writeProcurementError(w, r, err)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "supplier.update", "supplier", id, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
