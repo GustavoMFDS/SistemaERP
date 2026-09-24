@@ -67,7 +67,6 @@ func TestMovementType_NormalizeDelta(t *testing.T) {
 	}
 }
 
-
 func TestInventoryBalance_RejectsQuantityRangeOverflow(t *testing.T) {
 	b := inv.InventoryBalance{
 		ProductID: "p1",
