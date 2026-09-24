@@ -32,7 +32,9 @@ All items are mandatory before operator training.
 - [ ] Demo seed is disabled.
 - [ ] Fiscal provider is disabled until a SEFAZ-ready integration exists.
 - [ ] Demo users are absent.
-- [ ] Real tenant/company exists.
+- [ ] Real tenant/company exists with a 14-digit CNPJ.
+- [ ] At least one active cash register exists and no cash session is already open at pilot start.
+- [ ] Active product pricing is consistent (`promo_price` never exceeds `price_cash`).
 - [ ] At least one admin/manager and one cashier have individual accounts.
 - [ ] Tenant-scoped roles reviewed.
 - [ ] Schema version is clean and at least 21.
