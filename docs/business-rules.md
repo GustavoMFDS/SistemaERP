@@ -46,6 +46,8 @@
 - Valor bruto diferente do esperado produz status `divergent`; taxa de adquirente é armazenada separadamente.
 - Cada pagamento aceita uma única conciliação inicial. Replay da mesma `Idempotency-Key` retorna o resultado original; uma nova tentativa de conciliação inicial retorna conflito.
 - Correções posteriores usam o fluxo explícito de ajuste: o registro inicial permanece imutável, cada ajuste exige justificativa, guarda valores/taxas anteriores e novos, é idempotente e grava auditoria transacional.
+- `transaction_ref` do pagamento representa a transação original da venda e nunca é sobrescrito pela conciliação; `external_ref` da conciliação pertence ao settlement/lote externo.
+- `finance:read` pode consultar a conciliação inicial e a sequência cronológica de ajustes.
 - Reembolso de devolução pode ser parcial e multimétodo, mas a soma nunca ultrapassa `refund_due`.
 - Replay de uma liquidação com a mesma `Idempotency-Key` devolve o mesmo ID, status e `remaining_amount` registrados na resposta original, mesmo que outras liquidações ocorram depois.
 - Reembolso em dinheiro exige sessão aberta e disponibilidade física; gera movimento `withdrawal`.
