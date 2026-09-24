@@ -36,7 +36,10 @@ func (b InventoryBalance) AplicarDelta(delta platform.Quantity, allowNegative bo
 	if delta == 0 {
 		return InventoryBalance{}, ErrInvalidDelta
 	}
-	newQty := b.QtyOnHand + delta
+	newQty, err := b.QtyOnHand.AddChecked(delta)
+	if err != nil {
+		return InventoryBalance{}, ErrInvalidQuantity
+	}
 	if !allowNegative && newQty < 0 {
 		return InventoryBalance{}, ErrInsufficientStock
 	}
