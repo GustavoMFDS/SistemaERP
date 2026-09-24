@@ -276,6 +276,91 @@ func (r *FinanceRepo) CreatePaymentReconciliation(ctx context.Context, tx db.DBT
 	return id, mapFinanceWriteError(err)
 }
 
+func (r *FinanceRepo) GetPaymentReconciliation(ctx context.Context, tenantID, paymentID string) (fin.PaymentReconciliation, error) {
+	var item fin.PaymentReconciliation
+	var expected, received, fee, net, difference string
+	err := r.db.QueryRow(ctx, `
+		SELECT id::text, payment_id::text, expected_amount::text, received_amount::text,
+		       fee_amount::text, net_amount::text, difference_amount::text, status,
+		       provider, external_ref, notes, created_by_user_id::text, created_at::text
+		FROM payment_reconciliations
+		WHERE tenant_id=$1 AND payment_id=$2
+	`, tenantID, paymentID).Scan(
+		&item.ID, &item.PaymentID, &expected, &received, &fee, &net, &difference,
+		&item.Status, &item.Provider, &item.ExternalRef, &item.Notes, &item.CreatedBy, &item.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return item, common.ErrNotFound
+		}
+		return item, err
+	}
+	var parseErr error
+	if item.ExpectedAmount, parseErr = platform.ParseMoney(expected); parseErr != nil {
+		return item, parseErr
+	}
+	if item.ReceivedAmount, parseErr = platform.ParseMoney(received); parseErr != nil {
+		return item, parseErr
+	}
+	if item.FeeAmount, parseErr = platform.ParseMoney(fee); parseErr != nil {
+		return item, parseErr
+	}
+	if item.NetAmount, parseErr = platform.ParseMoney(net); parseErr != nil {
+		return item, parseErr
+	}
+	if item.Difference, parseErr = platform.ParseMoney(difference); parseErr != nil {
+		return item, parseErr
+	}
+	return item, nil
+}
+
+func (r *FinanceRepo) ListPaymentReconciliationAdjustments(ctx context.Context, tenantID, paymentID string) ([]fin.PaymentReconciliationAdjustment, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id::text, payment_id::text,
+		       previous_received_amount::text, previous_fee_amount::text,
+		       new_received_amount::text, new_fee_amount::text,
+		       difference_amount::text, status, notes, created_by_user_id::text, created_at::text
+		FROM payment_reconciliation_adjustments
+		WHERE tenant_id=$1 AND payment_id=$2
+		ORDER BY created_at, id
+	`, tenantID, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]fin.PaymentReconciliationAdjustment, 0)
+	for rows.Next() {
+		var item fin.PaymentReconciliationAdjustment
+		var previousReceived, previousFee, newReceived, newFee, difference string
+		if err := rows.Scan(
+			&item.ID, &item.PaymentID, &previousReceived, &previousFee,
+			&newReceived, &newFee, &difference, &item.Status,
+			&item.Notes, &item.CreatedBy, &item.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		var parseErr error
+		if item.PreviousReceivedAmount, parseErr = platform.ParseMoney(previousReceived); parseErr != nil {
+			return nil, parseErr
+		}
+		if item.PreviousFeeAmount, parseErr = platform.ParseMoney(previousFee); parseErr != nil {
+			return nil, parseErr
+		}
+		if item.NewReceivedAmount, parseErr = platform.ParseMoney(newReceived); parseErr != nil {
+			return nil, parseErr
+		}
+		if item.NewFeeAmount, parseErr = platform.ParseMoney(newFee); parseErr != nil {
+			return nil, parseErr
+		}
+		if item.Difference, parseErr = platform.ParseMoney(difference); parseErr != nil {
+			return nil, parseErr
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (r *FinanceRepo) CreatePaymentReconciliationAdjustment(ctx context.Context, tx db.DBTX, tenantID string, item fin.PaymentReconciliationAdjustment) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `
