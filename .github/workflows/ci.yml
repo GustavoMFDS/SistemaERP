@@ -280,6 +280,18 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             down 1
 
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.products_tenant_barcode_unique') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0017 left tenant barcode index behind';
+            END IF;
+            IF to_regclass('public.products_barcode_unique') IS NULL THEN
+              RAISE EXCEPTION 'rollback 0017 did not restore global barcode uniqueness';
+            END IF;
+          END $do$;
+          SQL
+
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
             migrate/migrate:v4.17.1 \
@@ -316,6 +328,28 @@ jobs:
             echo "rollback 0018 left procurement permissions behind"
             exit 1
           fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.suppliers') IS NOT NULL
+               OR to_regclass('public.purchases') IS NOT NULL
+               OR to_regclass('public.procurement_idempotency_keys') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0018 left procurement tables behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_name='accounts_payable'
+                AND column_name IN ('supplier_id','purchase_id')
+            ) THEN
+              RAISE EXCEPTION 'rollback 0018 left procurement payable columns behind';
+            END IF;
+            IF to_regclass('public.products_tenant_id_id_unique') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0018 left products composite support index behind';
+            END IF;
+          END $do$;
+          SQL
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
@@ -397,8 +431,25 @@ jobs:
               RAISE EXCEPTION 'rollback 0020 left finance:reconcile permission behind';
             END IF;
             IF to_regclass('public.payment_reconciliations') IS NOT NULL
-               OR to_regclass('public.return_refunds') IS NOT NULL THEN
+               OR to_regclass('public.return_refunds') IS NOT NULL
+               OR to_regclass('public.finance_idempotency_keys') IS NOT NULL THEN
               RAISE EXCEPTION 'rollback 0020 left finance reconciliation tables behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_name='payments'
+                AND column_name IN (
+                  'provider','transaction_ref','authorization_code','installments',
+                  'reconciliation_status','reconciled_amount','reconciled_fee',
+                  'reconciled_at','reconciled_by_user_id','reconciliation_notes'
+                )
+            ) THEN
+              RAISE EXCEPTION 'rollback 0020 left payment reconciliation columns behind';
+            END IF;
+            IF to_regclass('public.payments_tenant_id_id_unique') IS NOT NULL
+               OR to_regclass('public.cash_sessions_tenant_id_id_unique') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0020 left composite support indexes behind';
             END IF;
           END $do$;
           SQL
