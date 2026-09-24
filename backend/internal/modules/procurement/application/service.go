@@ -103,7 +103,7 @@ func (s *Service) ListSuppliers(ctx context.Context, tenantID, query string, lim
 	return s.repo.ListSuppliers(ctx, tenantID, query, limit, offset)
 }
 
-func (s *Service) CreateSupplier(ctx context.Context, tenantID, idempotencyKey string, req SupplierRequest) (string, bool, error) {
+func (s *Service) CreateSupplier(ctx context.Context, tenantID, actorUserID, idempotencyKey string, req SupplierRequest) (string, bool, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey == "" {
 		return "", false, common.ErrValidation
@@ -144,6 +144,13 @@ func (s *Service) CreateSupplier(ctx context.Context, tenantID, idempotencyKey s
 	if err != nil {
 		return "", false, err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "supplier.create",
+		ResourceType: "supplier", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{"name": req.Name},
+	}); err != nil {
+		return "", false, err
+	}
 	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, id, "created"); err != nil {
 		return "", false, err
 	}
@@ -153,7 +160,7 @@ func (s *Service) CreateSupplier(ctx context.Context, tenantID, idempotencyKey s
 	return id, true, nil
 }
 
-func (s *Service) UpdateSupplier(ctx context.Context, tenantID, id string, req SupplierRequest) error {
+func (s *Service) UpdateSupplier(ctx context.Context, tenantID, actorUserID, id string, req SupplierRequest) error {
 	req = normalizeSupplierRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
@@ -166,6 +173,13 @@ func (s *Service) UpdateSupplier(ctx context.Context, tenantID, id string, req S
 	if err := s.repo.UpdateSupplier(ctx, tx, tenantID, id, proc.Supplier{
 		Name: req.Name, Document: req.Document, Email: req.Email, Phone: req.Phone,
 		ContactName: req.ContactName, Notes: req.Notes, Active: req.Active,
+	}); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "supplier.update",
+		ResourceType: "supplier", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{"name": req.Name},
 	}); err != nil {
 		return err
 	}
