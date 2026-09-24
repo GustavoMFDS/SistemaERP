@@ -148,6 +148,25 @@ else
   pass "idempotency immutability triggers are present"
 fi
 
+retention_indexes="$(
+  psql "$DATABASE_URL" -At -c "
+    SELECT count(*)
+    FROM pg_indexes
+    WHERE schemaname='public'
+      AND indexname IN (
+        'idempotency_keys_created_at_idx',
+        'procurement_idempotency_created_at_idx',
+        'return_idempotency_created_at_idx',
+        'finance_idempotency_created_at_idx'
+      );
+  "
+)"
+if [ "$retention_indexes" -lt 4 ]; then
+  fail "one or more idempotency retention indexes are missing ($retention_indexes/4 found)"
+else
+  pass "idempotency retention indexes are present"
+fi
+
 duplicate_open="$(
   psql "$DATABASE_URL" -At -c "
     SELECT count(*)
