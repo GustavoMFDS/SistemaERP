@@ -223,10 +223,18 @@ export default function ReturnsPage() {
                           max={Math.max(0, item.qty - (returnedByItem[item.id] ?? 0))}
                           step="0.001"
                           value={qtyByItem[item.id] ?? 0}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const remaining = Math.max(
+                              0,
+                              item.qty - (returnedByItem[item.id] ?? 0),
+                            )
+                            const raw = Number(e.target.value)
+                            const normalized = Number.isFinite(raw)
+                              ? Math.min(remaining, Math.max(0, Math.round(raw * 1000) / 1000))
+                              : 0
                             setQtyByItem((prev) => ({
                               ...prev,
-                              [item.id]: Number(e.target.value) || 0,
+                              [item.id]: normalized,
                             }))
                           }
                           className="w-28 rounded-md border px-2 py-1"
