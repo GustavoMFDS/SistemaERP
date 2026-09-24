@@ -111,8 +111,14 @@ func build(in input) ([]byte, string, error) {
 		if !ok {
 			return nil, "", fmt.Errorf("missing product snapshot for product_id=%s", it.ProductID)
 		}
-		lineGross := it.UnitPrice.MulQty(it.Qty)
-		vProd += lineGross
+		lineGross, err := it.UnitPrice.MulQtyChecked(it.Qty)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid item amount for product_id=%s: %w", it.ProductID, err)
+		}
+		vProd, err = vProd.AddChecked(lineGross)
+		if err != nil {
+			return nil, "", fmt.Errorf("fiscal total exceeds supported range: %w", err)
+		}
 
 		barcode := "SEM GTIN"
 		if p.Barcode != nil {
