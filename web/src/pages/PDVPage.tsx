@@ -45,6 +45,7 @@ type MeResponse = {
 }
 
 type ProductsListResponse = { items: Product[]; total: number }
+type ProductCache = { savedAt: number; items: Product[] }
 
 type CashOpenResponse = { id: string }
 type CashCloseResponse = {
@@ -69,6 +70,7 @@ type SaleItem = {
 type SalePayment = { method: string; amount: number }
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
+const PRODUCTS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const CLOSE_METHODS = [
   ['pix', 'PIX'],
   ['debit', 'Débito'],
@@ -185,19 +187,32 @@ export default function PDVPage() {
       const active = data.items.filter((p) => p.active)
       setProducts(active)
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
-      if (cacheKey) localStorage.setItem(cacheKey, JSON.stringify(active))
+      if (cacheKey) {
+        const cache: ProductCache = { savedAt: Date.now(), items: active }
+        localStorage.setItem(cacheKey, JSON.stringify(cache))
+      }
     } catch (e: unknown) {
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
       const cachedRaw = cacheKey ? localStorage.getItem(cacheKey) : null
       if (cachedRaw) {
         try {
-          const cached = JSON.parse(cachedRaw) as Product[]
-          if (Array.isArray(cached) && cached.length > 0) {
-            setProducts(cached)
+          const parsed = JSON.parse(cachedRaw) as ProductCache | Product[]
+          if (
+            !Array.isArray(parsed) &&
+            Number.isFinite(parsed.savedAt) &&
+            Array.isArray(parsed.items) &&
+            parsed.items.length > 0 &&
+            Date.now() - parsed.savedAt <= PRODUCTS_CACHE_MAX_AGE_MS
+          ) {
+            setProducts(parsed.items.filter((product) => product.active))
+            setError('Catálogo carregado do cache local porque o servidor está indisponível.')
             return
           }
+          setError('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.')
+          return
         } catch {
-          // ignore
+          setError('O catálogo offline local está inválido. Conecte-se para atualizá-lo.')
+          return
         }
       }
       setError(errorMessage(e))
@@ -466,7 +481,10 @@ export default function PDVPage() {
         catalog = data.items.filter((product) => product.active)
         setProducts(catalog)
         const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
-        if (cacheKey) localStorage.setItem(cacheKey, JSON.stringify(catalog))
+        if (cacheKey) {
+          const cache: ProductCache = { savedAt: Date.now(), items: catalog }
+          localStorage.setItem(cacheKey, JSON.stringify(cache))
+        }
       } catch (e: unknown) {
         setError(`Não foi possível atualizar preços antes de retomar a venda: ${errorMessage(e)}`)
         return
