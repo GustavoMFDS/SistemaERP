@@ -88,7 +88,7 @@ test('reconciles digital payments and settles return refunds without double-coun
         method: 'POST',
         headers: { 'Idempotency-Key': reconcileKey },
         body: {
-          received_amount: 20,
+          received_amount: 19,
           fee_amount: 1,
           provider: 'e2e-provider',
           external_ref: `SETTLE-${suffix}`,
@@ -102,7 +102,7 @@ test('reconciles digital payments and settles return refunds without double-coun
         method: 'POST',
         headers: { 'Idempotency-Key': reconcileKey },
         body: {
-          received_amount: 20,
+          received_amount: 19,
           fee_amount: 1,
           provider: 'e2e-provider',
           external_ref: `SETTLE-${suffix}`,
@@ -231,6 +231,35 @@ test('reconciles digital payments and settles return refunds without double-coun
       if (error instanceof APIError) duplicateExternalRefStatus = error.status
       else throw error
     }
+
+    const adjustmentKey = crypto.randomUUID()
+    const adjustment = await apiJson<{ id: string; status: string; replayed: boolean }>(
+      `/api/v1/finance/payments/${payment.id}/reconciliation-adjustments`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': adjustmentKey },
+        body: {
+          received_amount: 20,
+          fee_amount: 1,
+          notes: 'corrigir divergencia E2E',
+        },
+      },
+    )
+    const adjustmentReplay = await apiJson<{ id: string; status: string; replayed: boolean }>(
+      `/api/v1/finance/payments/${payment.id}/reconciliation-adjustments`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': adjustmentKey },
+        body: {
+          received_amount: 20,
+          fee_amount: 1,
+          notes: 'corrigir divergencia E2E',
+        },
+      },
+    )
+    const adjustmentAudit = await apiJson<{
+      items: Array<{ action: string; resource_id: string }>
+    }>('/api/v1/audit/logs?action=payment.reconcile.adjust&resource_type=payment&limit=200&offset=0')
 
     await apiJson(`/api/v1/sales/${secondSale.id}/cancel`, {
       method: 'POST',
@@ -417,6 +446,10 @@ test('reconciles digital payments and settles return refunds without double-coun
       duplicateReconcileStatus,
       paymentReferenceConflictStatus,
       duplicateExternalRefStatus,
+      adjustmentStatus: adjustment.status,
+      adjustmentReplaySameId: adjustmentReplay.id === adjustment.id,
+      adjustmentReplayFlag: adjustmentReplay.replayed,
+      adjustmentAuditCount: adjustmentAudit.items.filter((item) => item.resource_id === payment.id).length,
       paymentAfterStatus: paymentAfter.reconciliation_status,
       paymentAfterAmount: paymentAfter.reconciled_amount,
       paymentAfterFee: paymentAfter.reconciled_fee,
@@ -445,13 +478,17 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.saleTotal).toBe(20)
   expect(result.paymentProvider).toBe('e2e-provider')
   expect(result.paymentReference).toContain('TX-')
-  expect(result.reconciliationStatus).toBe('reconciled')
+  expect(result.reconciliationStatus).toBe('divergent')
   expect(result.reconciliationReplaySameId).toBe(true)
   expect(result.reconciliationReplayFlag).toBe(true)
   expect(result.invalidReferencePairStatus).toBe(422)
   expect(result.duplicateReconcileStatus).toBe(409)
   expect(result.paymentReferenceConflictStatus).toBe(409)
   expect(result.duplicateExternalRefStatus).toBe(409)
+  expect(result.adjustmentStatus).toBe('reconciled')
+  expect(result.adjustmentReplaySameId).toBe(true)
+  expect(result.adjustmentReplayFlag).toBe(true)
+  expect(result.adjustmentAuditCount).toBe(1)
   expect(result.paymentAfterStatus).toBe('reconciled')
   expect(result.paymentAfterAmount).toBe(20)
   expect(result.paymentAfterFee).toBe(1)
