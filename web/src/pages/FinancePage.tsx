@@ -121,7 +121,7 @@ export default function FinancePage() {
     setReceivedAmount(payment.amount)
     setFeeAmount(0)
     setProvider(payment.provider ?? '')
-    setExternalRef(payment.transaction_ref ?? '')
+    setExternalRef('')
     setReconcileNotes('')
   }
 
