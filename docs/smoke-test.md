@@ -46,6 +46,11 @@ npm run build
 | Barcode scanner | In PDV, scan a known barcode twice using a keyboard-mode USB/Bluetooth scanner or type the code and press Enter twice. | The first scan adds the product; the second increments the same cart line to quantity 2. Unknown offline codes are rejected without inventing a product. |
 | PDV keyboard shortcuts | Open PDV and press F2, F4 and F8 during a valid cart flow. | F2 focuses barcode, F4 focuses quick search and F8 triggers finalization only when Finalizar is enabled. |
 | Suspended cart | Add quantity 2, apply authorized discount, suspend the cart and resume it. | Cart clears without creating a server sale; resumed cart restores items/payment/discount only for the same tenant+user. |
+| Procurement RBAC | Login as cashier and access menu/API for suppliers and purchases. | Purchases menu is absent; direct supplier/purchase API calls return 403. |
+| Cost/profit redaction | Compare product and sale detail as admin vs cashier. | Admin sees real cost/profit; cashier sees zeros while sale totals remain unchanged. |
+| Reserved inventory movement types | Submit manual inventory adjustment using type purchase or return. | Request is rejected with 422; only adjustment/loss/damage are accepted manually. |
+| Duplicate payment reconciliation | Reconcile a digital payment, replay the same idempotency key, then submit a new key. | Same key replays the original result; different key returns 409 and no second reconciliation is created. |
+| Purchase audit atomicity | Create, partially/finally receive and cancel an unreceived purchase. | Audit contains one create, one event per real receipt and one cancel; cancelled purchase cannot be received. |
 | Discount RBAC | As admin/manager submit a discounted sale, then call the same flow as cashier using a crafted API request. | Authorized discount succeeds; cashier receives 403; no discounted sale is created for cashier. |
 | Non-fiscal receipt | Finalize an online sale. | UI shows sale ID/total and an explicit non-fiscal print action. |
 | Sale creation | Create a sale with valid stock and payment. | Backend calculates totals; inventory decreases; finance/audit entries exist. |
