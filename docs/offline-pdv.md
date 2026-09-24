@@ -98,3 +98,13 @@ Carrinho suspenso e fila offline são conceitos diferentes:
 - carrinhos suspensos são escopados por tenant+usuário no navegador;
 - retomar um carrinho não envia nenhuma requisição; o write-ahead só ocorre quando o operador finaliza;
 - descontos continuam sujeitos à permissão server-side `sale:discount` quando a venda é enviada ou reexecutada.
+
+
+## Validade do catálogo offline
+
+- O cache de produtos é escopado por tenant+usuário e guarda `savedAt` junto dos itens.
+- O PDV aceita fallback de catálogo por no máximo 24 horas desde a última atualização online bem-sucedida.
+- Cache legado sem timestamp é tratado como não confiável para novas vendas até que haja uma atualização online.
+- Cache expirado ou inválido não é usado para formar carrinho; o operador precisa reconectar e atualizar o catálogo.
+- Carrinhos suspensos retomados online recarregam o catálogo e reaplicam o preço efetivo atual antes de voltar ao carrinho ativo.
+- O preço efetivo do PDV segue a mesma regra do backend: `promo_price` positivo quando presente, caso contrário `price_cash`.
