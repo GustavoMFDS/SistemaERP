@@ -213,7 +213,7 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 	if err != nil {
 		return "", "", false, err
 	}
-	if err := s.repo.UpdatePaymentReconciliation(ctx, tx, tenantID, paymentID, status, req.ReceivedAmount, req.FeeAmount, req.Provider, req.ExternalRef, req.Notes, actorUserID); err != nil {
+	if err := s.repo.UpdatePaymentReconciliation(ctx, tx, tenantID, paymentID, status, req.ReceivedAmount, req.FeeAmount, req.Notes, actorUserID); err != nil {
 		return "", "", false, err
 	}
 	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, hash, reconciliationID, status, nil); err != nil {
@@ -318,7 +318,7 @@ func (s *FinanceService) AdjustPaymentReconciliation(ctx context.Context, tenant
 	}
 	if err := s.repo.UpdatePaymentReconciliation(
 		ctx, tx, tenantID, paymentID, status, req.ReceivedAmount, req.FeeAmount,
-		nil, nil, &notes, actorUserID,
+		&notes, actorUserID,
 	); err != nil {
 		return "", "", false, err
 	}
