@@ -16,6 +16,39 @@ type Payment = {
   reconciled_fee?: number | null
 }
 
+type ReconciliationInitial = {
+  id: string
+  payment_id: string
+  expected_amount: number
+  received_amount: number
+  fee_amount: number
+  net_amount: number
+  difference_amount: number
+  status: string
+  provider?: string | null
+  external_ref?: string | null
+  notes?: string | null
+  created_at: string
+}
+
+type ReconciliationAdjustment = {
+  id: string
+  payment_id: string
+  previous_received_amount: number
+  previous_fee_amount: number
+  new_received_amount: number
+  new_fee_amount: number
+  difference_amount: number
+  status: string
+  notes?: string | null
+  created_at: string
+}
+
+type ReconciliationHistory = {
+  initial: ReconciliationInitial
+  adjustments: ReconciliationAdjustment[]
+}
+
 type Refund = {
   return_id: string
   sale_id: string
@@ -64,6 +97,10 @@ export default function FinancePage() {
   const [adjustNotes, setAdjustNotes] = useState('')
   const [adjusting, setAdjusting] = useState(false)
   const adjustKeyRef = useRef('')
+
+  const [historyPayment, setHistoryPayment] = useState<Payment | null>(null)
+  const [reconciliationHistory, setReconciliationHistory] = useState<ReconciliationHistory | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const [selectedRefund, setSelectedRefund] = useState<Refund | null>(null)
   const [refundMethod, setRefundMethod] = useState('pix')
@@ -162,6 +199,24 @@ export default function FinancePage() {
     }
   }
 
+  async function showReconciliationHistory(payment: Payment) {
+    setHistoryPayment(payment)
+    setReconciliationHistory(null)
+    setHistoryLoading(true)
+    setError('')
+    try {
+      const data = await apiJson<ReconciliationHistory>(
+        `/api/v1/finance/payments/${payment.id}/reconciliation-history`,
+      )
+      setReconciliationHistory(data)
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+      setHistoryPayment(null)
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   function chooseAdjustment(payment: Payment) {
     adjustKeyRef.current = ''
     reconcileKeyRef.current = ''
@@ -198,9 +253,13 @@ export default function FinancePage() {
           notes,
         },
       })
+      const adjustedPayment = selectedAdjustment
       adjustKeyRef.current = ''
       setSelectedAdjustment(null)
       await loadAll()
+      if (historyPayment?.id === adjustedPayment.id) {
+        await showReconciliationHistory(adjustedPayment)
+      }
     } catch (e: unknown) {
       setError(errorMessage(e))
     } finally {
@@ -362,9 +421,14 @@ export default function FinancePage() {
                         Conciliar
                       </button>
                     ) : (
-                      <button type="button" onClick={() => chooseAdjustment(payment)} className="rounded-md border px-2 py-1 text-xs">
-                        Ajustar
-                      </button>
+                      <div className="flex gap-1">
+                        <button type="button" onClick={() => chooseAdjustment(payment)} className="rounded-md border px-2 py-1 text-xs">
+                          Ajustar
+                        </button>
+                        <button type="button" onClick={() => void showReconciliationHistory(payment)} className="rounded-md border px-2 py-1 text-xs">
+                          Histórico
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -453,6 +517,59 @@ export default function FinancePage() {
                 Cancelar
               </button>
             </div>
+          </div>
+        ) : null}
+
+        {historyPayment ? (
+          <div className="mt-3 rounded-md border bg-white p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold">Histórico da conciliação</div>
+                <div className="font-mono text-xs text-gray-500">{historyPayment.id}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setHistoryPayment(null); setReconciliationHistory(null) }}
+                className="rounded-md border px-2 py-1 text-xs"
+              >
+                Fechar
+              </button>
+            </div>
+            {historyLoading ? (
+              <div className="mt-2 text-xs text-gray-500">Carregando histórico…</div>
+            ) : reconciliationHistory ? (
+              <div className="mt-3 space-y-3">
+                <div className="rounded-md bg-gray-50 p-2 text-xs">
+                  <div className="font-semibold">Conciliação inicial • {reconciliationHistory.initial.status}</div>
+                  <div className="mt-1">
+                    Esperado R$ {reconciliationHistory.initial.expected_amount.toFixed(2)} • recebido R$ {reconciliationHistory.initial.received_amount.toFixed(2)} • taxa R$ {reconciliationHistory.initial.fee_amount.toFixed(2)} • diferença R$ {reconciliationHistory.initial.difference_amount.toFixed(2)}
+                  </div>
+                  <div className="mt-1 text-gray-600">
+                    {reconciliationHistory.initial.provider ?? 'sem provedor'} / {reconciliationHistory.initial.external_ref ?? 'sem referência externa'} • {new Date(reconciliationHistory.initial.created_at).toLocaleString()}
+                  </div>
+                  {reconciliationHistory.initial.notes ? <div className="mt-1">{reconciliationHistory.initial.notes}</div> : null}
+                </div>
+                {reconciliationHistory.adjustments.length === 0 ? (
+                  <div className="text-xs text-gray-500">Nenhum ajuste posterior.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {reconciliationHistory.adjustments.map((adjustment, index) => (
+                      <div key={adjustment.id} className="rounded-md border p-2 text-xs">
+                        <div className="font-semibold">Ajuste {index + 1} • {adjustment.status}</div>
+                        <div className="mt-1">
+                          Recebido R$ {adjustment.previous_received_amount.toFixed(2)} → R$ {adjustment.new_received_amount.toFixed(2)}
+                        </div>
+                        <div>
+                          Taxa R$ {adjustment.previous_fee_amount.toFixed(2)} → R$ {adjustment.new_fee_amount.toFixed(2)} • diferença R$ {adjustment.difference_amount.toFixed(2)}
+                        </div>
+                        <div className="mt-1 text-gray-600">{new Date(adjustment.created_at).toLocaleString()}</div>
+                        {adjustment.notes ? <div className="mt-1">{adjustment.notes}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
