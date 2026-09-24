@@ -18,6 +18,7 @@ export function subscribeToken(listener: TokenListener): () => void {
 type AccessClaims = {
   sub?: string
   tenant_id?: string
+  exp?: number
 }
 
 export function getToken(): string {
@@ -48,7 +49,14 @@ function decodeAccessClaims(token: string): AccessClaims | null {
   }
 }
 
+export function hasUsableAccessToken(nowMs = Date.now()): boolean {
+  const claims = decodeAccessClaims(accessToken)
+  if (!claims?.sub || !claims.tenant_id || typeof claims.exp !== 'number') return false
+  return claims.exp * 1000 > nowMs
+}
+
 export function getSessionScope(): string {
+  if (!hasUsableAccessToken()) return ''
   const claims = decodeAccessClaims(accessToken)
   if (!claims?.sub || !claims.tenant_id) return ''
   return `${claims.tenant_id}:${claims.sub}`
