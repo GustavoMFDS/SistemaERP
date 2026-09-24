@@ -44,7 +44,8 @@
 - Pagamentos não monetários podem registrar provedor, referência da transação, autorização e parcelas.
 - A conciliação registra recebido bruto, taxa, líquido e diferença contra o pagamento esperado.
 - Valor bruto diferente do esperado produz status `divergent`; taxa de adquirente é armazenada separadamente.
-- Cada pagamento aceita uma única conciliação. Replay da mesma `Idempotency-Key` retorna o resultado original; uma nova chave para um pagamento já conciliado/divergente retorna conflito até existir um fluxo explícito de estorno/correção.
+- Cada pagamento aceita uma única conciliação inicial. Replay da mesma `Idempotency-Key` retorna o resultado original; uma nova tentativa de conciliação inicial retorna conflito.
+- Correções posteriores usam o fluxo explícito de ajuste: o registro inicial permanece imutável, cada ajuste exige justificativa, guarda valores/taxas anteriores e novos, é idempotente e grava auditoria transacional.
 - Reembolso de devolução pode ser parcial e multimétodo, mas a soma nunca ultrapassa `refund_due`.
 - Replay de uma liquidação com a mesma `Idempotency-Key` devolve o mesmo ID, status e `remaining_amount` registrados na resposta original, mesmo que outras liquidações ocorram depois.
 - Reembolso em dinheiro exige sessão aberta e disponibilidade física; gera movimento `withdrawal`.
@@ -102,7 +103,7 @@
 - Movimentos `purchase` e `return` são reservados aos fluxos transacionais de recebimento de compra e devolução, preservando rastreabilidade.
 - Produto inativo não pode ser incluído em uma nova compra.
 - Criação, recebimento e cancelamento de compra, assim como ajuste manual de estoque, gravam auditoria na mesma transação da alteração operacional.
-- Cada pagamento digital pode ter no máximo uma conciliação. Replay com a mesma chave idempotente retorna o resultado existente; uma nova chave para o mesmo pagamento retorna conflito.
+- Cada pagamento digital pode ter no máximo uma conciliação inicial. Correções posteriores são registradas em `payment_reconciliation_adjustments`, sem apagar o histórico original.
 
 
 ### Preço efetivo no PDV
