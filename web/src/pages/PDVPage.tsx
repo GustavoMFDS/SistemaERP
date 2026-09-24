@@ -35,6 +35,7 @@ type Product = {
   unit: string
   barcode?: string | null
   price_cash: number
+  promo_price?: number | null
   qty_on_hand?: number
   active: boolean
 }
@@ -75,6 +76,12 @@ const CLOSE_METHODS = [
   ['transfer', 'Transferência'],
   ['voucher', 'Voucher'],
 ] as const
+
+function productSalePrice(product: Product): number {
+  const promo = Number(product.promo_price)
+  if (Number.isFinite(promo) && promo > 0) return promo
+  return Number(product.price_cash) || 0
+}
 
 export default function PDVPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -358,7 +365,7 @@ export default function PDVPage() {
         {
           product_id: p.id,
           qty: normalizedQty,
-          unit_price: Number(p.price_cash) || 0,
+          unit_price: productSalePrice(p),
           discount_value: 0,
         },
       ]
@@ -440,13 +447,46 @@ export default function PDVPage() {
     }
   }
 
-  function resumeSuspended(cart: SuspendedCart) {
+  async function resumeSuspended(cart: SuspendedCart) {
     if (items.length > 0 && !window.confirm('Substituir o carrinho atual pela venda suspensa?')) return
-    setItems(cart.items)
+
+    setError('')
+    let catalog = products
+    if (navigator.onLine) {
+      try {
+        const data = await apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0')
+        catalog = data.items.filter((product) => product.active)
+        setProducts(catalog)
+        const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
+        if (cacheKey) localStorage.setItem(cacheKey, JSON.stringify(catalog))
+      } catch (e: unknown) {
+        setError(`Não foi possível atualizar preços antes de retomar a venda: ${errorMessage(e)}`)
+        return
+      }
+    }
+
+    const currentById = new Map(catalog.map((product) => [product.id, product]))
+    let priceChanged = false
+    const refreshedItems: SaleItem[] = []
+    for (const item of cart.items) {
+      const product = currentById.get(item.product_id)
+      if (!product?.active) {
+        setError('A venda suspensa contém produto indisponível ou inativo. Revise o catálogo antes de retomar.')
+        return
+      }
+      const currentPrice = productSalePrice(product)
+      if (Math.abs(currentPrice - item.unit_price) > 0.0001) priceChanged = true
+      refreshedItems.push({ ...item, unit_price: currentPrice })
+    }
+
+    setItems(refreshedItems)
     setPayMethod(cart.payMethod)
     setSaleDiscount(canDiscount ? cart.saleDiscount : 0)
     removeSuspendedCart(cart.id)
     refreshSuspended()
+    if (priceChanged) {
+      setError('A venda suspensa foi retomada com os preços atuais do catálogo.')
+    }
     barcodeInputRef.current?.focus()
   }
 
@@ -704,17 +744,17 @@ export default function PDVPage() {
         <div className="mt-3 rounded-md border bg-gray-50 p-3 text-sm">
           <div className="font-semibold">Conciliação do último fechamento</div>
           <div className="mt-1 text-xs text-gray-700">
-            Dinheiro — esperado R$ {cashCloseSummary.expected_cash.toFixed(2)} • declarado R 
-            {cashCloseSummary.closing_amount.toFixed(2)} • diferença R 
+            Dinheiro — esperado R$ {cashCloseSummary.expected_cash.toFixed(2)} • declarado R$ 
+            {cashCloseSummary.closing_amount.toFixed(2)} • diferença R$ 
             {cashCloseSummary.closing_difference.toFixed(2)}
           </div>
           <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-gray-700 md:grid-cols-2">
             {CLOSE_METHODS.map(([method, label]) => (
               <div key={method}>
                 {label}: esperado R$ {(cashCloseSummary.expected_by_method[method] ?? 0).toFixed(2)}
-                {' • '}declarado R 
+                {' • '}declarado R$ 
                 {(cashCloseSummary.declared_by_method[method] ?? 0).toFixed(2)}
-                {' • '}diferença R 
+                {' • '}diferença R$ 
                 {(cashCloseSummary.difference_by_method[method] ?? 0).toFixed(2)}
               </div>
             ))}
@@ -813,7 +853,7 @@ export default function PDVPage() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => resumeSuspended(cart)}
+                    onClick={() => void resumeSuspended(cart)}
                     className="rounded-md border px-2 py-1"
                   >
                     Retomar
