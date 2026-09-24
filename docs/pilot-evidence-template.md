@@ -6,6 +6,7 @@ Copy this file for each pilot execution. Do not overwrite old evidence.
 
 - Pilot date:
 - Store / tenant:
+- PILOT_TENANT_ID:
 - Register:
 - Release SHA:
 - Migration version:
@@ -30,6 +31,8 @@ Copy this file for each pilot execution. Do not overwrite old evidence.
 ## Preflight
 
 - `scripts/pilot-readiness.sh` result:
+- PILOT_TENANT_ID used:
+- Exact command/environment reference:
 - Command timestamp:
 - Failures:
 - Warnings:
