@@ -569,3 +569,133 @@ test('rejects invalid finance date filters', async ({ page }) => {
   expect(result.invalidDate).toBe(422)
   expect(result.invertedRange).toBe(422)
 })
+
+
+test('finance UI retries lost responses with the original idempotency key', async ({ page }) => {
+  await login(page)
+  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+
+  const setup = await page.evaluate(async (suffix) => {
+    const { apiJson } = await import('/src/lib/api.ts')
+
+    const product = await apiJson<{ id: string }>('/api/v1/products', {
+      method: 'POST',
+      body: {
+        category_id: null,
+        sku: `E2E-FIN-UI-${suffix}`,
+        barcode: null,
+        name: `Produto Finance UI ${suffix}`,
+        description: null,
+        unit: 'UN',
+        cost_price: 3,
+        price_cash: 10,
+        promo_price: null,
+        min_stock: 0,
+        active: true,
+      },
+    })
+    await apiJson('/api/v1/inventory/adjust', {
+      method: 'POST',
+      body: {
+        product_id: product.id,
+        delta: 1,
+        reason: 'Carga E2E finance UI',
+        type: 'adjustment',
+      },
+    })
+    const cash = await apiJson<{ id: string }>('/api/v1/cash/sessions/open', {
+      method: 'POST',
+      body: { opening_amount: 0, notes: 'finance UI retry E2E' },
+    })
+    const sale = await apiJson<{ id: string }>('/api/v1/sales', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        cash_session_id: cash.id,
+        customer_id: null,
+        discount_value: 0,
+        items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
+        payments: [{ method: 'pix', amount: 10 }],
+      },
+    })
+    const paymentList = await apiJson<{
+      items: Array<{ id: string; sale_id: string }>
+    }>('/api/v1/finance/payments?limit=200&offset=0')
+    const payment = paymentList.items.find((item) => item.sale_id === sale.id)
+    if (!payment) throw new Error('payment not found')
+
+    const saleDetail = await apiJson<{ items: Array<{ id: string }> }>(
+      `/api/v1/sales/${sale.id}`,
+    )
+    const saleReturn = await apiJson<{ id: string }>(
+      `/api/v1/sales/${sale.id}/returns`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          kind: 'return',
+          reason: 'Finance UI retry',
+          items: [{ sale_item_id: saleDetail.items[0].id, qty: 1, restock: true }],
+        },
+      },
+    )
+
+    return { saleId: sale.id, paymentId: payment.id, returnId: saleReturn.id }
+  }, suffix)
+
+  await page.getByRole('link', { name: 'Financeiro' }).click()
+  await expect(page).toHaveURL(/\/finance$/)
+
+  const paymentKeys: string[] = []
+  let losePaymentResponse = true
+  await page.route(`**/api/v1/finance/payments/${setup.paymentId}/reconcile`, async (route) => {
+    paymentKeys.push(route.request().headers()['idempotency-key'] ?? '')
+    if (losePaymentResponse) {
+      losePaymentResponse = false
+      const response = await route.fetch()
+      expect(response.ok()).toBeTruthy()
+      await route.abort('failed')
+      return
+    }
+    await route.continue()
+  })
+
+  const paymentRow = page.locator('tbody tr').filter({ hasText: setup.saleId }).first()
+  await paymentRow.getByRole('button', { name: 'Conciliar' }).click()
+  await page.getByLabel('Adquirente/provedor').fill('e2e-ui')
+  await page.getByLabel('ID externo').fill(`UI-REC-${suffix}`)
+  await page.getByRole('button', { name: 'Salvar conciliação' }).click()
+  await expect(page.getByText(/erro|falha|network|fetch/i)).toBeVisible()
+  await page.getByRole('button', { name: 'Salvar conciliação' }).click()
+
+  expect(paymentKeys).toHaveLength(2)
+  expect(paymentKeys[0]).not.toBe('')
+  expect(paymentKeys[1]).toBe(paymentKeys[0])
+  await expect(paymentRow.getByText('Já conciliado')).toBeVisible()
+
+  const refundKeys: string[] = []
+  let loseRefundResponse = true
+  await page.route(`**/api/v1/finance/returns/${setup.returnId}/refunds`, async (route) => {
+    refundKeys.push(route.request().headers()['idempotency-key'] ?? '')
+    if (loseRefundResponse) {
+      loseRefundResponse = false
+      const response = await route.fetch()
+      expect(response.ok()).toBeTruthy()
+      await route.abort('failed')
+      return
+    }
+    await route.continue()
+  })
+
+  const refundSection = page.getByRole('heading', { name: 'Reembolsos de devoluções' }).locator('..')
+  const refundRow = refundSection.locator('tbody tr').filter({ hasText: setup.saleId }).first()
+  await refundRow.getByRole('button', { name: 'Liquidar' }).click()
+  await page.getByRole('button', { name: 'Registrar liquidação' }).click()
+  await expect(page.getByText(/erro|falha|network|fetch/i)).toBeVisible()
+  await page.getByRole('button', { name: 'Registrar liquidação' }).click()
+
+  expect(refundKeys).toHaveLength(2)
+  expect(refundKeys[0]).not.toBe('')
+  expect(refundKeys[1]).toBe(refundKeys[0])
+  await expect(refundRow.getByText('0.00')).toBeVisible()
+})
