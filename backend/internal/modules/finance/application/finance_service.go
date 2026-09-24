@@ -48,6 +48,9 @@ func NewFinanceService(uow db.UnitOfWork, repo FinanceRepository, auditSvc *audi
 }
 
 func (s *FinanceService) Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]platform.Money, error) {
+	if err := validateFinanceDateRange(from, to); err != nil {
+		return nil, err
+	}
 	return s.repo.Dashboard(ctx, tenantID, from, to)
 }
 
@@ -56,6 +59,9 @@ func (s *FinanceService) ListLedger(ctx context.Context, tenantID string, limit,
 }
 
 func (s *FinanceService) ListPayments(ctx context.Context, tenantID, from, to, method, status string, limit, offset int) ([]fin.PaymentRecord, int, error) {
+	if err := validateFinanceDateRange(from, to); err != nil {
+		return nil, 0, err
+	}
 	switch method {
 	case "", "cash", "pix", "debit", "credit", "transfer", "voucher":
 	default:
@@ -87,6 +93,30 @@ func normalizeOptional(value *string) *string {
 		return nil
 	}
 	return &v
+}
+
+func validateFinanceDateRange(from, to string) error {
+	if from == "" && to == "" {
+		return nil
+	}
+	var fromTime, toTime time.Time
+	var err error
+	if from != "" {
+		fromTime, err = time.Parse("2006-01-02", from)
+		if err != nil {
+			return common.ErrValidation
+		}
+	}
+	if to != "" {
+		toTime, err = time.Parse("2006-01-02", to)
+		if err != nil {
+			return common.ErrValidation
+		}
+	}
+	if !fromTime.IsZero() && !toTime.IsZero() && fromTime.After(toTime) {
+		return common.ErrValidation
+	}
+	return nil
 }
 
 func financeHash(value any) (string, error) {
