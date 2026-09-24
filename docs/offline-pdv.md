@@ -108,3 +108,12 @@ Carrinho suspenso e fila offline são conceitos diferentes:
 - Cache expirado ou inválido não é usado para formar carrinho; o operador precisa reconectar e atualizar o catálogo.
 - Carrinhos suspensos retomados online recarregam o catálogo e reaplicam o preço efetivo atual antes de voltar ao carrinho ativo.
 - O preço efetivo do PDV segue a mesma regra do backend: `promo_price` positivo quando presente, caso contrário `price_cash`.
+
+
+## Carrinhos suspensos e logout
+
+- Carrinho suspenso é apenas rascunho local, escopado por tenant+usuário; não cria venda nem reserva estoque.
+- O navegador mantém no máximo 20 carrinhos suspensos e rejeita o próximo em vez de descartar silenciosamente um rascunho antigo.
+- Se houver fila offline pendente ou carrinho suspenso, o logout pede confirmação explícita antes de limpar os dados locais.
+- Falha ao revogar a sessão no servidor preserva token, fila, cache e carrinhos suspensos.
+- Carrinhos suspensos também são removidos no logout confirmado, adequado para terminais compartilhados de loja.
