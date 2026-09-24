@@ -331,3 +331,91 @@ test('cashier cannot read procurement data', async ({ page }) => {
   expect(statuses.suppliers).toBe(403)
   expect(statuses.purchases).toBe(403)
 })
+
+
+test('supplier maintenance edits status and blocks inactive purchasing', async ({ page }) => {
+  await login(page)
+  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+
+  const setup = await page.evaluate(async (suffix) => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    const product = await apiJson<{ id: string }>('/api/v1/products', {
+      method: 'POST',
+      body: {
+        category_id: null,
+        sku: `E2E-SUP-MAINT-${suffix}`,
+        barcode: null,
+        name: `Produto Supplier Maint ${suffix}`,
+        description: null,
+        unit: 'UN',
+        cost_price: 5,
+        price_cash: 10,
+        promo_price: null,
+        min_stock: 0,
+        active: true,
+      },
+    })
+    const supplier = await apiJson<{ id: string }>('/api/v1/suppliers', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        name: `Fornecedor Manutencao ${suffix}`,
+        document: `DOC-MAINT-${suffix}`,
+        email: null,
+        phone: '34999990000',
+        contact_name: null,
+        notes: 'manutencao E2E',
+        active: true,
+      },
+    })
+    return { productId: product.id, supplierId: supplier.id }
+  }, suffix)
+
+  await page.getByRole('link', { name: 'Compras' }).click()
+  await expect(page).toHaveURL(/\/purchases$/)
+
+  const originalName = `Fornecedor Manutencao ${suffix}`
+  const editedName = `Fornecedor Atualizado ${suffix}`
+  let row = page.locator('table tbody tr').filter({ hasText: originalName }).first()
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: 'Editar' }).click()
+  await page.getByLabel(`Editar nome de ${originalName}`).fill(editedName)
+  await row.getByRole('button', { name: 'Salvar edição' }).click()
+
+  row = page.locator('table tbody tr').filter({ hasText: editedName }).first()
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: 'Desativar' }).click()
+  await expect(row.getByText('Inativo', { exact: true })).toBeVisible()
+
+  await expect(
+    page.getByLabel('Fornecedor da compra').locator(`option[value="${setup.supplierId}"]`),
+  ).toHaveCount(0)
+
+  const inactiveStatus = await page.evaluate(async (setup) => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    try {
+      await apiJson('/api/v1/purchases', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          supplier_id: setup.supplierId,
+          invoice_number: null,
+          payment_due_date: null,
+          notes: 'fornecedor inativo deve falhar',
+          items: [{ product_id: setup.productId, qty: 1, unit_cost: 5 }],
+        },
+      })
+      return 200
+    } catch (error) {
+      if (error instanceof APIError) return error.status
+      throw error
+    }
+  }, setup)
+  expect(inactiveStatus).toBe(422)
+
+  await row.getByRole('button', { name: 'Ativar' }).click()
+  await expect(row.getByText('Ativo', { exact: true })).toBeVisible()
+  await expect(
+    page.getByLabel('Fornecedor da compra').locator(`option[value="${setup.supplierId}"]`),
+  ).toHaveCount(1)
+})
