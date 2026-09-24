@@ -226,6 +226,16 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
       items: Array<{ cost_unit: number }>
     }>(`/api/v1/sales/${input.saleId}`)
 
+    const forbiddenStatus = async (path: string) => {
+      try {
+        await apiJson(path)
+        return 200
+      } catch (error) {
+        if (error instanceof APIError) return error.status
+        throw error
+      }
+    }
+
     return {
       hasDiscountPermission: me.permissions.includes('sale:discount'),
       hasFinancePermission: me.permissions.includes('finance:read'),
@@ -234,6 +244,9 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
       barcodeCost: barcodeDetail.cost_price,
       saleProfit: saleDetail.sale.profit_estimated,
       saleCostUnit: saleDetail.items[0].cost_unit,
+      financePaymentsStatus: await forbiddenStatus('/api/v1/finance/payments?limit=1&offset=0'),
+      financeRefundsStatus: await forbiddenStatus('/api/v1/finance/refunds?limit=1&offset=0'),
+      returnsStatus: await forbiddenStatus('/api/v1/returns?limit=1&offset=0'),
     }
   }, { productId: setup.productId, barcode: setup.barcode, saleId: sale.id })
 
@@ -244,4 +257,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(cashierResult.barcodeCost).toBe(0)
   expect(cashierResult.saleProfit).toBe(0)
   expect(cashierResult.saleCostUnit).toBe(0)
+  expect(cashierResult.financePaymentsStatus).toBe(403)
+  expect(cashierResult.financeRefundsStatus).toBe(403)
+  expect(cashierResult.returnsStatus).toBe(403)
 })
