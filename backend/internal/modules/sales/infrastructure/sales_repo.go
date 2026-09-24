@@ -80,6 +80,9 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 		FROM sales WHERE tenant_id=$1 AND id=$2
 	`, tenantID, id).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sales.Sale{}, nil, nil, common.ErrNotFound
+		}
 		return sales.Sale{}, nil, nil, err
 	}
 	if err := assignSaleMoney(&s, subtotal, discount, total, profit); err != nil {
@@ -216,6 +219,9 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 		FROM sales WHERE tenant_id=$1 AND id=$2 FOR UPDATE
 	`, tenantID, id).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sales.Sale{}, nil, nil, common.ErrNotFound
+		}
 		return sales.Sale{}, nil, nil, err
 	}
 	if err := assignSaleMoney(&s, subtotal, discount, total, profit); err != nil {
