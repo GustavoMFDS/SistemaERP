@@ -226,3 +226,93 @@ test('cashier cannot read return records', async ({ page }) => {
   expect(statuses.list).toBe(403)
   expect(statuses.missingDetail).toBe(403)
 })
+
+
+test('returns UI keeps the same key after an interrupted response', async ({ page }) => {
+  await login(page)
+  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+
+  const setup = await page.evaluate(async (suffix) => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    const product = await apiJson<{ id: string }>('/api/v1/products', {
+      method: 'POST',
+      body: {
+        category_id: null,
+        sku: `E2E-RET-UI-${suffix}`,
+        barcode: null,
+        name: `Produto Return UI ${suffix}`,
+        description: null,
+        unit: 'UN',
+        cost_price: 4,
+        price_cash: 10,
+        promo_price: null,
+        min_stock: 0,
+        active: true,
+      },
+    })
+    await apiJson('/api/v1/inventory/adjust', {
+      method: 'POST',
+      body: {
+        product_id: product.id,
+        delta: 1,
+        reason: 'Carga E2E return UI',
+        type: 'adjustment',
+      },
+    })
+    const cash = await apiJson<{ id: string }>('/api/v1/cash/sessions/open', {
+      method: 'POST',
+      body: { opening_amount: 0, notes: 'return UI E2E' },
+    })
+    const sale = await apiJson<{ id: string }>('/api/v1/sales', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        cash_session_id: cash.id,
+        customer_id: null,
+        discount_value: 0,
+        items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
+        payments: [{ method: 'pix', amount: 10 }],
+      },
+    })
+    await apiJson(`/api/v1/cash/sessions/${cash.id}/close`, {
+      method: 'POST',
+      body: {
+        closing_amount: 0,
+        closing_by_method: { pix: 10, debit: 0, credit: 0, transfer: 0, voucher: 0 },
+        notes: 'return UI E2E cleanup',
+      },
+    })
+    return { saleId: sale.id }
+  }, suffix)
+
+  await page.getByRole('link', { name: 'Devoluções/Trocas' }).click()
+  await page.getByLabel('ID da venda').fill(setup.saleId)
+  await page.getByRole('button', { name: 'Buscar' }).click()
+
+  const qtyInput = page.locator('table tbody input[type="number"]').first()
+  await qtyInput.fill('1')
+  await page.getByLabel('Motivo').fill('Resposta interrompida E2E')
+
+  const keys: string[] = []
+  let first = true
+  await page.route(`**/api/v1/sales/${setup.saleId}/returns`, async (route) => {
+    keys.push(route.request().headers()['idempotency-key'] ?? '')
+    if (first) {
+      first = false
+      const response = await route.fetch()
+      expect(response.ok()).toBeTruthy()
+      await route.abort('failed')
+      return
+    }
+    await route.continue()
+  })
+
+  await page.getByRole('button', { name: 'Registrar devolução' }).click()
+  await expect(page.getByRole('button', { name: 'Registrar devolução' })).toBeVisible()
+  await page.getByRole('button', { name: 'Registrar devolução' }).click()
+
+  expect(keys).toHaveLength(2)
+  expect(keys[0]).not.toBe('')
+  expect(keys[1]).toBe(keys[0])
+  await expect(page.getByText(/Reembolso devido:/)).toBeVisible()
+})
