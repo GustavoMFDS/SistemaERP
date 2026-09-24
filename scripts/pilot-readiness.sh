@@ -148,6 +148,23 @@ else
   pass "idempotency immutability triggers are present"
 fi
 
+reconciliation_history_triggers="$(
+  psql "$DATABASE_URL" -At -c "
+    SELECT count(*)
+    FROM pg_trigger
+    WHERE NOT tgisinternal
+      AND tgname IN (
+        'payment_reconciliations_immutable',
+        'payment_reconciliation_adjustments_immutable'
+      );
+  "
+)"
+if [ "$reconciliation_history_triggers" -lt 2 ]; then
+  fail "payment reconciliation history immutability is incomplete ($reconciliation_history_triggers/2 triggers found)"
+else
+  pass "payment reconciliation history is protected against update/delete"
+fi
+
 retention_indexes="$(
   psql "$DATABASE_URL" -At -c "
     SELECT count(*)
