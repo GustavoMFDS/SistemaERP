@@ -773,7 +773,7 @@ test('finance UI retries lost responses with the original idempotency key', asyn
   expect(paymentKeys).toHaveLength(2)
   expect(paymentKeys[0]).not.toBe('')
   expect(paymentKeys[1]).toBe(paymentKeys[0])
-  await expect(paymentRow.getByText('Já conciliado')).toBeVisible()
+  await expect(paymentRow.getByRole('button', { name: 'Ajustar' })).toBeVisible()
 
   const refundKeys: string[] = []
   let loseRefundResponse = true
