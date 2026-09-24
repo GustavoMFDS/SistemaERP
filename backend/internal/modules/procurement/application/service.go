@@ -42,13 +42,13 @@ type SupplierRequest struct {
 }
 
 type PurchaseItemRequest struct {
-	ProductID string            `json:"product_id" validate:"required"`
+	ProductID string            `json:"product_id" validate:"required,uuid"`
 	Qty       platform.Quantity `json:"qty" validate:"required,gt=0"`
 	UnitCost  platform.Money    `json:"unit_cost" validate:"required,gt=0"`
 }
 
 type PurchaseCreateRequest struct {
-	SupplierID     string                `json:"supplier_id" validate:"required"`
+	SupplierID     string                `json:"supplier_id" validate:"required,uuid"`
 	InvoiceNumber  *string               `json:"invoice_number" validate:"omitempty,max=64"`
 	PaymentDueDate *string               `json:"payment_due_date"`
 	Notes          *string               `json:"notes" validate:"omitempty,max=1000"`
@@ -56,7 +56,7 @@ type PurchaseCreateRequest struct {
 }
 
 type PurchaseReceiveItemRequest struct {
-	PurchaseItemID string            `json:"purchase_item_id" validate:"required"`
+	PurchaseItemID string            `json:"purchase_item_id" validate:"required,uuid"`
 	Qty            platform.Quantity `json:"qty" validate:"required,gt=0"`
 }
 
@@ -161,6 +161,9 @@ func (s *Service) CreateSupplier(ctx context.Context, tenantID, actorUserID, ide
 }
 
 func (s *Service) UpdateSupplier(ctx context.Context, tenantID, actorUserID, id string, req SupplierRequest) error {
+	if err := s.validate.Var(id, "required,uuid"); err != nil {
+		return common.ErrValidation
+	}
 	req = normalizeSupplierRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
@@ -196,6 +199,9 @@ func (s *Service) ListPurchases(ctx context.Context, tenantID, status string, li
 }
 
 func (s *Service) GetPurchase(ctx context.Context, tenantID, id string) (proc.Purchase, []proc.PurchaseItem, []proc.Receipt, error) {
+	if err := s.validate.Var(id, "required,uuid"); err != nil {
+		return proc.Purchase{}, nil, nil, common.ErrValidation
+	}
 	return s.repo.GetPurchase(ctx, tenantID, id)
 }
 
@@ -316,8 +322,12 @@ func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID, ide
 }
 
 func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, purchaseID, idempotencyKey string, req PurchaseReceiveRequest) (string, proc.PurchaseStatus, bool, error) {
+	purchaseID = strings.TrimSpace(purchaseID)
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey == "" {
+		return "", "", false, common.ErrValidation
+	}
+	if err := s.validate.Var(purchaseID, "required,uuid"); err != nil {
 		return "", "", false, common.ErrValidation
 	}
 	req.Notes = normalizeOptional(req.Notes)
@@ -506,6 +516,10 @@ func (s *Service) ReceivePurchase(ctx context.Context, tenantID, actorUserID, pu
 }
 
 func (s *Service) CancelPurchase(ctx context.Context, tenantID, actorUserID, purchaseID string) error {
+	purchaseID = strings.TrimSpace(purchaseID)
+	if err := s.validate.Var(purchaseID, "required,uuid"); err != nil {
+		return common.ErrValidation
+	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return err
