@@ -116,6 +116,12 @@ export default function FinancePage() {
 
   async function reconcilePayment() {
     if (!selectedPayment) return
+    const received = Number(receivedAmount)
+    const fee = Number(feeAmount)
+    if (!Number.isFinite(received) || received < 0 || !Number.isFinite(fee) || fee < 0 || fee > received) {
+      setError('Informe valores válidos: a taxa não pode superar o valor recebido.')
+      return
+    }
     setError('')
     try {
       if (!reconcileKeyRef.current) reconcileKeyRef.current = crypto.randomUUID()
@@ -123,8 +129,8 @@ export default function FinancePage() {
         method: 'POST',
         headers: { 'Idempotency-Key': reconcileKeyRef.current },
         body: {
-          received_amount: Number(receivedAmount) || 0,
-          fee_amount: Number(feeAmount) || 0,
+          received_amount: Math.round(received * 100) / 100,
+          fee_amount: Math.round(fee * 100) / 100,
           provider: provider.trim() || null,
           external_ref: externalRef.trim() || null,
           notes: reconcileNotes.trim() || null,
@@ -151,6 +157,19 @@ export default function FinancePage() {
 
   async function settleRefund() {
     if (!selectedRefund) return
+    const amount = Number(refundAmount)
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      amount > Number(selectedRefund.remaining_amount)
+    ) {
+      setError('Informe um valor de reembolso maior que zero e dentro do saldo restante.')
+      return
+    }
+    if (refundMethod === 'cash' && !refundCashSessionId.trim()) {
+      setError('Reembolso em dinheiro exige uma sessão de caixa aberta.')
+      return
+    }
     setError('')
     try {
       if (!refundKeyRef.current) refundKeyRef.current = crypto.randomUUID()
@@ -159,7 +178,7 @@ export default function FinancePage() {
         headers: { 'Idempotency-Key': refundKeyRef.current },
         body: {
           method: refundMethod,
-          amount: Number(refundAmount) || 0,
+          amount: Math.round(amount * 100) / 100,
           provider: refundProvider.trim() || null,
           external_ref: refundExternalRef.trim() || null,
           cash_session_id: refundCashSessionId.trim() || null,
