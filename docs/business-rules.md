@@ -128,3 +128,12 @@
 - Fornecedor pode ser editado, ativado ou desativado sem apagar o histórico de compras.
 - Fornecedor inativo permanece visível no histórico, mas não aparece para novas compras.
 - O backend rejeita criação de compra com fornecedor inativo mesmo em chamada API direta.
+
+
+### Limites numéricos e overflow
+
+- Valores monetários seguem o limite físico do schema `numeric(12,2)`; quantidades seguem `numeric(14,3)`.
+- Parsing rejeita números fora desses intervalos antes de persistência.
+- Subtotais de venda, lucro estimado, totais de compra e rateios de devolução usam aritmética verificada; overflow de intermediário não pode produzir wraparound silencioso.
+- Multiplicações e rateios que precisam de intermediário maior usam cálculo de precisão arbitrária e validam o resultado final antes de convertê-lo para os tipos do domínio.
+- Operações fora da faixa suportada são rejeitadas como entrada inválida e não geram mutação parcial.
