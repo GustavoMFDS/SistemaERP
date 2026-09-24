@@ -283,8 +283,14 @@ func (s *Service) CreatePurchase(ctx context.Context, tenantID, actorUserID, ide
 		if !ok || !product.Active {
 			return "", false, common.ErrValidation
 		}
-		lineTotal := item.UnitCost.MulQty(item.Qty)
-		total = total.Add(lineTotal)
+		lineTotal, err := item.UnitCost.MulQtyChecked(item.Qty)
+		if err != nil {
+			return "", false, common.ErrValidation
+		}
+		total, err = total.AddChecked(lineTotal)
+		if err != nil {
+			return "", false, common.ErrValidation
+		}
 		items = append(items, proc.PurchaseItem{
 			ProductID: item.ProductID, QtyOrdered: item.Qty, UnitCost: item.UnitCost, LineTotal: lineTotal,
 		})
