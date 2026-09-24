@@ -111,20 +111,20 @@ critical_tables="$(
     FROM information_schema.tables
     WHERE table_schema='public'
       AND table_name IN (
-        'companies','users','user_tenants','user_tenant_roles','permissions','role_permissions',
+        'companies','users','roles','user_tenants','user_tenant_roles','permissions','role_permissions',
         'products','inventory_balances','inventory_movements',
         'cash_registers','cash_sessions','cash_movements','cash_session_reconciliations',
         'sales','sale_items','payments','idempotency_keys',
         'suppliers','purchases','purchase_items','purchase_receipts','purchase_receipt_items',
-        'procurement_idempotency_keys',
+        'accounts_payable','procurement_idempotency_keys',
         'sale_returns','sale_return_items','return_idempotency_keys',
         'return_refunds','payment_reconciliations','finance_idempotency_keys',
         'ledger_entries','audit_logs'
       );
   "
 )"
-if [ "$critical_tables" -lt 31 ]; then
-  fail "one or more critical pilot tables are missing ($critical_tables/31 found)"
+if [ "$critical_tables" -lt 33 ]; then
+  fail "one or more critical pilot tables are missing ($critical_tables/33 found)"
 else
   pass "critical pilot tables are present"
 fi
