@@ -33,8 +33,8 @@
 - Product create/update, supplier create/update, purchase create/receive/cancel and manual inventory adjustments now write audit events in the same transaction as the business mutation.
 - Product catalog text is normalized before validation; invalid promotional pricing (`promo_price > price_cash`) is rejected.
 - PDV now uses the same effective promotional price as the backend, refreshes prices before resuming a suspended cart, refuses stale offline catalog cache after 24 hours, and never silently evicts an older suspended cart when the local cap is reached.
-- Finance reconciliation requires provider/external-reference pairs when external metadata is supplied, prevents duplicate reconciliation per payment, preserves exact idempotent replay payloads for refunds, and maps payment-reference uniqueness collisions to HTTP 409.
-- Pilot preflight now validates 33 critical tables, a 14-digit CNPJ, active cash register, clean no-open-session baseline, sellable stock, active supplier, valid promotional pricing and separated operator/responsible-user duties.
+- Finance reconciliation requires provider/external-reference pairs when settlement metadata is supplied, prevents duplicate initial reconciliation per payment, supports explicit audited adjustments/history, and preserves exact idempotent replay payloads for refunds.
+- Pilot preflight now requires schema >=22, validates 34 critical tables plus reconciliation-history immutability triggers, a 14-digit CNPJ, active cash register, clean no-open-session baseline, sellable stock, active supplier, valid promotional pricing and separated operator/responsible-user duties.
 
 ### Current verdict
 
