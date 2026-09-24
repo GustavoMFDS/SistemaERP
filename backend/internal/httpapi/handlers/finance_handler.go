@@ -120,6 +120,32 @@ func (h *FinanceHandler) ReconcilePayment(w http.ResponseWriter, r *http.Request
 	writeJSON(w, code, map[string]any{"id": id, "status": status, "replayed": !created})
 }
 
+func (h *FinanceHandler) AdjustPaymentReconciliation(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	var req finapp.PaymentReconciliationAdjustmentRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	id, status, created, err := h.svc.AdjustPaymentReconciliation(
+		r.Context(), au.TenantID, au.UserID, chi.URLParam(r, "id"),
+		r.Header.Get("Idempotency-Key"), req,
+	)
+	if err != nil {
+		writeFinanceError(w, r, err)
+		return
+	}
+	code := http.StatusCreated
+	if !created {
+		code = http.StatusOK
+	}
+	writeJSON(w, code, map[string]any{"id": id, "status": status, "replayed": !created})
+}
+
 func (h *FinanceHandler) ListRefunds(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
