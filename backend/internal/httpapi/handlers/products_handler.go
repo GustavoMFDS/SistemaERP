@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	"github.com/go-chi/chi/v5"
@@ -14,12 +13,11 @@ import (
 
 type ProductsHandler struct {
 	svc    *invapp.ProductsService
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewProductsHandler(svc *invapp.ProductsService, auditSvc *audit.Service, logger *slog.Logger) *ProductsHandler {
-	return &ProductsHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewProductsHandler(svc *invapp.ProductsService, logger *slog.Logger) *ProductsHandler {
+	return &ProductsHandler{svc: svc, logger: logger}
 }
 
 func (h *ProductsHandler) List(w http.ResponseWriter, r *http.Request) {
