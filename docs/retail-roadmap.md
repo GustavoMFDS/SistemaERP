@@ -2,7 +2,7 @@
 
 Ordem acordada para evoluir o SistemaEmGo para uso nas lojas da familia. Cada loja/empresa continua sendo um tenant independente.
 
-## 2. Codigo de barras e scanner — implementado, aguardando CI final/merge
+## 2. Codigo de barras e scanner — implementado no PR integrado #15; aguardando CI/merge
 
 Criterios de aceite:
 
@@ -15,7 +15,7 @@ Criterios de aceite:
 - offline nunca aceita codigo desconhecido;
 - testes de integracao e E2E cobrem isolamento e scanner.
 
-## 3. Fornecedores, compras e entrada de estoque — implementado na branch
+## 3. Fornecedores, compras e entrada de estoque — implementado no PR integrado #15; aguardando CI/merge
 
 - cadastro de fornecedores;
 - pedido/compra com itens, custo e status;
@@ -25,7 +25,7 @@ Criterios de aceite:
 - contas a pagar/ledger quando aplicavel;
 - auditoria e isolamento por tenant.
 
-## 4. Trocas e devolucoes — implementado na branch
+## 4. Trocas e devolucoes — implementado no PR integrado #15; aguardando CI/merge
 
 - devolucao total/parcial de venda;
 - motivo e operador responsavel;
@@ -33,7 +33,7 @@ Criterios de aceite:
 - estorno/credito de pagamento desacoplado da devolucao fisica;
 - trilha de auditoria e protecao contra dupla devolucao.
 
-## 5. Pagamentos e conciliacao — implementado na branch
+## 5. Pagamentos e conciliacao — implementado no PR integrado #15; aguardando CI/merge
 
 - detalhamento de Pix, debito, credito e dinheiro;
 - identificadores de transacao/adquirente quando disponiveis;
@@ -41,7 +41,7 @@ Criterios de aceite:
 - divergencias e ajustes auditados;
 - preparar integracao TEF/adquirentes sem acoplar o dominio a um unico provedor.
 
-## 6. Melhorias operacionais do PDV — implementado na branch
+## 6. Melhorias operacionais do PDV — implementado no PR integrado #15; aguardando CI/merge
 
 - atalhos de teclado;
 - busca rapida;
