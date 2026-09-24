@@ -217,6 +217,17 @@ export default function PDVPage() {
         localStorage.setItem(cacheKey, JSON.stringify(cache))
       }
     } catch (e: unknown) {
+      const canUseOfflineCache =
+        !(e instanceof APIError) ||
+        e.status >= 500 ||
+        [408, 425, 429].includes(e.status)
+
+      if (!canUseOfflineCache) {
+        setProducts([])
+        setError(errorMessage(e))
+        return
+      }
+
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
       const cachedRaw = cacheKey ? localStorage.getItem(cacheKey) : null
       if (cachedRaw) {
