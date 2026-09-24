@@ -51,7 +51,11 @@ func (h *SalesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sale, items, pays, err := h.svc.Get(r.Context(), au.TenantID, id)
 	if err != nil {
-		writeError(w, r, http.StatusNotFound, "not_found", "venda nao encontrada", nil)
+		if err == common.ErrNotFound {
+			writeError(w, r, http.StatusNotFound, "not_found", "venda nao encontrada", nil)
+		} else {
+			writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar venda", nil)
+		}
 		return
 	}
 	if !middleware.HasPermission(r.Context(), "finance:read") {
