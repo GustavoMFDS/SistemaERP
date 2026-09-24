@@ -307,7 +307,7 @@ Requires `finance:reconcile` and `Idempotency-Key`.
 }
 ```
 
-The backend stores the initial reconciliation as immutable history. A gross received amount different from the sale payment marks the payment `divergent`; provider fees are tracked separately and do not change the original sale. If `provider` or `external_ref` is supplied, both fields are required as a pair.
+The backend stores the initial reconciliation as immutable history. A gross received amount different from the sale payment marks the payment `divergent`; provider fees are tracked separately and do not change the original sale. If `provider` or `external_ref` is supplied, both fields are required as a pair. Payment `transaction_ref` remains the original sale/payment transaction identifier; reconciliation `external_ref` is a separate settlement/reconciliation identifier and never overwrites it.
 
 A second initial reconciliation for the same payment returns `409 conflict`. Corrections use the explicit adjustment endpoint below.
 
@@ -324,6 +324,31 @@ Requires `finance:reconcile` and `Idempotency-Key`. It is valid only after a non
 ```
 
 The original reconciliation row is not changed. A new adjustment row records the previous and corrected received/fee values, the resulting status, operator, justification and timestamp. Same-key replay returns the original adjustment; a no-op adjustment is rejected.
+
+### GET `/finance/payments/{id}/reconciliation-history`
+
+Requires `finance:read`. Returns the immutable initial reconciliation plus all subsequent adjustment rows in chronological order.
+
+```json
+{
+  "initial": {
+    "status": "divergent",
+    "received_amount": 119,
+    "fee_amount": 3.5,
+    "external_ref": "settlement-batch-id"
+  },
+  "adjustments": [
+    {
+      "previous_received_amount": 119,
+      "new_received_amount": 120,
+      "previous_fee_amount": 3.5,
+      "new_fee_amount": 3.5,
+      "status": "reconciled",
+      "notes": "Correção após conferência do extrato"
+    }
+  ]
+}
+```
 
 ### GET `/finance/refunds`
 
