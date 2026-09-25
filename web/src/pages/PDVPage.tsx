@@ -12,6 +12,7 @@ import {
   getQueueSummary,
   markQueueItemAttention,
   rebindQueueItemToCashSession,
+  refreshQueueItemPriceSnapshots,
   retryQueueItem,
   type QueuedRequest,
 } from '../lib/offlineQueue'
@@ -326,6 +327,20 @@ export default function PDVPage() {
     }
   }
 
+  async function refreshAttentionPrices(id: string) {
+    if (
+      !window.confirm(
+        'Atualizar esta venda para os preços atuais do servidor e recalcular o pagamento? O preço anterior continuará registrado apenas no histórico local até a atualização.',
+      )
+    ) {
+      return
+    }
+    const updated = await refreshQueueItemPriceSnapshots(id)
+    refreshPending()
+    if (!updated) return
+    await syncPending()
+  }
+
   async function retryAttention(id: string) {
     const retry = retryQueueItem(id)
     refreshPending()
@@ -473,7 +488,13 @@ export default function PDVPage() {
         ![401, 408, 425, 429].includes(e.status)
 
       if (permanent) {
-        markQueueItemAttention(queuedId, 'request_rejected', msg)
+        markQueueItemAttention(
+          queuedId,
+          e instanceof APIError && e.code === 'price_changed'
+            ? 'price_changed'
+            : 'request_rejected',
+          msg,
+        )
         refreshPending()
         setError(msg)
         return
@@ -672,9 +693,11 @@ export default function PDVPage() {
             {queueItems
               .filter((item) => item.state === 'attention')
               .map((item) => {
-                const retentionBlocked =
+                const replayBlocked =
                   item.attentionReason === 'retention_expired' ||
-                  item.attentionReason === 'retention_unknown'
+                  item.attentionReason === 'retention_unknown' ||
+                  item.attentionReason === 'price_snapshot_missing' ||
+                  item.attentionReason === 'price_changed'
                 return (
                 <div key={item.id} className="rounded-md border p-2 text-xs">
                   <div className="font-mono">{item.id}</div>
@@ -683,10 +706,19 @@ export default function PDVPage() {
                     {item.lastError ?? 'sem detalhe'}
                   </div>
                   <div className="mt-2 flex gap-2">
+                    {item.attentionReason === 'price_changed' ? (
+                      <button
+                        type="button"
+                        onClick={() => void refreshAttentionPrices(item.id)}
+                        className="rounded-md border border-blue-300 px-2 py-1 text-blue-700"
+                      >
+                        Atualizar preços
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void retryAttention(item.id)}
-                      disabled={retentionBlocked}
+                      disabled={replayBlocked}
                       className="rounded-md border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Tentar novamente
@@ -695,7 +727,7 @@ export default function PDVPage() {
                       <button
                         type="button"
                         onClick={() => void rebindAttentionToCurrentCash(item.id)}
-                        disabled={retentionBlocked}
+                        disabled={replayBlocked}
                         className="rounded-md border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Usar caixa atual
