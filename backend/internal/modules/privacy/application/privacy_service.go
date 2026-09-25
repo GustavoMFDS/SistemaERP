@@ -56,7 +56,28 @@ func (s *Service) CreateRequest(ctx context.Context, tenantID, actorUserID, requ
 			return "", common.ErrNotFound
 		}
 	}
-	return s.repo.CreateRequest(ctx, tenantID, actorUserID, requestID, req)
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	id, err := s.repo.CreateRequest(ctx, tx, tenantID, actorUserID, requestID, req)
+	if err != nil {
+		return "", err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "privacy.request.create",
+		ResourceType: "data_subject_request", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{"subject_type": req.SubjectType, "request_type": req.RequestType},
+	}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func (s *Service) ListRequests(ctx context.Context, tenantID string, limit, offset int) (any, error) {
@@ -71,19 +92,36 @@ func (s *Service) GetRequest(ctx context.Context, tenantID, id string) (any, err
 	return s.repo.GetRequest(ctx, tenantID, id)
 }
 
-func (s *Service) UpdateRequestStatus(ctx context.Context, tenantID, id string, req UpdateStatusRequest) error {
+func (s *Service) UpdateRequestStatus(ctx context.Context, tenantID, actorUserID, id string, req UpdateStatusRequest) error {
 	req.Status = strings.ToLower(strings.TrimSpace(req.Status))
 	if !isUUID(id) || !validStatus(req.Status) {
 		return common.ErrValidation
 	}
-	current, err := s.repo.GetRequest(ctx, tenantID, id)
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	current, err := s.repo.GetRequestForUpdate(ctx, tx, tenantID, id)
 	if err != nil {
 		return err
 	}
 	if !validStatusTransition(current.Status, req.Status) {
 		return common.ErrConflict
 	}
-	return s.repo.UpdateRequestStatus(ctx, tenantID, id, req.Status, req.Notes)
+	if err := s.repo.UpdateRequestStatus(ctx, tx, tenantID, id, req.Status, req.Notes); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "privacy.request.update",
+		ResourceType: "data_subject_request", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{"status": req.Status},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Service) ExportSubjectData(ctx context.Context, tenantID, requestID string) (map[string]any, error) {
@@ -126,7 +164,7 @@ func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, actorUserID, r
 	if err := s.repo.AnonymizeSubject(ctx, tx, tenantID, req.SubjectType, *req.SubjectID); err != nil {
 		return err
 	}
-	if err := s.repo.UpdateRequestStatusTx(ctx, tx, tenantID, requestID, "completed", nil); err != nil {
+	if err := s.repo.UpdateRequestStatus(ctx, tx, tenantID, requestID, "completed", nil); err != nil {
 		return err
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
@@ -162,7 +200,7 @@ func (s *Service) BlockSubject(ctx context.Context, tenantID, actorUserID, reque
 	if err := s.repo.BlockSubject(ctx, tx, tenantID, req.SubjectType, *req.SubjectID); err != nil {
 		return err
 	}
-	if err := s.repo.UpdateRequestStatusTx(ctx, tx, tenantID, requestID, "completed", nil); err != nil {
+	if err := s.repo.UpdateRequestStatus(ctx, tx, tenantID, requestID, "completed", nil); err != nil {
 		return err
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
@@ -175,7 +213,7 @@ func (s *Service) BlockSubject(ctx context.Context, tenantID, actorUserID, reque
 	return tx.Commit(ctx)
 }
 
-func (s *Service) RecordConsent(ctx context.Context, tenantID, requestID string, req ConsentCreateRequest) (string, error) {
+func (s *Service) RecordConsent(ctx context.Context, tenantID, actorUserID, requestID string, req ConsentCreateRequest) (string, error) {
 	req.normalize()
 	if err := validateConsent(req); err != nil {
 		return "", err
@@ -187,7 +225,28 @@ func (s *Service) RecordConsent(ctx context.Context, tenantID, requestID string,
 	if !ok {
 		return "", common.ErrNotFound
 	}
-	return s.repo.RecordConsent(ctx, tenantID, requestID, req)
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	id, err := s.repo.RecordConsent(ctx, tx, tenantID, requestID, req)
+	if err != nil {
+		return "", err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "privacy.consent.create",
+		ResourceType: "consent_record", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{"purpose": req.Purpose, "subject_type": req.SubjectType},
+	}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func (s *Service) ListConsents(ctx context.Context, tenantID string, limit, offset int) (any, error) {
@@ -195,11 +254,26 @@ func (s *Service) ListConsents(ctx context.Context, tenantID string, limit, offs
 	return s.repo.ListConsents(ctx, tenantID, limit, offset)
 }
 
-func (s *Service) RevokeConsent(ctx context.Context, tenantID, id string) error {
+func (s *Service) RevokeConsent(ctx context.Context, tenantID, actorUserID, id string) error {
 	if !isUUID(id) {
 		return common.ErrValidation
 	}
-	return s.repo.RevokeConsent(ctx, tenantID, id)
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.repo.RevokeConsent(ctx, tx, tenantID, id); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "privacy.consent.revoke",
+		ResourceType: "consent_record", ResourceID: id, Outcome: "success",
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *CreateRequest) normalize() {
