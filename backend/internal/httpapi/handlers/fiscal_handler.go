@@ -34,10 +34,12 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if !validUUID(req.SaleID) {
+	saleID, valid := normalizeUUID(req.SaleID)
+	if !valid {
 		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "sale_id invalido", nil)
 		return
 	}
+	req.SaleID = saleID
 	invoiceID, xmlID, err := h.svc.GenerateNFeXML(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
