@@ -3,8 +3,6 @@ package handlers
 import (
 	"net/http"
 	"strconv"
-	"time"
-
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
@@ -29,10 +27,10 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
 	if from == "" {
-		from = time.Now().Format("2006-01-02")
+		from = h.svc.Today()
 	}
 	if to == "" {
-		to = time.Now().Format("2006-01-02")
+		to = h.svc.Today()
 	}
 	fromDate, err := time.Parse("2006-01-02", from)
 	if err != nil {
