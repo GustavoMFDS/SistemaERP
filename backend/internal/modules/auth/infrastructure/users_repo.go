@@ -55,7 +55,19 @@ func (r *UsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (stri
 		if !r.allowTenantFallback {
 			return "", common.ErrForbidden
 		}
-		// Legacy development/test fallback for pre-user_tenants local databases only.
+		var hasAnyTenant bool
+		if err := r.db.QueryRow(ctx, `
+			SELECT EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1)
+		`, userID).Scan(&hasAnyTenant); err != nil {
+			return "", err
+		}
+		if hasAnyTenant {
+			// An explicit (but inactive) membership must never fall through to
+			// the legacy first-company development fallback.
+			return "", common.ErrForbidden
+		}
+		// Legacy development/test fallback for databases/users that truly
+		// predate tenant membership data.
 		return r.fallbackCompanyTenantID(ctx)
 	}
 	var pgErr *pgconn.PgError
