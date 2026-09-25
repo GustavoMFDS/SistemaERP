@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -131,7 +133,7 @@ func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, 
 	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active).
 		Scan(&id)
 	if err != nil {
-		return "", err
+		return "", normalizeProductWriteError(err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO inventory_balances(tenant_id, product_id, qty_on_hand) VALUES ($1,$2,0) ON CONFLICT (product_id) DO NOTHING`, tenantID, id)
 	return id, err
@@ -145,7 +147,7 @@ func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, 
 		WHERE tenant_id=$1 AND id=$13
 	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active, id)
 	if err != nil {
-		return err
+		return normalizeProductWriteError(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return common.ErrNotFound
@@ -209,6 +211,14 @@ func assignProductNumbers(p *inv.Product, costPrice, priceCash string, promo *st
 		return err
 	}
 	return nil
+}
+
+func normalizeProductWriteError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return common.ErrConflict
+	}
+	return err
 }
 
 func moneyPtrDBString(v *platform.Money) any {
