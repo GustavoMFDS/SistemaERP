@@ -142,12 +142,11 @@ func (h *PrivacyHandler) RecordConsent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	id, err := h.svc.RecordConsent(r.Context(), au.TenantID, middleware.GetRequestID(r.Context()), req)
+	id, err := h.svc.RecordConsent(r.Context(), au.TenantID, au.UserID, middleware.GetRequestID(r.Context()), req)
 	if err != nil {
 		writePrivacyError(w, r, err)
 		return
 	}
-	h.record(r, au.TenantID, au.UserID, "privacy.consent.create", "consent_record", id, "success", map[string]any{"purpose": req.Purpose})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
@@ -177,11 +176,10 @@ func (h *PrivacyHandler) RevokeConsent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.svc.RevokeConsent(r.Context(), au.TenantID, id); err != nil {
+	if err := h.svc.RevokeConsent(r.Context(), au.TenantID, au.UserID, id); err != nil {
 		writePrivacyError(w, r, err)
 		return
 	}
-	h.record(r, au.TenantID, au.UserID, "privacy.consent.revoke", "consent_record", id, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "revoked"})
 }
 
