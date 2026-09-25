@@ -32,7 +32,7 @@ func TestCreateAndFinalizeRequiresIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestCreateAndFinalizeIgnoresClientTamperedUnitPrice(t *testing.T) {
+func TestCreateAndFinalizeRejectsStaleOrTamperedUnitPriceSnapshot(t *testing.T) {
 	svc, salesRepo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
 	tampered := platform.NewMoneyCents(1)
 	req := SaleCreateRequest{
@@ -41,18 +41,33 @@ func TestCreateAndFinalizeIgnoresClientTamperedUnitPrice(t *testing.T) {
 		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(2000)}},
 	}
 
-	_, total, created, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "idem-1", req)
+	_, _, _, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "idem-1", req)
+	if !errors.Is(err, common.ErrPriceChanged) {
+		t.Fatalf("want ErrPriceChanged, got %v", err)
+	}
+	if salesRepo.insertSaleCount != 0 {
+		t.Fatalf("stale/tampered price must be rejected before sale insert")
+	}
+}
+
+func TestCreateAndFinalizeAcceptsMatchingUnitPriceSnapshot(t *testing.T) {
+	svc, salesRepo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
+	snapshot := platform.NewMoneyCents(1000)
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		Items:         []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(2_000), UnitPrice: &snapshot}},
+		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(2000)}},
+	}
+
+	_, total, created, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "snapshot-match", req)
 	if err != nil {
 		t.Fatalf("CreateAndFinalize: %v", err)
 	}
-	if !created {
-		t.Fatalf("expected created sale")
-	}
-	if total.Cents() != 2000 {
-		t.Fatalf("want total 2000 cents, got %d", total.Cents())
+	if !created || total.Cents() != 2000 {
+		t.Fatalf("matching snapshot should create sale total=2000, created=%v total=%d", created, total.Cents())
 	}
 	if got := salesRepo.insertedItems[0].UnitPrice.Cents(); got != 1000 {
-		t.Fatalf("backend must use product price 1000 cents, got %d", got)
+		t.Fatalf("backend must remain price authority, got %d cents", got)
 	}
 }
 
