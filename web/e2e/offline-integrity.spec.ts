@@ -292,13 +292,21 @@ test('permanent queue conflict does not block later sales and expired items are 
     queue.enqueueRequest({
       method: 'POST',
       path: '/api/v1/sales',
-      body: { cash_session_id: 'cash-conflict', items: [], payments: [] },
+      body: {
+        cash_session_id: 'cash-conflict',
+        items: [{ product_id: 'prod-conflict', qty: 1, unit_price: 10, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: 10 }],
+      },
       headers: { 'Idempotency-Key': 'conflict-key' },
     })
     queue.enqueueRequest({
       method: 'POST',
       path: '/api/v1/sales',
-      body: { cash_session_id: 'cash-ok', items: [], payments: [] },
+      body: {
+        cash_session_id: 'cash-ok',
+        items: [{ product_id: 'prod-ok', qty: 1, unit_price: 10, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: 10 }],
+      },
       headers: { 'Idempotency-Key': 'ok-key' },
     })
 
@@ -307,7 +315,11 @@ test('permanent queue conflict does not block later sales and expired items are 
     queue.enqueueRequest({
       method: 'POST',
       path: '/api/v1/sales',
-      body: { cash_session_id: 'cash-expired', items: [], payments: [] },
+      body: {
+        cash_session_id: 'cash-expired',
+        items: [{ product_id: 'prod-expired', qty: 1, unit_price: 10, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: 10 }],
+      },
       headers: { 'Idempotency-Key': 'expired-key' },
     })
 
@@ -363,7 +375,11 @@ test('offline sale older than safe replay window cannot retry or rebind', async 
     const id = queue.enqueueRequest({
       method: 'POST',
       path: '/api/v1/sales',
-      body: { cash_session_id: 'old-cash', items: [], payments: [] },
+      body: {
+        cash_session_id: 'old-cash',
+        items: [{ product_id: 'prod-old', qty: 1, unit_price: 10, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: 10 }],
+      },
       headers: { 'Idempotency-Key': 'too-old-idempotency-key' },
     })
 
@@ -411,6 +427,82 @@ test('offline sale older than safe replay window cannot retry or rebind', async 
   expect(salePosts).toBe(0)
 })
 
+
+test('pre-price-snapshot v2 sale is quarantined and cannot retry or rebind', async ({
+  page,
+}) => {
+  await page.goto('/login')
+
+  let salePosts = 0
+  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+    if (route.request().method() === 'POST') salePosts += 1
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'must-not-be-created', status: 'finalized', total: 10 }),
+    })
+  })
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const queue = await import('/src/lib/offlineQueue.ts')
+
+    const payload = btoa(JSON.stringify({ sub: 'price-v2-user', tenant_id: 'price-v2-tenant' }))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+    auth.setToken(`x.${payload}.x`)
+
+    const storageKey = auth.scopedStorageKey('sistemaemgo:offlineQueue:v2')
+    if (!storageKey) throw new Error('missing queue scope')
+
+    const id = crypto.randomUUID()
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify([
+        {
+          id,
+          createdAt: Date.now(),
+          intentCreatedAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: {
+            cash_session_id: 'old-cash',
+            items: [{ product_id: 'old-product', qty: 1, discount_value: 0 }],
+            payments: [{ method: 'cash', amount: 10 }],
+          },
+          headers: { 'Idempotency-Key': 'pre-price-snapshot-key' },
+          state: 'pending',
+        },
+      ]),
+    )
+
+    const loaded = queue.getQueueItems().find((candidate) => candidate.id === id)
+    const retry = queue.retryQueueItem(id)
+    const rebind = queue.rebindQueueItemToCashSession(id, 'new-cash')
+    const flushed = await queue.flushQueue()
+    const finalItem = queue.getQueueItems().find((candidate) => candidate.id === id)
+
+    return {
+      loadedState: loaded?.state,
+      loadedReason: loaded?.attentionReason,
+      retry,
+      rebind,
+      flushed,
+      finalState: finalItem?.state,
+      finalReason: finalItem?.attentionReason,
+    }
+  })
+
+  expect(result.loadedState).toBe('attention')
+  expect(result.loadedReason).toBe('price_snapshot_missing')
+  expect(result.retry).toBe(false)
+  expect(result.rebind).toBe(false)
+  expect(result.flushed.processed).toBe(0)
+  expect(result.finalState).toBe('attention')
+  expect(result.finalReason).toBe('price_snapshot_missing')
+  expect(salePosts).toBe(0)
+})
 
 test('pre-upgrade queue item with unknown original age is quarantined', async ({ page }) => {
   await page.goto('/login')
