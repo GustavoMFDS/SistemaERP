@@ -58,16 +58,19 @@ func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string,
 	return id, err
 }
 
-func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string, registerID string) (sales.CashSession, bool, error) {
+func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string) (sales.CashSession, bool, error) {
 	var s sales.CashSession
 	var openingRaw string
 	err := r.db.QueryRow(ctx, `
-		SELECT id::text, cash_register_id::text, opened_by_user_id::text, status, opening_amount::text
-		FROM cash_sessions
-		WHERE tenant_id=$1 AND cash_register_id=$2 AND status='open'
-		ORDER BY opened_at DESC
+		SELECT cs.id::text, cs.cash_register_id::text, cs.opened_by_user_id::text, cs.status, cs.opening_amount::text
+		FROM cash_sessions cs
+		JOIN cash_registers cr
+		  ON cr.id=cs.cash_register_id
+		 AND cr.tenant_id=cs.tenant_id
+		WHERE cs.tenant_id=$1 AND cs.status='open'
+		ORDER BY cr.created_at, cs.opened_at DESC
 		LIMIT 1
-	`, tenantID, registerID).Scan(&s.ID, &s.RegisterID, &s.OpenedByUserID, &s.Status, &openingRaw)
+	`, tenantID).Scan(&s.ID, &s.RegisterID, &s.OpenedByUserID, &s.Status, &openingRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sales.CashSession{}, false, nil
 	}
