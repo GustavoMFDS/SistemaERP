@@ -34,6 +34,10 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
+	if !validUUID(req.SaleID) {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "sale_id invalido", nil)
+		return
+	}
 	invoiceID, xmlID, err := h.svc.GenerateNFeXML(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -76,7 +80,10 @@ func (h *FiscalHandler) DownloadXML(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	name, content, err := h.svc.DownloadXML(r.Context(), au.TenantID, id)
 	if err != nil {
 		writeError(w, r, http.StatusNotFound, "not_found", "arquivo nao encontrado", nil)
