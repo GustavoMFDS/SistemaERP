@@ -62,13 +62,20 @@ func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string) (sales.C
 	var s sales.CashSession
 	var openingRaw string
 	err := r.db.QueryRow(ctx, `
+		WITH default_register AS (
+			SELECT id
+			FROM cash_registers
+			WHERE tenant_id=$1
+			ORDER BY created_at
+			LIMIT 1
+		)
 		SELECT cs.id::text, cs.cash_register_id::text, cs.opened_by_user_id::text, cs.status, cs.opening_amount::text
-		FROM cash_sessions cs
-		JOIN cash_registers cr
-		  ON cr.id=cs.cash_register_id
-		 AND cr.tenant_id=cs.tenant_id
-		WHERE cs.tenant_id=$1 AND cs.status='open'
-		ORDER BY cr.created_at, cs.opened_at DESC
+		FROM default_register dr
+		JOIN cash_sessions cs
+		  ON cs.cash_register_id=dr.id
+		 AND cs.tenant_id=$1
+		WHERE cs.status='open'
+		ORDER BY cs.opened_at DESC
 		LIMIT 1
 	`, tenantID).Scan(&s.ID, &s.RegisterID, &s.OpenedByUserID, &s.Status, &openingRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
