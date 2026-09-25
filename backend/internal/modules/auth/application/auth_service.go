@@ -297,14 +297,14 @@ func (s *AuthService) SwitchTenant(
 	}
 
 	return TokenResponse{
-			AccessToken:      accessTok,
-			RefreshToken:     refreshTok,
-			TokenType:        "Bearer",
-			ExpiresIn:        int64(time.Until(accessExp).Seconds()),
-			RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
-		}, AuthUserInfo{
-			ID: u.ID, Email: u.Email, Name: u.Name, TenantID: targetTenantID, Roles: roles,
-		}, nil
+		AccessToken:      accessTok,
+		RefreshToken:     refreshTok,
+		TokenType:        "Bearer",
+		ExpiresIn:        int64(time.Until(accessExp).Seconds()),
+		RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
+	}, AuthUserInfo{
+		ID: u.ID, Email: u.Email, Name: u.Name, TenantID: targetTenantID, Roles: roles,
+	}, nil
 }
 
 func (s *AuthService) GetUserPermissions(ctx context.Context, userID string, tenantID string) (map[string]bool, error) {
