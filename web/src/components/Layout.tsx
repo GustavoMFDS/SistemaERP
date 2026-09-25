@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson, errorMessage } from '../lib/api'
 import {
   clearCashSessionId,
   clearScopedStorage,
@@ -124,6 +124,11 @@ export default function Layout() {
       // while cash/offline/product caches remain namespaced by tenant+user.
       window.location.replace('/products')
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 401) {
+        clearToken()
+        navigate('/login', { replace: true })
+        return
+      }
       setTenantError(errorMessage(e))
       setSwitchingTenant(false)
     }
