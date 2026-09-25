@@ -49,6 +49,7 @@ type Config struct {
 	DisableRedis        bool
 	PrivacyContactEmail string
 	AppPublicURL        string
+	BusinessTimezone    string
 }
 
 // LoadFromEnv reads configuration only from process env.
@@ -111,6 +112,7 @@ func LoadFromEnv() (Config, error) {
 		DisableRedis:        getEnvBool("DISABLE_REDIS", false),
 		PrivacyContactEmail: strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
 		AppPublicURL:        strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
+		BusinessTimezone:    getEnv("BUSINESS_TIMEZONE", "America/Sao_Paulo"),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -177,6 +179,11 @@ func (c Config) Validate() error {
 	}
 	if c.RefreshTokenTTL <= 0 {
 		errs = append(errs, "REFRESH_TOKEN_TTL_MINUTES must be > 0")
+	}
+	if strings.TrimSpace(c.BusinessTimezone) == "" {
+		errs = append(errs, "BUSINESS_TIMEZONE is required")
+	} else if _, err := time.LoadLocation(strings.TrimSpace(c.BusinessTimezone)); err != nil {
+		errs = append(errs, "BUSINESS_TIMEZONE must be a valid IANA timezone")
 	}
 	if strings.TrimSpace(c.JWTIssuer) == "" {
 		errs = append(errs, "JWT_ISSUER is required")
