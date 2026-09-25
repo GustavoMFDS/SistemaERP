@@ -47,6 +47,14 @@ func NewCashService(uow db.UnitOfWork, cash CashRepository, finRepo FinanceRepos
 	return &CashService{uow: uow, cash: cash, fin: finRepo, audit: auditSvc, validate: v, logger: logger}
 }
 
+func (s *CashService) CurrentSession(ctx context.Context, tenantID string) (sales.CashSession, bool, error) {
+	registerID, err := s.cash.EnsureDefaultRegister(ctx, tenantID)
+	if err != nil {
+		return sales.CashSession{}, false, err
+	}
+	return s.cash.GetOpenSession(ctx, tenantID, registerID)
+}
+
 func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
