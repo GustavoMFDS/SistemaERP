@@ -114,7 +114,8 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, actorUser
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
-	if _, err := uuid.Parse(strings.TrimSpace(id)); err != nil {
+	id = strings.TrimSpace(id)
+	if _, err := uuid.Parse(id); err != nil {
 		return common.ErrValidation
 	}
 	if err := normalizeOptionalUUID(req.CategoryID); err != nil {
