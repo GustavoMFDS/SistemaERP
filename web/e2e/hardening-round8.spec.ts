@@ -29,6 +29,41 @@ test('malformed UUIDs are rejected at the HTTP boundary and privacy not-found st
       }
     }
 
+    const products = await apiJson<{
+      items: Array<{
+        category_id?: string | null
+        sku: string
+        barcode?: string | null
+        name: string
+        description?: string | null
+        unit: string
+        cost_price: number
+        price_cash: number
+        promo_price?: number | null
+        min_stock: number
+        active: boolean
+      }>
+    }>('/api/v1/products?limit=1&offset=0')
+    const existingProduct = products.items[0]
+    if (!existingProduct) throw new Error('seeded product required')
+
+    const duplicateProduct = await statusOf('/api/v1/products', {
+      method: 'POST',
+      body: {
+        category_id: existingProduct.category_id ?? null,
+        sku: existingProduct.sku,
+        barcode: existingProduct.barcode ?? null,
+        name: existingProduct.name,
+        description: existingProduct.description ?? null,
+        unit: existingProduct.unit,
+        cost_price: existingProduct.cost_price,
+        price_cash: existingProduct.price_cash,
+        promo_price: existingProduct.promo_price ?? null,
+        min_stock: existingProduct.min_stock,
+        active: existingProduct.active,
+      },
+    })
+
     const productGet = await statusOf('/api/v1/products/not-a-uuid')
     const saleGet = await statusOf('/api/v1/sales/not-a-uuid')
     const saleCancel = await statusOf('/api/v1/sales/not-a-uuid/cancel', {
@@ -103,6 +138,7 @@ test('malformed UUIDs are rejected at the HTTP boundary and privacy not-found st
     })
 
     return {
+      duplicateProduct,
       productGet,
       saleGet,
       saleCancel,
@@ -121,6 +157,7 @@ test('malformed UUIDs are rejected at the HTTP boundary and privacy not-found st
   })
 
   expect(statuses).toEqual({
+    duplicateProduct: 409,
     productGet: 422,
     saleGet: 422,
     saleCancel: 422,
