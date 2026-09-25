@@ -27,7 +27,7 @@ type SalesRepository interface {
 }
 
 type CashRepository interface {
-	EnsureDefaultRegister(ctx context.Context, tenantID string) (string, error)
+	EnsureDefaultRegister(ctx context.Context, tx db.DBTX, tenantID string) (string, error)
 	OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error)
 	GetOpenSession(ctx context.Context, tenantID string) (sales.CashSession, bool, error)
 	ListOpenSessionsByUser(ctx context.Context, userID string) ([]sales.CashSession, error)
