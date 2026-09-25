@@ -128,6 +128,7 @@ type Payment struct {
 
 type CashSession struct {
 	ID             string
+	TenantID       string
 	RegisterID     string
 	OpenedByUserID string
 	Status         string
