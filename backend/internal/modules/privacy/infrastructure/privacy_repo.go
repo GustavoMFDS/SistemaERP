@@ -44,9 +44,9 @@ func (r *Repo) SubjectBelongsToTenant(ctx context.Context, tenantID, subjectType
 	}
 }
 
-func (r *Repo) CreateRequest(ctx context.Context, tenantID, actorUserID, requestID string, req privacyapp.CreateRequest) (string, error) {
+func (r *Repo) CreateRequest(ctx context.Context, tx db.DBTX, tenantID, actorUserID, requestID string, req privacyapp.CreateRequest) (string, error) {
 	var id string
-	err := r.db.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		INSERT INTO data_subject_requests(
 			tenant_id, subject_type, subject_id, requester_email, request_type,
 			notes, created_by_user_id, request_id
@@ -113,24 +113,7 @@ func (r *Repo) GetRequestForUpdate(ctx context.Context, tx db.DBTX, tenantID, id
 	return item, err
 }
 
-func (r *Repo) UpdateRequestStatus(ctx context.Context, tenantID, id, status string, notes *string) error {
-	tag, err := r.db.Exec(ctx, `
-		UPDATE data_subject_requests
-		SET status=$3,
-		    notes=COALESCE($4, notes),
-		    resolved_at=CASE WHEN $3 IN ('completed', 'rejected', 'cancelled') THEN now() ELSE resolved_at END
-		WHERE tenant_id=$1 AND id=$2
-	`, tenantID, id, status, notes)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
-	}
-	return nil
-}
-
-func (r *Repo) UpdateRequestStatusTx(ctx context.Context, tx db.DBTX, tenantID, id, status string, notes *string) error {
+func (r *Repo) UpdateRequestStatus(ctx context.Context, tx db.DBTX, tenantID, id, status string, notes *string) error {
 	tag, err := tx.Exec(ctx, `
 		UPDATE data_subject_requests
 		SET status=$3,
@@ -286,9 +269,9 @@ func (r *Repo) BlockSubject(ctx context.Context, tx db.DBTX, tenantID, subjectTy
 	return nil
 }
 
-func (r *Repo) RecordConsent(ctx context.Context, tenantID, requestID string, req privacyapp.ConsentCreateRequest) (string, error) {
+func (r *Repo) RecordConsent(ctx context.Context, tx db.DBTX, tenantID, requestID string, req privacyapp.ConsentCreateRequest) (string, error) {
 	var id string
-	err := r.db.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		INSERT INTO consent_records(
 			tenant_id, subject_type, subject_id, purpose, consent_text_version, source, request_id
 		)
@@ -323,8 +306,8 @@ func (r *Repo) ListConsents(ctx context.Context, tenantID string, limit, offset 
 	return items, rows.Err()
 }
 
-func (r *Repo) RevokeConsent(ctx context.Context, tenantID, id string) error {
-	tag, err := r.db.Exec(ctx, `UPDATE consent_records SET withdrawn_at=COALESCE(withdrawn_at, now()) WHERE tenant_id=$1 AND id=$2`, tenantID, id)
+func (r *Repo) RevokeConsent(ctx context.Context, tx db.DBTX, tenantID, id string) error {
+	tag, err := tx.Exec(ctx, `UPDATE consent_records SET withdrawn_at=COALESCE(withdrawn_at, now()) WHERE tenant_id=$1 AND id=$2`, tenantID, id)
 	if err != nil {
 		return err
 	}
