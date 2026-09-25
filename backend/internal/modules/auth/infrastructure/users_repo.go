@@ -44,7 +44,7 @@ func (r *UsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (stri
 	err := r.db.QueryRow(ctx, `
 		SELECT tenant_id::text
 		FROM user_tenants
-		WHERE user_id=$1
+		WHERE user_id=$1 AND active=true
 		ORDER BY created_at
 		LIMIT 1
 	`, userID).Scan(&tenantID)
@@ -80,7 +80,7 @@ func (r *UsersRepo) UserHasTenant(ctx context.Context, userID string, tenantID s
 	var hasAnyTenant bool
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1 AND tenant_id=$2),
+			EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1 AND tenant_id=$2 AND active=true),
 			EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1)
 	`, userID, tenantID).Scan(&hasRequestedTenant, &hasAnyTenant)
 	if err == nil {
@@ -113,6 +113,7 @@ func (r *UsersRepo) ListUserRoles(ctx context.Context, userID string, tenantID s
 		SELECT r.name
 		FROM user_tenant_roles ur
 		JOIN roles r ON r.id = ur.role_id
+		JOIN user_tenants ut ON ut.user_id=ur.user_id AND ut.tenant_id=ur.tenant_id AND ut.active=true
 		WHERE ur.user_id=$1 AND ur.tenant_id=$2
 		ORDER BY r.name
 	`, userID, tenantID)
@@ -136,6 +137,7 @@ func (r *UsersRepo) ListUserPermissions(ctx context.Context, userID string, tena
 	rows, err := r.db.Query(ctx, `
 		SELECT DISTINCT p.code
 		FROM user_tenant_roles ur
+		JOIN user_tenants ut ON ut.user_id=ur.user_id AND ut.tenant_id=ur.tenant_id AND ut.active=true
 		JOIN role_permissions rp ON rp.role_id = ur.role_id
 		JOIN permissions p ON p.id = rp.permission_id
 		WHERE ur.user_id=$1 AND ur.tenant_id=$2
