@@ -72,4 +72,8 @@ Production notes:
 - Tenant switching consumes the current refresh token before issuing credentials for the target tenant, preventing the pre-switch refresh token from being replayed.
 - The target tenant is revalidated against `user_tenants.active`; inactive/foreign tenants are rejected.
 - The frontend performs a full page reload after switching so no in-memory page state crosses tenant boundaries. Cash session, offline queue, and product caches remain tenant+user namespaced.
+- Tenant credential switching shares the refresh-token rate limit and treats a valid refresh cookie from another tab/tenant as a session conflict instead of deleting that valid cookie.
+- Historical actor FKs require `created_by/opened_by/actor_user_id` to have a `user_tenants` relationship with the row tenant across cash, sales, inventory, ledger, expenses, revenues, fiscal, privacy requests and audit.
+- Rollback of migration `0017` aborts if inactive memberships or cross-tenant duplicate barcodes exist, avoiding silent access reactivation or invalid global barcode uniqueness.
+
 
