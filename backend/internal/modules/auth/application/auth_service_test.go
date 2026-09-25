@@ -88,6 +88,25 @@ func TestPermissionsReflectRoleChangesImmediately(t *testing.T) {
 	}
 }
 
+func TestGetUserInfoUsesAuthenticatedTenant(t *testing.T) {
+	allowed := true
+	users := &fakeUsersRepo{
+		user:          authdomain.User{ID: "user-1", Email: "admin@example.com", Name: "Admin", Active: true},
+		tenantID:      "tenant-a",
+		roles:         []string{"manager"},
+		tenantAllowed: &allowed,
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	info, err := svc.GetUserInfo(context.Background(), "user-1", "tenant-b")
+	if err != nil {
+		t.Fatalf("GetUserInfo returned error: %v", err)
+	}
+	if info.TenantID != "tenant-b" {
+		t.Fatalf("expected authenticated tenant-b, got %q", info.TenantID)
+	}
+}
+
 func TestLoginFailsWhenTenantMappingMissing(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
