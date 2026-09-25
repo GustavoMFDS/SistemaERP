@@ -89,6 +89,62 @@ func TestSwitchTenantRotatesRefreshAndChangesTenant(t *testing.T) {
 	}
 }
 
+func TestSwitchTenantStaleTabKeepsCurrentRefreshCookieValid(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "11111111-1111-1111-1111-111111111111",
+		allowedTenants: map[string]bool{
+			"11111111-1111-1111-1111-111111111111": true,
+			"22222222-2222-2222-2222-222222222222": true,
+		},
+		roles: []string{"admin"},
+	}
+	refreshStore := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, refreshStore, nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	switched, _, err := svc.SwitchTenant(
+		context.Background(),
+		"user-1",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		loginResp.RefreshToken,
+	)
+	if err != nil {
+		t.Fatalf("first SwitchTenant returned error: %v", err)
+	}
+
+	_, _, err = svc.SwitchTenant(
+		context.Background(),
+		"user-1",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		switched.RefreshToken,
+	)
+	if err != common.ErrConflict {
+		t.Fatalf("expected stale-tab conflict, got %v", err)
+	}
+
+	_, userID, tenantID, err := svc.RefreshWithSubject(context.Background(), switched.RefreshToken)
+	if err != nil {
+		t.Fatalf("stale-tab conflict must preserve current refresh token: %v", err)
+	}
+	if userID != "user-1" || tenantID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("unexpected preserved refresh subject user=%q tenant=%q", userID, tenantID)
+	}
+}
+
 func TestSwitchTenantRejectsUnauthorizedTenantBeforeConsumingRefresh(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
