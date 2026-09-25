@@ -14,6 +14,22 @@ ALTER TABLE products
   REFERENCES categories(id)
   ON DELETE SET NULL;
 
+ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_tenant_fk;
+ALTER TABLE accounts_receivable DROP CONSTRAINT IF EXISTS accounts_receivable_tenant_fk;
+ALTER TABLE accounts_payable DROP CONSTRAINT IF EXISTS accounts_payable_tenant_fk;
+ALTER TABLE revenues DROP CONSTRAINT IF EXISTS revenues_tenant_fk;
+ALTER TABLE expenses DROP CONSTRAINT IF EXISTS expenses_tenant_fk;
+ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_tenant_fk;
+ALTER TABLE cash_registers DROP CONSTRAINT IF EXISTS cash_registers_tenant_fk;
+ALTER TABLE products DROP CONSTRAINT IF EXISTS products_tenant_fk;
+ALTER TABLE categories DROP CONSTRAINT IF EXISTS categories_tenant_fk;
+ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_tenant_fk;
+
+DROP INDEX IF EXISTS products_tenant_barcode_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS products_barcode_unique
+  ON products(barcode)
+  WHERE barcode IS NOT NULL;
+
 ALTER TABLE user_tenant_roles
   DROP CONSTRAINT IF EXISTS user_tenant_roles_membership_fk;
 ALTER TABLE cash_session_reconciliations
