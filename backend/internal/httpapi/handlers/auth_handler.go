@@ -31,6 +31,10 @@ type refreshRequest struct {
 	Token string `json:"token"`
 }
 
+type switchTenantRequest struct {
+	TenantID string `json:"tenant_id"`
+}
+
 func NewAuthHandler(cfg config.Config, auth *authapp.AuthService, auditSvc *audit.Service, rdb *redis.Client, logger *slog.Logger) *AuthHandler {
 	return &AuthHandler{cfg: cfg, auth: auth, audit: auditSvc, rdb: rdb, logger: logger}
 }
@@ -99,6 +103,76 @@ func (h *AuthHandler) allowLoginIdentifier(r *http.Request, email string) (bool,
 		return false, err
 	}
 	return idAllowed && combinedAllowed, nil
+}
+
+func (h *AuthHandler) Tenants(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	items, err := h.auth.ListUserTenants(r.Context(), au.UserID)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "nao foi possivel listar as lojas", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "current_tenant_id": au.TenantID})
+}
+
+func (h *AuthHandler) SwitchTenant(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+
+	var req switchTenantRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+
+	resp, user, err := h.auth.SwitchTenant(
+		r.Context(),
+		au.UserID,
+		au.TenantID,
+		req.TenantID,
+		refreshTokenFromCookie(r),
+	)
+	if err != nil {
+		switch err {
+		case common.ErrValidation:
+			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "tenant invalido", nil)
+		case common.ErrForbidden:
+			writeError(w, r, http.StatusForbidden, "authorization_error", "usuario sem acesso a esta loja", nil)
+		case common.ErrInactiveUser:
+			writeError(w, r, http.StatusForbidden, "authorization_error", "usuario inativo", nil)
+		case common.ErrInvalidCredentials:
+			clearRefreshCookie(w, h.cfg)
+			writeError(w, r, http.StatusUnauthorized, "authentication_error", "sessao invalida", nil)
+		default:
+			writeError(w, r, http.StatusServiceUnavailable, "service_unavailable", "nao foi possivel trocar de loja", nil)
+		}
+		return
+	}
+
+	setRefreshCookie(w, h.cfg, resp.RefreshToken, h.cfg.RefreshTokenTTL)
+	requestID, ip, userAgent := audit.RequestContext(r)
+	h.audit.Record(r.Context(), audit.Event{
+		TenantID:     user.TenantID,
+		ActorUserID:  user.ID,
+		Action:       "auth.tenant_switch",
+		ResourceType: "tenant",
+		ResourceID:   user.TenantID,
+		Outcome:      "success",
+		Metadata:     map[string]any{"from_tenant_id": au.TenantID, "to_tenant_id": user.TenantID},
+		RequestID:    requestID,
+		IP:           ip,
+		UserAgent:    userAgent,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"token": publicTokenResponse(resp), "user": user})
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
