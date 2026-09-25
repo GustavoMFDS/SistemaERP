@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
-import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
+import {
+  clearCashSessionId,
+  clearScopedStorage,
+  clearToken,
+  getCashSessionId,
+  setToken,
+} from '../lib/auth'
 import { clearOfflineQueue, getQueueCount } from '../lib/offlineQueue'
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
@@ -10,7 +16,24 @@ type MeResponse = {
   id: string
   email: string
   name: string
+  tenant_id: string
   roles: string[]
+}
+
+type TenantInfo = {
+  id: string
+  legal_name: string
+  trade_name?: string | null
+}
+
+type TenantListResponse = {
+  items: TenantInfo[]
+  current_tenant_id: string
+}
+
+type SwitchTenantResponse = {
+  token: { access_token: string; token_type: string; expires_in: number }
+  user: MeResponse
 }
 
 function classNames(...xs: Array<string | false | undefined>): string {
@@ -23,12 +46,20 @@ export default function Layout() {
   const [meError, setMeError] = useState<string>('')
   const [logoutError, setLogoutError] = useState('')
   const [loggingOut, setLoggingOut] = useState(false)
+  const [tenants, setTenants] = useState<TenantInfo[]>([])
+  const [tenantError, setTenantError] = useState('')
+  const [switchingTenant, setSwitchingTenant] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    apiJson<MeResponse>('/api/v1/auth/me')
-      .then((data) => {
-        if (!cancelled) setMe(data)
+    Promise.all([
+      apiJson<MeResponse>('/api/v1/auth/me'),
+      apiJson<TenantListResponse>('/api/v1/auth/tenants'),
+    ])
+      .then(([meData, tenantData]) => {
+        if (cancelled) return
+        setMe(meData)
+        setTenants(tenantData.items)
       })
       .catch((e: unknown) => {
         if (!cancelled) setMeError(errorMessage(e))
@@ -49,6 +80,54 @@ export default function Layout() {
       ] as const,
     [],
   )
+
+  async function switchTenant(targetTenantID: string) {
+    if (!me || targetTenantID === me.tenant_id || switchingTenant) return
+
+    const pending = getQueueCount()
+    const cashSessionID = getCashSessionId()
+    if (
+      (pending > 0 || cashSessionID) &&
+      !window.confirm(
+        [
+          'Você está trocando de loja/CNPJ.',
+          pending > 0
+            ? `Existem ${pending} venda(s) offline pendente(s) nesta loja; elas permanecerão salvas e voltarão a aparecer quando você retornar.`
+            : '',
+          cashSessionID
+            ? 'Existe uma sessão de caixa local vinculada a esta loja; ela permanecerá isolada neste CNPJ.'
+            : '',
+          'Deseja continuar?',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+      )
+    ) {
+      return
+    }
+
+    setTenantError('')
+    setSwitchingTenant(true)
+    try {
+      const data = await apiJson<SwitchTenantResponse>(
+        '/api/v1/auth/switch-tenant',
+        {
+          method: 'POST',
+          body: { tenant_id: targetTenantID },
+        },
+      )
+      setToken(data.token.access_token)
+      setMe(data.user)
+
+      // A full reload deliberately discards in-memory page state from the old
+      // tenant. The new HttpOnly refresh cookie restores the selected tenant,
+      // while cash/offline/product caches remain namespaced by tenant+user.
+      window.location.replace('/products')
+    } catch (e: unknown) {
+      setTenantError(errorMessage(e))
+      setSwitchingTenant(false)
+    }
+  }
 
   async function logout() {
     if (loggingOut) return
@@ -95,6 +174,24 @@ export default function Layout() {
             SistemaEmGo
           </Link>
           <div className="flex items-center gap-3">
+            {tenants.length > 1 && me ? (
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <span>Loja</span>
+                <select
+                  value={me.tenant_id}
+                  onChange={(e) => void switchTenant(e.target.value)}
+                  disabled={switchingTenant}
+                  className="max-w-56 rounded-md border bg-white px-2 py-1 text-xs disabled:opacity-60"
+                  aria-label="Loja ativa"
+                >
+                  {tenants.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.trade_name || tenant.legal_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <div className="text-xs text-gray-600">
               {me?.email ? (
                 <span>
@@ -120,6 +217,11 @@ export default function Layout() {
       {logoutError ? (
         <div className="mx-auto mt-3 max-w-6xl rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           {logoutError}
+        </div>
+      ) : null}
+      {tenantError ? (
+        <div className="mx-auto mt-3 max-w-6xl rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          Não foi possível trocar de loja. {tenantError}
         </div>
       ) : null}
 
