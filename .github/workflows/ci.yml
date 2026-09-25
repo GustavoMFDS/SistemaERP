@@ -245,7 +245,7 @@ jobs:
 
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='user_tenants' AND column_name='active';" \
-            -c "SELECT conname FROM pg_constraint WHERE conname IN ('products_tenant_category_fk','sales_tenant_customer_fk','products_tenant_fk','user_tenant_roles_membership_fk') ORDER BY conname;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('products_tenant_category_fk','sales_tenant_customer_fk','products_tenant_fk','user_tenant_roles_membership_fk','cash_sessions_opened_by_membership_fk','audit_logs_actor_membership_fk') ORDER BY conname;" \
             -c "SELECT indexname FROM pg_indexes WHERE indexname='products_tenant_barcode_unique';"
 
           docker run --rm --network host \
