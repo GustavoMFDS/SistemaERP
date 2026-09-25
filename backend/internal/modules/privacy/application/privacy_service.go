@@ -124,18 +124,43 @@ func (s *Service) UpdateRequestStatus(ctx context.Context, tenantID, actorUserID
 	return tx.Commit(ctx)
 }
 
-func (s *Service) ExportSubjectData(ctx context.Context, tenantID, requestID string) (map[string]any, error) {
-	req, err := s.repo.GetRequest(ctx, tenantID, requestID)
+func (s *Service) ExportSubjectData(ctx context.Context, tenantID, actorUserID, requestID string) (map[string]any, error) {
+	if !isUUID(requestID) {
+		return nil, common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	req, err := s.repo.GetRequestForUpdate(ctx, tx, tenantID, requestID)
 	if err != nil {
 		return nil, err
 	}
 	if req.SubjectID == nil || strings.TrimSpace(*req.SubjectID) == "" {
 		return nil, common.ErrValidation
 	}
-	if req.RequestType != "export" {
+	if req.RequestType != "export" || req.Status != "in_progress" {
 		return nil, common.ErrConflict
 	}
-	return s.repo.ExportSubjectData(ctx, tenantID, req.SubjectType, *req.SubjectID)
+
+	data, err := s.repo.ExportSubjectData(ctx, tenantID, req.SubjectType, *req.SubjectID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "privacy.subject.export",
+		ResourceType: "data_subject_request", ResourceID: requestID, Outcome: "success",
+		Metadata: map[string]any{"subject_type": req.SubjectType},
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, actorUserID, requestID string) error {
