@@ -3,8 +3,8 @@ package application
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"time"
 
@@ -31,15 +31,17 @@ func NewAuthService(cfg config.Config, users UsersRepository, refresh RefreshTok
 func (s *AuthService) Login(ctx context.Context, email, password string) (TokenResponse, AuthUserInfo, error) {
 	u, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
-		// mitigate timing
-		slowEqual(password, "")
+		compareDummyPassword(password)
+		if errors.Is(err, common.ErrInvalidCredentials) {
+			return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+		}
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 	if !u.Active {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInactiveUser
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
-		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 	_ = s.users.UpdateLastLogin(ctx, u.ID)
 
@@ -364,6 +366,8 @@ func (s *AuthService) ensureUserTenantAccess(ctx context.Context, userID string,
 	return nil
 }
 
-func slowEqual(a, b string) {
-	_ = subtle.ConstantTimeCompare([]byte(a), []byte(b))
+const dummyPasswordHash = "$2a$10$Lw9wUodvHmuv18OaTXTVqO4wTTGHwdFX73oEYJC9T8dXxMfwhWr4q"
+
+func compareDummyPassword(password string) {
+	_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
 }
