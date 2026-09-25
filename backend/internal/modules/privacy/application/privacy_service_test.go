@@ -67,6 +67,20 @@ func TestConsentRequiresSubjectInsideTenant(t *testing.T) {
 	}
 }
 
+func TestCreateRequestRejectsUnsupportedCustomerBlocking(t *testing.T) {
+	subjectID := "11111111-1111-1111-1111-111111111111"
+	svc := NewService(&fakePrivacyRepo{})
+
+	_, err := svc.CreateRequest(context.Background(), "tenant-1", "actor-1", "req-1", CreateRequest{
+		SubjectType: "customer",
+		SubjectID:   &subjectID,
+		RequestType: "blocking",
+	})
+	if err != common.ErrValidation {
+		t.Fatalf("customer blocking request must be rejected, got %v", err)
+	}
+}
+
 func TestCreateRequestRejectsInvalidInput(t *testing.T) {
 	svc := NewService(&fakePrivacyRepo{})
 	_, err := svc.CreateRequest(context.Background(), "tenant-1", "actor-1", "req-1", CreateRequest{
