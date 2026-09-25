@@ -210,7 +210,7 @@ func writePrivacyError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, common.ErrValidation):
 		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "dados invalidos", nil)
 	case errors.Is(err, common.ErrConflict):
-		writeError(w, r, http.StatusConflict, "conflict", "transicao de status invalida", nil)
+		writeError(w, r, http.StatusConflict, "conflict", "operacao conflita com o estado atual do recurso", nil)
 	case errors.Is(err, pgx.ErrNoRows):
 		writeError(w, r, http.StatusNotFound, "not_found", "recurso nao encontrado", nil)
 	default:
