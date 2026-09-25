@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -254,6 +255,47 @@ func TestGetUserInfoUsesAuthenticatedTenant(t *testing.T) {
 	}
 }
 
+func TestDummyPasswordHashIsValid(t *testing.T) {
+	if err := bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte("invalid-password-placeholder")); err != nil {
+		t.Fatalf("dummy bcrypt hash is invalid: %v", err)
+	}
+}
+
+func TestLoginInactiveUserStillChecksPassword(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: false,
+		},
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	_, _, err = svc.Login(context.Background(), "admin@example.com", "wrong-password")
+	if err != common.ErrInvalidCredentials {
+		t.Fatalf("wrong password for inactive account must stay invalid credentials, got %v", err)
+	}
+
+	_, _, err = svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != common.ErrInactiveUser {
+		t.Fatalf("correct password for inactive account must return inactive after bcrypt, got %v", err)
+	}
+}
+
+func TestLoginPropagatesRepositoryFailureAfterDummyBcrypt(t *testing.T) {
+	repoErr := errors.New("database unavailable")
+	users := &fakeUsersRepo{emailErr: repoErr}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	_, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if !errors.Is(err, repoErr) {
+		t.Fatalf("repository failure must be preserved, got %v", err)
+	}
+}
+
 func TestLoginFailsWhenTenantMappingMissing(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
@@ -376,6 +418,7 @@ func TestRefreshChecksActiveUser(t *testing.T) {
 
 type fakeUsersRepo struct {
 	user          authdomain.User
+	emailErr      error
 	tenantID      string
 	tenantErr     error
 	roles         []string
@@ -386,6 +429,9 @@ type fakeUsersRepo struct {
 }
 
 func (f *fakeUsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
+	if f.emailErr != nil {
+		return authdomain.User{}, f.emailErr
+	}
 	if f.user.Email == email {
 		return f.user, nil
 	}
