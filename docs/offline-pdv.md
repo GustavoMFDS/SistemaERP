@@ -51,7 +51,7 @@ Migração:
 - Evite incluir dados pessoais sensiveis no payload de venda offline. Quando o cliente for opcional, prefira venda sem identificacao.
 - `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
 - A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
-- Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo que outro tenant/usuário leia o estado anterior no mesmo navegador. Logout limpa apenas o escopo atual antes de remover o access token.
+- Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo que outro tenant/usuário leia o estado anterior no mesmo navegador. Trocar de CNPJ preserva cada namespace isolado; logout limpa os namespaces de todas as lojas do usuário antes de remover o access token.
 - A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual.
 - Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova.
 - Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
@@ -77,6 +77,12 @@ Migração:
 - falha de rede durante logout não limpa estado local nem simula revogação do cookie HttpOnly.
 
 ## Ciclo de caixa
+
+- `GET /api/v1/cash/sessions/current` recupera a sessão `open` do caixa padrão do tenant sem criar registros durante a leitura.
+- Ao abrir o PDV online, o frontend reconcilia o `cash_session_id` local com o servidor: recupera o ID perdido quando existe sessão aberta e remove referência local stale quando o servidor não possui sessão aberta.
+- A abertura fica temporariamente bloqueada enquanto essa reconciliação inicial está em andamento, evitando race entre `GET /current` e `POST /open`.
+- Ao voltar do offline para online, a reconciliação do caixa é executada novamente.
+- Logout é bloqueado enquanto existirem IDs locais de caixa aberto em qualquer CNPJ do usuário; o operador deve voltar à loja correspondente e fechar/reconciliar o caixa.
 
 - O PDV fecha o caixa chamando `POST /api/v1/cash/sessions/{id}/close`; remover apenas a referência local não encerra uma sessão.
 - A migration `0013_single_open_cash_session` cria um índice único parcial para permitir somente uma sessão `open` por tenant/registro.
