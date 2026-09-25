@@ -174,6 +174,9 @@ func validateCreateRequest(req CreateRequest) error {
 	if !validSubjectType(req.SubjectType) || !validRequestType(req.RequestType) {
 		return common.ErrValidation
 	}
+	if req.RequestType == "blocking" && req.SubjectType != "user" {
+		return common.ErrValidation
+	}
 	if req.SubjectID != nil && !isUUID(*req.SubjectID) {
 		return common.ErrValidation
 	}
