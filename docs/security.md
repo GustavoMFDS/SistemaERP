@@ -57,3 +57,13 @@ Production notes:
 - Cash-session `FOR UPDATE` serialization prevents sale/cancel/movement operations from racing past cash close.
 - Normal cancellation is blocked once a fiscal invoice exists; a SEFAZ-ready fiscal cancellation flow is required before production fiscal cancellation can be supported.
 - Idempotency retention runs on startup/hourly in bounded batches and is backed by the `idempotency_keys_created_at_idx` index.
+
+## Round 7 — isolamento relacional multi-tenant
+- `GET /auth/me` usa exatamente o tenant autenticado no JWT; não recalcula o primeiro tenant do usuário.
+- `user_tenants.active` permite revogar acesso a uma loja sem desativar a identidade global do usuário.
+- Memberships inativas não concedem roles/permissões e não caem no fallback legado de primeiro tenant.
+- A migration `0017_tenant_relational_integrity` adiciona FKs compostas tenant-aware entre catálogo, estoque, caixa, vendas, pagamentos, ledger, fiscal, idempotência e reconciliação.
+- `product.category_id` e `sale.customer_id` são protegidos por FKs compostas, impedindo referências entre CNPJs.
+- O barcode de produto é único por tenant, não globalmente.
+- Operações LGPD validam que o titular pertence ao tenant. Bloqueio de usuário atua na membership; anonimização de uma identidade compartilhada por outras lojas retorna conflito.
+
