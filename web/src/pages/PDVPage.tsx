@@ -73,6 +73,29 @@ const CLOSE_METHODS = [
   ['voucher', 'Voucher'],
 ] as const
 
+function moneyCents(value: number): number {
+  return Math.round(value * 100)
+}
+
+function positiveQuantityMilli(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0) return null
+  const scaled = value * 1000
+  const milli = Math.round(scaled)
+  if (Math.abs(scaled - milli) > 1e-6) return null
+  return milli
+}
+
+function roundPositive(numerator: number, denominator: number): number {
+  return Math.floor((numerator + Math.floor(denominator / 2)) / denominator)
+}
+
+function lineTotalCents(item: SaleItem): number {
+  const qtyMilli = positiveQuantityMilli(item.qty)
+  if (qtyMilli === null) return 0
+  const gross = roundPositive(moneyCents(item.unit_price) * qtyMilli, 1000)
+  return gross - moneyCents(item.discount_value)
+}
+
 export default function PDVPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
@@ -116,9 +139,9 @@ export default function PDVPage() {
   }, [products])
 
   const computedTotal = useMemo(() => {
-    let t = 0
-    for (const it of items) t += it.unit_price * it.qty - it.discount_value
-    return Math.max(0, Math.round(t * 100) / 100)
+    let cents = 0
+    for (const item of items) cents += lineTotalCents(item)
+    return Math.max(0, cents) / 100
   }, [items])
 
   function refreshPending() {
@@ -352,9 +375,17 @@ export default function PDVPage() {
   function addItem() {
     const p = productById.get(itemProductId)
     if (!p) return
+
+    const qtyMilli = positiveQuantityMilli(itemQty)
+    if (qtyMilli === null) {
+      setError('Quantidade inválida. Informe um valor maior que zero com no máximo 3 casas decimais.')
+      return
+    }
+
+    setError('')
     const next: SaleItem = {
       product_id: p.id,
-      qty: Number(itemQty) || 1,
+      qty: qtyMilli / 1000,
       unit_price: Number(p.price_cash) || 0,
       discount_value: 0,
     }
@@ -744,7 +775,7 @@ export default function PDVPage() {
                     <td className="px-3 py-2">{it.qty.toFixed(3)}</td>
                     <td className="px-3 py-2">{it.unit_price.toFixed(2)}</td>
                     <td className="px-3 py-2">
-                      {(it.unit_price * it.qty - it.discount_value).toFixed(2)}
+                      {(lineTotalCents(it) / 100).toFixed(2)}
                     </td>
                     <td className="px-3 py-2">
                       <button
