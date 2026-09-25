@@ -42,3 +42,8 @@
 - Anonimização global de usuário compartilhado por múltiplos tenants é recusada com conflito até que as memberships sejam reconciliadas.
 - Consentimentos LGPD exigem um titular identificado e pertencente ao tenant.
 
+### Usuários com acesso a mais de um CNPJ
+- Uma identidade de usuário pode pertencer a mais de uma loja independente, mas uma sessão opera em exatamente um tenant por vez.
+- A troca de loja é explícita e emite novas credenciais scoped ao CNPJ escolhido.
+- Caixa local, fila offline e cache de produtos não são movidos nem apagados ao trocar de loja; permanecem isolados no namespace do tenant original.
+
