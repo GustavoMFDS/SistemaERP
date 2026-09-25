@@ -354,3 +354,8 @@ Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry 
 - `POST /privacy/consents` exige `subject_id` válido do tenant atual.
 - Bloqueio LGPD de usuário revoga acesso ao tenant solicitante sem desativar a conta global em outras lojas. Anonimização de usuário compartilhado retorna `409 conflict`.
 
+### Tenant selection
+- `GET /api/v1/auth/tenants` lists the authenticated user's active CNPJ memberships and the current tenant.
+- `POST /api/v1/auth/switch-tenant` with `{"tenant_id":"<uuid>"}` rotates the current refresh token and returns a new access token scoped to that tenant.
+- Switching requires the current access token, the HttpOnly refresh cookie, an active target membership, and trusted origin validation.
+
