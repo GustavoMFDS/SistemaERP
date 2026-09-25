@@ -415,9 +415,10 @@ export default function PDVPage() {
       cash_session_id: cashSessionId,
       customer_id: null,
       discount_value: 0,
-      items: items.map(({ product_id, qty, discount_value }) => ({
+      items: items.map(({ product_id, qty, unit_price, discount_value }) => ({
         product_id,
         qty,
+        unit_price,
         discount_value,
       })),
       payments,
