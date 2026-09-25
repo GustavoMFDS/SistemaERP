@@ -7,6 +7,7 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/common"
 	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
 	privacy "github.com/example/sistemaemgo/internal/modules/privacy/domain"
+	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -95,8 +96,42 @@ func (r *Repo) GetRequest(ctx context.Context, tenantID, id string) (privacy.Dat
 	return items[0], nil
 }
 
+func (r *Repo) GetRequestForUpdate(ctx context.Context, tx db.DBTX, tenantID, id string) (privacy.DataSubjectRequest, error) {
+	var item privacy.DataSubjectRequest
+	err := tx.QueryRow(ctx, `
+		SELECT id::text, tenant_id::text, subject_type, subject_id::text, requester_email::text,
+		       request_type, status, notes, requested_at::text, resolved_at::text,
+		       created_by_user_id::text, request_id
+		FROM data_subject_requests
+		WHERE tenant_id=$1 AND id=$2
+		FOR UPDATE
+	`, tenantID, id).Scan(
+		&item.ID, &item.TenantID, &item.SubjectType, &item.SubjectID, &item.RequesterEmail,
+		&item.RequestType, &item.Status, &item.Notes, &item.RequestedAt, &item.ResolvedAt,
+		&item.CreatedByUserID, &item.RequestID,
+	)
+	return item, err
+}
+
 func (r *Repo) UpdateRequestStatus(ctx context.Context, tenantID, id, status string, notes *string) error {
 	tag, err := r.db.Exec(ctx, `
+		UPDATE data_subject_requests
+		SET status=$3,
+		    notes=COALESCE($4, notes),
+		    resolved_at=CASE WHEN $3 IN ('completed', 'rejected', 'cancelled') THEN now() ELSE resolved_at END
+		WHERE tenant_id=$1 AND id=$2
+	`, tenantID, id, status, notes)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repo) UpdateRequestStatusTx(ctx context.Context, tx db.DBTX, tenantID, id, status string, notes *string) error {
+	tag, err := tx.Exec(ctx, `
 		UPDATE data_subject_requests
 		SET status=$3,
 		    notes=COALESCE($4, notes),
@@ -123,10 +158,10 @@ func (r *Repo) ExportSubjectData(ctx context.Context, tenantID, subjectType, sub
 	}
 }
 
-func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (r *Repo) AnonymizeSubject(ctx context.Context, tx db.DBTX, tenantID, subjectType, subjectID string) error {
 	switch subjectType {
 	case "customer":
-		tag, err := r.db.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE customers
 			SET name='Titular anonimizado', document=NULL, email=NULL, phone=NULL, updated_at=now()
 			WHERE tenant_id=$1 AND id=$2
@@ -139,12 +174,6 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 		}
 		return nil
 	case "user":
-		tx, err := r.db.Begin(ctx)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-
 		var lockedUserID string
 		if err := tx.QueryRow(ctx, `
 			SELECT u.id::text
@@ -206,22 +235,16 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 		`, tenantID, subjectID); err != nil {
 			return err
 		}
-		return tx.Commit(ctx)
+		return nil
 	default:
 		return fmt.Errorf("unsupported subject type")
 	}
 }
 
-func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (r *Repo) BlockSubject(ctx context.Context, tx db.DBTX, tenantID, subjectType, subjectID string) error {
 	if subjectType != "user" {
 		return fmt.Errorf("blocking is only supported for users")
 	}
-
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	var lockedUserID string
 	if err := tx.QueryRow(ctx, `
@@ -260,7 +283,7 @@ func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectI
 	if tag.RowsAffected() == 0 {
 		return pgx.ErrNoRows
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (r *Repo) RecordConsent(ctx context.Context, tenantID, requestID string, req privacyapp.ConsentCreateRequest) (string, error) {
