@@ -51,6 +51,10 @@ func (s *CashService) CurrentSession(ctx context.Context, tenantID string) (sale
 	return s.cash.GetOpenSession(ctx, tenantID)
 }
 
+func (s *CashService) OpenSessionsByUser(ctx context.Context, userID string) ([]sales.CashSession, error) {
+	return s.cash.ListOpenSessionsByUser(ctx, userID)
+}
+
 func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
