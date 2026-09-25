@@ -8,6 +8,7 @@ import (
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -55,6 +56,30 @@ func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string,
 		}
 	}
 	return id, err
+}
+
+func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string, registerID string) (sales.CashSession, bool, error) {
+	var s sales.CashSession
+	var openingRaw string
+	err := r.db.QueryRow(ctx, `
+		SELECT id::text, cash_register_id::text, opened_by_user_id::text, status, opening_amount::text
+		FROM cash_sessions
+		WHERE tenant_id=$1 AND cash_register_id=$2 AND status='open'
+		ORDER BY opened_at DESC
+		LIMIT 1
+	`, tenantID, registerID).Scan(&s.ID, &s.RegisterID, &s.OpenedByUserID, &s.Status, &openingRaw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return sales.CashSession{}, false, nil
+	}
+	if err != nil {
+		return sales.CashSession{}, false, err
+	}
+	opening, err := platform.ParseMoney(openingRaw)
+	if err != nil {
+		return sales.CashSession{}, false, err
+	}
+	s.OpeningAmount = opening
+	return s, true, nil
 }
 
 func (r *CashRepo) CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, expectedCash, closingAmount platform.Money, notes *string) error {
