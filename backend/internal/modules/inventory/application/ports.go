@@ -9,6 +9,7 @@ import (
 )
 
 type ProductsRepository interface {
+	CategoryBelongsToTenant(ctx context.Context, tx db.DBTX, tenantID, categoryID string) (bool, error)
 	List(ctx context.Context, tenantID string, query string, limit, offset int) ([]inv.Product, int, error)
 	Get(ctx context.Context, tenantID string, id string) (inv.Product, error)
 	Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error)
