@@ -86,6 +86,7 @@ export default function PDVPage() {
   const [legacyQueueCount, setLegacyQueueCount] = useState<number>(getLegacyQueueCount())
 
   const [cashSessionId, setCashSessionIdState] = useState(getCashSessionId())
+  const [cashRecovering, setCashRecovering] = useState(true)
   const [openingAmount, setOpeningAmount] = useState<number>(0)
   const [closingAmount, setClosingAmount] = useState<number>(0)
   const [closingByMethod, setClosingByMethod] = useState<Record<string, number>>({
@@ -181,6 +182,7 @@ export default function PDVPage() {
     function onOnline() {
       setOnline(true)
       void syncPending()
+      void recoverCurrentCash()
     }
     function onOffline() {
       setOnline(false)
@@ -202,8 +204,12 @@ export default function PDVPage() {
   }, [])
 
   async function recoverCurrentCash() {
-    if (!navigator.onLine) return
+    if (!navigator.onLine) {
+      setCashRecovering(false)
+      return
+    }
 
+    setCashRecovering(true)
     try {
       const res = await apiJson<CashCurrentResponse>('/api/v1/cash/sessions/current')
       const localID = getCashSessionId()
@@ -223,6 +229,8 @@ export default function PDVPage() {
       if (navigator.onLine) {
         setError(`Não foi possível verificar o caixa atual: ${errorMessage(e)}`)
       }
+    } finally {
+      setCashRecovering(false)
     }
   }
 
@@ -492,10 +500,10 @@ export default function PDVPage() {
               />
             </label>
             <button
-              disabled={Boolean(cashSessionId)}
+              disabled={cashRecovering || Boolean(cashSessionId)}
               className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
-              Abrir
+              {cashRecovering ? 'Verificando…' : 'Abrir'}
             </button>
           </form>
 
