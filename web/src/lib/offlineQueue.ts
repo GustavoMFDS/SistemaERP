@@ -13,6 +13,7 @@ export type AttentionReason =
   | 'retention_expired'
   | 'retention_unknown'
   | 'price_snapshot_missing'
+  | 'price_changed'
 
 export type QueuedRequest = {
   id: string
@@ -344,6 +345,132 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   return true
 }
 
+export async function refreshQueueItemPriceSnapshots(id: string): Promise<boolean> {
+  const initial = loadQueue()
+  const item = initial.find((candidate) => candidate.id === id)
+  if (!item || item.state !== 'attention' || item.attentionReason !== 'price_changed') {
+    return false
+  }
+  if (!item.body || typeof item.body !== 'object') return false
+
+  const body = item.body as {
+    discount_value?: unknown
+    items?: unknown
+    payments?: unknown
+  }
+  if (!Array.isArray(body.items) || body.items.length === 0) return false
+  if (!Array.isArray(body.payments) || body.payments.length !== 1) {
+    item.lastError =
+      'A venda possui pagamento composto e exige reconciliação manual antes de atualizar preços.'
+    saveQueue(initial)
+    return false
+  }
+
+  type ProductPrice = {
+    price_cash: number
+    promo_price?: number | null
+    active: boolean
+  }
+
+  const updatedItems: Array<Record<string, unknown>> = []
+  let totalCents = -moneyValueCents(body.discount_value)
+
+  try {
+    for (const raw of body.items) {
+      if (!raw || typeof raw !== 'object') return false
+      const source = raw as Record<string, unknown>
+      const productID = typeof source.product_id === 'string' ? source.product_id.trim() : ''
+      const qty = typeof source.qty === 'number' ? source.qty : Number(source.qty)
+      const qtyMilli = quantityValueMilli(qty)
+      if (!productID || qtyMilli === null) return false
+
+      const product = await apiJson<ProductPrice>(
+        `/api/v1/products/${encodeURIComponent(productID)}`,
+      )
+      if (!product.active) {
+        const current = loadQueue()
+        const currentItem = current.find((candidate) => candidate.id === id)
+        if (currentItem) {
+          currentItem.lastError =
+            'Um produto desta venda está inativo. A reconciliação deve ser feita manualmente.'
+          saveQueue(current)
+        }
+        return false
+      }
+
+      const price =
+        typeof product.promo_price === 'number' && product.promo_price > 0
+          ? product.promo_price
+          : product.price_cash
+      const priceCents = moneyValueCents(price)
+      if (priceCents <= 0) return false
+
+      const lineGrossCents = roundPositiveInteger(priceCents * qtyMilli, 1000)
+      const itemDiscountCents = moneyValueCents(source.discount_value)
+      totalCents += lineGrossCents - itemDiscountCents
+      updatedItems.push({ ...source, unit_price: priceCents / 100 })
+    }
+  } catch (error) {
+    const current = loadQueue()
+    const currentItem = current.find((candidate) => candidate.id === id)
+    if (currentItem) {
+      currentItem.lastError = `Não foi possível atualizar os preços: ${errorMessage(error)}`
+      saveQueue(current)
+    }
+    return false
+  }
+
+  if (totalCents <= 0) return false
+
+  const payment = body.payments[0]
+  if (!payment || typeof payment !== 'object') return false
+
+  // Reload after the network calls so a concurrent discard/change wins.
+  const current = loadQueue()
+  const currentItem = current.find((candidate) => candidate.id === id)
+  if (
+    !currentItem ||
+    currentItem.state !== 'attention' ||
+    currentItem.attentionReason !== 'price_changed' ||
+    !currentItem.body ||
+    typeof currentItem.body !== 'object'
+  ) {
+    return false
+  }
+
+  const currentBody = currentItem.body as Record<string, unknown>
+  currentItem.body = {
+    ...currentBody,
+    items: updatedItems,
+    payments: [{ ...(payment as Record<string, unknown>), amount: totalCents / 100 }],
+  }
+  currentItem.state = 'pending'
+  currentItem.createdAt = Date.now()
+  currentItem.lastAttemptAt = currentItem.createdAt
+  delete currentItem.attentionReason
+  delete currentItem.lastError
+  saveQueue(current)
+  return true
+}
+
+function moneyValueCents(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value ?? 0)
+  return Number.isFinite(n) ? Math.round(n * 100) : 0
+}
+
+function quantityValueMilli(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0) return null
+  const scaled = value * 1000
+  const milli = Math.round(scaled)
+  if (Math.abs(scaled - milli) > 1e-6) return null
+  return milli
+}
+
+function roundPositiveInteger(numerator: number, denominator: number): number {
+  if (numerator < 0 || denominator <= 0) return 0
+  return Math.floor((numerator + Math.floor(denominator / 2)) / denominator)
+}
+
 export function clearOfflineQueue(): void {
   const key = queueKey()
   if (key) localStorage.removeItem(key)
@@ -427,7 +554,10 @@ export async function flushQueue(): Promise<FlushResult> {
         const failed = current.find((x) => x.id === item.id)
         if (failed) {
           failed.state = 'attention'
-          failed.attentionReason = 'request_rejected'
+          failed.attentionReason =
+            e instanceof APIError && e.code === 'price_changed'
+              ? 'price_changed'
+              : 'request_rejected'
           failed.lastError = msg
           failed.lastAttemptAt = Date.now()
           saveQueue(current)
