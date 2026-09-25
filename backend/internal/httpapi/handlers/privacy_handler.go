@@ -41,7 +41,6 @@ func (h *PrivacyHandler) CreateRequest(w http.ResponseWriter, r *http.Request) {
 		writePrivacyError(w, r, err)
 		return
 	}
-	h.record(r, au.TenantID, au.UserID, "privacy.request.create", "data_subject_request", id, "success", nil)
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
@@ -94,11 +93,10 @@ func (h *PrivacyHandler) UpdateRequestStatus(w http.ResponseWriter, r *http.Requ
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if err := h.svc.UpdateRequestStatus(r.Context(), au.TenantID, id, req); err != nil {
+	if err := h.svc.UpdateRequestStatus(r.Context(), au.TenantID, au.UserID, id, req); err != nil {
 		writePrivacyError(w, r, err)
 		return
 	}
-	h.record(r, au.TenantID, au.UserID, "privacy.request.update", "data_subject_request", id, "success", map[string]any{"status": req.Status})
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "updated"})
 }
 
