@@ -1,26 +1,25 @@
 package handlers
 
 import (
+	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
-	"log/slog"
-
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 type FiscalHandler struct {
 	svc    *fiscapp.FiscalService
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewFiscalHandler(svc *fiscapp.FiscalService, auditSvc *audit.Service, logger *slog.Logger) *FiscalHandler {
-	return &FiscalHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewFiscalHandler(svc *fiscapp.FiscalService, logger *slog.Logger) *FiscalHandler {
+	return &FiscalHandler{svc: svc, logger: logger}
 }
 
 func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +33,12 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
+	saleID, valid := normalizeUUID(req.SaleID)
+	if !valid {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "sale_id invalido", nil)
+		return
+	}
+	req.SaleID = saleID
 	invoiceID, xmlID, err := h.svc.GenerateNFeXML(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -50,7 +55,6 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfe_xml.generate", "invoice_xml_file", xmlID, "success", map[string]any{"invoice_id": invoiceID})
 	writeJSON(w, http.StatusCreated, map[string]any{"invoice_id": invoiceID, "xml_file_id": xmlID})
 }
 
@@ -76,13 +80,19 @@ func (h *FiscalHandler) DownloadXML(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
-	name, content, err := h.svc.DownloadXML(r.Context(), au.TenantID, id)
-	if err != nil {
-		writeError(w, r, http.StatusNotFound, "not_found", "arquivo nao encontrado", nil)
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfe_xml.download", "invoice_xml_file", id, "success", nil)
+	name, content, err := h.svc.DownloadXML(r.Context(), au.TenantID, au.UserID, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, r, http.StatusNotFound, "not_found", "arquivo nao encontrado", nil)
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "nao foi possivel liberar o arquivo fiscal", nil)
+		return
+	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
 	w.WriteHeader(http.StatusOK)

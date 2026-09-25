@@ -99,6 +99,16 @@ func TestValidateRejectsSplitRedisInProd(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidBusinessTimezone(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.BusinessTimezone = "Mars/Olympus_Mons"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "BUSINESS_TIMEZONE") {
+		t.Fatalf("expected business timezone validation error, got %v", err)
+	}
+}
+
 func TestValidateRejectsMVPFiscalProviderInProd(t *testing.T) {
 	cfg := validProdConfig()
 	cfg.FiscalProvider = "mvp"
@@ -143,5 +153,6 @@ func validProdConfig() Config {
 		RateLimitSales:     60,
 		RateLimitFiscal:    20,
 		FiscalProvider:     "disabled",
+		BusinessTimezone:   "America/Sao_Paulo",
 	}
 }

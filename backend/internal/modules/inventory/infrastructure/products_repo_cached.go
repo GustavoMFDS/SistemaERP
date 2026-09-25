@@ -32,6 +32,10 @@ func (r *CachedProductsRepo) cacheEnabled() bool {
 	return r != nil && r.base != nil && r.rdb != nil && r.ttl > 0
 }
 
+func (r *CachedProductsRepo) CategoryBelongsToTenant(ctx context.Context, tx db.DBTX, tenantID, categoryID string) (bool, error) {
+	return r.base.CategoryBelongsToTenant(ctx, tx, tenantID, categoryID)
+}
+
 func productCacheKey(tenantID, id string) string {
 	return "cache:products:tenant:" + strings.TrimSpace(tenantID) + ":get:" + strings.TrimSpace(id)
 }

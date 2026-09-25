@@ -2,6 +2,12 @@ package application
 
 import "github.com/golang-jwt/jwt/v5"
 
+type AuthTenantInfo struct {
+	ID        string  `json:"id"`
+	LegalName string  `json:"legal_name"`
+	TradeName *string `json:"trade_name"`
+}
+
 type AuthUserInfo struct {
 	ID       string   `json:"id"`
 	Email    string   `json:"email"`

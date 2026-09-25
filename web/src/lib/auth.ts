@@ -59,6 +59,32 @@ export function scopedStorageKey(namespace: string): string | null {
   return scope ? `${namespace}:${encodeURIComponent(scope)}` : null
 }
 
+export function userScopedStorageKeys(namespace: string): string[] {
+  const claims = decodeAccessClaims(accessToken)
+  if (!claims?.sub) return []
+
+  const prefix = `${namespace}:`
+  const suffix = `:${claims.sub}`
+  const keys: string[] = []
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i)
+    if (!key?.startsWith(prefix)) continue
+    try {
+      const scope = decodeURIComponent(key.slice(prefix.length))
+      if (scope.endsWith(suffix)) keys.push(key)
+    } catch {
+      // Ignore malformed keys that do not belong to the scoped format.
+    }
+  }
+  return keys
+}
+
+export function clearAllUserScopedStorage(namespace: string): void {
+  for (const key of userScopedStorageKeys(namespace)) {
+    localStorage.removeItem(key)
+  }
+}
+
 export function clearScopedStorage(namespace: string): void {
   const key = scopedStorageKey(namespace)
   if (key) localStorage.removeItem(key)
@@ -78,5 +104,16 @@ export function setCashSessionId(id: string): void {
 
 export function clearCashSessionId(): void {
   clearScopedStorage(CASH_SESSION_NAMESPACE)
+  localStorage.removeItem(LEGACY_CASH_SESSION_KEY)
+}
+
+export function getAllCashSessionIdsForCurrentUser(): string[] {
+  return userScopedStorageKeys(CASH_SESSION_NAMESPACE)
+    .map((key) => localStorage.getItem(key)?.trim() ?? '')
+    .filter(Boolean)
+}
+
+export function clearAllCashSessionsForCurrentUser(): void {
+  clearAllUserScopedStorage(CASH_SESSION_NAMESPACE)
   localStorage.removeItem(LEGACY_CASH_SESSION_KEY)
 }

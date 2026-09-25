@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
@@ -20,6 +21,7 @@ type FiscalService struct {
 	sales    SalesRepository
 	products ProductsRepository
 	nfe      NFeProvider
+	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
 }
@@ -28,8 +30,8 @@ type GenerateXMLRequest struct {
 	SaleID string `json:"sale_id" validate:"required"`
 }
 
-func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *FiscalService {
-	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nil, validate: v, logger: logger}
+func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *FiscalService {
+	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nil, audit: auditSvc, validate: v, logger: logger}
 }
 
 func NewFiscalServiceWithProvider(
@@ -38,10 +40,11 @@ func NewFiscalServiceWithProvider(
 	salesRepo SalesRepository,
 	productsRepo ProductsRepository,
 	nfeProvider NFeProvider,
+	auditSvc *audit.Service,
 	v *validator.Validate,
 	logger *slog.Logger,
 ) *FiscalService {
-	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nfeProvider, validate: v, logger: logger}
+	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nfeProvider, audit: auditSvc, validate: v, logger: logger}
 }
 
 func (s *FiscalService) GenerateNFeXML(ctx context.Context, tenantID string, actorUserID string, req GenerateXMLRequest) (invoiceID, xmlID string, err error) {
@@ -93,6 +96,13 @@ func (s *FiscalService) GenerateNFeXML(ctx context.Context, tenantID string, act
 	if err != nil {
 		return "", "", err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfe_xml.generate",
+		ResourceType: "invoice_xml_file", ResourceID: xmlFileID, Outcome: "success",
+		Metadata: map[string]any{"invoice_id": invID, "sale_id": req.SaleID},
+	}); err != nil {
+		return "", "", err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return "", "", err
@@ -104,8 +114,28 @@ func (s *FiscalService) ListXML(ctx context.Context, tenantID string, limit, off
 	return s.fiscal.ListXML(ctx, tenantID, limit, offset)
 }
 
-func (s *FiscalService) DownloadXML(ctx context.Context, tenantID string, id string) (string, []byte, error) {
-	return s.fiscal.GetXMLContent(ctx, tenantID, id)
+func (s *FiscalService) DownloadXML(ctx context.Context, tenantID, actorUserID, id string) (string, []byte, error) {
+	name, content, err := s.fiscal.GetXMLContent(ctx, tenantID, id)
+	if err != nil {
+		return "", nil, err
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfe_xml.download",
+		ResourceType: "invoice_xml_file", ResourceID: id, Outcome: "success",
+	}); err != nil {
+		return "", nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", nil, err
+	}
+	return name, content, nil
 }
 
 func uniqueProductIDs(items []sales.SaleItem) []string {

@@ -11,6 +11,7 @@ import (
 )
 
 type SalesRepository interface {
+	CustomerBelongsToTenant(ctx context.Context, tx db.DBTX, tenantID, customerID string) (bool, error)
 	InsertSale(ctx context.Context, tx db.DBTX, tenantID string, s sales.Sale) (string, error)
 	InsertItem(ctx context.Context, tx db.DBTX, tenantID string, it sales.SaleItem) error
 	InsertPayment(ctx context.Context, tx db.DBTX, tenantID string, p sales.Payment) error
@@ -26,8 +27,10 @@ type SalesRepository interface {
 }
 
 type CashRepository interface {
-	EnsureDefaultRegister(ctx context.Context, tenantID string) (string, error)
+	EnsureDefaultRegister(ctx context.Context, tx db.DBTX, tenantID string) (string, error)
 	OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error)
+	GetOpenSession(ctx context.Context, tenantID string) (sales.CashSession, bool, error)
+	ListOpenSessionsByUser(ctx context.Context, userID string) ([]sales.CashSession, error)
 	CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, expectedCash, closingAmount platform.Money, notes *string) error
 	GetSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID string) (sales.CashSession, error)
 	InsertMovement(ctx context.Context, tx db.DBTX, tenantID, sessionID, userID, movementType string, amount platform.Money, notes *string) (string, error)

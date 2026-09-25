@@ -21,6 +21,7 @@ import (
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/example/sistemaemgo/internal/platform/events"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 )
 
 type SalesService struct {
@@ -48,7 +49,7 @@ type SaleCreateRequest struct {
 type SaleItemRequest struct {
 	ProductID     string            `json:"product_id" validate:"required"`
 	Qty           platform.Quantity `json:"qty" validate:"required,gt=0"`
-	UnitPrice     *platform.Money   `json:"unit_price,omitempty" validate:"omitempty,gt=0"` // Deprecated: ignored for calculation.
+	UnitPrice     *platform.Money   `json:"unit_price,omitempty" validate:"omitempty,gt=0"` // Optional displayed-price snapshot; compared for drift, never authoritative.
 	DiscountValue platform.Money    `json:"discount_value" validate:"min=0"`
 }
 
@@ -81,6 +82,9 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, false, common.ErrValidation
 	}
+	if err := normalizeOptionalCustomerID(req.CustomerID); err != nil {
+		return "", 0, false, common.ErrValidation
+	}
 	op := "sales.create_and_finalize"
 	requestHash, err := saleRequestHash(req)
 	if err != nil {
@@ -104,6 +108,16 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		}
 		_ = tx.Rollback(ctx)
 		return saleID, total, false, nil
+	}
+
+	if req.CustomerID != nil {
+		ok, err := s.sales.CustomerBelongsToTenant(ctx, tx, tenantID, *req.CustomerID)
+		if err != nil {
+			return "", 0, false, err
+		}
+		if !ok {
+			return "", 0, false, common.ErrValidation
+		}
 	}
 
 	cs, err := s.cash.GetSession(ctx, tx, tenantID, req.CashSessionID)
@@ -134,6 +148,10 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	computedItems := make([]sales.SaleItem, 0, len(req.Items))
 	for _, it := range req.Items {
 		p := prodMap[it.ProductID]
+		currentPrice := p.EffectiveSalePrice()
+		if it.UnitPrice != nil && *it.UnitPrice != currentPrice {
+			return "", 0, false, common.ErrPriceChanged
+		}
 		if err := p.PodeVender(it.Qty); err != nil {
 			switch err {
 			case inv.ErrProductInactive:
@@ -147,7 +165,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		computedItems = append(computedItems, sales.SaleItem{
 			ProductID:     it.ProductID,
 			Qty:           it.Qty,
-			UnitPrice:     p.EffectiveSalePrice(),
+			UnitPrice:     currentPrice,
 			DiscountValue: it.DiscountValue,
 			CostUnit:      p.CostPrice,
 		})
@@ -333,6 +351,7 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 		ProductID     string            `json:"product_id"`
 		Qty           platform.Quantity `json:"qty"`
 		DiscountValue platform.Money    `json:"discount_value"`
+		UnitPrice     *platform.Money   `json:"unit_price,omitempty"`
 	}
 	type payment struct {
 		Method string         `json:"method"`
@@ -352,7 +371,7 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 		Payments:      make([]payment, 0, len(req.Payments)),
 	}
 	for _, it := range req.Items {
-		payload.Items = append(payload.Items, item{ProductID: it.ProductID, Qty: it.Qty, DiscountValue: it.DiscountValue})
+		payload.Items = append(payload.Items, item{ProductID: it.ProductID, Qty: it.Qty, DiscountValue: it.DiscountValue, UnitPrice: it.UnitPrice})
 	}
 	for _, p := range req.Payments {
 		payload.Payments = append(payload.Payments, payment{Method: p.Method, Amount: p.Amount})
@@ -549,4 +568,19 @@ func uniqueSortedProductIDsFromSaleItems(items []sales.SaleItem) []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+func normalizeOptionalCustomerID(value *string) error {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return common.ErrValidation
+	}
+	if _, err := uuid.Parse(trimmed); err != nil {
+		return common.ErrValidation
+	}
+	*value = trimmed
+	return nil
 }

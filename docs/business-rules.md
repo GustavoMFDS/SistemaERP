@@ -22,3 +22,45 @@
 - XML é gerado a partir de uma venda finalizada.
 - XML fica armazenado e disponível para download.
 - Estrutura preparada para assinatura/transmissão futura (camada separada de montagem do XML).
+
+## Round 6 — integridade transacional de caixa
+- Venda, cancelamento, sangria/suprimento e fechamento serializam na linha da sessão de caixa.
+- Cancelamento só é permitido enquanto o caixa original permanece aberto.
+- Venda com invoice/XML fiscal existente não pode ser cancelada pelo fluxo comum.
+- Sangria (`withdrawal`) e suprimento (`supply`) entram no caixa e no razão financeiro na mesma transação.
+- Sangria acima do dinheiro físico disponível é rejeitada.
+- Fechamento reconcilia esperado, declarado e diferença por `cash`, `pix`, `debit`, `credit`, `transfer` e `voucher`.
+- Dinheiro físico esperado = abertura + vendas em dinheiro + suprimentos - sangrias.
+- XML fiscal é gerado somente de venda `finalized` e bloqueia a venda enquanto a invoice é criada.
+
+## Round 7 — isolamento entre CNPJs
+- Cada loja/CNPJ continua sendo um tenant independente; referências de categoria, produto, cliente, caixa, venda, pagamento, razão e fiscal devem permanecer no mesmo tenant.
+- O mesmo código de barras/EAN pode existir em tenants diferentes; unicidade de barcode é tenant-scoped.
+- Atualizar um produto inexistente ou de outro tenant retorna not found e não gera sucesso/audit falso.
+- Uma venda não aceita `customer_id` pertencente a outro tenant.
+- Bloquear um usuário por LGPD bloqueia somente a membership daquele tenant; não desativa a identidade global usada por outra loja.
+- Anonimização global de usuário compartilhado por múltiplos tenants é recusada com conflito até que as memberships sejam reconciliadas.
+- Consentimentos LGPD exigem um titular identificado e pertencente ao tenant.
+
+### Usuários com acesso a mais de um CNPJ
+- Uma identidade de usuário pode pertencer a mais de uma loja independente, mas uma sessão opera em exatamente um tenant por vez.
+- A troca de loja é explícita e emite novas credenciais scoped ao CNPJ escolhido.
+- Caixa local, fila offline e cache de produtos não são movidos nem apagados ao trocar de loja; permanecem isolados no namespace do tenant original.
+
+## Round 9 — preço e quantidade no PDV
+- Quantidades de estoque/venda são representadas em milésimos; o PDV aceita no máximo 3 casas decimais.
+- O valor monetário de cada linha é arredondado em centavos antes da soma do total, igual ao domínio Go.
+- O servidor é sempre a autoridade de preço. O preço exibido no momento da intenção pode ser enviado como snapshot apenas para detectar mudança durante períodos offline.
+- Se o preço efetivo mudar antes da sincronização, a venda não é finalizada silenciosamente pelo novo valor; ela exige revisão explícita do operador.
+
+## Round 9 — LGPD, audit, membership e caixa
+- Toda escrita LGPD (criação/alteração de DSR, criação/revogação de consentimento, anonimização e bloqueio) exige que a mutação e o audit crítico sejam commitados juntos; falha de audit causa rollback.
+- Exportação de dados pessoais só ocorre para DSR `export` em `in_progress` e só libera o payload depois de persistir `privacy.subject.export`; a entrega não conclui automaticamente a DSR.
+- Bloqueio e anonimização de usuário não podem prosseguir enquanto existir caixa aberto por esse usuário no tenant.
+- Abertura de caixa exige membership ativa no momento transacional da abertura; autenticação anterior não é suficiente se a membership tiver sido revogada.
+- Anonimização/bloqueio destrutivo só executa a partir de DSR `in_progress` compatível e conclui a DSR junto com o audit crítico.
+
+## Round 9 — dia financeiro
+- Datas do dashboard financeiro representam dias civis no `BUSINESS_TIMEZONE`, não no timezone implícito do PostgreSQL/container.
+- O padrão do projeto é `America/Sao_Paulo`.
+

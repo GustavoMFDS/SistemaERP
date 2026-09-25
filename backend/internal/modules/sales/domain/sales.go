@@ -127,11 +127,12 @@ type Payment struct {
 }
 
 type CashSession struct {
-	ID             string
-	RegisterID     string
-	OpenedByUserID string
-	Status         string
-	OpeningAmount  platform.Money
+	ID             string         `json:"id"`
+	TenantID       string         `json:"tenant_id,omitempty"`
+	RegisterID     string         `json:"register_id"`
+	OpenedByUserID string         `json:"opened_by_user_id"`
+	Status         string         `json:"status"`
+	OpeningAmount  platform.Money `json:"opening_amount"`
 }
 
 type CashMovement struct {

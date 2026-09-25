@@ -22,6 +22,46 @@ func NewCashHandler(svc *salesapp.CashService, auditSvc *audit.Service, logger *
 	return &CashHandler{svc: svc, audit: auditSvc, logger: logger}
 }
 
+func (h *CashHandler) OpenSessionsByUser(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	sessions, err := h.svc.OpenSessionsByUser(r.Context(), au.UserID)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "nao foi possivel consultar caixas abertos", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": sessions})
+}
+
+func (h *CashHandler) CurrentSession(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	session, found, err := h.svc.CurrentSession(r.Context(), au.TenantID)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "nao foi possivel consultar o caixa atual", nil)
+		return
+	}
+	if !found {
+		writeJSON(w, http.StatusOK, map[string]any{"session": nil})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session": map[string]any{
+			"id":             session.ID,
+			"register_id":    session.RegisterID,
+			"opened_by_user_id": session.OpenedByUserID,
+			"status":         session.Status,
+			"opening_amount": session.OpeningAmount,
+		},
+	})
+}
+
 func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
@@ -41,6 +81,8 @@ func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusUnprocessableEntity
 		case errors.Is(err, common.ErrCashSessionAlreadyOpen):
 			status = http.StatusConflict
+		case errors.Is(err, common.ErrForbidden):
+			status = http.StatusForbidden
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
@@ -54,7 +96,10 @@ func (h *CashHandler) RecordMovement(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	sessionID := chi.URLParam(r, "id")
+	sessionID, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	var req salesapp.CashMovementRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
@@ -81,7 +126,10 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	sessionID := chi.URLParam(r, "id")
+	sessionID, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	var req salesapp.CashCloseRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)

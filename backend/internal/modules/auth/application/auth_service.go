@@ -3,8 +3,9 @@ package application
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
+	"errors"
+	"strings"
 	"time"
 
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -29,18 +31,18 @@ func NewAuthService(cfg config.Config, users UsersRepository, refresh RefreshTok
 func (s *AuthService) Login(ctx context.Context, email, password string) (TokenResponse, AuthUserInfo, error) {
 	u, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
-		// mitigate timing
-		slowEqual(password, "")
+		compareDummyPassword(password)
+		if errors.Is(err, common.ErrInvalidCredentials) {
+			return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+		}
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 	if !u.Active {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInactiveUser
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
-		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
-	}
-	_ = s.users.UpdateLastLogin(ctx, u.ID)
-
 	tenantID, err := s.users.GetDefaultTenantID(ctx, u.ID)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
@@ -49,7 +51,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 
-	roles, _ := s.users.ListUserRoles(ctx, u.ID, tenantID)
+	roles, err := s.users.ListUserRoles(ctx, u.ID, tenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
 	accessTok, accessExp, err := s.issueAccessToken(u.ID, tenantID)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
@@ -58,15 +63,19 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
+	// last_login_at describes a completed authentication, not merely a valid
+	// password. Keep it best-effort so telemetry persistence cannot strand a
+	// successfully issued refresh token.
+	_ = s.users.UpdateLastLogin(ctx, u.ID)
 	return TokenResponse{
-			AccessToken:      accessTok,
-			RefreshToken:     refreshTok,
-			TokenType:        "Bearer",
-			ExpiresIn:        int64(time.Until(accessExp).Seconds()),
-			RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
-		}, AuthUserInfo{
-			ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles,
-		}, nil
+		AccessToken:      accessTok,
+		RefreshToken:     refreshTok,
+		TokenType:        "Bearer",
+		ExpiresIn:        int64(time.Until(accessExp).Seconds()),
+		RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
+	}, AuthUserInfo{
+		ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles,
+	}, nil
 }
 
 func (s *AuthService) issueAccessToken(userID, tenantID string) (string, time.Time, error) {
@@ -155,18 +164,21 @@ func (s *AuthService) RefreshWithSubject(ctx context.Context, tokenStr string) (
 	if s.refresh == nil {
 		return TokenResponse{}, "", "", common.ErrInvalidCredentials
 	}
+	// Validate current account and membership before consuming the one-time
+	// refresh token. Transient Postgres failures therefore do not destroy an
+	// otherwise valid browser session.
+	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+		return TokenResponse{}, "", "", err
+	}
+	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
+		return TokenResponse{}, "", "", err
+	}
 	ok, err := s.refresh.Consume(ctx, claims.ID, claims.Subject)
 	if err != nil {
 		return TokenResponse{}, "", "", err
 	}
 	if !ok {
 		return TokenResponse{}, "", "", common.ErrInvalidCredentials
-	}
-	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
-		return TokenResponse{}, "", "", err
-	}
-	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
-		return TokenResponse{}, "", "", err
 	}
 	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID)
 	if err != nil {
@@ -227,6 +239,84 @@ func (s *AuthService) validateRefreshToken(tokenStr string) (*Claims, error) {
 	return claims, nil
 }
 
+func (s *AuthService) ListUserTenants(ctx context.Context, userID string) ([]AuthTenantInfo, error) {
+	if err := s.ensureUserActive(ctx, userID); err != nil {
+		return nil, err
+	}
+	return s.users.ListUserTenants(ctx, userID)
+}
+
+func (s *AuthService) SwitchTenant(
+	ctx context.Context,
+	userID string,
+	currentTenantID string,
+	targetTenantID string,
+	refreshToken string,
+) (TokenResponse, AuthUserInfo, error) {
+	targetTenantID = strings.TrimSpace(targetTenantID)
+	if _, err := uuid.Parse(targetTenantID); err != nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrValidation
+	}
+
+	claims, err := s.validateRefreshToken(refreshToken)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if claims.Subject != userID {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if claims.TenantID != currentTenantID {
+		// A valid refresh cookie can already point at another tenant when a
+		// second browser tab switched stores. Treat that as a stale access
+		// context, not as invalid credentials, so the valid cookie survives.
+		return TokenResponse{}, AuthUserInfo{}, common.ErrConflict
+	}
+	if s.refresh == nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if !u.Active {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInactiveUser
+	}
+	if err := s.ensureUserTenantAccess(ctx, userID, targetTenantID); err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	roles, err := s.users.ListUserRoles(ctx, userID, targetTenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+
+	ok, err := s.refresh.Consume(ctx, claims.ID, userID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	if !ok {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+
+	accessTok, accessExp, err := s.issueAccessToken(userID, targetTenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, userID, targetTenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+
+	return TokenResponse{
+		AccessToken:      accessTok,
+		RefreshToken:     refreshTok,
+		TokenType:        "Bearer",
+		ExpiresIn:        int64(time.Until(accessExp).Seconds()),
+		RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
+	}, AuthUserInfo{
+		ID: u.ID, Email: u.Email, Name: u.Name, TenantID: targetTenantID, Roles: roles,
+	}, nil
+}
+
 func (s *AuthService) GetUserPermissions(ctx context.Context, userID string, tenantID string) (map[string]bool, error) {
 	perms, err := s.users.ListUserPermissions(ctx, userID, tenantID)
 	if err != nil {
@@ -244,7 +334,7 @@ func (s *AuthService) InvalidateUserPermissions(userID string) {
 	// Kept for compatibility with callers that may explicitly invalidate.
 }
 
-func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserInfo, error) {
+func (s *AuthService) GetUserInfo(ctx context.Context, userID string, tenantID string) (AuthUserInfo, error) {
 	u, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return AuthUserInfo{}, common.ErrNotFound
@@ -252,18 +342,23 @@ func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserI
 	if !u.Active {
 		return AuthUserInfo{}, common.ErrInactiveUser
 	}
-	tenantID, err := s.users.GetDefaultTenantID(ctx, u.ID)
+	if err := s.ensureUserTenantAccess(ctx, u.ID, tenantID); err != nil {
+		return AuthUserInfo{}, err
+	}
+	roles, err := s.users.ListUserRoles(ctx, userID, tenantID)
 	if err != nil {
 		return AuthUserInfo{}, err
 	}
-	roles, _ := s.users.ListUserRoles(ctx, userID, tenantID)
 	return AuthUserInfo{ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles}, nil
 }
 
 func (s *AuthService) ensureUserActive(ctx context.Context, userID string) error {
 	u, err := s.users.GetByID(ctx, userID)
 	if err != nil {
-		return common.ErrInvalidCredentials
+		if errors.Is(err, common.ErrNotFound) {
+			return common.ErrInvalidCredentials
+		}
+		return err
 	}
 	if !u.Active {
 		return common.ErrInactiveUser
@@ -282,6 +377,8 @@ func (s *AuthService) ensureUserTenantAccess(ctx context.Context, userID string,
 	return nil
 }
 
-func slowEqual(a, b string) {
-	_ = subtle.ConstantTimeCompare([]byte(a), []byte(b))
+const dummyPasswordHash = "$2a$10$Lw9wUodvHmuv18OaTXTVqO4wTTGHwdFX73oEYJC9T8dXxMfwhWr4q"
+
+func compareDummyPassword(password string) {
+	_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
 }

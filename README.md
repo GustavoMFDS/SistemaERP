@@ -75,6 +75,7 @@ Use `.env.example` for local development and `.env.prod.example` for staging/pro
 Important variables:
 
 - `APP_ENV`: `dev`, `test`, `staging`, or `prod`.
+- `BUSINESS_TIMEZONE`: IANA timezone used for business-day boundaries in reports, default `America/Sao_Paulo`.
 - `DATABASE_URL`: PostgreSQL connection string; staging/production require `sslmode=verify-full`.
 - `REDIS_URL`: required `rediss://` connection string for staging/production.
 - `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`: split Redis configuration for development/legacy deployments only.

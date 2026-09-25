@@ -12,6 +12,7 @@ import {
   getQueueSummary,
   markQueueItemAttention,
   rebindQueueItemToCashSession,
+  refreshQueueItemPriceSnapshots,
   retryQueueItem,
   type QueuedRequest,
 } from '../lib/offlineQueue'
@@ -34,6 +35,15 @@ type Product = {
 type ProductsListResponse = { items: Product[]; total: number }
 
 type CashOpenResponse = { id: string }
+type CashCurrentResponse = {
+  session: {
+    id: string
+    register_id: string
+    opened_by_user_id: string
+    status: string
+    opening_amount: number
+  } | null
+}
 type CashCloseResponse = {
   status: string
   expected_cash: number
@@ -64,6 +74,29 @@ const CLOSE_METHODS = [
   ['voucher', 'Voucher'],
 ] as const
 
+function moneyCents(value: number): number {
+  return Math.round(value * 100)
+}
+
+function positiveQuantityMilli(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0) return null
+  const scaled = value * 1000
+  const milli = Math.round(scaled)
+  if (Math.abs(scaled - milli) > 1e-6) return null
+  return milli
+}
+
+function roundPositive(numerator: number, denominator: number): number {
+  return Math.floor((numerator + Math.floor(denominator / 2)) / denominator)
+}
+
+function lineTotalCents(item: SaleItem): number {
+  const qtyMilli = positiveQuantityMilli(item.qty)
+  if (qtyMilli === null) return 0
+  const gross = roundPositive(moneyCents(item.unit_price) * qtyMilli, 1000)
+  return gross - moneyCents(item.discount_value)
+}
+
 export default function PDVPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
@@ -77,6 +110,7 @@ export default function PDVPage() {
   const [legacyQueueCount, setLegacyQueueCount] = useState<number>(getLegacyQueueCount())
 
   const [cashSessionId, setCashSessionIdState] = useState(getCashSessionId())
+  const [cashRecovering, setCashRecovering] = useState(true)
   const [openingAmount, setOpeningAmount] = useState<number>(0)
   const [closingAmount, setClosingAmount] = useState<number>(0)
   const [closingByMethod, setClosingByMethod] = useState<Record<string, number>>({
@@ -106,9 +140,9 @@ export default function PDVPage() {
   }, [products])
 
   const computedTotal = useMemo(() => {
-    let t = 0
-    for (const it of items) t += it.unit_price * it.qty - it.discount_value
-    return Math.max(0, Math.round(t * 100) / 100)
+    let cents = 0
+    for (const item of items) cents += lineTotalCents(item)
+    return Math.max(0, cents) / 100
   }, [items])
 
   function refreshPending() {
@@ -164,12 +198,15 @@ export default function PDVPage() {
 
   useEffect(() => {
     void loadProducts()
+    void recoverCurrentCash()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     function onOnline() {
       setOnline(true)
       void syncPending()
+      void recoverCurrentCash()
     }
     function onOffline() {
       setOnline(false)
@@ -190,6 +227,37 @@ export default function PDVPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function recoverCurrentCash() {
+    if (!navigator.onLine) {
+      setCashRecovering(false)
+      return
+    }
+
+    setCashRecovering(true)
+    try {
+      const res = await apiJson<CashCurrentResponse>('/api/v1/cash/sessions/current')
+      const localID = getCashSessionId()
+      const serverID = res.session?.id ?? ''
+
+      if (serverID) {
+        if (localID !== serverID) setCashSessionId(serverID)
+        setCashSessionIdState(serverID)
+        return
+      }
+
+      if (localID) clearCashSessionId()
+      setCashSessionIdState('')
+    } catch (e: unknown) {
+      // Keep a local session ID when the server cannot be reached. It remains
+      // tenant-scoped and will be reconciled on the next successful check.
+      if (navigator.onLine) {
+        setError(`Não foi possível verificar o caixa atual: ${errorMessage(e)}`)
+      }
+    } finally {
+      setCashRecovering(false)
+    }
+  }
+
   async function openCash(e: FormEvent) {
     e.preventDefault()
     setError('')
@@ -202,6 +270,10 @@ export default function PDVPage() {
       setCashSessionIdState(res.id)
       setCashCloseSummary(null)
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) {
+        await recoverCurrentCash()
+        return
+      }
       setError(errorMessage(e))
     }
   }
@@ -255,8 +327,24 @@ export default function PDVPage() {
     }
   }
 
+  async function refreshAttentionPrices(id: string) {
+    if (
+      !window.confirm(
+        'Atualizar esta venda para os preços atuais do servidor e recalcular o pagamento? O preço anterior continuará registrado apenas no histórico local até a atualização.',
+      )
+    ) {
+      return
+    }
+    const updated = await refreshQueueItemPriceSnapshots(id)
+    refreshPending()
+    if (!updated) return
+    await syncPending()
+  }
+
   async function retryAttention(id: string) {
-    if (!retryQueueItem(id)) return
+    const retry = retryQueueItem(id)
+    refreshPending()
+    if (!retry) return
     await syncPending()
   }
 
@@ -277,7 +365,9 @@ export default function PDVPage() {
     ) {
       return
     }
-    if (!rebindQueueItemToCashSession(id, cashSessionId)) return
+    const rebound = rebindQueueItemToCashSession(id, cashSessionId)
+    refreshPending()
+    if (!rebound) return
     await syncPending()
   }
 
@@ -300,9 +390,17 @@ export default function PDVPage() {
   function addItem() {
     const p = productById.get(itemProductId)
     if (!p) return
+
+    const qtyMilli = positiveQuantityMilli(itemQty)
+    if (qtyMilli === null) {
+      setError('Quantidade inválida. Informe um valor maior que zero com no máximo 3 casas decimais.')
+      return
+    }
+
+    setError('')
     const next: SaleItem = {
       product_id: p.id,
-      qty: Number(itemQty) || 1,
+      qty: qtyMilli / 1000,
       unit_price: Number(p.price_cash) || 0,
       discount_value: 0,
     }
@@ -332,9 +430,10 @@ export default function PDVPage() {
       cash_session_id: cashSessionId,
       customer_id: null,
       discount_value: 0,
-      items: items.map(({ product_id, qty, discount_value }) => ({
+      items: items.map(({ product_id, qty, unit_price, discount_value }) => ({
         product_id,
         qty,
+        unit_price,
         discount_value,
       })),
       payments,
@@ -389,7 +488,13 @@ export default function PDVPage() {
         ![401, 408, 425, 429].includes(e.status)
 
       if (permanent) {
-        markQueueItemAttention(queuedId, 'request_rejected', msg)
+        markQueueItemAttention(
+          queuedId,
+          e instanceof APIError && e.code === 'price_changed'
+            ? 'price_changed'
+            : 'request_rejected',
+          msg,
+        )
         refreshPending()
         setError(msg)
         return
@@ -448,10 +553,10 @@ export default function PDVPage() {
               />
             </label>
             <button
-              disabled={Boolean(cashSessionId)}
+              disabled={cashRecovering || Boolean(cashSessionId)}
               className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
-              Abrir
+              {cashRecovering ? 'Verificando…' : 'Abrir'}
             </button>
           </form>
 
@@ -587,7 +692,13 @@ export default function PDVPage() {
           <div className="mt-2 space-y-2">
             {queueItems
               .filter((item) => item.state === 'attention')
-              .map((item) => (
+              .map((item) => {
+                const replayBlocked =
+                  item.attentionReason === 'retention_expired' ||
+                  item.attentionReason === 'retention_unknown' ||
+                  item.attentionReason === 'price_snapshot_missing' ||
+                  item.attentionReason === 'price_changed'
+                return (
                 <div key={item.id} className="rounded-md border p-2 text-xs">
                   <div className="font-mono">{item.id}</div>
                   <div className="mt-1 text-gray-700">
@@ -595,10 +706,20 @@ export default function PDVPage() {
                     {item.lastError ?? 'sem detalhe'}
                   </div>
                   <div className="mt-2 flex gap-2">
+                    {item.attentionReason === 'price_changed' ? (
+                      <button
+                        type="button"
+                        onClick={() => void refreshAttentionPrices(item.id)}
+                        className="rounded-md border border-blue-300 px-2 py-1 text-blue-700"
+                      >
+                        Atualizar preços
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void retryAttention(item.id)}
-                      className="rounded-md border px-2 py-1"
+                      disabled={replayBlocked}
+                      className="rounded-md border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Tentar novamente
                     </button>
@@ -606,7 +727,8 @@ export default function PDVPage() {
                       <button
                         type="button"
                         onClick={() => void rebindAttentionToCurrentCash(item.id)}
-                        className="rounded-md border px-2 py-1"
+                        disabled={replayBlocked}
+                        className="rounded-md border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Usar caixa atual
                       </button>
@@ -620,7 +742,8 @@ export default function PDVPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+                )
+              })}
           </div>
         </div>
       ) : null}
@@ -649,7 +772,7 @@ export default function PDVPage() {
               value={String(itemQty)}
               onChange={(e) => setItemQty(Number(e.target.value))}
               type="number"
-              step="0.01"
+              step="0.001"
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             />
           </label>
@@ -682,10 +805,10 @@ export default function PDVPage() {
                 return (
                   <tr key={idx}>
                     <td className="px-3 py-2">{name}</td>
-                    <td className="px-3 py-2">{it.qty.toFixed(2)}</td>
+                    <td className="px-3 py-2">{it.qty.toFixed(3)}</td>
                     <td className="px-3 py-2">{it.unit_price.toFixed(2)}</td>
                     <td className="px-3 py-2">
-                      {(it.unit_price * it.qty - it.discount_value).toFixed(2)}
+                      {(lineTotalCents(it) / 100).toFixed(2)}
                     </td>
                     <td className="px-3 py-2">
                       <button

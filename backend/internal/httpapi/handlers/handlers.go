@@ -27,8 +27,8 @@ func New(cfg config.Config, mods *modules.Modules, logger *slog.Logger) *Handler
 		Cash:      NewCashHandler(mods.Cash, mods.Audit, logger),
 		Sales:     NewSalesHandler(mods.Sales, mods.Audit, logger),
 		Finance:   NewFinanceHandler(mods.Finance, logger),
-		Fiscal:    NewFiscalHandler(mods.Fiscal, mods.Audit, logger),
-		Privacy:   NewPrivacyHandler(mods.Privacy, mods.Audit, logger),
+		Fiscal:    NewFiscalHandler(mods.Fiscal, logger),
+		Privacy:   NewPrivacyHandler(mods.Privacy, logger),
 		Audit:     NewAuditHandler(mods.Audit, logger),
 	}
 }

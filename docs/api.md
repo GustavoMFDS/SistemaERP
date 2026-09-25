@@ -159,7 +159,7 @@ Request:
 }
 ```
 
-`unit_price` is deprecated and ignored if old clients still send it. The backend always loads the product, applies `promo_price` when present, validates stock, and calculates subtotal/total server-side.
+`unit_price` is optional and non-authoritative. When supplied, it is the price snapshot shown to the operator; the backend still loads the product, applies the current effective server price, validates stock, and calculates subtotal/total itself. If the supplied snapshot no longer matches, the request returns `409 price_changed` before sale/stock/finance state is committed.
 
 Response:
 
@@ -257,7 +257,7 @@ Allowed transitions are `open -> in_progress`, `open -> rejected`, `open -> canc
 
 ### POST `/privacy/requests/{id}/export`
 
-Exports available personal data for `customer` or `user` subjects. Fiscal/accounting records are not deleted by this operation.
+Exports available personal data for `customer` or `user` subjects only when the DSR is `in_progress` and has `request_type=export`. The personal-data payload is returned only after the critical `privacy.subject.export` audit event commits successfully. Delivery does not automatically complete the DSR, allowing controlled re-delivery if the HTTP response is interrupted. Fiscal/accounting records are not deleted by this operation.
 
 ### POST `/privacy/requests/{id}/anonymize`
 
@@ -328,3 +328,70 @@ Metadata keys containing secrets, tokens, cookies, authorization values, credent
 RBAC is tenant-scoped. Effective permissions come from `user_tenant_roles` joined with `role_permissions`, filtered by the authenticated `tenant_id` and `user_id`. A role assigned in tenant A does not grant permissions in tenant B.
 
 In staging/production, users must have an explicit `user_tenants` membership. The legacy fallback to the first company is available only for development/test databases that predate tenant membership migrations.
+
+## Round 6 — Cash/Fiscal integrity API notes
+### POST `/cash/sessions/{id}/movements`
+Requires `cash:move`.
+```json
+{ "movement_type": "supply", "amount": 20, "notes": "Troco adicional" }
+```
+Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry and critical audit event commit atomically.
+
+### Cash close reconciliation
+`POST /cash/sessions/{id}/close` accepts optional `closing_by_method` and returns `expected_by_method`, `declared_by_method` and `difference_by_method` for supported payment methods. Physical cash includes opening amount, finalized cash payments, supplies and withdrawals.
+
+### Cancellation/fiscal constraints
+`POST /sales/{id}/cancel` returns `409 conflict` when the original cash session is closed or when an invoice/XML already exists. Fiscal XML generation locks the sale row in the same transaction and requires `finalized` status.
+
+### Retention
+`idempotency_keys` remain immutable during the replay window. App maintenance deletes entries older than 30 days in bounded batches; migration `0016` indexes `created_at` for this path.
+
+## Round 7 — tenant integrity notes
+- `GET /auth/me` responde o tenant do token autenticado e as roles desse mesmo tenant.
+- `PUT /products/{id}` retorna `404 not_found` quando o produto não existe no tenant atual.
+- `category_id` de produto, quando informado, deve pertencer ao mesmo tenant.
+- `customer_id` em `POST /sales`, quando informado, deve pertencer ao mesmo tenant.
+- `POST /privacy/consents` exige `subject_id` válido do tenant atual.
+- Bloqueio LGPD de usuário revoga acesso ao tenant solicitante sem desativar a conta global em outras lojas. Anonimização de usuário compartilhado retorna `409 conflict`.
+
+### Tenant selection
+- `GET /api/v1/auth/tenants` lists the authenticated user's active CNPJ memberships and the current tenant.
+- `POST /api/v1/auth/switch-tenant` with `{"tenant_id":"<uuid>"}` rotates the current refresh token and returns a new access token scoped to that tenant.
+- Switching requires the current access token, the HttpOnly refresh cookie, an active target membership, and trusted origin validation.
+
+### Current cash recovery
+- `GET /api/v1/cash/sessions/current` returns `{"session": null}` when the tenant's default cash register has no open session.
+- When open, `session` includes the session ID, register ID, opening user, status and opening amount.
+- The endpoint is read-only and is used by the PDV to recover a lost browser-side `cash_session_id`.
+
+## Round 8 — identifier validation contract
+- UUID identifiers are validated at the HTTP boundary before repository access.
+- Malformed route IDs and malformed foreign/reference IDs in sales, inventory and fiscal requests return `422 validation_error`.
+- Valid UUIDs are normalized before being forwarded to application services.
+- LGPD subjects that are syntactically valid UUIDs but do not belong to the authenticated tenant return `404 not_found`; malformed UUIDs return `422 validation_error`.
+
+### Logout cash safety
+- `GET /api/v1/cash/sessions/open-by-me` is authenticated and self-scoped. It lists `open` cash sessions opened by the current user across active tenant memberships.
+- The frontend checks this endpoint before logout, so losing browser-side `cash_session_id` does not allow an open server cash session to be silently abandoned.
+- If this safety check cannot be completed, logout is cancelled rather than proceeding without knowing the server cash state.
+
+## Round 9 — sale price snapshot contract
+- `items[].unit_price` on `POST /sales` is optional for backward compatibility and is never authoritative.
+- When supplied, it is treated as the client-visible price snapshot. The service compares it with the product's current effective server price before mutating sale/stock/finance state.
+- A mismatch returns `409` with stable error code `price_changed`; no sale, stock movement, ledger entry, or idempotency result is committed.
+- Requests without `unit_price` retain the legacy idempotency hash shape so previously persisted v2 intents remain replay-compatible at the API level. The browser, however, quarantines pre-snapshot intents for manual reconciliation rather than auto-sending them.
+
+## Round 9 — audited privacy workflow
+- Privacy writes (`privacy.request.create`, `privacy.request.update`, `privacy.consent.create`, `privacy.consent.revoke`, `privacy.subject.anonymize`, and `privacy.subject.block`) commit their mutation and critical audit event in one database transaction.
+- If a critical audit insert fails, the corresponding privacy mutation rolls back.
+- Subject anonymization/deletion and user blocking require the DSR to be `in_progress` with a compatible `request_type`; success also moves the DSR to `completed` in that same transaction.
+- Subject export requires an `in_progress` export DSR. Data is released only if `privacy.subject.export` is persisted successfully; the DSR is intentionally not auto-completed by delivery.
+- User blocking/anonymization returns `409 conflict` while that user owns an `open` cash session in the tenant.
+- Cash opening rechecks and locks the active membership inside the cash transaction, so a concurrently revoked membership cannot create a new orphan cash session.
+
+## Round 9 — finance reporting timezone
+- `GET /api/v1/finance/dashboard` interprets `from` and `to` as business-local civil dates using `BUSINESS_TIMEZONE`.
+- The default timezone is `America/Sao_Paulo`; deployments may set another valid IANA timezone.
+- The response includes the `timezone` used for the report.
+- Invalid dates or a reversed range return `422 validation_error`.
+

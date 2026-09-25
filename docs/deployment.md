@@ -135,6 +135,7 @@ Run a restore drill in staging at least quarterly and before major fiscal/privac
 ## Production configuration checklist
 
 - `APP_ENV` is `staging` or `prod`.
+- `BUSINESS_TIMEZONE` is an explicit valid IANA timezone for the stores' reporting day (default `America/Sao_Paulo`).
 - `JWT_SECRET` is strong, unique, and not a placeholder.
 - `DATABASE_URL` uses a strong password, `sslmode=verify-full`, and a trusted CA/root certificate.
 - `REDIS_URL` uses `rediss://` with a non-placeholder password and certificate verification. Split Redis settings are not accepted in staging/production.

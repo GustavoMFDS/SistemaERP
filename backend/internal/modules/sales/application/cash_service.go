@@ -47,13 +47,17 @@ func NewCashService(uow db.UnitOfWork, cash CashRepository, finRepo FinanceRepos
 	return &CashService{uow: uow, cash: cash, fin: finRepo, audit: auditSvc, validate: v, logger: logger}
 }
 
+func (s *CashService) CurrentSession(ctx context.Context, tenantID string) (sales.CashSession, bool, error) {
+	return s.cash.GetOpenSession(ctx, tenantID)
+}
+
+func (s *CashService) OpenSessionsByUser(ctx context.Context, userID string) ([]sales.CashSession, error) {
+	return s.cash.ListOpenSessionsByUser(ctx, userID)
+}
+
 func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
-	}
-	registerID, err := s.cash.EnsureDefaultRegister(ctx, tenantID)
-	if err != nil {
-		return "", err
 	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
@@ -61,6 +65,10 @@ func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID s
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	registerID, err := s.cash.EnsureDefaultRegister(ctx, tx, tenantID)
+	if err != nil {
+		return "", err
+	}
 	id, err := s.cash.OpenSession(ctx, tx, tenantID, registerID, userID, req.OpeningAmount, req.Notes)
 	if err != nil {
 		return "", err

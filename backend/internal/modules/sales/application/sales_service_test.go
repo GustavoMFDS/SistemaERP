@@ -32,7 +32,7 @@ func TestCreateAndFinalizeRequiresIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestCreateAndFinalizeIgnoresClientTamperedUnitPrice(t *testing.T) {
+func TestCreateAndFinalizeRejectsStaleOrTamperedUnitPriceSnapshot(t *testing.T) {
 	svc, salesRepo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
 	tampered := platform.NewMoneyCents(1)
 	req := SaleCreateRequest{
@@ -41,18 +41,67 @@ func TestCreateAndFinalizeIgnoresClientTamperedUnitPrice(t *testing.T) {
 		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(2000)}},
 	}
 
-	_, total, created, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "idem-1", req)
+	_, _, _, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "idem-1", req)
+	if !errors.Is(err, common.ErrPriceChanged) {
+		t.Fatalf("want ErrPriceChanged, got %v", err)
+	}
+	if salesRepo.insertSaleCount != 0 {
+		t.Fatalf("stale/tampered price must be rejected before sale insert")
+	}
+}
+
+func TestCreateAndFinalizeAcceptsMatchingUnitPriceSnapshot(t *testing.T) {
+	svc, salesRepo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
+	snapshot := platform.NewMoneyCents(1000)
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		Items:         []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(2_000), UnitPrice: &snapshot}},
+		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(2000)}},
+	}
+
+	_, total, created, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "snapshot-match", req)
 	if err != nil {
 		t.Fatalf("CreateAndFinalize: %v", err)
 	}
-	if !created {
-		t.Fatalf("expected created sale")
-	}
-	if total.Cents() != 2000 {
-		t.Fatalf("want total 2000 cents, got %d", total.Cents())
+	if !created || total.Cents() != 2000 {
+		t.Fatalf("matching snapshot should create sale total=2000, created=%v total=%d", created, total.Cents())
 	}
 	if got := salesRepo.insertedItems[0].UnitPrice.Cents(); got != 1000 {
-		t.Fatalf("backend must use product price 1000 cents, got %d", got)
+		t.Fatalf("backend must remain price authority, got %d cents", got)
+	}
+}
+
+func TestSaleRequestHashPreservesLegacyShapeWithoutUnitPrice(t *testing.T) {
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		Items: []SaleItemRequest{{
+			ProductID:     "prod-1",
+			Qty:           platform.NewQuantityMilli(1_000),
+			DiscountValue: 0,
+		}},
+		Payments: []SalePaymentRequest{{
+			Method: "cash",
+			Amount: platform.NewMoneyCents(1_000),
+		}},
+	}
+
+	got, err := saleRequestHash(req)
+	if err != nil {
+		t.Fatalf("saleRequestHash: %v", err)
+	}
+	const legacyHash = "de7ffeb96aeecfe5e726e701f485cb689cf76a7eee089688e12e1f08be19793d"
+	if got != legacyHash {
+		t.Fatalf("legacy hash changed: got %s want %s", got, legacyHash)
+	}
+
+	snapshot := platform.NewMoneyCents(1_000)
+	req.Items[0].UnitPrice = &snapshot
+	withSnapshot, err := saleRequestHash(req)
+	if err != nil {
+		t.Fatalf("saleRequestHash with snapshot: %v", err)
+	}
+	if withSnapshot == got {
+		t.Fatal("new price snapshot must participate in hashes for new intents")
 	}
 }
 
@@ -124,6 +173,27 @@ func TestCreateAndFinalizeIdempotencyReplayAndConflict(t *testing.T) {
 	_, _, _, err = svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "same-key", req)
 	if !errors.Is(err, common.ErrConflict) {
 		t.Fatalf("want ErrConflict, got %v", err)
+	}
+}
+
+func TestCreateAndFinalizeRejectsCustomerOutsideTenant(t *testing.T) {
+	svc, salesRepo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
+	allowed := false
+	salesRepo.customerAllowed = &allowed
+	customerID := "11111111-1111-1111-1111-111111111111"
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		CustomerID:    &customerID,
+		Items:         []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(1_000)}},
+		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(1000)}},
+	}
+
+	_, _, _, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "customer-tenant-key", req)
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("want ErrValidation for customer outside tenant, got %v", err)
+	}
+	if salesRepo.insertSaleCount != 0 {
+		t.Fatalf("cross-tenant customer must be rejected before inserting sale")
 	}
 }
 
@@ -257,8 +327,15 @@ type fakeSalesRepo struct {
 	insertedSales   []sales.Sale
 	insertSaleCount int
 	results         map[string]idemResult
+	customerAllowed *bool
 }
 
+func (r *fakeSalesRepo) CustomerBelongsToTenant(context.Context, db.DBTX, string, string) (bool, error) {
+	if r.customerAllowed != nil {
+		return *r.customerAllowed, nil
+	}
+	return true, nil
+}
 func (r *fakeSalesRepo) InsertSale(_ context.Context, _ db.DBTX, _ string, sale sales.Sale) (string, error) {
 	r.insertedSales = append(r.insertedSales, sale)
 	r.insertSaleCount++
@@ -341,6 +418,12 @@ func (fakeCashRepo) EnsureDefaultRegister(context.Context, string) (string, erro
 }
 func (fakeCashRepo) OpenSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) (string, error) {
 	return "cash-1", nil
+}
+func (fakeCashRepo) GetOpenSession(context.Context, string) (sales.CashSession, bool, error) {
+	return sales.CashSession{ID: "cash-1", Status: "open"}, true, nil
+}
+func (fakeCashRepo) ListOpenSessionsByUser(context.Context, string) ([]sales.CashSession, error) {
+	return nil, nil
 }
 func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, platform.Money, *string) error {
 	return nil

@@ -3,14 +3,17 @@ package application
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/example/sistemaemgo/internal/config"
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 )
 
 type InventoryService struct {
@@ -18,6 +21,7 @@ type InventoryService struct {
 	uow      db.UnitOfWork
 	inv      InventoryRepository
 	products ProductsRepository
+	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
 }
@@ -29,8 +33,8 @@ type InventoryAdjustRequest struct {
 	Type      string            `json:"type" validate:"required,oneof=purchase adjustment loss damage return"`
 }
 
-func NewInventoryService(cfg config.Config, uow db.UnitOfWork, invRepo InventoryRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *InventoryService {
-	return &InventoryService{cfg: cfg, uow: uow, inv: invRepo, products: productsRepo, validate: v, logger: logger}
+func NewInventoryService(cfg config.Config, uow db.UnitOfWork, invRepo InventoryRepository, productsRepo ProductsRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *InventoryService {
+	return &InventoryService{cfg: cfg, uow: uow, inv: invRepo, products: productsRepo, audit: auditSvc, validate: v, logger: logger}
 }
 
 func (s *InventoryService) LowStock(ctx context.Context, tenantID string, limit int) ([]inv.Product, error) {
@@ -45,6 +49,10 @@ func (s *InventoryService) Adjust(ctx context.Context, tenantID string, actorUse
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
+	req.ProductID = strings.TrimSpace(req.ProductID)
+	if _, err := uuid.Parse(req.ProductID); err != nil {
+		return common.ErrValidation
+	}
 	mt := inv.MovementType(req.Type)
 	delta, err := mt.NormalizeDelta(req.Delta)
 	if err != nil {
@@ -56,6 +64,14 @@ func (s *InventoryService) Adjust(ctx context.Context, tenantID string, actorUse
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	products, err := s.products.GetManyByIDs(ctx, tx, tenantID, []string{req.ProductID})
+	if err != nil {
+		return err
+	}
+	if _, ok := products[req.ProductID]; !ok {
+		return common.ErrNotFound
+	}
 
 	if err := s.inv.EnsureBalanceRow(ctx, tx, tenantID, req.ProductID); err != nil {
 		return err
@@ -84,6 +100,17 @@ func (s *InventoryService) Adjust(ctx context.Context, tenantID string, actorUse
 	actor := actorUserID
 	m := inv.NewMovement(req.ProductID, mt, delta, bal, after, &reason, &refType, nil, &actor, time.Now().Format(time.RFC3339))
 	if err := s.inv.InsertMovement(ctx, tx, tenantID, m); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "inventory.adjust",
+		ResourceType: "product", ResourceID: req.ProductID, Outcome: "success",
+		Metadata: map[string]any{
+			"type":   req.Type,
+			"delta":  delta.String(),
+			"reason": req.Reason,
+		},
+	}); err != nil {
 		return err
 	}
 

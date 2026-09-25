@@ -1,11 +1,10 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
-
-	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	finapp "github.com/example/sistemaemgo/internal/modules/finance/application"
@@ -29,17 +28,31 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
 	if from == "" {
-		from = time.Now().Format("2006-01-02")
+		from = h.svc.Today()
 	}
 	if to == "" {
-		to = time.Now().Format("2006-01-02")
+		to = h.svc.Today()
+	}
+	fromDate, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "data inicial invalida", nil)
+		return
+	}
+	toDate, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "data final invalida", nil)
+		return
+	}
+	if fromDate.After(toDate) {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "periodo financeiro invalido", nil)
+		return
 	}
 	data, err := h.svc.Dashboard(r.Context(), au.TenantID, from, to)
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao carregar dashboard", nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "totals": data})
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "timezone": h.svc.Timezone(), "totals": data})
 }
 
 func (h *FinanceHandler) ListLedger(w http.ResponseWriter, r *http.Request) {

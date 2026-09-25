@@ -1,5 +1,16 @@
 import { expect, test } from '@playwright/test'
 
+async function waitForCashOpen(page: import('@playwright/test').Page) {
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .not.toBe('')
+}
+
 async function waitForCashClosed(page: import('@playwright/test').Page) {
   await expect
     .poll(async () =>
@@ -25,6 +36,7 @@ test('lost sale response reuses the original idempotency key', async ({ page }) 
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
+  await waitForCashOpen(page)
   await page.getByLabel('Produto').selectOption({ index: 1 })
   await page.getByRole('button', { name: 'Adicionar' }).click()
 
@@ -110,6 +122,143 @@ test('offline browser state is isolated by tenant and user', async ({ page }) =>
   expect(result.tenantACacheStillStored).toContain('product-a')
 })
 
+test('account-wide logout cleanup clears every tenant scope but preserves another user', async ({
+  page,
+}) => {
+  await page.goto('/login')
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const queue = await import('/src/lib/offlineQueue.ts')
+
+    function token(sub: string, tenant: string): string {
+      const payload = btoa(JSON.stringify({ sub, tenant_id: tenant }))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '')
+      return `x.${payload}.x`
+    }
+
+    const productNamespace = 'sistemaemgo:productsCache:v2'
+    const cashNamespace = 'sistemaemgo:cashSession:v2'
+    const queueNamespace = 'sistemaemgo:offlineQueue:v2'
+
+    auth.setToken(token('shared-user', 'tenant-a'))
+    const productA = auth.scopedStorageKey(productNamespace)
+    const cashA = auth.scopedStorageKey(cashNamespace)
+    const queueA = auth.scopedStorageKey(queueNamespace)
+    if (!productA || !cashA || !queueA) throw new Error('tenant A scope missing')
+    localStorage.setItem(productA, 'product-a')
+    auth.setCashSessionId('cash-a')
+    queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: { cash_session_id: 'cash-a', items: [], payments: [] },
+    })
+
+    auth.setToken(token('shared-user', 'tenant-b'))
+    const productB = auth.scopedStorageKey(productNamespace)
+    const cashB = auth.scopedStorageKey(cashNamespace)
+    const queueB = auth.scopedStorageKey(queueNamespace)
+    if (!productB || !cashB || !queueB) throw new Error('tenant B scope missing')
+    localStorage.setItem(productB, 'product-b')
+    auth.setCashSessionId('cash-b')
+    queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: { cash_session_id: 'cash-b', items: [], payments: [] },
+    })
+
+    const allUserQueueCount = queue.getAllUserQueueCount()
+
+    localStorage.setItem(
+      'sistemaemgo:offlineQueue:v1',
+      JSON.stringify([
+        {
+          id: 'legacy-sale',
+          createdAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: { cash_session_id: 'legacy-cash', items: [], payments: [] },
+        },
+      ]),
+    )
+
+    auth.setToken(token('other-user', 'tenant-c'))
+    const otherProduct = auth.scopedStorageKey(productNamespace)
+    const otherQueue = auth.scopedStorageKey(queueNamespace)
+    if (!otherProduct || !otherQueue) throw new Error('other user scope missing')
+    localStorage.setItem(otherProduct, 'other-product')
+    queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: { cash_session_id: 'cash-c', items: [], payments: [] },
+    })
+
+    auth.setToken(token('shared-user', 'tenant-b'))
+    auth.clearAllCashSessionsForCurrentUser()
+    queue.clearAllOfflineQueuesForCurrentUser()
+    auth.clearAllUserScopedStorage(productNamespace)
+
+    return {
+      allUserQueueCount,
+      productA: localStorage.getItem(productA),
+      productB: localStorage.getItem(productB),
+      cashA: localStorage.getItem(cashA),
+      cashB: localStorage.getItem(cashB),
+      queueA: localStorage.getItem(queueA),
+      queueB: localStorage.getItem(queueB),
+      otherProduct: localStorage.getItem(otherProduct),
+      otherQueue: localStorage.getItem(otherQueue),
+      legacyQueue: localStorage.getItem('sistemaemgo:offlineQueue:v1'),
+      legacyCount: queue.getLegacyQueueCount(),
+    }
+  })
+
+  expect(result.allUserQueueCount).toBe(2)
+  expect(result.productA).toBeNull()
+  expect(result.productB).toBeNull()
+  expect(result.cashA).toBeNull()
+  expect(result.cashB).toBeNull()
+  expect(result.queueA).toBeNull()
+  expect(result.queueB).toBeNull()
+  expect(result.otherProduct).toBe('other-product')
+  expect(result.otherQueue).not.toBeNull()
+  expect(result.legacyQueue).not.toBeNull()
+  expect(result.legacyCount).toBe(1)
+})
+
+test('legacy offline queue blocks logout until explicit reconciliation', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'sistemaemgo:offlineQueue:v1',
+      JSON.stringify([
+        {
+          id: 'legacy-logout-sale',
+          createdAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: { cash_session_id: 'legacy-cash', items: [], payments: [] },
+        },
+      ]),
+    )
+  })
+
+  await page.getByRole('button', { name: 'Sair' }).click()
+
+  await expect(page.getByText(/fila offline legada/)).toBeVisible()
+  await expect(page).toHaveURL(/\/products$/)
+  expect(
+    await page.evaluate(() => localStorage.getItem('sistemaemgo:offlineQueue:v1')),
+  ).not.toBeNull()
+})
+
 test('permanent queue conflict does not block later sales and expired items are preserved', async ({ page }) => {
   await page.goto('/login')
 
@@ -143,13 +292,21 @@ test('permanent queue conflict does not block later sales and expired items are 
     queue.enqueueRequest({
       method: 'POST',
       path: '/api/v1/sales',
-      body: { cash_session_id: 'cash-conflict', items: [], payments: [] },
+      body: {
+        cash_session_id: 'cash-conflict',
+        items: [{ product_id: 'prod-conflict', qty: 1, unit_price: 10, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: 10 }],
+      },
       headers: { 'Idempotency-Key': 'conflict-key' },
     })
     queue.enqueueRequest({
       method: 'POST',
       path: '/api/v1/sales',
-      body: { cash_session_id: 'cash-ok', items: [], payments: [] },
+      body: {
+        cash_session_id: 'cash-ok',
+        items: [{ product_id: 'prod-ok', qty: 1, unit_price: 10, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: 10 }],
+      },
       headers: { 'Idempotency-Key': 'ok-key' },
     })
 
@@ -158,7 +315,11 @@ test('permanent queue conflict does not block later sales and expired items are 
     queue.enqueueRequest({
       method: 'POST',
       path: '/api/v1/sales',
-      body: { cash_session_id: 'cash-expired', items: [], payments: [] },
+      body: {
+        cash_session_id: 'cash-expired',
+        items: [{ product_id: 'prod-expired', qty: 1, unit_price: 10, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: 10 }],
+      },
       headers: { 'Idempotency-Key': 'expired-key' },
     })
 
@@ -185,4 +346,233 @@ test('permanent queue conflict does not block later sales and expired items are 
   expect(result.summary.attention).toBe(2)
   expect(result.summary.total).toBe(2)
   expect(result.preservedCount).toBe(2)
+})
+
+test('offline sale older than safe replay window cannot retry or rebind', async ({ page }) => {
+  await page.goto('/login')
+
+  let salePosts = 0
+  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+    if (route.request().method() === 'POST') salePosts += 1
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'must-not-be-created', status: 'finalized', total: 10 }),
+    })
+  })
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const queue = await import('/src/lib/offlineQueue.ts')
+
+    const payload = btoa(JSON.stringify({ sub: 'retention-user', tenant_id: 'retention-tenant' }))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+    auth.setToken(`x.${payload}.x`)
+
+    const id = queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: {
+        cash_session_id: 'old-cash',
+        items: [{ product_id: 'prod-old', qty: 1, unit_price: 10, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: 10 }],
+      },
+      headers: { 'Idempotency-Key': 'too-old-idempotency-key' },
+    })
+
+    const storageKey = auth.scopedStorageKey('sistemaemgo:offlineQueue:v2')
+    if (!storageKey) throw new Error('missing queue scope')
+
+    const stored = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as Array<{
+      id: string
+      createdAt: number
+      intentCreatedAt?: number
+      state?: string
+    }>
+    const item = stored.find((candidate) => candidate.id === id)
+    if (!item) throw new Error('retention test item missing')
+    const oldCreatedAt = Date.now() - 29 * 24 * 60 * 60 * 1000
+    item.createdAt = oldCreatedAt
+    item.intentCreatedAt = oldCreatedAt
+    item.state = 'attention'
+    localStorage.setItem(storageKey, JSON.stringify(stored))
+
+    const retry = queue.retryQueueItem(id)
+    const rebind = queue.rebindQueueItemToCashSession(id, 'new-cash')
+    const flushed = await queue.flushQueue()
+    const finalItem = queue.getQueueItems().find((candidate) => candidate.id === id)
+
+    return {
+      retry,
+      rebind,
+      flushed,
+      state: finalItem?.state,
+      reason: finalItem?.attentionReason,
+      cashSessionID:
+        finalItem?.body && typeof finalItem.body === 'object'
+          ? (finalItem.body as { cash_session_id?: string }).cash_session_id
+          : undefined,
+    }
+  })
+
+  expect(result.retry).toBe(false)
+  expect(result.rebind).toBe(false)
+  expect(result.state).toBe('attention')
+  expect(result.reason).toBe('retention_expired')
+  expect(result.cashSessionID).toBe('old-cash')
+  expect(result.flushed.processed).toBe(0)
+  expect(salePosts).toBe(0)
+})
+
+test('pre-price-snapshot v2 sale is quarantined and cannot retry or rebind', async ({
+  page,
+}) => {
+  await page.goto('/login')
+
+  let salePosts = 0
+  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+    if (route.request().method() === 'POST') salePosts += 1
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'must-not-be-created', status: 'finalized', total: 10 }),
+    })
+  })
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const queue = await import('/src/lib/offlineQueue.ts')
+
+    const payload = btoa(JSON.stringify({ sub: 'price-v2-user', tenant_id: 'price-v2-tenant' }))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+    auth.setToken(`x.${payload}.x`)
+
+    const storageKey = auth.scopedStorageKey('sistemaemgo:offlineQueue:v2')
+    if (!storageKey) throw new Error('missing queue scope')
+
+    const id = crypto.randomUUID()
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify([
+        {
+          id,
+          createdAt: Date.now(),
+          intentCreatedAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: {
+            cash_session_id: 'old-cash',
+            items: [{ product_id: 'old-product', qty: 1, discount_value: 0 }],
+            payments: [{ method: 'cash', amount: 10 }],
+          },
+          headers: { 'Idempotency-Key': 'pre-price-snapshot-key' },
+          state: 'pending',
+        },
+      ]),
+    )
+
+    const loaded = queue.getQueueItems().find((candidate) => candidate.id === id)
+    const retry = queue.retryQueueItem(id)
+    const rebind = queue.rebindQueueItemToCashSession(id, 'new-cash')
+    const flushed = await queue.flushQueue()
+    const finalItem = queue.getQueueItems().find((candidate) => candidate.id === id)
+
+    return {
+      loadedState: loaded?.state,
+      loadedReason: loaded?.attentionReason,
+      retry,
+      rebind,
+      flushed,
+      finalState: finalItem?.state,
+      finalReason: finalItem?.attentionReason,
+    }
+  })
+
+  expect(result.loadedState).toBe('attention')
+  expect(result.loadedReason).toBe('price_snapshot_missing')
+  expect(result.retry).toBe(false)
+  expect(result.rebind).toBe(false)
+  expect(result.flushed.processed).toBe(0)
+  expect(result.finalState).toBe('attention')
+  expect(result.finalReason).toBe('price_snapshot_missing')
+  expect(salePosts).toBe(0)
+})
+
+test('pre-upgrade queue item with unknown original age is quarantined', async ({ page }) => {
+  await page.goto('/login')
+
+  let salePosts = 0
+  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+    if (route.request().method() === 'POST') salePosts += 1
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'must-not-be-created', status: 'finalized', total: 10 }),
+    })
+  })
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const queue = await import('/src/lib/offlineQueue.ts')
+
+    const payload = btoa(JSON.stringify({ sub: 'legacy-v2-user', tenant_id: 'legacy-v2-tenant' }))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+    auth.setToken(`x.${payload}.x`)
+
+    const storageKey = auth.scopedStorageKey('sistemaemgo:offlineQueue:v2')
+    if (!storageKey) throw new Error('missing queue scope')
+
+    const id = crypto.randomUUID()
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify([
+        {
+          id,
+          createdAt: Date.now(),
+          lastAttemptAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: { cash_session_id: 'legacy-cash', items: [], payments: [] },
+          headers: { 'Idempotency-Key': 'legacy-unknown-age' },
+          state: 'pending',
+        },
+      ]),
+    )
+
+    const loaded = queue.getQueueItems().find((candidate) => candidate.id === id)
+    const retry = queue.retryQueueItem(id)
+    const rebind = queue.rebindQueueItemToCashSession(id, 'new-cash')
+    const flushed = await queue.flushQueue()
+    const finalItem = queue.getQueueItems().find((candidate) => candidate.id === id)
+
+    return {
+      loadedState: loaded?.state,
+      loadedReason: loaded?.attentionReason,
+      retry,
+      rebind,
+      flushed,
+      finalState: finalItem?.state,
+      finalReason: finalItem?.attentionReason,
+      cashSessionID:
+        finalItem?.body && typeof finalItem.body === 'object'
+          ? (finalItem.body as { cash_session_id?: string }).cash_session_id
+          : undefined,
+    }
+  })
+
+  expect(result.loadedState).toBe('attention')
+  expect(result.loadedReason).toBe('retention_unknown')
+  expect(result.retry).toBe(false)
+  expect(result.rebind).toBe(false)
+  expect(result.finalState).toBe('attention')
+  expect(result.finalReason).toBe('retention_unknown')
+  expect(result.cashSessionID).toBe('legacy-cash')
+  expect(result.flushed.processed).toBe(0)
+  expect(salePosts).toBe(0)
 })

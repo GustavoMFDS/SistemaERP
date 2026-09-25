@@ -50,3 +50,30 @@ Production notes:
 - Production bootstrap must create the first administrator with an explicit tenant membership and tenant-scoped role assignment; default demo credentials are never created by the production seed.
 - Validate backups and restores before production. Migration rollback should be a planned operational procedure, not improvised during an incident.
 - See `docs/deployment.md` for backup, restore, migration validation, and rollback procedures.
+
+## Round 6 security/integrity controls
+- Critical `sale.create`, `sale.cancel`, `cash.open`, `cash.supply`, `cash.withdrawal` and `cash.close` audit rows are inserted in the same PostgreSQL transaction as the business mutation.
+- Redis rate limiting repairs legacy keys that have no TTL by reapplying `PEXPIRE` when `PTTL < 0`.
+- Cash-session `FOR UPDATE` serialization prevents sale/cancel/movement operations from racing past cash close.
+- Normal cancellation is blocked once a fiscal invoice exists; a SEFAZ-ready fiscal cancellation flow is required before production fiscal cancellation can be supported.
+- Idempotency retention runs on startup/hourly in bounded batches and is backed by the `idempotency_keys_created_at_idx` index.
+
+## Round 7 — isolamento relacional multi-tenant
+- `GET /auth/me` usa exatamente o tenant autenticado no JWT; não recalcula o primeiro tenant do usuário.
+- `user_tenants.active` permite revogar acesso a uma loja sem desativar a identidade global do usuário.
+- Memberships inativas não concedem roles/permissões e não caem no fallback legado de primeiro tenant.
+- A migration `0017_tenant_relational_integrity` adiciona FKs compostas tenant-aware entre catálogo, estoque, caixa, vendas, pagamentos, ledger, fiscal, idempotência e reconciliação.
+- `product.category_id` e `sale.customer_id` são protegidos por FKs compostas, impedindo referências entre CNPJs.
+- O barcode de produto é único por tenant, não globalmente.
+- Operações LGPD validam que o titular pertence ao tenant. Bloqueio de usuário atua na membership; anonimização de uma identidade compartilhada por outras lojas retorna conflito.
+
+### Explicit tenant switching
+- Users with more than one active CNPJ membership can enumerate only their own memberships through `/auth/tenants`.
+- Tenant switching consumes the current refresh token before issuing credentials for the target tenant, preventing the pre-switch refresh token from being replayed.
+- The target tenant is revalidated against `user_tenants.active`; inactive/foreign tenants are rejected.
+- The frontend performs a full page reload after switching so no in-memory page state crosses tenant boundaries. Cash session, offline queue, and product caches remain tenant+user namespaced.
+- Tenant credential switching shares the refresh-token rate limit and treats a valid refresh cookie from another tab/tenant as a session conflict instead of deleting that valid cookie.
+- Historical actor FKs require `created_by/opened_by/actor_user_id` to have a `user_tenants` relationship with the row tenant across cash, sales, inventory, ledger, expenses, revenues, fiscal, privacy requests and audit.
+- Rollback of migration `0017` aborts if inactive memberships or cross-tenant duplicate barcodes exist, avoiding silent access reactivation or invalid global barcode uniqueness.
+
+

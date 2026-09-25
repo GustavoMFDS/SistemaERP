@@ -11,6 +11,7 @@ import (
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
+	"github.com/google/uuid"
 )
 
 type APIError struct {
@@ -36,6 +37,28 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code string,
 }
 
 const maxJSONBodyBytes = 1 << 20
+
+func normalizeUUID(raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if _, err := uuid.Parse(value); err != nil {
+		return "", false
+	}
+	return value, true
+}
+
+func validUUID(raw string) bool {
+	_, ok := normalizeUUID(raw)
+	return ok
+}
+
+func requireUUID(w http.ResponseWriter, r *http.Request, raw string) (string, bool) {
+	value, ok := normalizeUUID(raw)
+	if !ok {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "identificador invalido", nil)
+		return "", false
+	}
+	return value, true
+}
 
 func readJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
@@ -106,6 +129,8 @@ func friendlyErrorMessage(err error) string {
 		return "ja existe uma sessao aberta para este caixa"
 	case errors.Is(err, common.ErrPaymentsMismatch):
 		return "pagamentos nao conferem com o total"
+	case errors.Is(err, common.ErrPriceChanged):
+		return "preco do produto mudou; revise a venda antes de reenviar"
 	case errors.Is(err, common.ErrConflict):
 		return "conflito com o estado atual do recurso"
 	case errors.Is(err, common.ErrNotFound):

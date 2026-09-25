@@ -8,6 +8,7 @@ import (
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -20,23 +21,32 @@ func NewCashRepo(dbpool *pgxpool.Pool) *CashRepo {
 	return &CashRepo{db: dbpool}
 }
 
-func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tenantID string) (string, error) {
+func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tx db.DBTX, tenantID string) (string, error) {
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+	`, "cash-default-register:"+tenantID); err != nil {
+		return "", err
+	}
+
 	var id string
-	err := r.db.QueryRow(ctx, `
-		WITH ins AS (
-			INSERT INTO cash_registers(tenant_id, name, active)
-			SELECT $1::uuid, 'Caixa Principal', true
-			WHERE NOT EXISTS (SELECT 1 FROM cash_registers WHERE tenant_id=$1)
-			RETURNING id, created_at
-		)
+	err := tx.QueryRow(ctx, `
 		SELECT id::text
-		FROM (
-			SELECT id, created_at FROM ins
-			UNION ALL
-			SELECT id, created_at FROM cash_registers WHERE tenant_id=$1
-		) registers
-		ORDER BY created_at
+		FROM cash_registers
+		WHERE tenant_id=$1
+		ORDER BY created_at, id
 		LIMIT 1
+	`, tenantID).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+
+	err = tx.QueryRow(ctx, `
+		INSERT INTO cash_registers(tenant_id, name, active)
+		VALUES ($1, 'Caixa Principal', true)
+		RETURNING id::text
 	`, tenantID).Scan(&id)
 	return id, err
 }
@@ -44,10 +54,20 @@ func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tenantID string) (
 func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `
+		WITH active_membership AS (
+			SELECT user_id
+			FROM user_tenants
+			WHERE user_id=$3 AND tenant_id=$1 AND active=true
+			FOR SHARE
+		)
 		INSERT INTO cash_sessions(tenant_id, cash_register_id, opened_by_user_id, opening_amount, notes)
-		VALUES ($1,$2,$3,$4,$5)
+		SELECT $1,$2,$3,$4,$5
+		FROM active_membership
 		RETURNING id::text
 	`, tenantID, registerID, userID, openingAmount.DBString(), notes).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", common.ErrForbidden
+	}
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "cash_sessions_one_open_per_register" {
@@ -55,6 +75,86 @@ func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string,
 		}
 	}
 	return id, err
+}
+
+func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string) (sales.CashSession, bool, error) {
+	var s sales.CashSession
+	var openingRaw string
+	err := r.db.QueryRow(ctx, `
+		WITH default_register AS (
+			SELECT id
+			FROM cash_registers
+			WHERE tenant_id=$1
+			ORDER BY created_at
+			LIMIT 1
+		)
+		SELECT cs.id::text, cs.cash_register_id::text, cs.opened_by_user_id::text, cs.status, cs.opening_amount::text
+		FROM default_register dr
+		JOIN cash_sessions cs
+		  ON cs.cash_register_id=dr.id
+		 AND cs.tenant_id=$1
+		WHERE cs.status='open'
+		ORDER BY cs.opened_at DESC
+		LIMIT 1
+	`, tenantID).Scan(&s.ID, &s.RegisterID, &s.OpenedByUserID, &s.Status, &openingRaw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return sales.CashSession{}, false, nil
+	}
+	if err != nil {
+		return sales.CashSession{}, false, err
+	}
+	opening, err := platform.ParseMoney(openingRaw)
+	if err != nil {
+		return sales.CashSession{}, false, err
+	}
+	s.OpeningAmount = opening
+	return s, true, nil
+}
+
+func (r *CashRepo) ListOpenSessionsByUser(ctx context.Context, userID string) ([]sales.CashSession, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			cs.id::text,
+			cs.tenant_id::text,
+			cs.cash_register_id::text,
+			cs.opened_by_user_id::text,
+			cs.status,
+			cs.opening_amount::text
+		FROM cash_sessions cs
+		JOIN user_tenants ut
+		  ON ut.user_id=$1
+		 AND ut.tenant_id=cs.tenant_id
+		 AND ut.active=true
+		WHERE cs.opened_by_user_id=$1
+		  AND cs.status='open'
+		ORDER BY cs.opened_at
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]sales.CashSession, 0)
+	for rows.Next() {
+		var session sales.CashSession
+		var openingRaw string
+		if err := rows.Scan(
+			&session.ID,
+			&session.TenantID,
+			&session.RegisterID,
+			&session.OpenedByUserID,
+			&session.Status,
+			&openingRaw,
+		); err != nil {
+			return nil, err
+		}
+		session.OpeningAmount, err = platform.ParseMoney(openingRaw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	return out, rows.Err()
 }
 
 func (r *CashRepo) CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, expectedCash, closingAmount platform.Money, notes *string) error {

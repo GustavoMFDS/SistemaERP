@@ -19,6 +19,18 @@ func NewSalesRepo(dbpool *pgxpool.Pool) *SalesRepo {
 	return &SalesRepo{db: dbpool}
 }
 
+func (r *SalesRepo) CustomerBelongsToTenant(ctx context.Context, tx db.DBTX, tenantID, customerID string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM customers
+			WHERE tenant_id=$1 AND id=$2
+		)
+	`, tenantID, customerID).Scan(&exists)
+	return exists, err
+}
+
 func (r *SalesRepo) InsertSale(ctx context.Context, tx db.DBTX, tenantID string, s sales.Sale) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `

@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -34,6 +35,153 @@ func TestRefreshWithSubjectReturnsAuditIdentity(t *testing.T) {
 	}
 	if userID != "user-1" || tenantID != "tenant-1" {
 		t.Fatalf("unexpected audit identity user=%q tenant=%q", userID, tenantID)
+	}
+}
+
+func TestSwitchTenantRotatesRefreshAndChangesTenant(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "11111111-1111-1111-1111-111111111111",
+		allowedTenants: map[string]bool{
+			"11111111-1111-1111-1111-111111111111": true,
+			"22222222-2222-2222-2222-222222222222": true,
+		},
+		roles: []string{"admin"},
+	}
+	refreshStore := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, refreshStore, nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	switched, info, err := svc.SwitchTenant(
+		context.Background(),
+		"user-1",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		loginResp.RefreshToken,
+	)
+	if err != nil {
+		t.Fatalf("SwitchTenant returned error: %v", err)
+	}
+	if info.TenantID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("unexpected switched tenant %q", info.TenantID)
+	}
+
+	userID, tenantID, err := svc.ValidateToken(context.Background(), switched.AccessToken)
+	if err != nil {
+		t.Fatalf("new access token should validate: %v", err)
+	}
+	if userID != "user-1" || tenantID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("unexpected switched token user=%q tenant=%q", userID, tenantID)
+	}
+
+	if _, _, _, err := svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken); err == nil {
+		t.Fatal("old refresh token must be consumed by tenant switch")
+	}
+}
+
+func TestSwitchTenantStaleTabKeepsCurrentRefreshCookieValid(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "11111111-1111-1111-1111-111111111111",
+		allowedTenants: map[string]bool{
+			"11111111-1111-1111-1111-111111111111": true,
+			"22222222-2222-2222-2222-222222222222": true,
+		},
+		roles: []string{"admin"},
+	}
+	refreshStore := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, refreshStore, nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	switched, _, err := svc.SwitchTenant(
+		context.Background(),
+		"user-1",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		loginResp.RefreshToken,
+	)
+	if err != nil {
+		t.Fatalf("first SwitchTenant returned error: %v", err)
+	}
+
+	_, _, err = svc.SwitchTenant(
+		context.Background(),
+		"user-1",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		switched.RefreshToken,
+	)
+	if err != common.ErrConflict {
+		t.Fatalf("expected stale-tab conflict, got %v", err)
+	}
+
+	_, userID, tenantID, err := svc.RefreshWithSubject(context.Background(), switched.RefreshToken)
+	if err != nil {
+		t.Fatalf("stale-tab conflict must preserve current refresh token: %v", err)
+	}
+	if userID != "user-1" || tenantID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("unexpected preserved refresh subject user=%q tenant=%q", userID, tenantID)
+	}
+}
+
+func TestSwitchTenantRejectsUnauthorizedTenantBeforeConsumingRefresh(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "11111111-1111-1111-1111-111111111111",
+		allowedTenants: map[string]bool{
+			"11111111-1111-1111-1111-111111111111": true,
+			"22222222-2222-2222-2222-222222222222": false,
+		},
+	}
+	refreshStore := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, refreshStore, nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+	_, _, err = svc.SwitchTenant(
+		context.Background(),
+		"user-1",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		loginResp.RefreshToken,
+	)
+	if err != common.ErrForbidden {
+		t.Fatalf("expected forbidden tenant switch, got %v", err)
+	}
+
+	if _, _, _, err := svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken); err != nil {
+		t.Fatalf("failed switch must not consume current refresh token: %v", err)
 	}
 }
 
@@ -88,6 +236,117 @@ func TestPermissionsReflectRoleChangesImmediately(t *testing.T) {
 	}
 }
 
+func TestGetUserInfoUsesAuthenticatedTenant(t *testing.T) {
+	allowed := true
+	users := &fakeUsersRepo{
+		user:          authdomain.User{ID: "user-1", Email: "admin@example.com", Name: "Admin", Active: true},
+		tenantID:      "tenant-a",
+		roles:         []string{"manager"},
+		tenantAllowed: &allowed,
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	info, err := svc.GetUserInfo(context.Background(), "user-1", "tenant-b")
+	if err != nil {
+		t.Fatalf("GetUserInfo returned error: %v", err)
+	}
+	if info.TenantID != "tenant-b" {
+		t.Fatalf("expected authenticated tenant-b, got %q", info.TenantID)
+	}
+}
+
+func TestDummyPasswordHashIsValid(t *testing.T) {
+	if err := bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte("invalid-password-placeholder")); err != nil {
+		t.Fatalf("dummy bcrypt hash is invalid: %v", err)
+	}
+}
+
+func TestLoginInactiveUserStillChecksPassword(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: false,
+		},
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	_, _, err = svc.Login(context.Background(), "admin@example.com", "wrong-password")
+	if err != common.ErrInvalidCredentials {
+		t.Fatalf("wrong password for inactive account must stay invalid credentials, got %v", err)
+	}
+
+	_, _, err = svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != common.ErrInactiveUser {
+		t.Fatalf("correct password for inactive account must return inactive after bcrypt, got %v", err)
+	}
+}
+
+func TestLoginPropagatesRepositoryFailureAfterDummyBcrypt(t *testing.T) {
+	repoErr := errors.New("database unavailable")
+	users := &fakeUsersRepo{emailErr: repoErr}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	_, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if !errors.Is(err, repoErr) {
+		t.Fatalf("repository failure must be preserved, got %v", err)
+	}
+}
+
+func TestLoginRoleLookupFailureDoesNotCreateSession(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	roleErr := errors.New("roles backend unavailable")
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "tenant-1",
+		rolesErr: roleErr,
+	}
+	store := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, store, nil)
+
+	_, _, err = svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if !errors.Is(err, roleErr) {
+		t.Fatalf("role lookup failure must be preserved, got %v", err)
+	}
+	if len(store.tokens) != 0 {
+		t.Fatalf("failed role lookup must not persist refresh token, got %d", len(store.tokens))
+	}
+	if users.lastLoginUpdates != 0 {
+		t.Fatalf("failed role lookup must not update last_login_at, got %d", users.lastLoginUpdates)
+	}
+}
+
+func TestLoginUpdatesLastLoginAfterSuccessfulSessionIssuance(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "tenant-1",
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	if _, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password"); err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+	if users.lastLoginUpdates != 1 {
+		t.Fatalf("successful login must update last_login_at once, got %d", users.lastLoginUpdates)
+	}
+}
+
 func TestLoginFailsWhenTenantMappingMissing(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
@@ -102,6 +361,9 @@ func TestLoginFailsWhenTenantMappingMissing(t *testing.T) {
 	_, _, err = svc.Login(context.Background(), "admin@example.com", "strong-password")
 	if err != common.ErrForbidden {
 		t.Fatalf("expected tenant mapping error, got %v", err)
+	}
+	if users.lastLoginUpdates != 0 {
+		t.Fatalf("failed tenant mapping must not update last_login_at, got %d update(s)", users.lastLoginUpdates)
 	}
 }
 
@@ -160,6 +422,45 @@ func TestValidateTokenRejectsRemovedTenantMembership(t *testing.T) {
 	}
 }
 
+func TestRefreshRepositoryFailureBeforeConsumePreservesOriginalToken(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "tenant-1",
+	}
+	store := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, store, nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	repoErr := errors.New("postgres unavailable")
+	users.getByIDErr = repoErr
+	_, _, _, err = svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken)
+	if !errors.Is(err, repoErr) {
+		t.Fatalf("refresh must preserve repository failure, got %v", err)
+	}
+	if store.consumeCalls != 0 {
+		t.Fatalf("repository failure must happen before refresh consumption, got %d consume call(s)", store.consumeCalls)
+	}
+
+	users.getByIDErr = nil
+	if _, _, _, err := svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken); err != nil {
+		t.Fatalf("original refresh token must remain retryable after repository recovery: %v", err)
+	}
+	if store.consumeCalls != 1 {
+		t.Fatalf("successful retry must consume original token once, got %d", store.consumeCalls)
+	}
+}
+
 func TestRefreshRejectsRemovedTenantMembership(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
@@ -210,14 +511,23 @@ func TestRefreshChecksActiveUser(t *testing.T) {
 
 type fakeUsersRepo struct {
 	user          authdomain.User
+	emailErr      error
+	getByIDErr    error
 	tenantID      string
 	tenantErr     error
 	roles         []string
-	tenantPerms   map[string][]string
-	tenantAllowed *bool
+	rolesErr      error
+	tenantPerms    map[string][]string
+	tenantAllowed  *bool
+	allowedTenants map[string]bool
+	tenants          []AuthTenantInfo
+	lastLoginUpdates int
 }
 
 func (f *fakeUsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
+	if f.emailErr != nil {
+		return authdomain.User{}, f.emailErr
+	}
 	if f.user.Email == email {
 		return f.user, nil
 	}
@@ -225,13 +535,19 @@ func (f *fakeUsersRepo) GetByEmail(ctx context.Context, email string) (authdomai
 }
 
 func (f *fakeUsersRepo) GetByID(ctx context.Context, id string) (authdomain.User, error) {
+	if f.getByIDErr != nil {
+		return authdomain.User{}, f.getByIDErr
+	}
 	if f.user.ID == id {
 		return f.user, nil
 	}
 	return authdomain.User{}, common.ErrNotFound
 }
 
-func (f *fakeUsersRepo) UpdateLastLogin(ctx context.Context, id string) error { return nil }
+func (f *fakeUsersRepo) UpdateLastLogin(ctx context.Context, id string) error {
+	f.lastLoginUpdates++
+	return nil
+}
 
 func (f *fakeUsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (string, error) {
 	if f.tenantErr != nil {
@@ -240,11 +556,27 @@ func (f *fakeUsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (
 	return f.tenantID, nil
 }
 
+func (f *fakeUsersRepo) ListUserTenants(ctx context.Context, userID string) ([]AuthTenantInfo, error) {
+	if f.tenants != nil {
+		return f.tenants, nil
+	}
+	if f.tenantID == "" {
+		return nil, nil
+	}
+	return []AuthTenantInfo{{ID: f.tenantID, LegalName: "Tenant"}}, nil
+}
+
 func (f *fakeUsersRepo) ListUserRoles(ctx context.Context, userID string, tenantID string) ([]string, error) {
+	if f.rolesErr != nil {
+		return nil, f.rolesErr
+	}
 	return f.roles, nil
 }
 
 func (f *fakeUsersRepo) UserHasTenant(ctx context.Context, userID string, tenantID string) (bool, error) {
+	if f.allowedTenants != nil {
+		return f.allowedTenants[tenantID], nil
+	}
 	if f.tenantAllowed != nil {
 		return *f.tenantAllowed, nil
 	}
@@ -256,7 +588,8 @@ func (f *fakeUsersRepo) ListUserPermissions(ctx context.Context, userID string, 
 }
 
 type fakeRefreshStore struct {
-	tokens map[string]string
+	tokens       map[string]string
+	consumeCalls int
 }
 
 func newFakeRefreshStore() *fakeRefreshStore {
@@ -269,6 +602,7 @@ func (f *fakeRefreshStore) Save(ctx context.Context, tokenID string, userID stri
 }
 
 func (f *fakeRefreshStore) Consume(ctx context.Context, tokenID string, userID string) (bool, error) {
+	f.consumeCalls++
 	if f.tokens[tokenID] != userID {
 		return false, nil
 	}

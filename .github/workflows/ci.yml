@@ -63,7 +63,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v16 migration upgrade and rollback
+      - name: Verify v12 to v17 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -219,6 +219,34 @@ jobs:
 
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
             -c "SELECT indexname FROM pg_indexes WHERE indexname='idempotency_keys_created_at_idx';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0016 -> 0017, verify tenant relational integrity,
+          # then prove rollback/reapply is clean.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='user_tenants' AND column_name='active';" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('products_tenant_category_fk','sales_tenant_customer_fk','products_tenant_fk','user_tenant_roles_membership_fk','cash_sessions_opened_by_membership_fk','audit_logs_actor_membership_fk') ORDER BY conname;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='products_tenant_barcode_unique';"
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \

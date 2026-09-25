@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/example/sistemaemgo/internal/modules/common"
 	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
 	privacy "github.com/example/sistemaemgo/internal/modules/privacy/domain"
+	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -18,9 +20,33 @@ func NewRepo(dbpool *pgxpool.Pool) *Repo {
 	return &Repo{db: dbpool}
 }
 
-func (r *Repo) CreateRequest(ctx context.Context, tenantID, actorUserID, requestID string, req privacyapp.CreateRequest) (string, error) {
+func (r *Repo) SubjectBelongsToTenant(ctx context.Context, tenantID, subjectType, subjectID string) (bool, error) {
+	var exists bool
+	switch subjectType {
+	case "customer":
+		err := r.db.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM customers
+				WHERE tenant_id=$1 AND id=$2
+			)
+		`, tenantID, subjectID).Scan(&exists)
+		return exists, err
+	case "user":
+		err := r.db.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM user_tenants
+				WHERE tenant_id=$1 AND user_id=$2
+			)
+		`, tenantID, subjectID).Scan(&exists)
+		return exists, err
+	default:
+		return false, fmt.Errorf("unsupported subject type")
+	}
+}
+
+func (r *Repo) CreateRequest(ctx context.Context, tx db.DBTX, tenantID, actorUserID, requestID string, req privacyapp.CreateRequest) (string, error) {
 	var id string
-	err := r.db.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		INSERT INTO data_subject_requests(
 			tenant_id, subject_type, subject_id, requester_email, request_type,
 			notes, created_by_user_id, request_id
@@ -70,8 +96,25 @@ func (r *Repo) GetRequest(ctx context.Context, tenantID, id string) (privacy.Dat
 	return items[0], nil
 }
 
-func (r *Repo) UpdateRequestStatus(ctx context.Context, tenantID, id, status string, notes *string) error {
-	tag, err := r.db.Exec(ctx, `
+func (r *Repo) GetRequestForUpdate(ctx context.Context, tx db.DBTX, tenantID, id string) (privacy.DataSubjectRequest, error) {
+	var item privacy.DataSubjectRequest
+	err := tx.QueryRow(ctx, `
+		SELECT id::text, tenant_id::text, subject_type, subject_id::text, requester_email::text,
+		       request_type, status, notes, requested_at::text, resolved_at::text,
+		       created_by_user_id::text, request_id
+		FROM data_subject_requests
+		WHERE tenant_id=$1 AND id=$2
+		FOR UPDATE
+	`, tenantID, id).Scan(
+		&item.ID, &item.TenantID, &item.SubjectType, &item.SubjectID, &item.RequesterEmail,
+		&item.RequestType, &item.Status, &item.Notes, &item.RequestedAt, &item.ResolvedAt,
+		&item.CreatedByUserID, &item.RequestID,
+	)
+	return item, err
+}
+
+func (r *Repo) UpdateRequestStatus(ctx context.Context, tx db.DBTX, tenantID, id, status string, notes *string) error {
+	tag, err := tx.Exec(ctx, `
 		UPDATE data_subject_requests
 		SET status=$3,
 		    notes=COALESCE($4, notes),
@@ -98,10 +141,10 @@ func (r *Repo) ExportSubjectData(ctx context.Context, tenantID, subjectType, sub
 	}
 }
 
-func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (r *Repo) AnonymizeSubject(ctx context.Context, tx db.DBTX, tenantID, subjectType, subjectID string) error {
 	switch subjectType {
 	case "customer":
-		tag, err := r.db.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE customers
 			SET name='Titular anonimizado', document=NULL, email=NULL, phone=NULL, updated_at=now()
 			WHERE tenant_id=$1 AND id=$2
@@ -114,20 +157,66 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 		}
 		return nil
 	case "user":
-		tag, err := r.db.Exec(ctx, `
-			UPDATE users u
+		var lockedUserID string
+		if err := tx.QueryRow(ctx, `
+			SELECT u.id::text
+			FROM users u
+			JOIN user_tenants ut ON ut.user_id=u.id
+			WHERE ut.tenant_id=$1 AND u.id=$2
+			FOR UPDATE OF u, ut
+		`, tenantID, subjectID).Scan(&lockedUserID); err != nil {
+			return err
+		}
+
+		var hasOpenCash bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1
+				FROM cash_sessions
+				WHERE tenant_id=$1
+				  AND opened_by_user_id=$2
+				  AND status='open'
+			)
+		`, tenantID, subjectID).Scan(&hasOpenCash); err != nil {
+			return err
+		}
+		if hasOpenCash {
+			return common.ErrConflict
+		}
+
+		var membershipCount int
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*)
+			FROM user_tenants
+			WHERE user_id=$1
+		`, subjectID).Scan(&membershipCount); err != nil {
+			return err
+		}
+		if membershipCount != 1 {
+			return common.ErrConflict
+		}
+
+		tag, err := tx.Exec(ctx, `
+			UPDATE users
 			SET name='Usuario anonimizado',
-			    email=('anon+' || u.id::text || '@anonymized.local')::citext,
+			    email=('anon+' || id::text || '@anonymized.local')::citext,
 			    active=false,
 			    updated_at=now()
-			FROM user_tenants ut
-			WHERE ut.user_id=u.id AND ut.tenant_id=$1 AND u.id=$2
-		`, tenantID, subjectID)
+			WHERE id=$1
+		`, subjectID)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			return pgx.ErrNoRows
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE user_tenants
+			SET active=false
+			WHERE tenant_id=$1 AND user_id=$2
+		`, tenantID, subjectID); err != nil {
+			return err
 		}
 		return nil
 	default:
@@ -135,15 +224,41 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 	}
 }
 
-func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (r *Repo) BlockSubject(ctx context.Context, tx db.DBTX, tenantID, subjectType, subjectID string) error {
 	if subjectType != "user" {
 		return fmt.Errorf("blocking is only supported for users")
 	}
-	tag, err := r.db.Exec(ctx, `
-		UPDATE users u
-		SET active=false, updated_at=now()
-		FROM user_tenants ut
-		WHERE ut.user_id=u.id AND ut.tenant_id=$1 AND u.id=$2
+
+	var lockedUserID string
+	if err := tx.QueryRow(ctx, `
+		SELECT user_id::text
+		FROM user_tenants
+		WHERE tenant_id=$1 AND user_id=$2
+		FOR UPDATE
+	`, tenantID, subjectID).Scan(&lockedUserID); err != nil {
+		return err
+	}
+
+	var hasOpenCash bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM cash_sessions
+			WHERE tenant_id=$1
+			  AND opened_by_user_id=$2
+			  AND status='open'
+		)
+	`, tenantID, subjectID).Scan(&hasOpenCash); err != nil {
+		return err
+	}
+	if hasOpenCash {
+		return common.ErrConflict
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE user_tenants
+		SET active=false
+		WHERE tenant_id=$1 AND user_id=$2
 	`, tenantID, subjectID)
 	if err != nil {
 		return err
@@ -154,9 +269,9 @@ func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectI
 	return nil
 }
 
-func (r *Repo) RecordConsent(ctx context.Context, tenantID, requestID string, req privacyapp.ConsentCreateRequest) (string, error) {
+func (r *Repo) RecordConsent(ctx context.Context, tx db.DBTX, tenantID, requestID string, req privacyapp.ConsentCreateRequest) (string, error) {
 	var id string
-	err := r.db.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		INSERT INTO consent_records(
 			tenant_id, subject_type, subject_id, purpose, consent_text_version, source, request_id
 		)
@@ -191,8 +306,8 @@ func (r *Repo) ListConsents(ctx context.Context, tenantID string, limit, offset 
 	return items, rows.Err()
 }
 
-func (r *Repo) RevokeConsent(ctx context.Context, tenantID, id string) error {
-	tag, err := r.db.Exec(ctx, `UPDATE consent_records SET withdrawn_at=COALESCE(withdrawn_at, now()) WHERE tenant_id=$1 AND id=$2`, tenantID, id)
+func (r *Repo) RevokeConsent(ctx context.Context, tx db.DBTX, tenantID, id string) error {
+	tag, err := tx.Exec(ctx, `UPDATE consent_records SET withdrawn_at=COALESCE(withdrawn_at, now()) WHERE tenant_id=$1 AND id=$2`, tenantID, id)
 	if err != nil {
 		return err
 	}

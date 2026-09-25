@@ -10,6 +10,6 @@ import (
 
 type FinanceRepository interface {
 	InsertLedgerEntry(ctx context.Context, tx db.DBTX, tenantID string, e fin.LedgerEntry, createdByUserID *string) (string, error)
-	Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]platform.Money, error)
+	Dashboard(ctx context.Context, tenantID string, from, to, timezone string) (map[string]platform.Money, error)
 	ListLedger(ctx context.Context, tenantID string, limit, offset int) ([]fin.LedgerEntry, int, error)
 }

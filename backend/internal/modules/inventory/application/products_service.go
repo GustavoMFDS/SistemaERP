@@ -3,17 +3,21 @@ package application
 import (
 	"context"
 	"log/slog"
+	"strings"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 )
 
 type ProductsService struct {
 	uow      db.UnitOfWork
 	repo     ProductsRepository
+	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
 }
@@ -34,8 +38,8 @@ type ProductCreateRequest struct {
 
 type ProductUpdateRequest = ProductCreateRequest
 
-func NewProductsService(uow db.UnitOfWork, r ProductsRepository, v *validator.Validate, logger *slog.Logger) *ProductsService {
-	return &ProductsService{uow: uow, repo: r, validate: v, logger: logger}
+func NewProductsService(uow db.UnitOfWork, r ProductsRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *ProductsService {
+	return &ProductsService{uow: uow, repo: r, audit: auditSvc, validate: v, logger: logger}
 }
 
 func (s *ProductsService) List(ctx context.Context, tenantID string, query string, limit, offset int) ([]inv.Product, int, error) {
@@ -46,8 +50,11 @@ func (s *ProductsService) Get(ctx context.Context, tenantID string, id string) (
 	return s.repo.Get(ctx, tenantID, id)
 }
 
-func (s *ProductsService) Create(ctx context.Context, tenantID string, req ProductCreateRequest) (string, error) {
+func (s *ProductsService) Create(ctx context.Context, tenantID string, actorUserID string, req ProductCreateRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
+		return "", common.ErrValidation
+	}
+	if err := normalizeOptionalUUID(req.CategoryID); err != nil {
 		return "", common.ErrValidation
 	}
 	tx, err := s.uow.Begin(ctx)
@@ -55,6 +62,15 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if req.CategoryID != nil {
+		ok, err := s.repo.CategoryBelongsToTenant(ctx, tx, tenantID, *req.CategoryID)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", common.ErrValidation
+		}
+	}
 	p := inv.Product{
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
@@ -72,6 +88,13 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 	if err != nil {
 		return "", err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "product.create",
+		ResourceType: "product", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{"sku": req.SKU, "name": req.Name},
+	}); err != nil {
+		return "", err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
@@ -80,14 +103,22 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 		InvalidateProduct(context.Context, string, string) error
 		BumpProductsListVersion(context.Context, string) error
 	}); ok {
-		_ = inv.InvalidateProduct(ctx, tenantID, id)
-		_ = inv.BumpProductsListVersion(ctx, tenantID)
+		cacheCtx := context.WithoutCancel(ctx)
+		_ = inv.InvalidateProduct(cacheCtx, tenantID, id)
+		_ = inv.BumpProductsListVersion(cacheCtx, tenantID)
 	}
 	return id, nil
 }
 
-func (s *ProductsService) Update(ctx context.Context, tenantID string, id string, req ProductUpdateRequest) error {
+func (s *ProductsService) Update(ctx context.Context, tenantID string, actorUserID string, id string, req ProductUpdateRequest) error {
 	if err := s.validate.Struct(req); err != nil {
+		return common.ErrValidation
+	}
+	id = strings.TrimSpace(id)
+	if _, err := uuid.Parse(id); err != nil {
+		return common.ErrValidation
+	}
+	if err := normalizeOptionalUUID(req.CategoryID); err != nil {
 		return common.ErrValidation
 	}
 	tx, err := s.uow.Begin(ctx)
@@ -95,6 +126,15 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if req.CategoryID != nil {
+		ok, err := s.repo.CategoryBelongsToTenant(ctx, tx, tenantID, *req.CategoryID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return common.ErrValidation
+		}
+	}
 	p := inv.Product{
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
@@ -111,6 +151,13 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 	if err := s.repo.Update(ctx, tx, tenantID, id, p); err != nil {
 		return err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "product.update",
+		ResourceType: "product", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{"sku": req.SKU, "name": req.Name},
+	}); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
@@ -119,8 +166,24 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 		InvalidateProduct(context.Context, string, string) error
 		BumpProductsListVersion(context.Context, string) error
 	}); ok {
-		_ = inv.InvalidateProduct(ctx, tenantID, id)
-		_ = inv.BumpProductsListVersion(ctx, tenantID)
+		cacheCtx := context.WithoutCancel(ctx)
+		_ = inv.InvalidateProduct(cacheCtx, tenantID, id)
+		_ = inv.BumpProductsListVersion(cacheCtx, tenantID)
 	}
+	return nil
+}
+
+func normalizeOptionalUUID(value *string) error {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return common.ErrValidation
+	}
+	if _, err := uuid.Parse(trimmed); err != nil {
+		return common.ErrValidation
+	}
+	*value = trimmed
 	return nil
 }

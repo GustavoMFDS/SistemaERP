@@ -47,6 +47,9 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 		api.With(authRefreshLimit, trustedOrigin).Post("/auth/refresh", h.Auth.Refresh)
 		api.With(authLogoutLimit, trustedOrigin).Post("/auth/logout", h.Auth.Logout)
 		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/auth/me", h.Auth.Me)
+		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/auth/tenants", h.Auth.Tenants)
+		api.With(authRefreshLimit, middleware.AuthJWT(cfg, mods.Auth, logger), trustedOrigin).Post("/auth/switch-tenant", h.Auth.SwitchTenant)
+		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/cash/sessions/open-by-me", h.Cash.OpenSessionsByUser)
 
 		api.Group(func(pr chi.Router) {
 			pr.Use(middleware.AuthJWT(cfg, mods.Auth, logger))
@@ -66,6 +69,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			})
 
 			pr.Route("/cash", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("cash:open")).Get("/sessions/current", h.Cash.CurrentSession)
 				rr.With(middleware.RequirePermission("cash:open")).Post("/sessions/open", h.Cash.OpenSession)
 				rr.With(middleware.RequirePermission("cash:move")).Post("/sessions/{id}/movements", h.Cash.RecordMovement)
 				rr.With(middleware.RequirePermission("cash:close")).Post("/sessions/{id}/close", h.Cash.CloseSession)

@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 
 test.skip(process.env.E2E_PRODLIKE !== '1', 'runs only in the production-like CI job')
 
+const prodlikeBaseURL = process.env.E2E_BASE_URL ?? 'https://staging.example.test:8443'
+
 function cashSessionFromStorage(): string {
   const key = Object.keys(localStorage).find((candidate) =>
     candidate.startsWith('sistemaemgo:cashSession:v2:'),
@@ -38,7 +40,7 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
     .poll(async () => page.evaluate(cashSessionFromStorage))
     .toBe('')
 
-  await page.route('https://staging.example.test:8443/api/v1/auth/logout', async (route) => {
+  await page.route(`${prodlikeBaseURL}/api/v1/auth/logout`, async (route) => {
     await route.abort('failed')
   })
   await page.getByRole('button', { name: 'Sair' }).click()
@@ -50,7 +52,7 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
   )
   expect(cookieAfterFailedLogout).toBeTruthy()
 
-  await page.unroute('https://staging.example.test:8443/api/v1/auth/logout')
+  await page.unroute(`${prodlikeBaseURL}/api/v1/auth/logout`)
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/login$/)
 
@@ -63,7 +65,7 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
     {
       name: '__Host-refresh_token',
       value: 'invalid-refresh-token',
-      url: 'https://staging.example.test:8443',
+      url: prodlikeBaseURL,
       secure: true,
       httpOnly: true,
       sameSite: 'Strict',

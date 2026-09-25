@@ -47,7 +47,10 @@ func (h *ProductsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	p, err := h.svc.Get(r.Context(), au.TenantID, id)
 	if err != nil {
 		writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
@@ -67,16 +70,18 @@ func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	id, err := h.svc.Create(r.Context(), au.TenantID, req)
+	id, err := h.svc.Create(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
-		if err == common.ErrValidation {
+		switch err {
+		case common.ErrValidation:
 			status = http.StatusUnprocessableEntity
+		case common.ErrConflict:
+			status = http.StatusConflict
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "product.create", "product", id, "success", nil)
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
@@ -86,20 +91,27 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	var req invapp.ProductUpdateRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if err := h.svc.Update(r.Context(), au.TenantID, id, req); err != nil {
+	if err := h.svc.Update(r.Context(), au.TenantID, au.UserID, id, req); err != nil {
 		status := http.StatusBadRequest
-		if err == common.ErrValidation {
+		switch err {
+		case common.ErrValidation:
 			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict:
+			status = http.StatusConflict
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "product.update", "product", id, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }

@@ -159,8 +159,8 @@ export default function ProductsPage() {
                 <td className="px-3 py-2">{p.name}</td>
                 <td className="px-3 py-2">{p.unit}</td>
                 <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
-                <td className="px-3 py-2">{p.qty_on_hand.toFixed(2)}</td>
-                <td className="px-3 py-2">{p.min_stock.toFixed(2)}</td>
+                <td className="px-3 py-2">{p.qty_on_hand.toFixed(3)}</td>
+                <td className="px-3 py-2">{p.min_stock.toFixed(3)}</td>
                 <td className="px-3 py-2">{p.active ? 'Sim' : 'Não'}</td>
               </tr>
             ))}
@@ -215,7 +215,7 @@ export default function ProductsPage() {
               value={String(minStock)}
               onChange={(e) => setMinStock(Number(e.target.value))}
               type="number"
-              step="0.01"
+              step="0.001"
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             />
           </label>
