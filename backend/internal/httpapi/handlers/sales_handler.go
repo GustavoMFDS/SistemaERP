@@ -45,7 +45,10 @@ func (h *SalesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	sale, items, pays, err := h.svc.Get(r.Context(), au.TenantID, id)
 	if err != nil {
 		writeError(w, r, http.StatusNotFound, "not_found", "venda nao encontrada", nil)
@@ -65,6 +68,20 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
+	}
+	if !validUUID(req.CashSessionID) {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "cash_session_id invalido", nil)
+		return
+	}
+	if req.CustomerID != nil && !validUUID(*req.CustomerID) {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "customer_id invalido", nil)
+		return
+	}
+	for _, item := range req.Items {
+		if !validUUID(item.ProductID) {
+			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "product_id invalido", nil)
+			return
+		}
 	}
 
 	saleID, total, created, err := h.svc.CreateAndFinalize(r.Context(), au.TenantID, au.UserID, idemKey, req)
@@ -98,7 +115,10 @@ func (h *SalesHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	saleID := chi.URLParam(r, "id")
+	saleID, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	var req salesapp.SaleCancelRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
