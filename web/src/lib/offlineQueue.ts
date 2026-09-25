@@ -312,8 +312,10 @@ export function clearOfflineQueue(): void {
 }
 
 export function clearAllOfflineQueuesForCurrentUser(): void {
+  // The legacy v1 queue has no trustworthy tenant/user ownership metadata.
+  // Never delete it as part of account-scoped cleanup; it must be explicitly
+  // imported for review or discarded by the operator in the PDV.
   clearAllUserScopedStorage(QUEUE_NAMESPACE)
-  localStorage.removeItem(LEGACY_QUEUE_KEY)
 }
 
 function sanitizeQueuedHeaders(headers?: Record<string, string>): Record<string, string> {
