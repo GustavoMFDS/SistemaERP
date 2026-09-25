@@ -91,7 +91,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	var fiscalSvc *fiscapp.FiscalService
 	if cfg.FiscalProvider == "" || cfg.FiscalProvider == "mvp" {
 		nfeProvider := fiscmvp.New()
-		fiscalSvc = fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, v, logger)
+		fiscalSvc = fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
 	}
 	privacySvc := privacyapp.NewService(privacyRepo)
 
