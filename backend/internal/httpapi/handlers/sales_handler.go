@@ -69,19 +69,27 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if !validUUID(req.CashSessionID) {
+	cashSessionID, valid := normalizeUUID(req.CashSessionID)
+	if !valid {
 		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "cash_session_id invalido", nil)
 		return
 	}
-	if req.CustomerID != nil && !validUUID(*req.CustomerID) {
-		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "customer_id invalido", nil)
-		return
+	req.CashSessionID = cashSessionID
+	if req.CustomerID != nil {
+		customerID, valid := normalizeUUID(*req.CustomerID)
+		if !valid {
+			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "customer_id invalido", nil)
+			return
+		}
+		req.CustomerID = &customerID
 	}
-	for _, item := range req.Items {
-		if !validUUID(item.ProductID) {
+	for i := range req.Items {
+		productID, valid := normalizeUUID(req.Items[i].ProductID)
+		if !valid {
 			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "product_id invalido", nil)
 			return
 		}
+		req.Items[i].ProductID = productID
 	}
 
 	saleID, total, created, err := h.svc.CreateAndFinalize(r.Context(), au.TenantID, au.UserID, idemKey, req)
