@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	req.Email = strings.TrimSpace(req.Email)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	allowed, limitErr := h.allowLoginIdentifier(r, req.Email)
 	if limitErr != nil {
 		writeError(w, r, http.StatusServiceUnavailable, "service_unavailable", "rate limit backend unavailable", nil)
@@ -59,20 +60,34 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	resp, user, err := h.auth.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		status := http.StatusUnauthorized
-		if err == common.ErrInactiveUser {
+		code := "authentication_error"
+		message := "credenciais invalidas"
+		reason := "invalid_credentials_or_inactive"
+		switch {
+		case errors.Is(err, common.ErrInvalidCredentials), errors.Is(err, common.ErrInactiveUser):
+			// Keep account existence/active state indistinguishable.
+		case errors.Is(err, common.ErrForbidden):
 			status = http.StatusForbidden
+			code = "authorization_error"
+			message = "usuario sem acesso a uma loja ativa"
+			reason = "no_active_tenant"
+		default:
+			status = http.StatusServiceUnavailable
+			code = "service_unavailable"
+			message = "servico de autenticacao indisponivel"
+			reason = "auth_backend_unavailable"
 		}
 		requestID, ip, userAgent := audit.RequestContext(r)
 		h.audit.Record(r.Context(), audit.Event{
 			Action:       "auth.login",
 			ResourceType: "user",
 			Outcome:      "failure",
-			Metadata:     map[string]any{"reason": "invalid_credentials_or_inactive"},
+			Metadata:     map[string]any{"reason": reason},
 			RequestID:    requestID,
 			IP:           ip,
 			UserAgent:    userAgent,
 		})
-		writeError(w, r, status, "authentication_error", "credenciais invalidas", nil)
+		writeError(w, r, status, code, message, nil)
 		return
 	}
 	setRefreshCookie(w, h.cfg, resp.RefreshToken, h.cfg.RefreshTokenTTL)
