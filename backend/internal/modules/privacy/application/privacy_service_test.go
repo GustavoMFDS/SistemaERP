@@ -99,11 +99,11 @@ func TestExportAndAnonymizeUseStoredRequestSubject(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{
 		ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1",
-		SubjectType: "customer", SubjectID: &subjectID, RequestType: "export", Status: "open",
+		SubjectType: "customer", SubjectID: &subjectID, RequestType: "export", Status: "in_progress",
 	}}
 	svc := newPrivacyService(repo)
 
-	data, err := svc.ExportSubjectData(context.Background(), "tenant-1", repo.request.ID)
+	data, err := svc.ExportSubjectData(context.Background(), "tenant-1", "actor-1", repo.request.ID)
 	if err != nil {
 		t.Fatalf("ExportSubjectData returned error: %v", err)
 	}
@@ -152,6 +152,19 @@ func TestSubjectActionsRequireMatchingRequestTypeAndReviewState(t *testing.T) {
 	}
 }
 
+func TestExportRequiresInProgressRequest(t *testing.T) {
+	subjectID := "11111111-1111-1111-1111-111111111111"
+	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{
+		ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1",
+		SubjectType: "customer", SubjectID: &subjectID, RequestType: "export", Status: "open",
+	}}
+	svc := newPrivacyService(repo)
+
+	if _, err := svc.ExportSubjectData(context.Background(), "tenant-1", "actor-1", repo.request.ID); err != common.ErrConflict {
+		t.Fatalf("open export request must enter in_progress first, got %v", err)
+	}
+}
+
 func TestExportRejectsNonExportRequest(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{
@@ -160,7 +173,7 @@ func TestExportRejectsNonExportRequest(t *testing.T) {
 	}}
 	svc := newPrivacyService(repo)
 
-	if _, err := svc.ExportSubjectData(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
+	if _, err := svc.ExportSubjectData(context.Background(), "tenant-1", "actor-1", repo.request.ID); err != common.ErrConflict {
 		t.Fatalf("non-export request must not execute export, got %v", err)
 	}
 }
@@ -242,7 +255,7 @@ func TestCrossTenantRequestAccessIsDeniedByRepositoryScope(t *testing.T) {
 		request:        privacy.DataSubjectRequest{ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1", SubjectType: "customer", SubjectID: &subjectID},
 	}
 	svc := newPrivacyService(repo)
-	_, err := svc.ExportSubjectData(context.Background(), "tenant-2", repo.request.ID)
+	_, err := svc.ExportSubjectData(context.Background(), "tenant-2", "actor-1", repo.request.ID)
 	if err != common.ErrNotFound {
 		t.Fatalf("expected cross-tenant export to be denied, got %v", err)
 	}
