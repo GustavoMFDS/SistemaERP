@@ -18,6 +18,7 @@ import (
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -158,5 +159,49 @@ func TestFiscalGenerationCommitsInvoiceXMLAndAuditTogether(t *testing.T) {
 			xmls,
 			audits,
 		)
+	}
+
+	name, content, err := svc.DownloadXML(ctx, tenantID, uuid.NewString(), xmlID)
+	if err == nil {
+		t.Fatalf("download with invalid audit actor must fail, name=%q bytes=%d", name, len(content))
+	}
+	if name != "" || content != nil {
+		t.Fatalf("failed audited download must release no file: name=%q content=%v", name, content)
+	}
+
+	var downloadAudits int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM audit_logs
+		WHERE tenant_id=$1
+		  AND resource_id=$2
+		  AND action='fiscal.nfe_xml.download'
+	`, tenantID, xmlID).Scan(&downloadAudits); err != nil {
+		t.Fatalf("count failed download audit: %v", err)
+	}
+	if downloadAudits != 0 {
+		t.Fatalf("failed download left %d audit row(s)", downloadAudits)
+	}
+
+	name, content, err = svc.DownloadXML(ctx, tenantID, userID, xmlID)
+	if err != nil {
+		t.Fatalf("valid audited download: %v", err)
+	}
+	if name == "" || len(content) == 0 {
+		t.Fatalf("valid audited download returned empty file: name=%q bytes=%d", name, len(content))
+	}
+
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM audit_logs
+		WHERE tenant_id=$1
+		  AND actor_user_id=$2
+		  AND resource_id=$3
+		  AND action='fiscal.nfe_xml.download'
+	`, tenantID, userID, xmlID).Scan(&downloadAudits); err != nil {
+		t.Fatalf("count committed download audit: %v", err)
+	}
+	if downloadAudits != 1 {
+		t.Fatalf("committed download audit count=%d, want 1", downloadAudits)
 	}
 }
