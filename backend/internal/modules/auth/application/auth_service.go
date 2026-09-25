@@ -161,18 +161,21 @@ func (s *AuthService) RefreshWithSubject(ctx context.Context, tokenStr string) (
 	if s.refresh == nil {
 		return TokenResponse{}, "", "", common.ErrInvalidCredentials
 	}
+	// Validate current account and membership before consuming the one-time
+	// refresh token. Transient Postgres failures therefore do not destroy an
+	// otherwise valid browser session.
+	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+		return TokenResponse{}, "", "", err
+	}
+	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
+		return TokenResponse{}, "", "", err
+	}
 	ok, err := s.refresh.Consume(ctx, claims.ID, claims.Subject)
 	if err != nil {
 		return TokenResponse{}, "", "", err
 	}
 	if !ok {
 		return TokenResponse{}, "", "", common.ErrInvalidCredentials
-	}
-	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
-		return TokenResponse{}, "", "", err
-	}
-	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
-		return TokenResponse{}, "", "", err
 	}
 	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID)
 	if err != nil {
@@ -349,7 +352,10 @@ func (s *AuthService) GetUserInfo(ctx context.Context, userID string, tenantID s
 func (s *AuthService) ensureUserActive(ctx context.Context, userID string) error {
 	u, err := s.users.GetByID(ctx, userID)
 	if err != nil {
-		return common.ErrInvalidCredentials
+		if errors.Is(err, common.ErrNotFound) {
+			return common.ErrInvalidCredentials
+		}
+		return err
 	}
 	if !u.Active {
 		return common.ErrInactiveUser
