@@ -61,14 +61,14 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
 	return TokenResponse{
-			AccessToken:      accessTok,
-			RefreshToken:     refreshTok,
-			TokenType:        "Bearer",
-			ExpiresIn:        int64(time.Until(accessExp).Seconds()),
-			RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
-		}, AuthUserInfo{
-			ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles,
-		}, nil
+		AccessToken:      accessTok,
+		RefreshToken:     refreshTok,
+		TokenType:        "Bearer",
+		ExpiresIn:        int64(time.Until(accessExp).Seconds()),
+		RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
+	}, AuthUserInfo{
+		ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles,
+	}, nil
 }
 
 func (s *AuthService) issueAccessToken(userID, tenantID string) (string, time.Time, error) {
