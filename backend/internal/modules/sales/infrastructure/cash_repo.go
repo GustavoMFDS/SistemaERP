@@ -92,7 +92,6 @@ func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string) (sales.C
 	return s, true, nil
 }
 
-
 func (r *CashRepo) ListOpenSessionsByUser(ctx context.Context, userID string) ([]sales.CashSession, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT
