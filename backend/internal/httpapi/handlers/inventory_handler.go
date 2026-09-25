@@ -44,9 +44,13 @@ func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	productID := r.URL.Query().Get("product_id")
-	if productID != "" && !validUUID(productID) {
-		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "product_id invalido", nil)
-		return
+	if productID != "" {
+		normalized, valid := normalizeUUID(productID)
+		if !valid {
+			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "product_id invalido", nil)
+			return
+		}
+		productID = normalized
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
@@ -69,10 +73,12 @@ func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if !validUUID(req.ProductID) {
+	productID, valid := normalizeUUID(req.ProductID)
+	if !valid {
 		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "product_id invalido", nil)
 		return
 	}
+	req.ProductID = productID
 	if err := h.svc.Adjust(r.Context(), au.TenantID, au.UserID, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
