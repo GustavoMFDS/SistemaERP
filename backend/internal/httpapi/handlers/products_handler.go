@@ -73,8 +73,11 @@ func (h *ProductsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	id, err := h.svc.Create(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusBadRequest
-		if err == common.ErrValidation {
+		switch err {
+		case common.ErrValidation:
 			status = http.StatusUnprocessableEntity
+		case common.ErrConflict:
+			status = http.StatusConflict
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
@@ -104,6 +107,8 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusUnprocessableEntity
 		case common.ErrNotFound:
 			status = http.StatusNotFound
+		case common.ErrConflict:
+			status = http.StatusConflict
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
