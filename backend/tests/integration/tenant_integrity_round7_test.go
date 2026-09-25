@@ -106,6 +106,14 @@ func TestRound7TenantRelationalIntegrity(t *testing.T) {
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM users ORDER BY created_at LIMIT 1`).Scan(&userID); err != nil {
 		t.Fatalf("seeded user required: %v", err)
 	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_tenants(user_id, tenant_id)
+		VALUES ($1,$2)
+		ON CONFLICT (user_id, tenant_id) DO UPDATE SET active=true
+	`, userID, tenantB); err != nil {
+		t.Fatalf("create tenant B actor membership: %v", err)
+	}
+
 	var registerB string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO cash_registers(tenant_id, name, active)
