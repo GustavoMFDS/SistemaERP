@@ -381,3 +381,16 @@ Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry 
 - A mismatch returns `409` with stable error code `price_changed`; no sale, stock movement, ledger entry, or idempotency result is committed.
 - Requests without `unit_price` retain the legacy idempotency hash shape so previously persisted v2 intents remain replay-compatible at the API level. The browser, however, quarantines pre-snapshot intents for manual reconciliation rather than auto-sending them.
 
+## Round 9 — destructive privacy workflow
+- Subject anonymization/deletion and user blocking require the DSR to be in `in_progress` with a compatible `request_type`.
+- A successful destructive action, transition of the DSR to `completed`, and its `privacy.subject.anonymize` / `privacy.subject.block` audit event commit in one database transaction.
+- If the critical audit insert fails, the subject mutation and DSR status transition roll back.
+- User blocking/anonymization returns `409 conflict` while that user owns an `open` cash session in the tenant.
+- Cash opening rechecks and locks the active membership inside the cash transaction, so a concurrently revoked membership cannot create a new orphan cash session.
+
+## Round 9 — finance reporting timezone
+- `GET /api/v1/finance/dashboard` interprets `from` and `to` as business-local civil dates using `BUSINESS_TIMEZONE`.
+- The default timezone is `America/Sao_Paulo`; deployments may set another valid IANA timezone.
+- The response includes the `timezone` used for the report.
+- Invalid dates or a reversed range return `422 validation_error`.
+
