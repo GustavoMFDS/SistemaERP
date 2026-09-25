@@ -97,7 +97,7 @@ test('PDV recovers an open server cash session after local state is lost', async
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
 
-  const openedID = await expect
+  await expect
     .poll(async () =>
       page.evaluate(async () => {
         const { getCashSessionId } = await import('/src/lib/auth.ts')
