@@ -123,6 +123,15 @@ test('malformed UUIDs are rejected at the HTTP boundary and privacy not-found st
     const financeReverseRange = await statusOf(
       '/api/v1/finance/dashboard?from=2026-09-26&to=2026-09-25',
     )
+    const auditBadActor = await statusOf(
+      '/api/v1/audit/logs?actor_user_id=not-a-uuid',
+    )
+    const auditBadFrom = await statusOf(
+      '/api/v1/audit/logs?from=not-a-timestamp',
+    )
+    const auditReverseRange = await statusOf(
+      '/api/v1/audit/logs?from=2026-09-26T03:00:00Z&to=2026-09-25T03:00:00Z',
+    )
     const privacyRequest = await statusOf(
       '/api/v1/privacy/requests/not-a-uuid',
     )
@@ -151,6 +160,9 @@ test('malformed UUIDs are rejected at the HTTP boundary and privacy not-found st
       fiscalDownload,
       financeBadFrom,
       financeReverseRange,
+      auditBadActor,
+      auditBadFrom,
+      auditReverseRange,
       privacyRequest,
       privacyConsentNotFound,
     }
@@ -170,6 +182,9 @@ test('malformed UUIDs are rejected at the HTTP boundary and privacy not-found st
     fiscalDownload: 422,
     financeBadFrom: 422,
     financeReverseRange: 422,
+    auditBadActor: 422,
+    auditBadFrom: 422,
+    auditReverseRange: 422,
     privacyRequest: 422,
     privacyConsentNotFound: 404,
   })
