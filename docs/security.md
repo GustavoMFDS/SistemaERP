@@ -67,3 +67,9 @@ Production notes:
 - O barcode de produto é único por tenant, não globalmente.
 - Operações LGPD validam que o titular pertence ao tenant. Bloqueio de usuário atua na membership; anonimização de uma identidade compartilhada por outras lojas retorna conflito.
 
+### Explicit tenant switching
+- Users with more than one active CNPJ membership can enumerate only their own memberships through `/auth/tenants`.
+- Tenant switching consumes the current refresh token before issuing credentials for the target tenant, preventing the pre-switch refresh token from being replayed.
+- The target tenant is revalidated against `user_tenants.active`; inactive/foreign tenants are rejected.
+- The frontend performs a full page reload after switching so no in-memory page state crosses tenant boundaries. Cash session, offline queue, and product caches remain tenant+user namespaced.
+
