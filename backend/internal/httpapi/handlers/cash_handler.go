@@ -81,6 +81,8 @@ func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusUnprocessableEntity
 		case errors.Is(err, common.ErrCashSessionAlreadyOpen):
 			status = http.StatusConflict
+		case errors.Is(err, common.ErrForbidden):
+			status = http.StatusForbidden
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
