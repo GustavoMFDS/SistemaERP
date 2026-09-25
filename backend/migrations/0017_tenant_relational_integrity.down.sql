@@ -30,6 +30,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS products_barcode_unique
   ON products(barcode)
   WHERE barcode IS NOT NULL;
 
+ALTER TABLE audit_logs
+  DROP CONSTRAINT IF EXISTS audit_logs_actor_membership_fk;
+ALTER TABLE data_subject_requests
+  DROP CONSTRAINT IF EXISTS data_subject_requests_created_by_membership_fk;
+ALTER TABLE cash_movements
+  DROP CONSTRAINT IF EXISTS cash_movements_created_by_membership_fk;
+ALTER TABLE invoices
+  DROP CONSTRAINT IF EXISTS invoices_created_by_membership_fk;
+ALTER TABLE ledger_entries
+  DROP CONSTRAINT IF EXISTS ledger_entries_created_by_membership_fk;
+ALTER TABLE sales
+  DROP CONSTRAINT IF EXISTS sales_created_by_membership_fk;
+ALTER TABLE cash_sessions
+  DROP CONSTRAINT IF EXISTS cash_sessions_closed_by_membership_fk,
+  DROP CONSTRAINT IF EXISTS cash_sessions_opened_by_membership_fk;
+ALTER TABLE inventory_movements
+  DROP CONSTRAINT IF EXISTS inventory_movements_actor_membership_fk;
+
 ALTER TABLE user_tenant_roles
   DROP CONSTRAINT IF EXISTS user_tenant_roles_membership_fk;
 ALTER TABLE cash_session_reconciliations
