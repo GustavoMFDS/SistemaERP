@@ -15,6 +15,7 @@ var (
 	ErrCashSessionClosed      = errors.New("cash session is closed")
 	ErrCashSessionAlreadyOpen = errors.New("cash session already open")
 	ErrPaymentsMismatch       = errors.New("payments mismatch")
+	ErrPriceChanged           = errors.New("product price changed")
 	ErrSaleNotFinalized       = errors.New("sale not finalized")
 	ErrSaleAlreadyCancelled   = errors.New("sale already cancelled")
 	ErrInvoiceAlreadyExists   = errors.New("invoice already exists")
