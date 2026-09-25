@@ -59,16 +59,16 @@ func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID s
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
 	}
-	registerID, err := s.cash.EnsureDefaultRegister(ctx, tenantID)
-	if err != nil {
-		return "", err
-	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	registerID, err := s.cash.EnsureDefaultRegister(ctx, tx, tenantID)
+	if err != nil {
+		return "", err
+	}
 	id, err := s.cash.OpenSession(ctx, tx, tenantID, registerID, userID, req.OpeningAmount, req.Notes)
 	if err != nil {
 		return "", err
