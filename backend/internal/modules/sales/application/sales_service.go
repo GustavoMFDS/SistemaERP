@@ -565,7 +565,6 @@ func uniqueSortedProductIDsFromSaleItems(items []sales.SaleItem) []string {
 	return ids
 }
 
-
 func normalizeOptionalCustomerID(value *string) error {
 	if value == nil {
 		return nil
