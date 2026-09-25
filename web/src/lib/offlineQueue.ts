@@ -12,6 +12,7 @@ export type AttentionReason =
   | 'legacy_migration'
   | 'retention_expired'
   | 'retention_unknown'
+  | 'price_snapshot_missing'
 
 export type QueuedRequest = {
   id: string
@@ -64,6 +65,20 @@ function isValidQueueItem(x: QueuedRequest): boolean {
   )
 }
 
+function saleHasPriceSnapshots(item: QueuedRequest): boolean {
+  if (!item.path.includes('/api/v1/sales')) return true
+  if (!item.body || typeof item.body !== 'object') return false
+
+  const body = item.body as { items?: unknown }
+  if (!Array.isArray(body.items) || body.items.length === 0) return false
+
+  return body.items.every((raw) => {
+    if (!raw || typeof raw !== 'object') return false
+    const unitPrice = (raw as { unit_price?: unknown }).unit_price
+    return typeof unitPrice === 'number' && Number.isFinite(unitPrice) && unitPrice > 0
+  })
+}
+
 function readLegacyQueue(): QueuedRequest[] {
   const parsed = safeJsonParse<QueuedRequest[]>(localStorage.getItem(LEGACY_QUEUE_KEY))
   if (!parsed || !Array.isArray(parsed)) return []
@@ -109,6 +124,13 @@ function loadQueue(): QueuedRequest[] {
       item.state = 'attention'
       item.attentionReason = 'expired'
       item.lastError = 'Venda offline expirou antes da sincronizacao automatica.'
+      changed = true
+    }
+    if (item.state === 'pending' && !saleHasPriceSnapshots(item)) {
+      item.state = 'attention'
+      item.attentionReason = 'price_snapshot_missing'
+      item.lastError =
+        'Venda criada antes da proteção de snapshot de preço. Confira os valores cobrados antes de qualquer reenvio.'
       changed = true
     }
   }
@@ -235,6 +257,14 @@ export function retryQueueItem(id: string): boolean {
     saveQueue(queue)
     return false
   }
+  if (!saleHasPriceSnapshots(item)) {
+    item.attentionReason = 'price_snapshot_missing'
+    item.lastError =
+      'Venda sem snapshot confiável de preço. Confira os valores cobrados antes de qualquer reenvio.'
+    item.lastAttemptAt = Date.now()
+    saveQueue(queue)
+    return false
+  }
 
   item.state = 'pending'
   item.createdAt = Date.now()
@@ -284,6 +314,14 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
     item.attentionReason = 'retention_expired'
     item.lastError =
       'Venda antiga demais para rebind/reenvio idempotente seguro. Confira no servidor antes de qualquer ajuste.'
+    item.lastAttemptAt = Date.now()
+    saveQueue(queue)
+    return false
+  }
+  if (!saleHasPriceSnapshots(item)) {
+    item.attentionReason = 'price_snapshot_missing'
+    item.lastError =
+      'Venda sem snapshot confiável de preço. Confira os valores cobrados antes de qualquer rebind/reenvio.'
     item.lastAttemptAt = Date.now()
     saveQueue(queue)
     return false
