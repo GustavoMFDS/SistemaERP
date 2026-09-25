@@ -12,6 +12,7 @@ import {
 import {
   clearAllOfflineQueuesForCurrentUser,
   getAllUserQueueCount,
+  getLegacyQueueCount,
   getQueueCount,
 } from '../lib/offlineQueue'
 
@@ -153,6 +154,14 @@ export default function Layout() {
     if (openCashSessions.length > 0) {
       setLogoutError(
         `Existem ${openCashSessions.length} caixa(s) local(is) ainda aberto(s) em uma ou mais lojas. Troque para cada loja e feche o caixa antes de sair.`,
+      )
+      return
+    }
+
+    const legacyPending = getLegacyQueueCount()
+    if (legacyPending > 0) {
+      setLogoutError(
+        `Existem ${legacyPending} venda(s) na fila offline legada sem escopo de loja confiável. Abra o PDV e importe para revisão ou descarte explicitamente antes de sair.`,
       )
       return
     }
