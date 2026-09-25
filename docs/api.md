@@ -375,3 +375,9 @@ Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry 
 - The frontend checks this endpoint before logout, so losing browser-side `cash_session_id` does not allow an open server cash session to be silently abandoned.
 - If this safety check cannot be completed, logout is cancelled rather than proceeding without knowing the server cash state.
 
+## Round 9 — sale price snapshot contract
+- `items[].unit_price` on `POST /sales` is optional for backward compatibility and is never authoritative.
+- When supplied, it is treated as the client-visible price snapshot. The service compares it with the product's current effective server price before mutating sale/stock/finance state.
+- A mismatch returns `409` with stable error code `price_changed`; no sale, stock movement, ledger entry, or idempotency result is committed.
+- Requests without `unit_price` retain the legacy idempotency hash shape so previously persisted v2 intents remain replay-compatible at the API level. The browser, however, quarantines pre-snapshot intents for manual reconciliation rather than auto-sending them.
+
