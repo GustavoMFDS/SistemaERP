@@ -35,6 +35,9 @@ func (r *UsersRepo) GetByID(ctx context.Context, id string) (authdomain.User, er
 	var u authdomain.User
 	err := r.db.QueryRow(ctx, `SELECT id::text, email::text, name, password_hash, active FROM users WHERE id=$1`, id).
 		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authdomain.User{}, common.ErrNotFound
+	}
 	return u, err
 }
 
