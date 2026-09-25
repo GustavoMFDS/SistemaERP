@@ -107,6 +107,12 @@ export function clearCashSessionId(): void {
   localStorage.removeItem(LEGACY_CASH_SESSION_KEY)
 }
 
+export function getAllCashSessionIdsForCurrentUser(): string[] {
+  return userScopedStorageKeys(CASH_SESSION_NAMESPACE)
+    .map((key) => localStorage.getItem(key)?.trim() ?? '')
+    .filter(Boolean)
+}
+
 export function clearAllCashSessionsForCurrentUser(): void {
   clearAllUserScopedStorage(CASH_SESSION_NAMESPACE)
   localStorage.removeItem(LEGACY_CASH_SESSION_KEY)
