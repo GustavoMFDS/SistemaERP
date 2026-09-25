@@ -42,7 +42,7 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 		Offset:       offset,
 	}
 	if err := validateAuditFilter(filter); err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", err.Error(), nil)
 		return
 	}
 	items, err := h.svc.List(r.Context(), au.TenantID, filter)
@@ -66,13 +66,22 @@ func validateAuditFilter(filter audit.ListFilter) error {
 			return ErrValidation
 		}
 	}
-	for _, raw := range []string{filter.From, filter.To} {
-		if raw == "" {
-			continue
-		}
-		if _, err := time.Parse(time.RFC3339, raw); err != nil {
+	var fromTime, toTime time.Time
+	var err error
+	if filter.From != "" {
+		fromTime, err = time.Parse(time.RFC3339, filter.From)
+		if err != nil {
 			return ErrValidation
 		}
+	}
+	if filter.To != "" {
+		toTime, err = time.Parse(time.RFC3339, filter.To)
+		if err != nil {
+			return ErrValidation
+		}
+	}
+	if !fromTime.IsZero() && !toTime.IsZero() && fromTime.After(toTime) {
+		return ErrValidation
 	}
 	return nil
 }
