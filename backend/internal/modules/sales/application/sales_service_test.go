@@ -373,6 +373,9 @@ func (fakeCashRepo) OpenSession(context.Context, db.DBTX, string, string, string
 func (fakeCashRepo) GetOpenSession(context.Context, string) (sales.CashSession, bool, error) {
 	return sales.CashSession{ID: "cash-1", Status: "open"}, true, nil
 }
+func (fakeCashRepo) ListOpenSessionsByUser(context.Context, string) ([]sales.CashSession, error) {
+	return nil, nil
+}
 func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, platform.Money, *string) error {
 	return nil
 }
