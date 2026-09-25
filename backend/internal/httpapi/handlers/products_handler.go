@@ -47,7 +47,10 @@ func (h *ProductsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	p, err := h.svc.Get(r.Context(), au.TenantID, id)
 	if err != nil {
 		writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
@@ -86,7 +89,10 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	var req invapp.ProductUpdateRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
