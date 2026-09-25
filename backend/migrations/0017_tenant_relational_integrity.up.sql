@@ -124,6 +124,18 @@ ALTER TABLE payments
   REFERENCES sales(tenant_id, id)
   ON DELETE CASCADE;
 
+ALTER TABLE ledger_entries
+  DROP CONSTRAINT IF EXISTS ledger_entries_sale_id_fkey,
+  DROP CONSTRAINT IF EXISTS ledger_entries_cash_session_id_fkey,
+  ADD CONSTRAINT ledger_entries_tenant_sale_fk
+  FOREIGN KEY (tenant_id, sale_id)
+  REFERENCES sales(tenant_id, id)
+  ON DELETE SET NULL (sale_id),
+  ADD CONSTRAINT ledger_entries_tenant_cash_session_fk
+  FOREIGN KEY (tenant_id, cash_session_id)
+  REFERENCES cash_sessions(tenant_id, id)
+  ON DELETE SET NULL (cash_session_id);
+
 ALTER TABLE invoices
   ADD CONSTRAINT invoices_tenant_sale_fk
   FOREIGN KEY (tenant_id, sale_id)
