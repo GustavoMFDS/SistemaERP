@@ -296,6 +296,28 @@ func TestLoginPropagatesRepositoryFailureAfterDummyBcrypt(t *testing.T) {
 	}
 }
 
+func TestLoginUpdatesLastLoginAfterSuccessfulSessionIssuance(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "tenant-1",
+	}
+	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
+
+	if _, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password"); err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+	if users.lastLoginUpdates != 1 {
+		t.Fatalf("successful login must update last_login_at once, got %d", users.lastLoginUpdates)
+	}
+}
+
 func TestLoginFailsWhenTenantMappingMissing(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
@@ -310,6 +332,9 @@ func TestLoginFailsWhenTenantMappingMissing(t *testing.T) {
 	_, _, err = svc.Login(context.Background(), "admin@example.com", "strong-password")
 	if err != common.ErrForbidden {
 		t.Fatalf("expected tenant mapping error, got %v", err)
+	}
+	if users.lastLoginUpdates != 0 {
+		t.Fatalf("failed tenant mapping must not update last_login_at, got %d update(s)", users.lastLoginUpdates)
 	}
 }
 
@@ -425,7 +450,8 @@ type fakeUsersRepo struct {
 	tenantPerms    map[string][]string
 	tenantAllowed  *bool
 	allowedTenants map[string]bool
-	tenants        []AuthTenantInfo
+	tenants          []AuthTenantInfo
+	lastLoginUpdates int
 }
 
 func (f *fakeUsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
@@ -445,7 +471,10 @@ func (f *fakeUsersRepo) GetByID(ctx context.Context, id string) (authdomain.User
 	return authdomain.User{}, common.ErrNotFound
 }
 
-func (f *fakeUsersRepo) UpdateLastLogin(ctx context.Context, id string) error { return nil }
+func (f *fakeUsersRepo) UpdateLastLogin(ctx context.Context, id string) error {
+	f.lastLoginUpdates++
+	return nil
+}
 
 func (f *fakeUsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (string, error) {
 	if f.tenantErr != nil {
