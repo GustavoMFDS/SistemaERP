@@ -129,6 +129,13 @@ export default function Layout() {
       // while cash/offline/product caches remain namespaced by tenant+user.
       window.location.replace('/products')
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) {
+        // Another tab may already have rotated the shared refresh cookie to a
+        // different tenant. Reload drops the stale in-memory access token and
+        // lets ProtectedRoute restore the current tenant from that cookie.
+        window.location.reload()
+        return
+      }
       if (e instanceof APIError && e.status === 401) {
         clearToken()
         navigate('/login', { replace: true })
