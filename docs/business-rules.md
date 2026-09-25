@@ -47,3 +47,9 @@
 - A troca de loja é explícita e emite novas credenciais scoped ao CNPJ escolhido.
 - Caixa local, fila offline e cache de produtos não são movidos nem apagados ao trocar de loja; permanecem isolados no namespace do tenant original.
 
+## Round 9 — preço e quantidade no PDV
+- Quantidades de estoque/venda são representadas em milésimos; o PDV aceita no máximo 3 casas decimais.
+- O valor monetário de cada linha é arredondado em centavos antes da soma do total, igual ao domínio Go.
+- O servidor é sempre a autoridade de preço. O preço exibido no momento da intenção pode ser enviado como snapshot apenas para detectar mudança durante períodos offline.
+- Se o preço efetivo mudar antes da sincronização, a venda não é finalizada silenciosamente pelo novo valor; ela exige revisão explícita do operador.
+
