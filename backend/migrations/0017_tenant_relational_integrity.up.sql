@@ -11,6 +11,10 @@ CREATE INDEX IF NOT EXISTS user_tenants_user_active_created_idx
   ON user_tenants(user_id, active, created_at);
 
 -- Composite uniqueness is required by tenant-scoped foreign keys below.
+CREATE UNIQUE INDEX IF NOT EXISTS categories_tenant_id_id_unique
+  ON categories(tenant_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_id_id_unique
+  ON customers(tenant_id, id);
 CREATE UNIQUE INDEX IF NOT EXISTS products_tenant_id_id_unique
   ON products(tenant_id, id);
 CREATE UNIQUE INDEX IF NOT EXISTS cash_registers_tenant_id_id_unique
@@ -21,6 +25,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS sales_tenant_id_id_unique
   ON sales(tenant_id, id);
 CREATE UNIQUE INDEX IF NOT EXISTS invoices_tenant_id_id_unique
   ON invoices(tenant_id, id);
+
+-- Replace nullable global foreign keys with tenant-scoped equivalents while
+-- preserving SET NULL behavior only for the nullable reference column.
+ALTER TABLE products
+  DROP CONSTRAINT IF EXISTS products_category_id_fkey,
+  ADD CONSTRAINT products_tenant_category_fk
+  FOREIGN KEY (tenant_id, category_id)
+  REFERENCES categories(tenant_id, id)
+  ON DELETE SET NULL (category_id);
+
+ALTER TABLE sales
+  DROP CONSTRAINT IF EXISTS sales_customer_id_fkey,
+  ADD CONSTRAINT sales_tenant_customer_fk
+  FOREIGN KEY (tenant_id, customer_id)
+  REFERENCES customers(tenant_id, id)
+  ON DELETE SET NULL (customer_id);
 
 -- Prevent a row carrying tenant A from referencing an owning row from tenant B.
 ALTER TABLE inventory_balances
