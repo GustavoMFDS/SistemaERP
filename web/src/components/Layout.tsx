@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { APIError, apiJson, errorMessage } from '../lib/api'
 import {
-  clearCashSessionId,
-  clearScopedStorage,
+  clearAllCashSessionsForCurrentUser,
+  clearAllUserScopedStorage,
   clearToken,
   getCashSessionId,
   setToken,
 } from '../lib/auth'
-import { clearOfflineQueue, getQueueCount } from '../lib/offlineQueue'
+import {
+  clearAllOfflineQueuesForCurrentUser,
+  getAllUserQueueCount,
+  getQueueCount,
+} from '../lib/offlineQueue'
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 
@@ -137,11 +141,11 @@ export default function Layout() {
   async function logout() {
     if (loggingOut) return
 
-    const pending = getQueueCount()
+    const pending = getAllUserQueueCount()
     if (
       pending > 0 &&
       !window.confirm(
-        `Existem ${pending} venda(s) offline pendente(s). Sair agora vai limpar essa fila local. Deseja continuar?`,
+        `Existem ${pending} venda(s) offline pendente(s) somando todas as lojas deste usuário. Sair agora vai limpar essas filas locais. Deseja continuar?`,
       )
     ) {
       return
@@ -155,11 +159,12 @@ export default function Layout() {
       // revocation and sends the cookie expiration response.
       await apiJson('/api/v1/auth/logout', { method: 'POST' })
 
-      // Clear scoped state while the current access token still identifies
-      // the tenant/user namespace.
-      clearCashSessionId()
-      clearOfflineQueue()
-      clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
+      // Logout is account-wide on this browser. Switching tenants preserves
+      // scoped state, but signing out removes local data from every CNPJ that
+      // belongs to the current user so another person cannot inherit it.
+      clearAllCashSessionsForCurrentUser()
+      clearAllOfflineQueuesForCurrentUser()
+      clearAllUserScopedStorage(PRODUCTS_CACHE_NAMESPACE)
       clearToken()
       navigate('/login', { replace: true })
     } catch (e: unknown) {
