@@ -174,4 +174,59 @@ ALTER TABLE user_tenant_roles
   REFERENCES user_tenants(user_id, tenant_id)
   ON DELETE CASCADE;
 
+-- Historical actor references must also prove that the user belonged to the
+-- tenant that owns the business row. Membership rows are deactivated rather
+-- than deleted, preserving this legal/audit history.
+ALTER TABLE inventory_movements
+  ADD CONSTRAINT inventory_movements_actor_membership_fk
+  FOREIGN KEY (actor_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (actor_user_id);
+
+ALTER TABLE cash_sessions
+  ADD CONSTRAINT cash_sessions_opened_by_membership_fk
+  FOREIGN KEY (opened_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE RESTRICT,
+  ADD CONSTRAINT cash_sessions_closed_by_membership_fk
+  FOREIGN KEY (closed_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (closed_by_user_id);
+
+ALTER TABLE sales
+  ADD CONSTRAINT sales_created_by_membership_fk
+  FOREIGN KEY (created_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE RESTRICT;
+
+ALTER TABLE ledger_entries
+  ADD CONSTRAINT ledger_entries_created_by_membership_fk
+  FOREIGN KEY (created_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (created_by_user_id);
+
+ALTER TABLE invoices
+  ADD CONSTRAINT invoices_created_by_membership_fk
+  FOREIGN KEY (created_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (created_by_user_id);
+
+ALTER TABLE cash_movements
+  ADD CONSTRAINT cash_movements_created_by_membership_fk
+  FOREIGN KEY (created_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (created_by_user_id);
+
+ALTER TABLE data_subject_requests
+  ADD CONSTRAINT data_subject_requests_created_by_membership_fk
+  FOREIGN KEY (created_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (created_by_user_id);
+
+ALTER TABLE audit_logs
+  ADD CONSTRAINT audit_logs_actor_membership_fk
+  FOREIGN KEY (actor_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (actor_user_id);
+
 COMMIT;
