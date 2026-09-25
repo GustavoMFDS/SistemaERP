@@ -83,7 +83,7 @@ Migração:
 - Ao abrir o PDV online, o frontend reconcilia o `cash_session_id` local com o servidor: recupera o ID perdido quando existe sessão aberta e remove referência local stale quando o servidor não possui sessão aberta.
 - A abertura fica temporariamente bloqueada enquanto essa reconciliação inicial está em andamento, evitando race entre `GET /current` e `POST /open`.
 - Ao voltar do offline para online, a reconciliação do caixa é executada novamente.
-- Logout é bloqueado enquanto existirem IDs locais de caixa aberto em qualquer CNPJ do usuário; o operador deve voltar à loja correspondente e fechar/reconciliar o caixa.
+- Logout é bloqueado enquanto existirem IDs locais de caixa aberto em qualquer CNPJ do usuário; além disso, o frontend consulta `GET /api/v1/cash/sessions/open-by-me` para detectar caixas abertos pelo próprio usuário mesmo quando o ID local foi perdido. Se a consulta falhar, o logout é cancelado por segurança.
 
 - O PDV fecha o caixa chamando `POST /api/v1/cash/sessions/{id}/close`; remover apenas a referência local não encerra uma sessão.
 - A migration `0013_single_open_cash_session` cria um índice único parcial para permitir somente uma sessão `open` por tenant/registro.
