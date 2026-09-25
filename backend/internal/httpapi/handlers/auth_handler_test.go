@@ -70,6 +70,55 @@ func TestRefreshFailureExpiresInvalidCookie(t *testing.T) {
 	}
 }
 
+func TestRefreshBackendFailureDoesNotExpireCookie(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &logoutUsersRepo{
+		user: authdomain.User{
+			ID:           "11111111-1111-1111-1111-111111111111",
+			Email:        "admin@example.com",
+			Name:         "Admin",
+			PasswordHash: string(hash),
+			Active:       true,
+		},
+	}
+	store := &logoutRefreshStore{tokens: map[string]string{}}
+	cfg := config.Config{
+		Env:             "test",
+		JWTSecret:       "this-is-a-long-test-secret-for-handler-tests",
+		JWTIssuer:       "sistemaemgo-test",
+		AccessTokenTTL:  15 * time.Minute,
+		RefreshTokenTTL: 24 * time.Hour,
+	}
+	svc := authapp.NewAuthService(cfg, users, store, slog.Default())
+	login, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	store.consumeErr = errors.New("redis unavailable")
+	h := NewAuthHandler(cfg, svc, nil, nil, slog.Default())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "__Host-refresh_token", Value: login.RefreshToken, Path: "/"})
+	rec := httptest.NewRecorder()
+	h.Refresh(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("refresh backend failure status=%d, want 503", rec.Code)
+	}
+	for _, header := range rec.Header().Values("Set-Cookie") {
+		if strings.Contains(header, "__Host-refresh_token") && strings.Contains(header, "Max-Age=0") {
+			t.Fatalf("transient refresh failure must not expire cookie: %q", header)
+		}
+	}
+	if len(store.tokens) != 1 {
+		t.Fatalf("transient consume failure must preserve server token, got %d", len(store.tokens))
+	}
+}
+
 func TestLogoutRequiresSuccessfulRefreshRevocation(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
@@ -172,8 +221,9 @@ func (f *logoutUsersRepo) ListUserPermissions(context.Context, string, string) (
 }
 
 type logoutRefreshStore struct {
-	tokens    map[string]string
-	revokeErr error
+	tokens     map[string]string
+	consumeErr error
+	revokeErr  error
 }
 
 func (f *logoutRefreshStore) Save(_ context.Context, tokenID, userID string, _ int64) error {
@@ -181,6 +231,9 @@ func (f *logoutRefreshStore) Save(_ context.Context, tokenID, userID string, _ i
 	return nil
 }
 func (f *logoutRefreshStore) Consume(_ context.Context, tokenID, userID string) (bool, error) {
+	if f.consumeErr != nil {
+		return false, f.consumeErr
+	}
 	if f.tokens[tokenID] != userID {
 		return false, nil
 	}
