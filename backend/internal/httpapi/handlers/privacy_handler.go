@@ -67,7 +67,11 @@ func (h *PrivacyHandler) GetRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	item, err := h.svc.GetRequest(r.Context(), au.TenantID, chi.URLParam(r, "id"))
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	item, err := h.svc.GetRequest(r.Context(), au.TenantID, id)
 	if err != nil {
 		writePrivacyError(w, r, err)
 		return
@@ -81,7 +85,10 @@ func (h *PrivacyHandler) UpdateRequestStatus(w http.ResponseWriter, r *http.Requ
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	var req privacyapp.UpdateStatusRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
@@ -101,7 +108,10 @@ func (h *PrivacyHandler) ExportSubject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	data, err := h.svc.ExportSubjectData(r.Context(), au.TenantID, id)
 	if err != nil {
 		writePrivacyError(w, r, err)
@@ -165,7 +175,10 @@ func (h *PrivacyHandler) RevokeConsent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	if err := h.svc.RevokeConsent(r.Context(), au.TenantID, id); err != nil {
 		writePrivacyError(w, r, err)
 		return
@@ -180,7 +193,10 @@ func (h *PrivacyHandler) subjectAction(w http.ResponseWriter, r *http.Request, a
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, valid := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !valid {
+		return
+	}
 	if err := fn(au.TenantID, id); err != nil {
 		writePrivacyError(w, r, err)
 		return
@@ -211,7 +227,7 @@ func writePrivacyError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "dados invalidos", nil)
 	case errors.Is(err, common.ErrConflict):
 		writeError(w, r, http.StatusConflict, "conflict", "operacao conflita com o estado atual do recurso", nil)
-	case errors.Is(err, pgx.ErrNoRows):
+	case errors.Is(err, common.ErrNotFound), errors.Is(err, pgx.ErrNoRows):
 		writeError(w, r, http.StatusNotFound, "not_found", "recurso nao encontrado", nil)
 	default:
 		writeError(w, r, http.StatusBadRequest, "validation_error", "nao foi possivel processar a solicitacao", nil)
