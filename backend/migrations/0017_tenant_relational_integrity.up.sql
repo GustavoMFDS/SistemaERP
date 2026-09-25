@@ -205,6 +205,18 @@ ALTER TABLE ledger_entries
   REFERENCES user_tenants(user_id, tenant_id)
   ON DELETE SET NULL (created_by_user_id);
 
+ALTER TABLE expenses
+  ADD CONSTRAINT expenses_created_by_membership_fk
+  FOREIGN KEY (created_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (created_by_user_id);
+
+ALTER TABLE revenues
+  ADD CONSTRAINT revenues_created_by_membership_fk
+  FOREIGN KEY (created_by_user_id, tenant_id)
+  REFERENCES user_tenants(user_id, tenant_id)
+  ON DELETE SET NULL (created_by_user_id);
+
 ALTER TABLE invoices
   ADD CONSTRAINT invoices_created_by_membership_fk
   FOREIGN KEY (created_by_user_id, tenant_id)
