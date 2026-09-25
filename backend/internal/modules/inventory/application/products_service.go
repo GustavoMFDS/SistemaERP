@@ -156,7 +156,6 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 	return nil
 }
 
-
 func normalizeOptionalUUID(value *string) error {
 	if value == nil {
 		return nil
