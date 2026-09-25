@@ -45,10 +45,20 @@ func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tenantID string) (
 func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `
+		WITH active_membership AS (
+			SELECT user_id
+			FROM user_tenants
+			WHERE user_id=$3 AND tenant_id=$1 AND active=true
+			FOR SHARE
+		)
 		INSERT INTO cash_sessions(tenant_id, cash_register_id, opened_by_user_id, opening_amount, notes)
-		VALUES ($1,$2,$3,$4,$5)
+		SELECT $1,$2,$3,$4,$5
+		FROM active_membership
 		RETURNING id::text
 	`, tenantID, registerID, userID, openingAmount.DBString(), notes).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", common.ErrForbidden
+	}
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "cash_sessions_one_open_per_register" {
