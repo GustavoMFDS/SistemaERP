@@ -1,6 +1,27 @@
 -- 0017_tenant_relational_integrity.down.sql
 BEGIN;
 
+DO $
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM user_tenants
+    WHERE active=false
+  ) THEN
+    RAISE EXCEPTION 'cannot rollback migration 0017 while inactive tenant memberships exist; reconcile or reactivate them first';
+  END IF;
+
+  IF EXISTS (
+    SELECT barcode
+    FROM products
+    WHERE barcode IS NOT NULL
+    GROUP BY barcode
+    HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'cannot rollback migration 0017 while the same barcode exists in multiple tenants; reconcile duplicate barcodes first';
+  END IF;
+END $;
+
 ALTER TABLE sales
   DROP CONSTRAINT IF EXISTS sales_tenant_customer_fk,
   ADD CONSTRAINT sales_customer_id_fkey
