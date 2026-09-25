@@ -296,6 +296,35 @@ func TestLoginPropagatesRepositoryFailureAfterDummyBcrypt(t *testing.T) {
 	}
 }
 
+func TestLoginRoleLookupFailureDoesNotCreateSession(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	roleErr := errors.New("roles backend unavailable")
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "tenant-1",
+		rolesErr: roleErr,
+	}
+	store := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, store, nil)
+
+	_, _, err = svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if !errors.Is(err, roleErr) {
+		t.Fatalf("role lookup failure must be preserved, got %v", err)
+	}
+	if len(store.tokens) != 0 {
+		t.Fatalf("failed role lookup must not persist refresh token, got %d", len(store.tokens))
+	}
+	if users.lastLoginUpdates != 0 {
+		t.Fatalf("failed role lookup must not update last_login_at, got %d", users.lastLoginUpdates)
+	}
+}
+
 func TestLoginUpdatesLastLoginAfterSuccessfulSessionIssuance(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
@@ -487,6 +516,7 @@ type fakeUsersRepo struct {
 	tenantID      string
 	tenantErr     error
 	roles         []string
+	rolesErr      error
 	tenantPerms    map[string][]string
 	tenantAllowed  *bool
 	allowedTenants map[string]bool
@@ -537,6 +567,9 @@ func (f *fakeUsersRepo) ListUserTenants(ctx context.Context, userID string) ([]A
 }
 
 func (f *fakeUsersRepo) ListUserRoles(ctx context.Context, userID string, tenantID string) ([]string, error) {
+	if f.rolesErr != nil {
+		return nil, f.rolesErr
+	}
 	return f.roles, nil
 }
 
