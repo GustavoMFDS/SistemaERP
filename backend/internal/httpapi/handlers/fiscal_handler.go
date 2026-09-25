@@ -1,26 +1,25 @@
 package handlers
 
 import (
+	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
-	"log/slog"
-
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 type FiscalHandler struct {
 	svc    *fiscapp.FiscalService
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewFiscalHandler(svc *fiscapp.FiscalService, auditSvc *audit.Service, logger *slog.Logger) *FiscalHandler {
-	return &FiscalHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewFiscalHandler(svc *fiscapp.FiscalService, logger *slog.Logger) *FiscalHandler {
+	return &FiscalHandler{svc: svc, logger: logger}
 }
 
 func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
@@ -85,12 +84,15 @@ func (h *FiscalHandler) DownloadXML(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	name, content, err := h.svc.DownloadXML(r.Context(), au.TenantID, id)
+	name, content, err := h.svc.DownloadXML(r.Context(), au.TenantID, au.UserID, id)
 	if err != nil {
-		writeError(w, r, http.StatusNotFound, "not_found", "arquivo nao encontrado", nil)
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, r, http.StatusNotFound, "not_found", "arquivo nao encontrado", nil)
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "nao foi possivel liberar o arquivo fiscal", nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfe_xml.download", "invoice_xml_file", id, "success", nil)
 	w.Header().Set("Content-Type", "application/xml")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
 	w.WriteHeader(http.StatusOK)
