@@ -4,11 +4,13 @@ let refreshPromise: Promise<boolean> | null = null
 
 export class APIError extends Error {
   status: number
+  code?: string
   bodyText?: string
 
-  constructor(status: number, message: string, bodyText?: string) {
+  constructor(status: number, message: string, bodyText?: string, code?: string) {
     super(message)
     this.status = status
+    this.code = code
     this.bodyText = bodyText
   }
 }
@@ -72,13 +74,15 @@ async function apiJsonInternal<T>(
     }
     const text = await res.text().catch(() => '')
     let message = `HTTP ${res.status}`
+    let code: string | undefined
     try {
-      const parsed = JSON.parse(text) as { message?: string }
+      const parsed = JSON.parse(text) as { message?: string; code?: string }
       if (parsed.message) message = parsed.message
+      if (parsed.code) code = parsed.code
     } catch {
       // keep fallback
     }
-    throw new APIError(res.status, message, text)
+    throw new APIError(res.status, message, text, code)
   }
 
   const ct = res.headers.get('content-type') ?? ''
@@ -141,13 +145,15 @@ async function apiDownloadInternal(
     }
     const text = await res.text().catch(() => '')
     let message = `HTTP ${res.status}`
+    let code: string | undefined
     try {
-      const parsed = JSON.parse(text) as { message?: string }
+      const parsed = JSON.parse(text) as { message?: string; code?: string }
       if (parsed.message) message = parsed.message
+      if (parsed.code) code = parsed.code
     } catch {
       // keep fallback
     }
-    throw new APIError(res.status, message, text)
+    throw new APIError(res.status, message, text, code)
   }
 
   const blob = await res.blob()
