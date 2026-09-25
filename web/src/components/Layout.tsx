@@ -5,6 +5,7 @@ import {
   clearAllCashSessionsForCurrentUser,
   clearAllUserScopedStorage,
   clearToken,
+  getAllCashSessionIdsForCurrentUser,
   getCashSessionId,
   setToken,
 } from '../lib/auth'
@@ -140,6 +141,14 @@ export default function Layout() {
 
   async function logout() {
     if (loggingOut) return
+
+    const openCashSessions = getAllCashSessionIdsForCurrentUser()
+    if (openCashSessions.length > 0) {
+      setLogoutError(
+        `Existem ${openCashSessions.length} caixa(s) local(is) ainda aberto(s) em uma ou mais lojas. Troque para cada loja e feche o caixa antes de sair.`,
+      )
+      return
+    }
 
     const pending = getAllUserQueueCount()
     if (
