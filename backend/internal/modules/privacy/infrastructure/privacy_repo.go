@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
+	"github.com/example/sistemaemgo/internal/modules/common"
 	privacy "github.com/example/sistemaemgo/internal/modules/privacy/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,6 +17,30 @@ type Repo struct {
 
 func NewRepo(dbpool *pgxpool.Pool) *Repo {
 	return &Repo{db: dbpool}
+}
+
+func (r *Repo) SubjectBelongsToTenant(ctx context.Context, tenantID, subjectType, subjectID string) (bool, error) {
+	var exists bool
+	switch subjectType {
+	case "customer":
+		err := r.db.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM customers
+				WHERE tenant_id=$1 AND id=$2
+			)
+		`, tenantID, subjectID).Scan(&exists)
+		return exists, err
+	case "user":
+		err := r.db.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM user_tenants
+				WHERE tenant_id=$1 AND user_id=$2
+			)
+		`, tenantID, subjectID).Scan(&exists)
+		return exists, err
+	default:
+		return false, fmt.Errorf("unsupported subject type")
+	}
 }
 
 func (r *Repo) CreateRequest(ctx context.Context, tenantID, actorUserID, requestID string, req privacyapp.CreateRequest) (string, error) {
@@ -114,22 +139,58 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 		}
 		return nil
 	case "user":
-		tag, err := r.db.Exec(ctx, `
-			UPDATE users u
+		tx, err := r.db.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		var lockedUserID string
+		if err := tx.QueryRow(ctx, `
+			SELECT u.id::text
+			FROM users u
+			JOIN user_tenants ut ON ut.user_id=u.id
+			WHERE ut.tenant_id=$1 AND u.id=$2
+			FOR UPDATE OF u
+		`, tenantID, subjectID).Scan(&lockedUserID); err != nil {
+			return err
+		}
+
+		var membershipCount int
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*)
+			FROM user_tenants
+			WHERE user_id=$1
+		`, subjectID).Scan(&membershipCount); err != nil {
+			return err
+		}
+		if membershipCount != 1 {
+			return common.ErrConflict
+		}
+
+		tag, err := tx.Exec(ctx, `
+			UPDATE users
 			SET name='Usuario anonimizado',
-			    email=('anon+' || u.id::text || '@anonymized.local')::citext,
+			    email=('anon+' || id::text || '@anonymized.local')::citext,
 			    active=false,
 			    updated_at=now()
-			FROM user_tenants ut
-			WHERE ut.user_id=u.id AND ut.tenant_id=$1 AND u.id=$2
-		`, tenantID, subjectID)
+			WHERE id=$1
+		`, subjectID)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			return pgx.ErrNoRows
 		}
-		return nil
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE user_tenants
+			SET active=false
+			WHERE tenant_id=$1 AND user_id=$2
+		`, tenantID, subjectID); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
 	default:
 		return fmt.Errorf("unsupported subject type")
 	}
@@ -140,10 +201,9 @@ func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectI
 		return fmt.Errorf("blocking is only supported for users")
 	}
 	tag, err := r.db.Exec(ctx, `
-		UPDATE users u
-		SET active=false, updated_at=now()
-		FROM user_tenants ut
-		WHERE ut.user_id=u.id AND ut.tenant_id=$1 AND u.id=$2
+		UPDATE user_tenants
+		SET active=false
+		WHERE tenant_id=$1 AND user_id=$2
 	`, tenantID, subjectID)
 	if err != nil {
 		return err
