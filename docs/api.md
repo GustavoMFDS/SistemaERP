@@ -364,3 +364,9 @@ Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry 
 - When open, `session` includes the session ID, register ID, opening user, status and opening amount.
 - The endpoint is read-only and is used by the PDV to recover a lost browser-side `cash_session_id`.
 
+## Round 8 — identifier validation contract
+- UUID identifiers are validated at the HTTP boundary before repository access.
+- Malformed route IDs and malformed foreign/reference IDs in sales, inventory and fiscal requests return `422 validation_error`.
+- Valid UUIDs are normalized before being forwarded to application services.
+- LGPD subjects that are syntactically valid UUIDs but do not belong to the authenticated tenant return `404 not_found`; malformed UUIDs return `422 validation_error`.
+
