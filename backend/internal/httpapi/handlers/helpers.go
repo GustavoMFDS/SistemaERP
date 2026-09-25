@@ -11,6 +11,7 @@ import (
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
+	"github.com/google/uuid"
 )
 
 type APIError struct {
@@ -36,6 +37,20 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code string,
 }
 
 const maxJSONBodyBytes = 1 << 20
+
+func validUUID(raw string) bool {
+	_, err := uuid.Parse(strings.TrimSpace(raw))
+	return err == nil
+}
+
+func requireUUID(w http.ResponseWriter, r *http.Request, raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if !validUUID(value) {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "identificador invalido", nil)
+		return "", false
+	}
+	return value, true
+}
 
 func readJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
