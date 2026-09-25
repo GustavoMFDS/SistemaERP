@@ -6,11 +6,14 @@ import (
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	privacy "github.com/example/sistemaemgo/internal/modules/privacy/domain"
+	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestCreateRequestValidatesAndUsesTenantContext(t *testing.T) {
 	repo := &fakePrivacyRepo{}
-	svc := NewService(repo)
+	svc := newPrivacyService(repo)
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	id, err := svc.CreateRequest(context.Background(), "tenant-1", "actor-1", "req-1", CreateRequest{
 		SubjectType: "customer",
@@ -28,7 +31,7 @@ func TestCreateRequestValidatesAndUsesTenantContext(t *testing.T) {
 func TestCreateRequestRejectsSubjectOutsideTenant(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	allowed := false
-	svc := NewService(&fakePrivacyRepo{subjectAllowed: &allowed})
+	svc := newPrivacyService(&fakePrivacyRepo{subjectAllowed: &allowed})
 
 	_, err := svc.CreateRequest(context.Background(), "tenant-1", "actor-1", "req-1", CreateRequest{
 		SubjectType: "customer",
@@ -41,7 +44,7 @@ func TestCreateRequestRejectsSubjectOutsideTenant(t *testing.T) {
 }
 
 func TestConsentRequiresSubjectInsideTenant(t *testing.T) {
-	svc := NewService(&fakePrivacyRepo{})
+	svc := newPrivacyService(&fakePrivacyRepo{})
 	_, err := svc.RecordConsent(context.Background(), "tenant-1", "req-1", ConsentCreateRequest{
 		SubjectType:        "customer",
 		Purpose:            "marketing",
@@ -54,7 +57,7 @@ func TestConsentRequiresSubjectInsideTenant(t *testing.T) {
 
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	allowed := false
-	svc = NewService(&fakePrivacyRepo{subjectAllowed: &allowed})
+	svc = newPrivacyService(&fakePrivacyRepo{subjectAllowed: &allowed})
 	_, err = svc.RecordConsent(context.Background(), "tenant-1", "req-1", ConsentCreateRequest{
 		SubjectType:        "customer",
 		SubjectID:          &subjectID,
@@ -69,7 +72,7 @@ func TestConsentRequiresSubjectInsideTenant(t *testing.T) {
 
 func TestCreateRequestRejectsUnsupportedCustomerBlocking(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
-	svc := NewService(&fakePrivacyRepo{})
+	svc := newPrivacyService(&fakePrivacyRepo{})
 
 	_, err := svc.CreateRequest(context.Background(), "tenant-1", "actor-1", "req-1", CreateRequest{
 		SubjectType: "customer",
@@ -82,7 +85,7 @@ func TestCreateRequestRejectsUnsupportedCustomerBlocking(t *testing.T) {
 }
 
 func TestCreateRequestRejectsInvalidInput(t *testing.T) {
-	svc := NewService(&fakePrivacyRepo{})
+	svc := newPrivacyService(&fakePrivacyRepo{})
 	_, err := svc.CreateRequest(context.Background(), "tenant-1", "actor-1", "req-1", CreateRequest{
 		SubjectType: "customer",
 		RequestType: "export",
@@ -98,7 +101,7 @@ func TestExportAndAnonymizeUseStoredRequestSubject(t *testing.T) {
 		ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1",
 		SubjectType: "customer", SubjectID: &subjectID, RequestType: "export", Status: "open",
 	}}
-	svc := NewService(repo)
+	svc := newPrivacyService(repo)
 
 	data, err := svc.ExportSubjectData(context.Background(), "tenant-1", repo.request.ID)
 	if err != nil {
@@ -110,11 +113,14 @@ func TestExportAndAnonymizeUseStoredRequestSubject(t *testing.T) {
 
 	repo.request.RequestType = "anonymization"
 	repo.request.Status = "in_progress"
-	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", repo.request.ID); err != nil {
+	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", "actor-1", repo.request.ID); err != nil {
 		t.Fatalf("AnonymizeSubject returned error: %v", err)
 	}
 	if !repo.anonymized {
 		t.Fatalf("expected subject anonymization")
+	}
+	if repo.request.Status != "completed" {
+		t.Fatalf("anonymization should complete DSR atomically, got status %q", repo.request.Status)
 	}
 }
 
@@ -124,24 +130,24 @@ func TestSubjectActionsRequireMatchingRequestTypeAndReviewState(t *testing.T) {
 		ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1",
 		SubjectType: "customer", SubjectID: &subjectID, RequestType: "export", Status: "open",
 	}}
-	svc := NewService(repo)
+	svc := newPrivacyService(repo)
 
-	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
+	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", "actor-1", repo.request.ID); err != common.ErrConflict {
 		t.Fatalf("export request must not anonymize subject, got %v", err)
 	}
 	repo.request.RequestType = "anonymization"
-	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
+	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", "actor-1", repo.request.ID); err != common.ErrConflict {
 		t.Fatalf("open anonymization request must enter in_progress first, got %v", err)
 	}
 
 	repo.request.SubjectType = "user"
 	repo.request.RequestType = "blocking"
 	repo.request.Status = "completed"
-	if err := svc.BlockSubject(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
+	if err := svc.BlockSubject(context.Background(), "tenant-1", "actor-1", repo.request.ID); err != common.ErrConflict {
 		t.Fatalf("terminal blocking request must not execute, got %v", err)
 	}
 	repo.request.Status = "in_progress"
-	if err := svc.BlockSubject(context.Background(), "tenant-1", repo.request.ID); err != nil {
+	if err := svc.BlockSubject(context.Background(), "tenant-1", "actor-1", repo.request.ID); err != nil {
 		t.Fatalf("in-progress blocking request should execute: %v", err)
 	}
 }
@@ -152,7 +158,7 @@ func TestExportRejectsNonExportRequest(t *testing.T) {
 		ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1",
 		SubjectType: "customer", SubjectID: &subjectID, RequestType: "correction", Status: "in_progress",
 	}}
-	svc := NewService(repo)
+	svc := newPrivacyService(repo)
 
 	if _, err := svc.ExportSubjectData(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
 		t.Fatalf("non-export request must not execute export, got %v", err)
@@ -162,7 +168,7 @@ func TestExportRejectsNonExportRequest(t *testing.T) {
 func TestConsentLifecycle(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	repo := &fakePrivacyRepo{}
-	svc := NewService(repo)
+	svc := newPrivacyService(repo)
 	id, err := svc.RecordConsent(context.Background(), "tenant-1", "req-1", ConsentCreateRequest{
 		SubjectType:        "customer",
 		SubjectID:          &subjectID,
@@ -186,7 +192,7 @@ func TestConsentLifecycle(t *testing.T) {
 
 func TestStatusFlowValidation(t *testing.T) {
 	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1", Status: "open"}}
-	svc := NewService(repo)
+	svc := newPrivacyService(repo)
 	validID := "22222222-2222-2222-2222-222222222222"
 	for _, status := range []string{"in_progress", "rejected", "cancelled"} {
 		repo.request.Status = "open"
@@ -205,7 +211,7 @@ func TestStatusFlowValidation(t *testing.T) {
 
 func TestStatusTerminalTransitionsAreRejected(t *testing.T) {
 	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1", Status: "completed"}}
-	svc := NewService(repo)
+	svc := newPrivacyService(repo)
 	for _, tc := range []struct {
 		from string
 		to   string
@@ -235,12 +241,40 @@ func TestCrossTenantRequestAccessIsDeniedByRepositoryScope(t *testing.T) {
 		expectedTenant: "tenant-1",
 		request:        privacy.DataSubjectRequest{ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1", SubjectType: "customer", SubjectID: &subjectID},
 	}
-	svc := NewService(repo)
+	svc := newPrivacyService(repo)
 	_, err := svc.ExportSubjectData(context.Background(), "tenant-2", repo.request.ID)
 	if err != common.ErrNotFound {
 		t.Fatalf("expected cross-tenant export to be denied, got %v", err)
 	}
 }
+
+func newPrivacyService(repo Repository) *Service {
+	return NewService(privacyFakeUOW{}, repo, nil)
+}
+
+type privacyFakeUOW struct{}
+
+func (privacyFakeUOW) Begin(context.Context) (db.Tx, error) {
+	return privacyFakeTx{}, nil
+}
+
+type privacyFakeTx struct{}
+
+func (privacyFakeTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+func (privacyFakeTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, nil
+}
+func (privacyFakeTx) QueryRow(context.Context, string, ...any) pgx.Row {
+	return privacyFakeRow{}
+}
+func (privacyFakeTx) Commit(context.Context) error   { return nil }
+func (privacyFakeTx) Rollback(context.Context) error { return nil }
+
+type privacyFakeRow struct{}
+
+func (privacyFakeRow) Scan(...any) error { return nil }
 
 type fakePrivacyRepo struct {
 	createdTenant  string
@@ -276,7 +310,17 @@ func (f *fakePrivacyRepo) GetRequest(ctx context.Context, tenantID, id string) (
 	return f.request, nil
 }
 
+func (f *fakePrivacyRepo) GetRequestForUpdate(ctx context.Context, tx db.DBTX, tenantID, id string) (privacy.DataSubjectRequest, error) {
+	return f.GetRequest(ctx, tenantID, id)
+}
+
 func (f *fakePrivacyRepo) UpdateRequestStatus(ctx context.Context, tenantID, id, status string, notes *string) error {
+	f.request.Status = status
+	return nil
+}
+
+func (f *fakePrivacyRepo) UpdateRequestStatusTx(ctx context.Context, tx db.DBTX, tenantID, id, status string, notes *string) error {
+	f.request.Status = status
 	return nil
 }
 
@@ -285,12 +329,12 @@ func (f *fakePrivacyRepo) ExportSubjectData(ctx context.Context, tenantID, subje
 	return map[string]any{"subject_type": subjectType, "id": subjectID}, nil
 }
 
-func (f *fakePrivacyRepo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (f *fakePrivacyRepo) AnonymizeSubject(ctx context.Context, tx db.DBTX, tenantID, subjectType, subjectID string) error {
 	f.anonymized = true
 	return nil
 }
 
-func (f *fakePrivacyRepo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (f *fakePrivacyRepo) BlockSubject(ctx context.Context, tx db.DBTX, tenantID, subjectType, subjectID string) error {
 	return nil
 }
 
