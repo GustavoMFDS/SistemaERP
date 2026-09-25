@@ -62,12 +62,13 @@ func TestPrivacyAnonymizationStatusAndAuditCommitAtomically(t *testing.T) {
 	}
 
 	customerEmail := fmt.Sprintf("round9-customer-%d@example.test", time.Now().UnixNano())
+	customerDocument := fmt.Sprintf("R9DOC-%d", time.Now().UnixNano())
 	var customerID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO customers(tenant_id, name, document, email, phone)
-		VALUES ($1,'Round9 Privacy Customer','12345678900',$2,'34999999999')
+		VALUES ($1,'Round9 Privacy Customer',$2,$3,'34999999999')
 		RETURNING id::text
-	`, tenantA, customerEmail).Scan(&customerID); err != nil {
+	`, tenantA, customerDocument, customerEmail).Scan(&customerID); err != nil {
 		t.Fatalf("create customer: %v", err)
 	}
 
@@ -115,7 +116,7 @@ func TestPrivacyAnonymizationStatusAndAuditCommitAtomically(t *testing.T) {
 		t.Fatalf("read rolled-back privacy state: %v", err)
 	}
 	if name != "Round9 Privacy Customer" ||
-		document != "12345678900" ||
+		document != customerDocument ||
 		email != customerEmail ||
 		phone != "34999999999" ||
 		status != "in_progress" ||
