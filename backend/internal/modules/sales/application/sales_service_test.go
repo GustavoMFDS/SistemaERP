@@ -71,6 +71,40 @@ func TestCreateAndFinalizeAcceptsMatchingUnitPriceSnapshot(t *testing.T) {
 	}
 }
 
+func TestSaleRequestHashPreservesLegacyShapeWithoutUnitPrice(t *testing.T) {
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		Items: []SaleItemRequest{{
+			ProductID:     "prod-1",
+			Qty:           platform.NewQuantityMilli(1_000),
+			DiscountValue: 0,
+		}},
+		Payments: []SalePaymentRequest{{
+			Method: "cash",
+			Amount: platform.NewMoneyCents(1_000),
+		}},
+	}
+
+	got, err := saleRequestHash(req)
+	if err != nil {
+		t.Fatalf("saleRequestHash: %v", err)
+	}
+	const legacyHash = "de7ffeb96aeecfe5e726e701f485cb689cf76a7eee089688e12e1f08be19793d"
+	if got != legacyHash {
+		t.Fatalf("legacy hash changed: got %s want %s", got, legacyHash)
+	}
+
+	snapshot := platform.NewMoneyCents(1_000)
+	req.Items[0].UnitPrice = &snapshot
+	withSnapshot, err := saleRequestHash(req)
+	if err != nil {
+		t.Fatalf("saleRequestHash with snapshot: %v", err)
+	}
+	if withSnapshot == got {
+		t.Fatal("new price snapshot must participate in hashes for new intents")
+	}
+}
+
 func TestCreateAndFinalizeNormalSaleCreationAndTotal(t *testing.T) {
 	svc, salesRepo, invRepo, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
 	req := SaleCreateRequest{
