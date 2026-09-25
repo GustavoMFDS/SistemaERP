@@ -34,6 +34,15 @@ type Product = {
 type ProductsListResponse = { items: Product[]; total: number }
 
 type CashOpenResponse = { id: string }
+type CashCurrentResponse = {
+  session: {
+    id: string
+    register_id: string
+    opened_by_user_id: string
+    status: string
+    opening_amount: number
+  } | null
+}
 type CashCloseResponse = {
   status: string
   expected_cash: number
@@ -164,6 +173,8 @@ export default function PDVPage() {
 
   useEffect(() => {
     void loadProducts()
+    void recoverCurrentCash()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -190,6 +201,31 @@ export default function PDVPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function recoverCurrentCash() {
+    if (!navigator.onLine) return
+
+    try {
+      const res = await apiJson<CashCurrentResponse>('/api/v1/cash/sessions/current')
+      const localID = getCashSessionId()
+      const serverID = res.session?.id ?? ''
+
+      if (serverID) {
+        if (localID !== serverID) setCashSessionId(serverID)
+        setCashSessionIdState(serverID)
+        return
+      }
+
+      if (localID) clearCashSessionId()
+      setCashSessionIdState('')
+    } catch (e: unknown) {
+      // Keep a local session ID when the server cannot be reached. It remains
+      // tenant-scoped and will be reconciled on the next successful check.
+      if (navigator.onLine) {
+        setError(`Não foi possível verificar o caixa atual: ${errorMessage(e)}`)
+      }
+    }
+  }
+
   async function openCash(e: FormEvent) {
     e.preventDefault()
     setError('')
@@ -202,6 +238,10 @@ export default function PDVPage() {
       setCashSessionIdState(res.id)
       setCashCloseSummary(null)
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) {
+        await recoverCurrentCash()
+        return
+      }
       setError(errorMessage(e))
     }
   }
