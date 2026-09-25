@@ -1,5 +1,9 @@
 import { APIError, apiJson, errorMessage } from './api'
-import { scopedStorageKey } from './auth'
+import {
+  clearAllUserScopedStorage,
+  scopedStorageKey,
+  userScopedStorageKeys,
+} from './auth'
 
 export type QueueState = 'pending' | 'attention'
 export type AttentionReason =
@@ -134,6 +138,16 @@ export function getQueueSummary(): QueueSummary {
 
 export function getQueueCount(): number {
   return getQueueSummary().total
+}
+
+export function getAllUserQueueCount(): number {
+  let total = 0
+  for (const key of userScopedStorageKeys(QUEUE_NAMESPACE)) {
+    const parsed = safeJsonParse<QueuedRequest[]>(localStorage.getItem(key))
+    if (!parsed || !Array.isArray(parsed)) continue
+    total += parsed.filter(isValidQueueItem).length
+  }
+  return total
 }
 
 export function getLegacyQueueCount(): number {
@@ -295,6 +309,11 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
 export function clearOfflineQueue(): void {
   const key = queueKey()
   if (key) localStorage.removeItem(key)
+}
+
+export function clearAllOfflineQueuesForCurrentUser(): void {
+  clearAllUserScopedStorage(QUEUE_NAMESPACE)
+  localStorage.removeItem(LEGACY_QUEUE_KEY)
 }
 
 function sanitizeQueuedHeaders(headers?: Record<string, string>): Record<string, string> {
