@@ -252,8 +252,14 @@ func (s *AuthService) SwitchTenant(
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
-	if claims.Subject != userID || claims.TenantID != currentTenantID {
+	if claims.Subject != userID {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if claims.TenantID != currentTenantID {
+		// A valid refresh cookie can already point at another tenant when a
+		// second browser tab switched stores. Treat that as a stale access
+		// context, not as invalid credentials, so the valid cookie survives.
+		return TokenResponse{}, AuthUserInfo{}, common.ErrConflict
 	}
 	if s.refresh == nil {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
