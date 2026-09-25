@@ -345,3 +345,12 @@ Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry 
 
 ### Retention
 `idempotency_keys` remain immutable during the replay window. App maintenance deletes entries older than 30 days in bounded batches; migration `0016` indexes `created_at` for this path.
+
+## Round 7 — tenant integrity notes
+- `GET /auth/me` responde o tenant do token autenticado e as roles desse mesmo tenant.
+- `PUT /products/{id}` retorna `404 not_found` quando o produto não existe no tenant atual.
+- `category_id` de produto, quando informado, deve pertencer ao mesmo tenant.
+- `customer_id` em `POST /sales`, quando informado, deve pertencer ao mesmo tenant.
+- `POST /privacy/consents` exige `subject_id` válido do tenant atual.
+- Bloqueio LGPD de usuário revoga acesso ao tenant solicitante sem desativar a conta global em outras lojas. Anonimização de usuário compartilhado retorna `409 conflict`.
+
