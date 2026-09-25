@@ -359,3 +359,8 @@ Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry 
 - `POST /api/v1/auth/switch-tenant` with `{"tenant_id":"<uuid>"}` rotates the current refresh token and returns a new access token scoped to that tenant.
 - Switching requires the current access token, the HttpOnly refresh cookie, an active target membership, and trusted origin validation.
 
+### Current cash recovery
+- `GET /api/v1/cash/sessions/current` returns `{"session": null}` when the tenant's default cash register has no open session.
+- When open, `session` includes the session ID, register ID, opening user, status and opening amount.
+- The endpoint is read-only and is used by the PDV to recover a lost browser-side `cash_session_id`.
+
