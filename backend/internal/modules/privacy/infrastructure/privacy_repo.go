@@ -223,16 +223,15 @@ func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectI
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var active bool
+	var lockedUserID string
 	if err := tx.QueryRow(ctx, `
-		SELECT active
+		SELECT user_id::text
 		FROM user_tenants
 		WHERE tenant_id=$1 AND user_id=$2
 		FOR UPDATE
-	`, tenantID, subjectID).Scan(&active); err != nil {
+	`, tenantID, subjectID).Scan(&lockedUserID); err != nil {
 		return err
 	}
-	_ = active
 
 	var hasOpenCash bool
 	if err := tx.QueryRow(ctx, `
