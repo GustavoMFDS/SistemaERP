@@ -114,8 +114,28 @@ func (s *FiscalService) ListXML(ctx context.Context, tenantID string, limit, off
 	return s.fiscal.ListXML(ctx, tenantID, limit, offset)
 }
 
-func (s *FiscalService) DownloadXML(ctx context.Context, tenantID string, id string) (string, []byte, error) {
-	return s.fiscal.GetXMLContent(ctx, tenantID, id)
+func (s *FiscalService) DownloadXML(ctx context.Context, tenantID, actorUserID, id string) (string, []byte, error) {
+	name, content, err := s.fiscal.GetXMLContent(ctx, tenantID, id)
+	if err != nil {
+		return "", nil, err
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfe_xml.download",
+		ResourceType: "invoice_xml_file", ResourceID: id, Outcome: "success",
+	}); err != nil {
+		return "", nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", nil, err
+	}
+	return name, content, nil
 }
 
 func uniqueProductIDs(items []sales.SaleItem) []string {
