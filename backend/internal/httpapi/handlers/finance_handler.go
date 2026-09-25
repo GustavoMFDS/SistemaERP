@@ -52,7 +52,7 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao carregar dashboard", nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "totals": data})
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "timezone": h.svc.Timezone(), "totals": data})
 }
 
 func (h *FinanceHandler) ListLedger(w http.ResponseWriter, r *http.Request) {
