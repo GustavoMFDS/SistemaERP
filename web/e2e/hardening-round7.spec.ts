@@ -20,6 +20,11 @@ test('shared admin switches CNPJ without leaking tenant catalog or local scope',
   await expect(page.getByText('Coca-Cola 2L')).toBeVisible()
   await expect(page.getByText('Arroz E2E Tenant B')).toHaveCount(0)
 
+  await page.evaluate(async () => {
+    const { setCashSessionId } = await import('/src/lib/auth.ts')
+    setCashSessionId('local-cash-tenant-a')
+  })
+  page.once('dialog', (dialog) => void dialog.accept())
   await tenantSelect.selectOption({ label: 'Loja E2E B' })
 
   await expect(page.getByLabel('Loja ativa')).toBeVisible()
@@ -28,6 +33,14 @@ test('shared admin switches CNPJ without leaking tenant catalog or local scope',
   )
   await expect(page.getByText('Arroz E2E Tenant B')).toBeVisible()
   await expect(page.getByText('Coca-Cola 2L')).toHaveCount(0)
+
+  const tenantBLocalCash = await page.evaluate(async () => {
+    const { getCashSessionId, setCashSessionId } = await import('/src/lib/auth.ts')
+    const before = getCashSessionId()
+    setCashSessionId('local-cash-tenant-b')
+    return before
+  })
+  expect(tenantBLocalCash).toBe('')
 
   const tenantB = await page.evaluate(async () => {
     const { apiJson } = await import('/src/lib/api.ts')
@@ -47,6 +60,7 @@ test('shared admin switches CNPJ without leaking tenant catalog or local scope',
   expect(tenantB.meTenant).toBe(tenantB.selected)
   expect(tenantB.currentTenant).toBe(tenantB.selected)
 
+  page.once('dialog', (dialog) => void dialog.accept())
   await page.getByLabel('Loja ativa').selectOption({ label: 'Loja Exemplo' })
 
   await expect(page.getByLabel('Loja ativa').locator('option:checked')).toHaveText(
@@ -54,4 +68,10 @@ test('shared admin switches CNPJ without leaking tenant catalog or local scope',
   )
   await expect(page.getByText('Coca-Cola 2L')).toBeVisible()
   await expect(page.getByText('Arroz E2E Tenant B')).toHaveCount(0)
+
+  const tenantALocalCash = await page.evaluate(async () => {
+    const { getCashSessionId } = await import('/src/lib/auth.ts')
+    return getCashSessionId()
+  })
+  expect(tenantALocalCash).toBe('local-cash-tenant-a')
 })
