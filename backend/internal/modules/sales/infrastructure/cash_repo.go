@@ -92,6 +92,53 @@ func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string) (sales.C
 	return s, true, nil
 }
 
+
+func (r *CashRepo) ListOpenSessionsByUser(ctx context.Context, userID string) ([]sales.CashSession, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			cs.id::text,
+			cs.tenant_id::text,
+			cs.cash_register_id::text,
+			cs.opened_by_user_id::text,
+			cs.status,
+			cs.opening_amount::text
+		FROM cash_sessions cs
+		JOIN user_tenants ut
+		  ON ut.user_id=$1
+		 AND ut.tenant_id=cs.tenant_id
+		 AND ut.active=true
+		WHERE cs.opened_by_user_id=$1
+		  AND cs.status='open'
+		ORDER BY cs.opened_at
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]sales.CashSession, 0)
+	for rows.Next() {
+		var session sales.CashSession
+		var openingRaw string
+		if err := rows.Scan(
+			&session.ID,
+			&session.TenantID,
+			&session.RegisterID,
+			&session.OpenedByUserID,
+			&session.Status,
+			&openingRaw,
+		); err != nil {
+			return nil, err
+		}
+		session.OpeningAmount, err = platform.ParseMoney(openingRaw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	return out, rows.Err()
+}
+
 func (r *CashRepo) CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, expectedCash, closingAmount platform.Money, notes *string) error {
 	tag, err := tx.Exec(ctx, `
 		UPDATE cash_sessions
