@@ -11,6 +11,7 @@ import (
 )
 
 type SalesRepository interface {
+	CustomerBelongsToTenant(ctx context.Context, tx db.DBTX, tenantID, customerID string) (bool, error)
 	InsertSale(ctx context.Context, tx db.DBTX, tenantID string, s sales.Sale) (string, error)
 	InsertItem(ctx context.Context, tx db.DBTX, tenantID string, it sales.SaleItem) error
 	InsertPayment(ctx context.Context, tx db.DBTX, tenantID string, p sales.Payment) error
