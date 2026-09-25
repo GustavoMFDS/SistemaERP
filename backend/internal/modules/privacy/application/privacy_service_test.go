@@ -80,7 +80,10 @@ func TestCreateRequestRejectsInvalidInput(t *testing.T) {
 
 func TestExportAndAnonymizeUseStoredRequestSubject(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
-	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1", SubjectType: "customer", SubjectID: &subjectID}}
+	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{
+		ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1",
+		SubjectType: "customer", SubjectID: &subjectID, RequestType: "export", Status: "open",
+	}}
 	svc := NewService(repo)
 
 	data, err := svc.ExportSubjectData(context.Background(), "tenant-1", repo.request.ID)
@@ -91,11 +94,54 @@ func TestExportAndAnonymizeUseStoredRequestSubject(t *testing.T) {
 		t.Fatalf("unexpected export data=%v tenant=%q", data, repo.exportedTenant)
 	}
 
+	repo.request.RequestType = "anonymization"
+	repo.request.Status = "in_progress"
 	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", repo.request.ID); err != nil {
 		t.Fatalf("AnonymizeSubject returned error: %v", err)
 	}
 	if !repo.anonymized {
 		t.Fatalf("expected subject anonymization")
+	}
+}
+
+func TestSubjectActionsRequireMatchingRequestTypeAndReviewState(t *testing.T) {
+	subjectID := "11111111-1111-1111-1111-111111111111"
+	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{
+		ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1",
+		SubjectType: "customer", SubjectID: &subjectID, RequestType: "export", Status: "open",
+	}}
+	svc := NewService(repo)
+
+	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
+		t.Fatalf("export request must not anonymize subject, got %v", err)
+	}
+	repo.request.RequestType = "anonymization"
+	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
+		t.Fatalf("open anonymization request must enter in_progress first, got %v", err)
+	}
+
+	repo.request.SubjectType = "user"
+	repo.request.RequestType = "blocking"
+	repo.request.Status = "completed"
+	if err := svc.BlockSubject(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
+		t.Fatalf("terminal blocking request must not execute, got %v", err)
+	}
+	repo.request.Status = "in_progress"
+	if err := svc.BlockSubject(context.Background(), "tenant-1", repo.request.ID); err != nil {
+		t.Fatalf("in-progress blocking request should execute: %v", err)
+	}
+}
+
+func TestExportRejectsNonExportRequest(t *testing.T) {
+	subjectID := "11111111-1111-1111-1111-111111111111"
+	repo := &fakePrivacyRepo{request: privacy.DataSubjectRequest{
+		ID: "22222222-2222-2222-2222-222222222222", TenantID: "tenant-1",
+		SubjectType: "customer", SubjectID: &subjectID, RequestType: "correction", Status: "in_progress",
+	}}
+	svc := NewService(repo)
+
+	if _, err := svc.ExportSubjectData(context.Background(), "tenant-1", repo.request.ID); err != common.ErrConflict {
+		t.Fatalf("non-export request must not execute export, got %v", err)
 	}
 }
 
