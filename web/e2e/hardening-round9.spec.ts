@@ -96,6 +96,11 @@ test('offline price drift is quarantined with the original price snapshot preser
 }) => {
   await login(page)
 
+  const beforeSales = await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    return apiJson<{ total: number }>('/api/v1/sales?limit=200&offset=0')
+  })
+
   const fixture = await page.evaluate(async () => {
     const { apiJson } = await import('/src/lib/api.ts')
     const sku = `R9-DRIFT-${crypto.randomUUID().slice(0, 8)}`
@@ -235,11 +240,11 @@ test('offline price drift is quarantined with the original price snapshot preser
   expect(result.error).toMatch(/preco do produto mudou/i)
   expect(result.unitPrice).toBe(10)
 
-  const sales = await page.evaluate(async () => {
+  const afterSales = await page.evaluate(async () => {
     const { apiJson } = await import('/src/lib/api.ts')
-    return apiJson<{ items: Array<{ id: string }> }>('/api/v1/sales?limit=200&offset=0')
+    return apiJson<{ total: number }>('/api/v1/sales?limit=200&offset=0')
   })
-  expect(sales.items).not.toContainEqual(expect.objectContaining({ id: queuedID }))
+  expect(afterSales.total).toBe(beforeSales.total)
 
   await page.evaluate(async (id) => {
     const queue = await import('/src/lib/offlineQueue.ts')
