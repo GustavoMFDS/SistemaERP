@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/example/sistemaemgo/internal/config"
-
 	fin "github.com/example/sistemaemgo/internal/modules/finance/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/go-playground/validator/v10"
