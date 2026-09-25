@@ -53,6 +53,7 @@ Migração:
 - A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
 - Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo que outro tenant/usuário leia o estado anterior no mesmo navegador. Trocar de CNPJ preserva cada namespace isolado; logout limpa os namespaces de todas as lojas do usuário antes de remover o access token.
 - A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual.
+- Como a fila v1 não possui ownership confiável de tenant/usuário, o logout não a apaga automaticamente. Enquanto houver itens legados, o logout pela UI é bloqueado até importação para revisão ou descarte explícito no PDV.
 - Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova.
 - Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
 - O backend usa `request_hash`: mesma chave + mesmo hash reaproveita o resultado; mesma chave + hash diferente retorna `409 conflict`.
