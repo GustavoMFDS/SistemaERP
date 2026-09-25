@@ -94,6 +94,9 @@ func TestPrivacyMembershipDeactivationAndCashOpeningCannotOrphanSession(t *testi
 		t.Fatalf("commit cash open: %v", err)
 	}
 
+	if err := privacyRepo.AnonymizeSubject(ctx, tenantID, "user", userID); !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("open cash must block user anonymization, got %v", err)
+	}
 	if err := privacyRepo.BlockSubject(ctx, tenantID, "user", userID); !errors.Is(err, common.ErrConflict) {
 		t.Fatalf("open cash must block membership deactivation, got %v", err)
 	}
