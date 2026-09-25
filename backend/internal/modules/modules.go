@@ -84,7 +84,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	}
 	authSvc := authapp.NewAuthService(cfg, usersRepo, refreshStore, logger)
 	productsSvc := invapp.NewProductsService(uow, productsRepo, v, logger)
-	inventorySvc := invapp.NewInventoryService(cfg, uow, inventoryRepo, productsRepo, v, logger)
+	inventorySvc := invapp.NewInventoryService(cfg, uow, inventoryRepo, productsRepo, auditSvc, v, logger)
 	cashSvc := salesapp.NewCashService(uow, cashRepo, financeRepo, auditSvc, v, logger)
 	salesSvc := salesapp.NewSalesService(cfg, uow, salesRepo, inventoryRepo, financeRepo, cashRepo, productsRepo, auditSvc, bus, v, logger)
 	financeSvc := finapp.NewFinanceService(financeRepo, v, logger)
