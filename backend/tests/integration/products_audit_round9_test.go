@@ -63,10 +63,13 @@ func TestProductMutationRollsBackWhenAuditActorIsOutsideTenant(t *testing.T) {
 		t.Fatalf("create foreign membership: %v", err)
 	}
 
+	var productID string
 	t.Cleanup(func() {
 		bg := context.Background()
-		_, _ = pool.Exec(bg, `DELETE FROM audit_logs WHERE actor_user_id IN ($1,$2)`, actorA, actorB)
-		_, _ = pool.Exec(bg, `DELETE FROM products WHERE sku LIKE 'R9-PROD-AUDIT-%'`)
+		if productID != "" {
+			_, _ = pool.Exec(bg, `DELETE FROM audit_logs WHERE resource_id=$1::uuid`, productID)
+			_, _ = pool.Exec(bg, `DELETE FROM products WHERE id=$1`, productID)
+		}
 		_, _ = pool.Exec(bg, `DELETE FROM users WHERE id=$1`, actorB)
 		_, _ = pool.Exec(bg, `DELETE FROM companies WHERE id=$1`, tenantB)
 	})
@@ -108,7 +111,7 @@ func TestProductMutationRollsBackWhenAuditActorIsOutsideTenant(t *testing.T) {
 		t.Fatalf("product create committed without valid audit actor: count=%d", count)
 	}
 
-	productID, err := svc.Create(ctx, tenantA, actorA, req)
+	productID, err = svc.Create(ctx, tenantA, actorA, req)
 	if err != nil {
 		t.Fatalf("valid product create: %v", err)
 	}
