@@ -5,12 +5,16 @@ import (
 	"net/mail"
 	"strings"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
+	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	repo Repository
+	uow   db.UnitOfWork
+	repo  Repository
+	audit *audit.Service
 }
 
 type CreateRequest struct {
@@ -34,8 +38,8 @@ type ConsentCreateRequest struct {
 	Source             string  `json:"source"`
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+func NewService(uow db.UnitOfWork, repo Repository, auditSvc *audit.Service) *Service {
+	return &Service{uow: uow, repo: repo, audit: auditSvc}
 }
 
 func (s *Service) CreateRequest(ctx context.Context, tenantID, actorUserID, requestID string, req CreateRequest) (string, error) {
@@ -96,8 +100,17 @@ func (s *Service) ExportSubjectData(ctx context.Context, tenantID, requestID str
 	return s.repo.ExportSubjectData(ctx, tenantID, req.SubjectType, *req.SubjectID)
 }
 
-func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, requestID string) error {
-	req, err := s.repo.GetRequest(ctx, tenantID, requestID)
+func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, actorUserID, requestID string) error {
+	if !isUUID(requestID) {
+		return common.ErrValidation
+	}
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	req, err := s.repo.GetRequestForUpdate(ctx, tx, tenantID, requestID)
 	if err != nil {
 		return err
 	}
@@ -110,11 +123,33 @@ func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, requestID stri
 	if req.RequestType != "anonymization" && req.RequestType != "deletion" {
 		return common.ErrConflict
 	}
-	return s.repo.AnonymizeSubject(ctx, tenantID, req.SubjectType, *req.SubjectID)
+	if err := s.repo.AnonymizeSubject(ctx, tx, tenantID, req.SubjectType, *req.SubjectID); err != nil {
+		return err
+	}
+	if err := s.repo.UpdateRequestStatusTx(ctx, tx, tenantID, requestID, "completed", nil); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "privacy.subject.anonymize",
+		ResourceType: "data_subject_request", ResourceID: requestID, Outcome: "success",
+		Metadata: map[string]any{"subject_type": req.SubjectType, "request_type": req.RequestType},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-func (s *Service) BlockSubject(ctx context.Context, tenantID, requestID string) error {
-	req, err := s.repo.GetRequest(ctx, tenantID, requestID)
+func (s *Service) BlockSubject(ctx context.Context, tenantID, actorUserID, requestID string) error {
+	if !isUUID(requestID) {
+		return common.ErrValidation
+	}
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	req, err := s.repo.GetRequestForUpdate(ctx, tx, tenantID, requestID)
 	if err != nil {
 		return err
 	}
@@ -124,7 +159,20 @@ func (s *Service) BlockSubject(ctx context.Context, tenantID, requestID string) 
 	if req.Status != "in_progress" || req.RequestType != "blocking" {
 		return common.ErrConflict
 	}
-	return s.repo.BlockSubject(ctx, tenantID, req.SubjectType, *req.SubjectID)
+	if err := s.repo.BlockSubject(ctx, tx, tenantID, req.SubjectType, *req.SubjectID); err != nil {
+		return err
+	}
+	if err := s.repo.UpdateRequestStatusTx(ctx, tx, tenantID, requestID, "completed", nil); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "privacy.subject.block",
+		ResourceType: "data_subject_request", ResourceID: requestID, Outcome: "success",
+		Metadata: map[string]any{"subject_type": req.SubjectType, "request_type": req.RequestType},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Service) RecordConsent(ctx context.Context, tenantID, requestID string, req ConsentCreateRequest) (string, error) {
