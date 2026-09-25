@@ -94,10 +94,23 @@ func TestPrivacyMembershipDeactivationAndCashOpeningCannotOrphanSession(t *testi
 		t.Fatalf("commit cash open: %v", err)
 	}
 
-	if err := privacyRepo.AnonymizeSubject(ctx, tenantID, "user", userID); !errors.Is(err, common.ErrConflict) {
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin blocked anonymization: %v", err)
+	}
+	err = privacyRepo.AnonymizeSubject(ctx, tx, tenantID, "user", userID)
+	_ = tx.Rollback(ctx)
+	if !errors.Is(err, common.ErrConflict) {
 		t.Fatalf("open cash must block user anonymization, got %v", err)
 	}
-	if err := privacyRepo.BlockSubject(ctx, tenantID, "user", userID); !errors.Is(err, common.ErrConflict) {
+
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin blocked membership deactivation: %v", err)
+	}
+	err = privacyRepo.BlockSubject(ctx, tx, tenantID, "user", userID)
+	_ = tx.Rollback(ctx)
+	if !errors.Is(err, common.ErrConflict) {
 		t.Fatalf("open cash must block membership deactivation, got %v", err)
 	}
 
@@ -122,8 +135,16 @@ func TestPrivacyMembershipDeactivationAndCashOpeningCannotOrphanSession(t *testi
 		t.Fatalf("close fixture cash: %v", err)
 	}
 
-	if err := privacyRepo.BlockSubject(ctx, tenantID, "user", userID); err != nil {
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin membership block: %v", err)
+	}
+	if err := privacyRepo.BlockSubject(ctx, tx, tenantID, "user", userID); err != nil {
+		_ = tx.Rollback(ctx)
 		t.Fatalf("block membership after cash close: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit membership block: %v", err)
 	}
 
 	if err := pool.QueryRow(ctx, `
