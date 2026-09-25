@@ -37,6 +37,10 @@ func (s *FinanceService) Today() string {
 	return time.Now().In(s.location).Format("2006-01-02")
 }
 
+func (s *FinanceService) Timezone() string {
+	return s.businessTimezone
+}
+
 func (s *FinanceService) Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]platform.Money, error) {
 	return s.repo.Dashboard(ctx, tenantID, from, to, s.businessTimezone)
 }
