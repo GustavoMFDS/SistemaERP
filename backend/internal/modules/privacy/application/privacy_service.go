@@ -43,6 +43,15 @@ func (s *Service) CreateRequest(ctx context.Context, tenantID, actorUserID, requ
 	if err := validateCreateRequest(req); err != nil {
 		return "", err
 	}
+	if req.SubjectID != nil {
+		ok, err := s.repo.SubjectBelongsToTenant(ctx, tenantID, req.SubjectType, *req.SubjectID)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", common.ErrNotFound
+		}
+	}
 	return s.repo.CreateRequest(ctx, tenantID, actorUserID, requestID, req)
 }
 
@@ -111,6 +120,13 @@ func (s *Service) RecordConsent(ctx context.Context, tenantID, requestID string,
 	if err := validateConsent(req); err != nil {
 		return "", err
 	}
+	ok, err := s.repo.SubjectBelongsToTenant(ctx, tenantID, req.SubjectType, *req.SubjectID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", common.ErrNotFound
+	}
 	return s.repo.RecordConsent(ctx, tenantID, requestID, req)
 }
 
@@ -164,7 +180,7 @@ func validateCreateRequest(req CreateRequest) error {
 }
 
 func validateConsent(req ConsentCreateRequest) error {
-	if !validSubjectType(req.SubjectType) || req.SubjectID != nil && !isUUID(*req.SubjectID) {
+	if !validSubjectType(req.SubjectType) || req.SubjectID == nil || !isUUID(*req.SubjectID) {
 		return common.ErrValidation
 	}
 	if len(req.Purpose) < 3 || len(req.Purpose) > 120 {
