@@ -45,7 +45,7 @@ func TestCreateRequestRejectsSubjectOutsideTenant(t *testing.T) {
 
 func TestConsentRequiresSubjectInsideTenant(t *testing.T) {
 	svc := newPrivacyService(&fakePrivacyRepo{})
-	_, err := svc.RecordConsent(context.Background(), "tenant-1", "req-1", ConsentCreateRequest{
+	_, err := svc.RecordConsent(context.Background(), "tenant-1", "actor-1", "req-1", ConsentCreateRequest{
 		SubjectType:        "customer",
 		Purpose:            "marketing",
 		ConsentTextVersion: "v1",
@@ -58,7 +58,7 @@ func TestConsentRequiresSubjectInsideTenant(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	allowed := false
 	svc = newPrivacyService(&fakePrivacyRepo{subjectAllowed: &allowed})
-	_, err = svc.RecordConsent(context.Background(), "tenant-1", "req-1", ConsentCreateRequest{
+	_, err = svc.RecordConsent(context.Background(), "tenant-1", "actor-1", "req-1", ConsentCreateRequest{
 		SubjectType:        "customer",
 		SubjectID:          &subjectID,
 		Purpose:            "marketing",
@@ -169,7 +169,7 @@ func TestConsentLifecycle(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	repo := &fakePrivacyRepo{}
 	svc := newPrivacyService(repo)
-	id, err := svc.RecordConsent(context.Background(), "tenant-1", "req-1", ConsentCreateRequest{
+	id, err := svc.RecordConsent(context.Background(), "tenant-1", "actor-1", "req-1", ConsentCreateRequest{
 		SubjectType:        "customer",
 		SubjectID:          &subjectID,
 		Purpose:            "marketing",
@@ -182,7 +182,7 @@ func TestConsentLifecycle(t *testing.T) {
 	if id == "" || repo.consentTenant != "tenant-1" {
 		t.Fatalf("expected tenant-scoped consent, id=%q tenant=%q", id, repo.consentTenant)
 	}
-	if err := svc.RevokeConsent(context.Background(), "tenant-1", "22222222-2222-2222-2222-222222222222"); err != nil {
+	if err := svc.RevokeConsent(context.Background(), "tenant-1", "actor-1", "22222222-2222-2222-2222-222222222222"); err != nil {
 		t.Fatalf("RevokeConsent returned error: %v", err)
 	}
 	if !repo.revoked {
@@ -196,15 +196,15 @@ func TestStatusFlowValidation(t *testing.T) {
 	validID := "22222222-2222-2222-2222-222222222222"
 	for _, status := range []string{"in_progress", "rejected", "cancelled"} {
 		repo.request.Status = "open"
-		if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: status}); err != nil {
+		if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", "actor-1", validID, UpdateStatusRequest{Status: status}); err != nil {
 			t.Fatalf("status %q should be valid: %v", status, err)
 		}
 	}
 	repo.request.Status = "open"
-	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: "open"}); err != common.ErrConflict {
+	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", "actor-1", validID, UpdateStatusRequest{Status: "open"}); err != common.ErrConflict {
 		t.Fatalf("expected same-status update to be rejected, got %v", err)
 	}
-	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: "in_review"}); err != common.ErrValidation {
+	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", "actor-1", validID, UpdateStatusRequest{Status: "in_review"}); err != common.ErrValidation {
 		t.Fatalf("expected legacy status to be rejected, got %v", err)
 	}
 }
@@ -223,14 +223,14 @@ func TestStatusTerminalTransitionsAreRejected(t *testing.T) {
 		{"cancelled", "open"},
 	} {
 		repo.request.Status = tc.from
-		err := svc.UpdateRequestStatus(context.Background(), "tenant-1", repo.request.ID, UpdateStatusRequest{Status: tc.to})
+		err := svc.UpdateRequestStatus(context.Background(), "tenant-1", "actor-1", repo.request.ID, UpdateStatusRequest{Status: tc.to})
 		if err != common.ErrConflict {
 			t.Fatalf("expected %s -> %s conflict, got %v", tc.from, tc.to, err)
 		}
 	}
 
 	repo.request.Status = "in_progress"
-	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", repo.request.ID, UpdateStatusRequest{Status: "completed"}); err != nil {
+	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", "actor-1", repo.request.ID, UpdateStatusRequest{Status: "completed"}); err != nil {
 		t.Fatalf("expected in_progress -> completed to be valid: %v", err)
 	}
 }
@@ -294,7 +294,7 @@ func (f *fakePrivacyRepo) SubjectBelongsToTenant(ctx context.Context, tenantID, 
 	return true, nil
 }
 
-func (f *fakePrivacyRepo) CreateRequest(ctx context.Context, tenantID, actorUserID, requestID string, req CreateRequest) (string, error) {
+func (f *fakePrivacyRepo) CreateRequest(ctx context.Context, tx db.DBTX, tenantID, actorUserID, requestID string, req CreateRequest) (string, error) {
 	f.createdTenant = tenantID
 	return "22222222-2222-2222-2222-222222222222", nil
 }
@@ -314,12 +314,7 @@ func (f *fakePrivacyRepo) GetRequestForUpdate(ctx context.Context, tx db.DBTX, t
 	return f.GetRequest(ctx, tenantID, id)
 }
 
-func (f *fakePrivacyRepo) UpdateRequestStatus(ctx context.Context, tenantID, id, status string, notes *string) error {
-	f.request.Status = status
-	return nil
-}
-
-func (f *fakePrivacyRepo) UpdateRequestStatusTx(ctx context.Context, tx db.DBTX, tenantID, id, status string, notes *string) error {
+func (f *fakePrivacyRepo) UpdateRequestStatus(ctx context.Context, tx db.DBTX, tenantID, id, status string, notes *string) error {
 	f.request.Status = status
 	return nil
 }
@@ -338,7 +333,7 @@ func (f *fakePrivacyRepo) BlockSubject(ctx context.Context, tx db.DBTX, tenantID
 	return nil
 }
 
-func (f *fakePrivacyRepo) RecordConsent(ctx context.Context, tenantID, requestID string, req ConsentCreateRequest) (string, error) {
+func (f *fakePrivacyRepo) RecordConsent(ctx context.Context, tx db.DBTX, tenantID, requestID string, req ConsentCreateRequest) (string, error) {
 	f.consentTenant = tenantID
 	return "22222222-2222-2222-2222-222222222222", nil
 }
@@ -347,7 +342,7 @@ func (f *fakePrivacyRepo) ListConsents(ctx context.Context, tenantID string, lim
 	return []privacy.ConsentRecord{{ID: "22222222-2222-2222-2222-222222222222", TenantID: tenantID}}, nil
 }
 
-func (f *fakePrivacyRepo) RevokeConsent(ctx context.Context, tenantID, id string) error {
+func (f *fakePrivacyRepo) RevokeConsent(ctx context.Context, tx db.DBTX, tenantID, id string) error {
 	f.revoked = true
 	return nil
 }
