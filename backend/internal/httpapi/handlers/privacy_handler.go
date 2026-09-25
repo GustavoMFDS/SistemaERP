@@ -2,13 +2,11 @@ package handlers
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
-	"log/slog"
-
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
 	"github.com/go-chi/chi/v5"
@@ -17,12 +15,11 @@ import (
 
 type PrivacyHandler struct {
 	svc    *privacyapp.Service
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewPrivacyHandler(svc *privacyapp.Service, auditSvc *audit.Service, logger *slog.Logger) *PrivacyHandler {
-	return &PrivacyHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewPrivacyHandler(svc *privacyapp.Service, logger *slog.Logger) *PrivacyHandler {
+	return &PrivacyHandler{svc: svc, logger: logger}
 }
 
 func (h *PrivacyHandler) CreateRequest(w http.ResponseWriter, r *http.Request) {
@@ -110,12 +107,11 @@ func (h *PrivacyHandler) ExportSubject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, err := h.svc.ExportSubjectData(r.Context(), au.TenantID, id)
+	data, err := h.svc.ExportSubjectData(r.Context(), au.TenantID, au.UserID, id)
 	if err != nil {
 		writePrivacyError(w, r, err)
 		return
 	}
-	h.record(r, au.TenantID, au.UserID, "privacy.subject.export", "data_subject_request", id, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"request_id": id, "data": data})
 }
 
@@ -198,22 +194,6 @@ func (h *PrivacyHandler) subjectAction(w http.ResponseWriter, r *http.Request, f
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "completed"})
-}
-
-func (h *PrivacyHandler) record(r *http.Request, tenantID, actorID, action, resourceType, resourceID, outcome string, metadata map[string]any) {
-	requestID, ip, userAgent := audit.RequestContext(r)
-	h.audit.Record(r.Context(), audit.Event{
-		TenantID:     tenantID,
-		ActorUserID:  actorID,
-		Action:       action,
-		ResourceType: resourceType,
-		ResourceID:   resourceID,
-		Outcome:      outcome,
-		Metadata:     metadata,
-		RequestID:    requestID,
-		IP:           ip,
-		UserAgent:    userAgent,
-	})
 }
 
 func writePrivacyError(w http.ResponseWriter, r *http.Request, err error) {
