@@ -90,6 +90,9 @@ func (s *Service) ExportSubjectData(ctx context.Context, tenantID, requestID str
 	if req.SubjectID == nil || strings.TrimSpace(*req.SubjectID) == "" {
 		return nil, common.ErrValidation
 	}
+	if req.RequestType != "export" {
+		return nil, common.ErrConflict
+	}
 	return s.repo.ExportSubjectData(ctx, tenantID, req.SubjectType, *req.SubjectID)
 }
 
@@ -101,6 +104,12 @@ func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, requestID stri
 	if req.SubjectID == nil || strings.TrimSpace(*req.SubjectID) == "" {
 		return common.ErrValidation
 	}
+	if req.Status != "in_progress" {
+		return common.ErrConflict
+	}
+	if req.RequestType != "anonymization" && req.RequestType != "deletion" {
+		return common.ErrConflict
+	}
 	return s.repo.AnonymizeSubject(ctx, tenantID, req.SubjectType, *req.SubjectID)
 }
 
@@ -111,6 +120,9 @@ func (s *Service) BlockSubject(ctx context.Context, tenantID, requestID string) 
 	}
 	if req.SubjectID == nil || strings.TrimSpace(*req.SubjectID) == "" {
 		return common.ErrValidation
+	}
+	if req.Status != "in_progress" || req.RequestType != "blocking" {
+		return common.ErrConflict
 	}
 	return s.repo.BlockSubject(ctx, tenantID, req.SubjectType, *req.SubjectID)
 }
