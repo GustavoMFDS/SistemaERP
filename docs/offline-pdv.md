@@ -57,6 +57,9 @@ Migração:
 - Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova.
 - Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
 - O backend usa `request_hash`: mesma chave + mesmo hash reaproveita o resultado; mesma chave + hash diferente retorna `409 conflict`.
+- Novas intenções de venda preservam `unit_price` como snapshot informativo do preço exibido ao operador. O backend nunca usa esse valor como autoridade: ele recalcula com o preço atual do produto e retorna `409 price_changed` se o snapshot divergir.
+- Após `price_changed`, o PDV mantém a intenção em `attention`. O operador pode escolher **Atualizar preços**, que busca os preços atuais, recalcula o pagamento único e reenvia a intenção com a mesma `Idempotency-Key`; essa ação só é habilitada para o conflito explícito de preço.
+- Filas v2 antigas que não possuem snapshot de preço entram em `attention` com `price_snapshot_missing` e não podem retry/rebind automaticamente. O sistema não inventa qual valor foi originalmente cobrado.
 
 
 
@@ -75,7 +78,10 @@ Migração:
 - rebind de venda legada já commitada preserva a chave original e não duplica a venda;
 - item com mais de 28 dias não pode ser retry/rebindado; permanece em `attention` com motivo `retention_expired` e nenhum `POST /sales` é emitido;
 - item v2 pré-upgrade que já possua `lastAttemptAt` mas não `intentCreatedAt` é tratado como idade original desconhecida (`retention_unknown`) e também não pode emitir `POST /sales`;
-- falha de rede durante logout não limpa estado local nem simula revogação do cookie HttpOnly.
+- falha de rede durante logout não limpa estado local nem simula revogação do cookie HttpOnly;
+- quantidade fracionada usa milésimos e arredondamento monetário por linha equivalente ao backend;
+- mudança de preço entre criação da intenção e sync coloca a venda em `price_changed`, sem criar venda; após revisão explícita, a intenção pode ser recalculada e enviada uma única vez;
+- item v2 pré-snapshot de preço entra em `price_snapshot_missing` e não emite `POST /sales`.
 
 ## Ciclo de caixa
 
