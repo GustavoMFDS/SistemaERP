@@ -104,6 +104,8 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 			status = http.StatusConflict
 		case common.ErrPaymentsMismatch:
 			status = http.StatusConflict
+		case common.ErrPriceChanged:
+			status = http.StatusConflict
 		case common.ErrConflict:
 			status = http.StatusConflict
 		}
