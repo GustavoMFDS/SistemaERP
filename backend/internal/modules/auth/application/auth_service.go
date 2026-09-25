@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"strings"
 	"time"
 
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -225,6 +227,78 @@ func (s *AuthService) validateRefreshToken(tokenStr string) (*Claims, error) {
 		return nil, common.ErrInvalidCredentials
 	}
 	return claims, nil
+}
+
+func (s *AuthService) ListUserTenants(ctx context.Context, userID string) ([]AuthTenantInfo, error) {
+	if err := s.ensureUserActive(ctx, userID); err != nil {
+		return nil, err
+	}
+	return s.users.ListUserTenants(ctx, userID)
+}
+
+func (s *AuthService) SwitchTenant(
+	ctx context.Context,
+	userID string,
+	currentTenantID string,
+	targetTenantID string,
+	refreshToken string,
+) (TokenResponse, AuthUserInfo, error) {
+	targetTenantID = strings.TrimSpace(targetTenantID)
+	if _, err := uuid.Parse(targetTenantID); err != nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrValidation
+	}
+
+	claims, err := s.validateRefreshToken(refreshToken)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if claims.Subject != userID || claims.TenantID != currentTenantID {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if s.refresh == nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if err := s.ensureUserActive(ctx, userID); err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	if err := s.ensureUserTenantAccess(ctx, userID, targetTenantID); err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	roles, err := s.users.ListUserRoles(ctx, userID, targetTenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+
+	ok, err := s.refresh.Consume(ctx, claims.ID, userID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	if !ok {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+
+	accessTok, accessExp, err := s.issueAccessToken(userID, targetTenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, userID, targetTenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
+
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrNotFound
+	}
+	return TokenResponse{
+			AccessToken:      accessTok,
+			RefreshToken:     refreshTok,
+			TokenType:        "Bearer",
+			ExpiresIn:        int64(time.Until(accessExp).Seconds()),
+			RefreshExpiresIn: int64(time.Until(refreshExp).Seconds()),
+		}, AuthUserInfo{
+			ID: u.ID, Email: u.Email, Name: u.Name, TenantID: targetTenantID, Roles: roles,
+		}, nil
 }
 
 func (s *AuthService) GetUserPermissions(ctx context.Context, userID string, tenantID string) (map[string]bool, error) {
