@@ -129,6 +129,8 @@ func friendlyErrorMessage(err error) string {
 		return "ja existe uma sessao aberta para este caixa"
 	case errors.Is(err, common.ErrPaymentsMismatch):
 		return "pagamentos nao conferem com o total"
+	case errors.Is(err, common.ErrPriceChanged):
+		return "preco do produto mudou; revise a venda antes de reenviar"
 	case errors.Is(err, common.ErrConflict):
 		return "conflito com o estado atual do recurso"
 	case errors.Is(err, common.ErrNotFound):
