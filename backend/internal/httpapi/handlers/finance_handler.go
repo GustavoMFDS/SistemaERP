@@ -34,6 +34,20 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if to == "" {
 		to = time.Now().Format("2006-01-02")
 	}
+	fromDate, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "data inicial invalida", nil)
+		return
+	}
+	toDate, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "data final invalida", nil)
+		return
+	}
+	if fromDate.After(toDate) {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "periodo financeiro invalido", nil)
+		return
+	}
 	data, err := h.svc.Dashboard(r.Context(), au.TenantID, from, to)
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao carregar dashboard", nil)
