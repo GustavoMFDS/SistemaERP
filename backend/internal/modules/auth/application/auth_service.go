@@ -51,7 +51,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 
-	roles, _ := s.users.ListUserRoles(ctx, u.ID, tenantID)
+	roles, err := s.users.ListUserRoles(ctx, u.ID, tenantID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, err
+	}
 	accessTok, accessExp, err := s.issueAccessToken(u.ID, tenantID)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
