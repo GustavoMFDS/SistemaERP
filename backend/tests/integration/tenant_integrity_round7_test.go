@@ -122,6 +122,38 @@ func TestRound7TenantRelationalIntegrity(t *testing.T) {
 	`, tenantB, fmt.Sprintf("Round7 Caixa %d", suffix)).Scan(&registerB); err != nil {
 		t.Fatalf("create tenant B register: %v", err)
 	}
+
+	var foreignActorID string
+	if err := tx.QueryRow(ctx, `
+		SELECT u.id::text
+		FROM users u
+		JOIN user_tenants ut ON ut.user_id=u.id
+		WHERE ut.tenant_id=$1
+		  AND u.id<>$2
+		  AND NOT EXISTS (
+		    SELECT 1 FROM user_tenants x
+		    WHERE x.user_id=u.id AND x.tenant_id=$3
+		  )
+		ORDER BY u.created_at
+		LIMIT 1
+	`, tenantA, userID, tenantB).Scan(&foreignActorID); err != nil {
+		t.Fatalf("find cross-tenant actor fixture: %v", err)
+	}
+
+	if _, err := tx.Exec(ctx, `SAVEPOINT cross_actor`); err != nil {
+		t.Fatalf("savepoint actor: %v", err)
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO cash_sessions(
+			tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
+		)
+		VALUES ($1,$2,$3,0,'open')
+	`, tenantB, registerB, foreignActorID)
+	round7RequireConstraint(t, err, "cash_sessions_opened_by_membership_fk")
+	if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT cross_actor`); err != nil {
+		t.Fatalf("rollback actor savepoint: %v", err)
+	}
+
 	var sessionB string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO cash_sessions(tenant_id, cash_register_id, opened_by_user_id, opening_amount, status)
