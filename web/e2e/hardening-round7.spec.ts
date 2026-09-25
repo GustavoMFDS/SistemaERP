@@ -163,3 +163,71 @@ test('PDV recovers an open server cash session after local state is lost', async
   expect(currentAfterClose.session).toBeNull()
 })
 
+test('logout detects server cash even after local cash id is lost outside the PDV', async ({
+  page,
+}) => {
+  await login(page)
+
+  await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    const current = await apiJson<{ session: { id: string } | null }>(
+      '/api/v1/cash/sessions/current',
+    )
+    if (current.session) {
+      await apiJson(`/api/v1/cash/sessions/${current.session.id}/close`, {
+        method: 'POST',
+        body: { closing_amount: 0, notes: 'round9 server logout pre-cleanup' },
+      })
+    }
+  })
+
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await page.getByRole('button', { name: 'Abrir' }).click()
+
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .not.toBe('')
+
+  await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const key = auth.scopedStorageKey('sistemaemgo:cashSession:v2')
+    if (!key) throw new Error('cash scope missing')
+    localStorage.removeItem(key)
+  })
+
+  await page.getByRole('link', { name: 'Produtos' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  await page.getByRole('button', { name: 'Sair' }).click()
+
+  await expect(
+    page.getByText(/caixa\(s\) aberto\(s\) no servidor por este usuário/),
+  ).toBeVisible()
+  await expect(page).toHaveURL(/\/products$/)
+
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .not.toBe('')
+
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe('')
+})
+
