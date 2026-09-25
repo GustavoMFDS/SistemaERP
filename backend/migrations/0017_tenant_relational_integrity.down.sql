@@ -38,6 +38,10 @@ ALTER TABLE cash_movements
   DROP CONSTRAINT IF EXISTS cash_movements_created_by_membership_fk;
 ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_created_by_membership_fk;
+ALTER TABLE revenues
+  DROP CONSTRAINT IF EXISTS revenues_created_by_membership_fk;
+ALTER TABLE expenses
+  DROP CONSTRAINT IF EXISTS expenses_created_by_membership_fk;
 ALTER TABLE ledger_entries
   DROP CONSTRAINT IF EXISTS ledger_entries_created_by_membership_fk;
 ALTER TABLE sales
