@@ -1,6 +1,19 @@
 -- 0017_tenant_relational_integrity.down.sql
 BEGIN;
 
+ALTER TABLE sales
+  DROP CONSTRAINT IF EXISTS sales_tenant_customer_fk,
+  ADD CONSTRAINT sales_customer_id_fkey
+  FOREIGN KEY (customer_id)
+  REFERENCES customers(id)
+  ON DELETE SET NULL;
+ALTER TABLE products
+  DROP CONSTRAINT IF EXISTS products_tenant_category_fk,
+  ADD CONSTRAINT products_category_id_fkey
+  FOREIGN KEY (category_id)
+  REFERENCES categories(id)
+  ON DELETE SET NULL;
+
 ALTER TABLE user_tenant_roles
   DROP CONSTRAINT IF EXISTS user_tenant_roles_membership_fk;
 ALTER TABLE cash_session_reconciliations
@@ -33,6 +46,8 @@ DROP INDEX IF EXISTS sales_tenant_id_id_unique;
 DROP INDEX IF EXISTS cash_sessions_tenant_id_id_unique;
 DROP INDEX IF EXISTS cash_registers_tenant_id_id_unique;
 DROP INDEX IF EXISTS products_tenant_id_id_unique;
+DROP INDEX IF EXISTS customers_tenant_id_id_unique;
+DROP INDEX IF EXISTS categories_tenant_id_id_unique;
 DROP INDEX IF EXISTS user_tenants_user_active_created_idx;
 
 ALTER TABLE user_tenants
