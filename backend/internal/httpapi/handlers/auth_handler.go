@@ -197,18 +197,47 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	token := refreshTokenFromCookie(r)
 	resp, userID, tenantID, err := h.auth.RefreshWithSubject(r.Context(), token)
 	if err != nil {
-		clearRefreshCookie(w, h.cfg)
+		status := http.StatusServiceUnavailable
+		code := "service_unavailable"
+		message := "servico de autenticacao indisponivel"
+		reason := "auth_backend_unavailable"
+		clearCookie := false
+
+		switch {
+		case errors.Is(err, common.ErrInvalidCredentials):
+			status = http.StatusUnauthorized
+			code = "authentication_error"
+			message = "token invalido"
+			reason = "invalid_or_expired"
+			clearCookie = true
+		case errors.Is(err, common.ErrInactiveUser):
+			status = http.StatusForbidden
+			code = "authorization_error"
+			message = "usuario inativo"
+			reason = "inactive_user"
+			clearCookie = true
+		case errors.Is(err, common.ErrForbidden):
+			status = http.StatusForbidden
+			code = "authorization_error"
+			message = "usuario sem acesso a esta loja"
+			reason = "tenant_access_revoked"
+			clearCookie = true
+		}
+		if clearCookie {
+			clearRefreshCookie(w, h.cfg)
+		}
+
 		requestID, ip, userAgent := audit.RequestContext(r)
 		h.audit.Record(r.Context(), audit.Event{
 			Action:       "auth.refresh",
 			ResourceType: "refresh_token",
 			Outcome:      "failure",
-			Metadata:     map[string]any{"reason": "invalid_or_expired"},
+			Metadata:     map[string]any{"reason": reason},
 			RequestID:    requestID,
 			IP:           ip,
 			UserAgent:    userAgent,
 		})
-		writeError(w, r, http.StatusUnauthorized, "authentication_error", "token invalido", nil)
+		writeError(w, r, status, code, message, nil)
 		return
 	}
 	setRefreshCookie(w, h.cfg, resp.RefreshToken, h.cfg.RefreshTokenTTL)
