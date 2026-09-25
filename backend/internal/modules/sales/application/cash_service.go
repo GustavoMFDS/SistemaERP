@@ -48,11 +48,7 @@ func NewCashService(uow db.UnitOfWork, cash CashRepository, finRepo FinanceRepos
 }
 
 func (s *CashService) CurrentSession(ctx context.Context, tenantID string) (sales.CashSession, bool, error) {
-	registerID, err := s.cash.EnsureDefaultRegister(ctx, tenantID)
-	if err != nil {
-		return sales.CashSession{}, false, err
-	}
-	return s.cash.GetOpenSession(ctx, tenantID, registerID)
+	return s.cash.GetOpenSession(ctx, tenantID)
 }
 
 func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
