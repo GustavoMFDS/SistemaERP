@@ -49,6 +49,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/auth/me", h.Auth.Me)
 		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/auth/tenants", h.Auth.Tenants)
 		api.With(authRefreshLimit, middleware.AuthJWT(cfg, mods.Auth, logger), trustedOrigin).Post("/auth/switch-tenant", h.Auth.SwitchTenant)
+		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/cash/sessions/open-by-me", h.Cash.OpenSessionsByUser)
 
 		api.Group(func(pr chi.Router) {
 			pr.Use(middleware.AuthJWT(cfg, mods.Auth, logger))
