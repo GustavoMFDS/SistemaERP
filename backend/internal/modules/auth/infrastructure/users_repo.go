@@ -25,6 +25,9 @@ func (r *UsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.Us
 	var u authdomain.User
 	err := r.db.QueryRow(ctx, `SELECT id::text, email::text, name, password_hash, active FROM users WHERE email=$1`, email).
 		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authdomain.User{}, common.ErrInvalidCredentials
+	}
 	return u, err
 }
 
