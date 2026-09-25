@@ -86,10 +86,11 @@ func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusUnprocessableEntity
 		case common.ErrInsufficientStock:
 			status = http.StatusConflict
+		case common.ErrNotFound:
+			status = http.StatusNotFound
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "inventory.adjust", "product", req.ProductID, "success", map[string]any{"type": req.Type})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
