@@ -80,7 +80,10 @@ func (h *CashHandler) RecordMovement(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	sessionID := chi.URLParam(r, "id")
+	sessionID, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	var req salesapp.CashMovementRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
@@ -107,7 +110,10 @@ func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	sessionID := chi.URLParam(r, "id")
+	sessionID, ok := requireUUID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
 	var req salesapp.CashCloseRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
