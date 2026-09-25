@@ -393,6 +393,45 @@ func TestValidateTokenRejectsRemovedTenantMembership(t *testing.T) {
 	}
 }
 
+func TestRefreshRepositoryFailureBeforeConsumePreservesOriginalToken(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "tenant-1",
+	}
+	store := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, store, nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	repoErr := errors.New("postgres unavailable")
+	users.getByIDErr = repoErr
+	_, _, _, err = svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken)
+	if !errors.Is(err, repoErr) {
+		t.Fatalf("refresh must preserve repository failure, got %v", err)
+	}
+	if store.consumeCalls != 0 {
+		t.Fatalf("repository failure must happen before refresh consumption, got %d consume call(s)", store.consumeCalls)
+	}
+
+	users.getByIDErr = nil
+	if _, _, _, err := svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken); err != nil {
+		t.Fatalf("original refresh token must remain retryable after repository recovery: %v", err)
+	}
+	if store.consumeCalls != 1 {
+		t.Fatalf("successful retry must consume original token once, got %d", store.consumeCalls)
+	}
+}
+
 func TestRefreshRejectsRemovedTenantMembership(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
 	if err != nil {
@@ -444,6 +483,7 @@ func TestRefreshChecksActiveUser(t *testing.T) {
 type fakeUsersRepo struct {
 	user          authdomain.User
 	emailErr      error
+	getByIDErr    error
 	tenantID      string
 	tenantErr     error
 	roles         []string
@@ -465,6 +505,9 @@ func (f *fakeUsersRepo) GetByEmail(ctx context.Context, email string) (authdomai
 }
 
 func (f *fakeUsersRepo) GetByID(ctx context.Context, id string) (authdomain.User, error) {
+	if f.getByIDErr != nil {
+		return authdomain.User{}, f.getByIDErr
+	}
 	if f.user.ID == id {
 		return f.user, nil
 	}
@@ -512,7 +555,8 @@ func (f *fakeUsersRepo) ListUserPermissions(ctx context.Context, userID string, 
 }
 
 type fakeRefreshStore struct {
-	tokens map[string]string
+	tokens       map[string]string
+	consumeCalls int
 }
 
 func newFakeRefreshStore() *fakeRefreshStore {
@@ -525,6 +569,7 @@ func (f *fakeRefreshStore) Save(ctx context.Context, tokenID string, userID stri
 }
 
 func (f *fakeRefreshStore) Consume(ctx context.Context, tokenID string, userID string) (bool, error) {
+	f.consumeCalls++
 	if f.tokens[tokenID] != userID {
 		return false, nil
 	}
