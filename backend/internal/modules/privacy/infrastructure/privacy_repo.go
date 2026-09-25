@@ -151,9 +151,25 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 			FROM users u
 			JOIN user_tenants ut ON ut.user_id=u.id
 			WHERE ut.tenant_id=$1 AND u.id=$2
-			FOR UPDATE OF u
+			FOR UPDATE OF u, ut
 		`, tenantID, subjectID).Scan(&lockedUserID); err != nil {
 			return err
+		}
+
+		var hasOpenCash bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1
+				FROM cash_sessions
+				WHERE tenant_id=$1
+				  AND opened_by_user_id=$2
+				  AND status='open'
+			)
+		`, tenantID, subjectID).Scan(&hasOpenCash); err != nil {
+			return err
+		}
+		if hasOpenCash {
+			return common.ErrConflict
 		}
 
 		var membershipCount int
@@ -200,7 +216,41 @@ func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectI
 	if subjectType != "user" {
 		return fmt.Errorf("blocking is only supported for users")
 	}
-	tag, err := r.db.Exec(ctx, `
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var active bool
+	if err := tx.QueryRow(ctx, `
+		SELECT active
+		FROM user_tenants
+		WHERE tenant_id=$1 AND user_id=$2
+		FOR UPDATE
+	`, tenantID, subjectID).Scan(&active); err != nil {
+		return err
+	}
+	_ = active
+
+	var hasOpenCash bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM cash_sessions
+			WHERE tenant_id=$1
+			  AND opened_by_user_id=$2
+			  AND status='open'
+		)
+	`, tenantID, subjectID).Scan(&hasOpenCash); err != nil {
+		return err
+	}
+	if hasOpenCash {
+		return common.ErrConflict
+	}
+
+	tag, err := tx.Exec(ctx, `
 		UPDATE user_tenants
 		SET active=false
 		WHERE tenant_id=$1 AND user_id=$2
@@ -211,7 +261,7 @@ func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectI
 	if tag.RowsAffected() == 0 {
 		return pgx.ErrNoRows
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *Repo) RecordConsent(ctx context.Context, tenantID, requestID string, req privacyapp.ConsentCreateRequest) (string, error) {
