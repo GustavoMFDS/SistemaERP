@@ -209,6 +209,14 @@ func TestRound7TenantScopedUserPrivacyActions(t *testing.T) {
 		t.Fatalf("block must revoke only tenant A: hasA=%v hasB=%v", hasA, hasB)
 	}
 
+	tenants, err := authRepo.ListUserTenants(ctx, userID)
+	if err != nil {
+		t.Fatalf("list active memberships: %v", err)
+	}
+	if len(tenants) != 1 || tenants[0].ID != tenantB {
+		t.Fatalf("expected only tenant B after scoped block, got %#v", tenants)
+	}
+
 	if err := privacyRepo.AnonymizeSubject(ctx, tenantB, "user", userID); !errors.Is(err, common.ErrConflict) {
 		t.Fatalf("shared global identity anonymization must conflict, got %v", err)
 	}
