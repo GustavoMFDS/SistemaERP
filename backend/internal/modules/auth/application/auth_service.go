@@ -258,8 +258,12 @@ func (s *AuthService) SwitchTenant(
 	if s.refresh == nil {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
-	if err := s.ensureUserActive(ctx, userID); err != nil {
-		return TokenResponse{}, AuthUserInfo{}, err
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if !u.Active {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInactiveUser
 	}
 	if err := s.ensureUserTenantAccess(ctx, userID, targetTenantID); err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
@@ -286,10 +290,6 @@ func (s *AuthService) SwitchTenant(
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
 
-	u, err := s.users.GetByID(ctx, userID)
-	if err != nil {
-		return TokenResponse{}, AuthUserInfo{}, common.ErrNotFound
-	}
 	return TokenResponse{
 			AccessToken:      accessTok,
 			RefreshToken:     refreshTok,
