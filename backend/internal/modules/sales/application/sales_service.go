@@ -21,6 +21,7 @@ import (
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/example/sistemaemgo/internal/platform/events"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 )
 
 type SalesService struct {
@@ -81,6 +82,9 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, false, common.ErrValidation
 	}
+	if err := normalizeOptionalCustomerID(req.CustomerID); err != nil {
+		return "", 0, false, common.ErrValidation
+	}
 	op := "sales.create_and_finalize"
 	requestHash, err := saleRequestHash(req)
 	if err != nil {
@@ -104,6 +108,16 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		}
 		_ = tx.Rollback(ctx)
 		return saleID, total, false, nil
+	}
+
+	if req.CustomerID != nil {
+		ok, err := s.sales.CustomerBelongsToTenant(ctx, tx, tenantID, *req.CustomerID)
+		if err != nil {
+			return "", 0, false, err
+		}
+		if !ok {
+			return "", 0, false, common.ErrValidation
+		}
 	}
 
 	cs, err := s.cash.GetSession(ctx, tx, tenantID, req.CashSessionID)
@@ -549,4 +563,20 @@ func uniqueSortedProductIDsFromSaleItems(items []sales.SaleItem) []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+
+func normalizeOptionalCustomerID(value *string) error {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return common.ErrValidation
+	}
+	if _, err := uuid.Parse(trimmed); err != nil {
+		return common.ErrValidation
+	}
+	*value = trimmed
+	return nil
 }
