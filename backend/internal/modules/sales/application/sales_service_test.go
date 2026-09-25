@@ -370,6 +370,9 @@ func (fakeCashRepo) EnsureDefaultRegister(context.Context, string) (string, erro
 func (fakeCashRepo) OpenSession(context.Context, db.DBTX, string, string, string, platform.Money, *string) (string, error) {
 	return "cash-1", nil
 }
+func (fakeCashRepo) GetOpenSession(context.Context, string, string) (sales.CashSession, bool, error) {
+	return sales.CashSession{ID: "cash-1", Status: "open"}, true, nil
+}
 func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, string, platform.Money, platform.Money, *string) error {
 	return nil
 }
