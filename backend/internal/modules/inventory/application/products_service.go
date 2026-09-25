@@ -3,12 +3,14 @@ package application
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 )
 
 type ProductsService struct {
@@ -50,11 +52,23 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
 	}
+	if err := normalizeOptionalUUID(req.CategoryID); err != nil {
+		return "", common.ErrValidation
+	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if req.CategoryID != nil {
+		ok, err := s.repo.CategoryBelongsToTenant(ctx, tx, tenantID, *req.CategoryID)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", common.ErrValidation
+		}
+	}
 	p := inv.Product{
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
@@ -90,11 +104,26 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
 	}
+	if _, err := uuid.Parse(strings.TrimSpace(id)); err != nil {
+		return common.ErrValidation
+	}
+	if err := normalizeOptionalUUID(req.CategoryID); err != nil {
+		return common.ErrValidation
+	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if req.CategoryID != nil {
+		ok, err := s.repo.CategoryBelongsToTenant(ctx, tx, tenantID, *req.CategoryID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return common.ErrValidation
+		}
+	}
 	p := inv.Product{
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
@@ -122,5 +151,21 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 		_ = inv.InvalidateProduct(ctx, tenantID, id)
 		_ = inv.BumpProductsListVersion(ctx, tenantID)
 	}
+	return nil
+}
+
+
+func normalizeOptionalUUID(value *string) error {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return common.ErrValidation
+	}
+	if _, err := uuid.Parse(trimmed); err != nil {
+		return common.ErrValidation
+	}
+	*value = trimmed
 	return nil
 }
