@@ -122,14 +122,14 @@ func (h *PrivacyHandler) ExportSubject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PrivacyHandler) AnonymizeSubject(w http.ResponseWriter, r *http.Request) {
-	h.subjectAction(w, r, "privacy.subject.anonymize", func(tenantID, requestID string) error {
-		return h.svc.AnonymizeSubject(r.Context(), tenantID, requestID)
+	h.subjectAction(w, r, func(tenantID, actorUserID, requestID string) error {
+		return h.svc.AnonymizeSubject(r.Context(), tenantID, actorUserID, requestID)
 	})
 }
 
 func (h *PrivacyHandler) BlockSubject(w http.ResponseWriter, r *http.Request) {
-	h.subjectAction(w, r, "privacy.subject.block", func(tenantID, requestID string) error {
-		return h.svc.BlockSubject(r.Context(), tenantID, requestID)
+	h.subjectAction(w, r, func(tenantID, actorUserID, requestID string) error {
+		return h.svc.BlockSubject(r.Context(), tenantID, actorUserID, requestID)
 	})
 }
 
@@ -187,7 +187,7 @@ func (h *PrivacyHandler) RevokeConsent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "revoked"})
 }
 
-func (h *PrivacyHandler) subjectAction(w http.ResponseWriter, r *http.Request, action string, fn func(tenantID, requestID string) error) {
+func (h *PrivacyHandler) subjectAction(w http.ResponseWriter, r *http.Request, fn func(tenantID, actorUserID, requestID string) error) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
@@ -197,12 +197,11 @@ func (h *PrivacyHandler) subjectAction(w http.ResponseWriter, r *http.Request, a
 	if !valid {
 		return
 	}
-	if err := fn(au.TenantID, id); err != nil {
+	if err := fn(au.TenantID, au.UserID, id); err != nil {
 		writePrivacyError(w, r, err)
 		return
 	}
-	h.record(r, au.TenantID, au.UserID, action, "data_subject_request", id, "success", nil)
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "processed"})
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "completed"})
 }
 
 func (h *PrivacyHandler) record(r *http.Request, tenantID, actorID, action, resourceType, resourceID, outcome string, metadata map[string]any) {
