@@ -53,7 +53,9 @@
 - O servidor é sempre a autoridade de preço. O preço exibido no momento da intenção pode ser enviado como snapshot apenas para detectar mudança durante períodos offline.
 - Se o preço efetivo mudar antes da sincronização, a venda não é finalizada silenciosamente pelo novo valor; ela exige revisão explícita do operador.
 
-## Round 9 — LGPD, membership e caixa
+## Round 9 — LGPD, audit, membership e caixa
+- Toda escrita LGPD (criação/alteração de DSR, criação/revogação de consentimento, anonimização e bloqueio) exige que a mutação e o audit crítico sejam commitados juntos; falha de audit causa rollback.
+- Exportação de dados pessoais só ocorre para DSR `export` em `in_progress` e só libera o payload depois de persistir `privacy.subject.export`; a entrega não conclui automaticamente a DSR.
 - Bloqueio e anonimização de usuário não podem prosseguir enquanto existir caixa aberto por esse usuário no tenant.
 - Abertura de caixa exige membership ativa no momento transacional da abertura; autenticação anterior não é suficiente se a membership tiver sido revogada.
 - Anonimização/bloqueio destrutivo só executa a partir de DSR `in_progress` compatível e conclui a DSR junto com o audit crítico.
