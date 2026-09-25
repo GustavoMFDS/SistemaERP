@@ -93,7 +93,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		nfeProvider := fiscmvp.New()
 		fiscalSvc = fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
 	}
-	privacySvc := privacyapp.NewService(privacyRepo)
+	privacySvc := privacyapp.NewService(uow, privacyRepo, auditSvc)
 
 	return &Modules{
 		Auth:      authSvc,
