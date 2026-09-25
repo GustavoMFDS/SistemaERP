@@ -148,6 +148,10 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	computedItems := make([]sales.SaleItem, 0, len(req.Items))
 	for _, it := range req.Items {
 		p := prodMap[it.ProductID]
+		currentPrice := p.EffectiveSalePrice()
+		if it.UnitPrice != nil && *it.UnitPrice != currentPrice {
+			return "", 0, false, common.ErrPriceChanged
+		}
 		if err := p.PodeVender(it.Qty); err != nil {
 			switch err {
 			case inv.ErrProductInactive:
@@ -161,7 +165,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 		computedItems = append(computedItems, sales.SaleItem{
 			ProductID:     it.ProductID,
 			Qty:           it.Qty,
-			UnitPrice:     p.EffectiveSalePrice(),
+			UnitPrice:     currentPrice,
 			DiscountValue: it.DiscountValue,
 			CostUnit:      p.CostPrice,
 		})
@@ -347,6 +351,7 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 		ProductID     string            `json:"product_id"`
 		Qty           platform.Quantity `json:"qty"`
 		DiscountValue platform.Money    `json:"discount_value"`
+		UnitPrice     *platform.Money   `json:"unit_price,omitempty"`
 	}
 	type payment struct {
 		Method string         `json:"method"`
@@ -366,7 +371,7 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 		Payments:      make([]payment, 0, len(req.Payments)),
 	}
 	for _, it := range req.Items {
-		payload.Items = append(payload.Items, item{ProductID: it.ProductID, Qty: it.Qty, DiscountValue: it.DiscountValue})
+		payload.Items = append(payload.Items, item{ProductID: it.ProductID, Qty: it.Qty, DiscountValue: it.DiscountValue, UnitPrice: it.UnitPrice})
 	}
 	for _, p := range req.Payments {
 		payload.Payments = append(payload.Payments, payment{Method: p.Method, Amount: p.Amount})
