@@ -42,6 +42,10 @@ type SwitchTenantResponse = {
   user: MeResponse
 }
 
+type OpenCashSessionsResponse = {
+  items: Array<{ id: string; tenant_id: string }>
+}
+
 function classNames(...xs: Array<string | false | undefined>): string {
   return xs.filter(Boolean).join(' ')
 }
@@ -162,6 +166,24 @@ export default function Layout() {
     if (legacyPending > 0) {
       setLogoutError(
         `Existem ${legacyPending} venda(s) na fila offline legada sem escopo de loja confiável. Abra o PDV e importe para revisão ou descarte explicitamente antes de sair.`,
+      )
+      return
+    }
+
+    let serverOpenCash: OpenCashSessionsResponse
+    try {
+      serverOpenCash = await apiJson<OpenCashSessionsResponse>(
+        '/api/v1/cash/sessions/open-by-me',
+      )
+    } catch (e: unknown) {
+      setLogoutError(
+        `Não foi possível verificar caixas abertos no servidor. O logout foi cancelado por segurança. ${errorMessage(e)}`,
+      )
+      return
+    }
+    if (serverOpenCash.items.length > 0) {
+      setLogoutError(
+        `Existem ${serverOpenCash.items.length} caixa(s) aberto(s) no servidor por este usuário. Troque para cada loja e feche o caixa antes de sair.`,
       )
       return
     }
