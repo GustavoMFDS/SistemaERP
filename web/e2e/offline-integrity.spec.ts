@@ -348,7 +348,6 @@ test('permanent queue conflict does not block later sales and expired items are 
   expect(result.preservedCount).toBe(2)
 })
 
-
 test('offline sale older than safe replay window cannot retry or rebind', async ({ page }) => {
   await page.goto('/login')
 
@@ -426,7 +425,6 @@ test('offline sale older than safe replay window cannot retry or rebind', async 
   expect(result.flushed.processed).toBe(0)
   expect(salePosts).toBe(0)
 })
-
 
 test('pre-price-snapshot v2 sale is quarantined and cannot retry or rebind', async ({
   page,
