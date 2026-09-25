@@ -370,3 +370,8 @@ Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry 
 - Valid UUIDs are normalized before being forwarded to application services.
 - LGPD subjects that are syntactically valid UUIDs but do not belong to the authenticated tenant return `404 not_found`; malformed UUIDs return `422 validation_error`.
 
+### Logout cash safety
+- `GET /api/v1/cash/sessions/open-by-me` is authenticated and self-scoped. It lists `open` cash sessions opened by the current user across active tenant memberships.
+- The frontend checks this endpoint before logout, so losing browser-side `cash_session_id` does not allow an open server cash session to be silently abandoned.
+- If this safety check cannot be completed, logout is cancelled rather than proceeding without knowing the server cash state.
+
