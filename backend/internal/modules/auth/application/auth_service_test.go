@@ -37,6 +37,97 @@ func TestRefreshWithSubjectReturnsAuditIdentity(t *testing.T) {
 	}
 }
 
+func TestSwitchTenantRotatesRefreshAndChangesTenant(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "11111111-1111-1111-1111-111111111111",
+		allowedTenants: map[string]bool{
+			"11111111-1111-1111-1111-111111111111": true,
+			"22222222-2222-2222-2222-222222222222": true,
+		},
+		roles: []string{"admin"},
+	}
+	refreshStore := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, refreshStore, nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	switched, info, err := svc.SwitchTenant(
+		context.Background(),
+		"user-1",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		loginResp.RefreshToken,
+	)
+	if err != nil {
+		t.Fatalf("SwitchTenant returned error: %v", err)
+	}
+	if info.TenantID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("unexpected switched tenant %q", info.TenantID)
+	}
+
+	userID, tenantID, err := svc.ValidateToken(context.Background(), switched.AccessToken)
+	if err != nil {
+		t.Fatalf("new access token should validate: %v", err)
+	}
+	if userID != "user-1" || tenantID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("unexpected switched token user=%q tenant=%q", userID, tenantID)
+	}
+
+	if _, _, _, err := svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken); err == nil {
+		t.Fatal("old refresh token must be consumed by tenant switch")
+	}
+}
+
+func TestSwitchTenantRejectsUnauthorizedTenantBeforeConsumingRefresh(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	users := &fakeUsersRepo{
+		user: authdomain.User{
+			ID: "user-1", Email: "admin@example.com", Name: "Admin",
+			PasswordHash: string(hash), Active: true,
+		},
+		tenantID: "11111111-1111-1111-1111-111111111111",
+		allowedTenants: map[string]bool{
+			"11111111-1111-1111-1111-111111111111": true,
+			"22222222-2222-2222-2222-222222222222": false,
+		},
+	}
+	refreshStore := newFakeRefreshStore()
+	svc := NewAuthService(testAuthConfig(), users, refreshStore, nil)
+
+	loginResp, _, err := svc.Login(context.Background(), "admin@example.com", "strong-password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+	_, _, err = svc.SwitchTenant(
+		context.Background(),
+		"user-1",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		loginResp.RefreshToken,
+	)
+	if err != common.ErrForbidden {
+		t.Fatalf("expected forbidden tenant switch, got %v", err)
+	}
+
+	if _, _, _, err := svc.RefreshWithSubject(context.Background(), loginResp.RefreshToken); err != nil {
+		t.Fatalf("failed switch must not consume current refresh token: %v", err)
+	}
+}
+
 func TestPermissionCacheIsTenantScoped(t *testing.T) {
 	users := &fakeUsersRepo{
 		tenantPerms: map[string][]string{
@@ -232,8 +323,10 @@ type fakeUsersRepo struct {
 	tenantID      string
 	tenantErr     error
 	roles         []string
-	tenantPerms   map[string][]string
-	tenantAllowed *bool
+	tenantPerms    map[string][]string
+	tenantAllowed  *bool
+	allowedTenants map[string]bool
+	tenants        []AuthTenantInfo
 }
 
 func (f *fakeUsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
@@ -259,11 +352,24 @@ func (f *fakeUsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (
 	return f.tenantID, nil
 }
 
+func (f *fakeUsersRepo) ListUserTenants(ctx context.Context, userID string) ([]AuthTenantInfo, error) {
+	if f.tenants != nil {
+		return f.tenants, nil
+	}
+	if f.tenantID == "" {
+		return nil, nil
+	}
+	return []AuthTenantInfo{{ID: f.tenantID, LegalName: "Tenant"}}, nil
+}
+
 func (f *fakeUsersRepo) ListUserRoles(ctx context.Context, userID string, tenantID string) ([]string, error) {
 	return f.roles, nil
 }
 
 func (f *fakeUsersRepo) UserHasTenant(ctx context.Context, userID string, tenantID string) (bool, error) {
+	if f.allowedTenants != nil {
+		return f.allowedTenants[tenantID], nil
+	}
 	if f.tenantAllowed != nil {
 		return *f.tenantAllowed, nil
 	}
