@@ -43,8 +43,6 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 	if !u.Active {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInactiveUser
 	}
-	_ = s.users.UpdateLastLogin(ctx, u.ID)
-
 	tenantID, err := s.users.GetDefaultTenantID(ctx, u.ID)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
@@ -62,6 +60,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
+	// last_login_at describes a completed authentication, not merely a valid
+	// password. Keep it best-effort so telemetry persistence cannot strand a
+	// successfully issued refresh token.
+	_ = s.users.UpdateLastLogin(ctx, u.ID)
 	return TokenResponse{
 		AccessToken:      accessTok,
 		RefreshToken:     refreshTok,
