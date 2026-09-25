@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
 	authdomain "github.com/example/sistemaemgo/internal/modules/auth/domain"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/jackc/pgx/v5"
@@ -85,6 +86,30 @@ func (r *UsersRepo) fallbackCompanyTenantID(ctx context.Context) (string, error)
 	var tenantID string
 	err := r.db.QueryRow(ctx, `SELECT id::text FROM companies ORDER BY created_at LIMIT 1`).Scan(&tenantID)
 	return tenantID, err
+}
+
+func (r *UsersRepo) ListUserTenants(ctx context.Context, userID string) ([]authapp.AuthTenantInfo, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT c.id::text, c.legal_name, c.trade_name
+		FROM user_tenants ut
+		JOIN companies c ON c.id=ut.tenant_id
+		WHERE ut.user_id=$1 AND ut.active=true
+		ORDER BY COALESCE(c.trade_name, c.legal_name), c.legal_name, c.id
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []authapp.AuthTenantInfo
+	for rows.Next() {
+		var item authapp.AuthTenantInfo
+		if err := rows.Scan(&item.ID, &item.LegalName, &item.TradeName); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
 
 func (r *UsersRepo) UserHasTenant(ctx context.Context, userID string, tenantID string) (bool, error) {
