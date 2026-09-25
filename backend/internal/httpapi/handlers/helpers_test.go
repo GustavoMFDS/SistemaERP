@@ -43,3 +43,22 @@ func TestReadJSONValidation(t *testing.T) {
 		}
 	})
 }
+
+func TestRequireUUID(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	validRec := httptest.NewRecorder()
+	got, ok := requireUUID(validRec, req, " 11111111-1111-1111-1111-111111111111 ")
+	if !ok || got != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("valid UUID rejected: ok=%v got=%q", ok, got)
+	}
+
+	invalidRec := httptest.NewRecorder()
+	if _, ok := requireUUID(invalidRec, req, "not-a-uuid"); ok {
+		t.Fatal("invalid UUID must be rejected")
+	}
+	if invalidRec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid UUID status=%d, want 422", invalidRec.Code)
+	}
+}
+
