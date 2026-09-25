@@ -21,23 +21,32 @@ func NewCashRepo(dbpool *pgxpool.Pool) *CashRepo {
 	return &CashRepo{db: dbpool}
 }
 
-func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tenantID string) (string, error) {
+func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tx db.DBTX, tenantID string) (string, error) {
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+	`, "cash-default-register:"+tenantID); err != nil {
+		return "", err
+	}
+
 	var id string
-	err := r.db.QueryRow(ctx, `
-		WITH ins AS (
-			INSERT INTO cash_registers(tenant_id, name, active)
-			SELECT $1::uuid, 'Caixa Principal', true
-			WHERE NOT EXISTS (SELECT 1 FROM cash_registers WHERE tenant_id=$1)
-			RETURNING id, created_at
-		)
+	err := tx.QueryRow(ctx, `
 		SELECT id::text
-		FROM (
-			SELECT id, created_at FROM ins
-			UNION ALL
-			SELECT id, created_at FROM cash_registers WHERE tenant_id=$1
-		) registers
-		ORDER BY created_at
+		FROM cash_registers
+		WHERE tenant_id=$1
+		ORDER BY created_at, id
 		LIMIT 1
+	`, tenantID).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+
+	err = tx.QueryRow(ctx, `
+		INSERT INTO cash_registers(tenant_id, name, active)
+		VALUES ($1, 'Caixa Principal', true)
+		RETURNING id::text
 	`, tenantID).Scan(&id)
 	return id, err
 }
