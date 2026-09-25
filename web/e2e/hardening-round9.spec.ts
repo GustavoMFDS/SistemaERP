@@ -236,20 +236,41 @@ test('offline price drift is quarantined with the original price snapshot preser
 
   expect(result.flushed.processed).toBe(0)
   expect(result.state).toBe('attention')
-  expect(result.reason).toBe('request_rejected')
+  expect(result.reason).toBe('price_changed')
   expect(result.error).toMatch(/preco do produto mudou/i)
   expect(result.unitPrice).toBe(10)
 
-  const afterSales = await page.evaluate(async () => {
+  const afterRejectedSync = await page.evaluate(async () => {
     const { apiJson } = await import('/src/lib/api.ts')
     return apiJson<{ total: number }>('/api/v1/sales?limit=200&offset=0')
   })
-  expect(afterSales.total).toBe(beforeSales.total)
+  expect(afterRejectedSync.total).toBe(beforeSales.total)
 
-  await page.evaluate(async (id) => {
-    const queue = await import('/src/lib/offlineQueue.ts')
-    queue.discardQueueItem(id)
-  }, queuedID)
+  await page.reload()
+  await expect(page.getByText(/Motivo: price_changed/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Tentar novamente' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Atualizar preços' })).toBeVisible()
+
+  page.once('dialog', (dialog) => void dialog.accept())
+  await page.getByRole('button', { name: 'Atualizar preços' }).click()
+
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const queue = await import('/src/lib/offlineQueue.ts')
+        return queue.getQueueSummary().total
+      }),
+    )
+    .toBe(0)
+
+  const afterReconciledSync = await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    return apiJson<{ total: number; items: Array<{ total: number }> }>(
+      '/api/v1/sales?limit=1&offset=0',
+    )
+  })
+  expect(afterReconciledSync.total).toBe(beforeSales.total + 1)
+  expect(afterReconciledSync.items[0]?.total).toBe(12)
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
   await expect
