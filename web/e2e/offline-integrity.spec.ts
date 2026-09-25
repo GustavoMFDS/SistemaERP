@@ -171,6 +171,19 @@ test('account-wide logout cleanup clears every tenant scope but preserves anothe
 
     const allUserQueueCount = queue.getAllUserQueueCount()
 
+    localStorage.setItem(
+      'sistemaemgo:offlineQueue:v1',
+      JSON.stringify([
+        {
+          id: 'legacy-sale',
+          createdAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: { cash_session_id: 'legacy-cash', items: [], payments: [] },
+        },
+      ]),
+    )
+
     auth.setToken(token('other-user', 'tenant-c'))
     const otherProduct = auth.scopedStorageKey(productNamespace)
     const otherQueue = auth.scopedStorageKey(queueNamespace)
@@ -197,6 +210,8 @@ test('account-wide logout cleanup clears every tenant scope but preserves anothe
       queueB: localStorage.getItem(queueB),
       otherProduct: localStorage.getItem(otherProduct),
       otherQueue: localStorage.getItem(otherQueue),
+      legacyQueue: localStorage.getItem('sistemaemgo:offlineQueue:v1'),
+      legacyCount: queue.getLegacyQueueCount(),
     }
   })
 
@@ -209,6 +224,39 @@ test('account-wide logout cleanup clears every tenant scope but preserves anothe
   expect(result.queueB).toBeNull()
   expect(result.otherProduct).toBe('other-product')
   expect(result.otherQueue).not.toBeNull()
+  expect(result.legacyQueue).not.toBeNull()
+  expect(result.legacyCount).toBe(1)
+})
+
+test('legacy offline queue blocks logout until explicit reconciliation', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'sistemaemgo:offlineQueue:v1',
+      JSON.stringify([
+        {
+          id: 'legacy-logout-sale',
+          createdAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: { cash_session_id: 'legacy-cash', items: [], payments: [] },
+        },
+      ]),
+    )
+  })
+
+  await page.getByRole('button', { name: 'Sair' }).click()
+
+  await expect(page.getByText(/fila offline legada/)).toBeVisible()
+  await expect(page).toHaveURL(/\/products$/)
+  expect(
+    await page.evaluate(() => localStorage.getItem('sistemaemgo:offlineQueue:v1')),
+  ).not.toBeNull()
 })
 
 test('permanent queue conflict does not block later sales and expired items are preserved', async ({ page }) => {
