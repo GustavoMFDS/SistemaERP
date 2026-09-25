@@ -49,7 +49,7 @@ type SaleCreateRequest struct {
 type SaleItemRequest struct {
 	ProductID     string            `json:"product_id" validate:"required"`
 	Qty           platform.Quantity `json:"qty" validate:"required,gt=0"`
-	UnitPrice     *platform.Money   `json:"unit_price,omitempty" validate:"omitempty,gt=0"` // Deprecated: ignored for calculation.
+	UnitPrice     *platform.Money   `json:"unit_price,omitempty" validate:"omitempty,gt=0"` // Optional displayed-price snapshot; compared for drift, never authoritative.
 	DiscountValue platform.Money    `json:"discount_value" validate:"min=0"`
 }
 
