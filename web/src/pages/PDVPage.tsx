@@ -708,7 +708,7 @@ export default function PDVPage() {
               value={String(itemQty)}
               onChange={(e) => setItemQty(Number(e.target.value))}
               type="number"
-              step="0.01"
+              step="0.001"
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             />
           </label>
@@ -741,7 +741,7 @@ export default function PDVPage() {
                 return (
                   <tr key={idx}>
                     <td className="px-3 py-2">{name}</td>
-                    <td className="px-3 py-2">{it.qty.toFixed(2)}</td>
+                    <td className="px-3 py-2">{it.qty.toFixed(3)}</td>
                     <td className="px-3 py-2">{it.unit_price.toFixed(2)}</td>
                     <td className="px-3 py-2">
                       {(it.unit_price * it.qty - it.discount_value).toFixed(2)}
