@@ -127,6 +127,27 @@ func TestCreateAndFinalizeIdempotencyReplayAndConflict(t *testing.T) {
 	}
 }
 
+func TestCreateAndFinalizeRejectsCustomerOutsideTenant(t *testing.T) {
+	svc, salesRepo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
+	allowed := false
+	salesRepo.customerAllowed = &allowed
+	customerID := "11111111-1111-1111-1111-111111111111"
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		CustomerID:    &customerID,
+		Items:         []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(1_000)}},
+		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(1000)}},
+	}
+
+	_, _, _, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "customer-tenant-key", req)
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("want ErrValidation for customer outside tenant, got %v", err)
+	}
+	if salesRepo.insertSaleCount != 0 {
+		t.Fatalf("cross-tenant customer must be rejected before inserting sale")
+	}
+}
+
 func TestCreateAndFinalizeUsesPromotionalPrice(t *testing.T) {
 	svc, salesRepo, _, productsRepo := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
 	promo := platform.NewMoneyCents(750)
@@ -257,8 +278,15 @@ type fakeSalesRepo struct {
 	insertedSales   []sales.Sale
 	insertSaleCount int
 	results         map[string]idemResult
+	customerAllowed *bool
 }
 
+func (r *fakeSalesRepo) CustomerBelongsToTenant(context.Context, db.DBTX, string, string) (bool, error) {
+	if r.customerAllowed != nil {
+		return *r.customerAllowed, nil
+	}
+	return true, nil
+}
 func (r *fakeSalesRepo) InsertSale(_ context.Context, _ db.DBTX, _ string, sale sales.Sale) (string, error) {
 	r.insertedSales = append(r.insertedSales, sale)
 	r.insertSaleCount++
