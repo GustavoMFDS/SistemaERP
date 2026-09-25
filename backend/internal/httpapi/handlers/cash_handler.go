@@ -22,6 +22,32 @@ func NewCashHandler(svc *salesapp.CashService, auditSvc *audit.Service, logger *
 	return &CashHandler{svc: svc, audit: auditSvc, logger: logger}
 }
 
+func (h *CashHandler) CurrentSession(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	session, found, err := h.svc.CurrentSession(r.Context(), au.TenantID)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "nao foi possivel consultar o caixa atual", nil)
+		return
+	}
+	if !found {
+		writeJSON(w, http.StatusOK, map[string]any{"session": nil})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session": map[string]any{
+			"id":             session.ID,
+			"register_id":    session.RegisterID,
+			"opened_by_user_id": session.OpenedByUserID,
+			"status":         session.Status,
+			"opening_amount": session.OpeningAmount,
+		},
+	})
+}
+
 func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
