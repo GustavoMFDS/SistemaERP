@@ -10,6 +10,47 @@ ALTER TABLE user_tenants
 CREATE INDEX IF NOT EXISTS user_tenants_user_active_created_idx
   ON user_tenants(user_id, active, created_at);
 
+-- Barcode uniqueness must be tenant-scoped: independent stores routinely sell
+-- the same EAN/GTIN and must be able to register it independently.
+DROP INDEX IF EXISTS products_barcode_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS products_tenant_barcode_unique
+  ON products(tenant_id, barcode)
+  WHERE barcode IS NOT NULL;
+
+-- Base tables created before multi-tenant migration only received a UUID
+-- column. Attach those tenant roots to real companies so orphan tenant IDs
+-- cannot be persisted.
+ALTER TABLE customers
+  ADD CONSTRAINT customers_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE categories
+  ADD CONSTRAINT categories_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE products
+  ADD CONSTRAINT products_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE cash_registers
+  ADD CONSTRAINT cash_registers_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE ledger_entries
+  ADD CONSTRAINT ledger_entries_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE expenses
+  ADD CONSTRAINT expenses_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE revenues
+  ADD CONSTRAINT revenues_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE accounts_payable
+  ADD CONSTRAINT accounts_payable_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE accounts_receivable
+  ADD CONSTRAINT accounts_receivable_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+ALTER TABLE audit_logs
+  ADD CONSTRAINT audit_logs_tenant_fk
+  FOREIGN KEY (tenant_id) REFERENCES companies(id) ON DELETE RESTRICT;
+
 -- Composite uniqueness is required by tenant-scoped foreign keys below.
 CREATE UNIQUE INDEX IF NOT EXISTS categories_tenant_id_id_unique
   ON categories(tenant_id, id);
