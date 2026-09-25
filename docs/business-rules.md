@@ -53,3 +53,12 @@
 - O servidor é sempre a autoridade de preço. O preço exibido no momento da intenção pode ser enviado como snapshot apenas para detectar mudança durante períodos offline.
 - Se o preço efetivo mudar antes da sincronização, a venda não é finalizada silenciosamente pelo novo valor; ela exige revisão explícita do operador.
 
+## Round 9 — LGPD, membership e caixa
+- Bloqueio e anonimização de usuário não podem prosseguir enquanto existir caixa aberto por esse usuário no tenant.
+- Abertura de caixa exige membership ativa no momento transacional da abertura; autenticação anterior não é suficiente se a membership tiver sido revogada.
+- Anonimização/bloqueio destrutivo só executa a partir de DSR `in_progress` compatível e conclui a DSR junto com o audit crítico.
+
+## Round 9 — dia financeiro
+- Datas do dashboard financeiro representam dias civis no `BUSINESS_TIMEZONE`, não no timezone implícito do PostgreSQL/container.
+- O padrão do projeto é `America/Sao_Paulo`.
+
