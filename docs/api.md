@@ -159,7 +159,7 @@ Request:
 }
 ```
 
-`unit_price` is deprecated and ignored if old clients still send it. The backend always loads the product, applies `promo_price` when present, validates stock, and calculates subtotal/total server-side.
+`unit_price` is optional and non-authoritative. When supplied, it is the price snapshot shown to the operator; the backend still loads the product, applies the current effective server price, validates stock, and calculates subtotal/total itself. If the supplied snapshot no longer matches, the request returns `409 price_changed` before sale/stock/finance state is committed.
 
 Response:
 
@@ -257,7 +257,7 @@ Allowed transitions are `open -> in_progress`, `open -> rejected`, `open -> canc
 
 ### POST `/privacy/requests/{id}/export`
 
-Exports available personal data for `customer` or `user` subjects. Fiscal/accounting records are not deleted by this operation.
+Exports available personal data for `customer` or `user` subjects only when the DSR is `in_progress` and has `request_type=export`. The personal-data payload is returned only after the critical `privacy.subject.export` audit event commits successfully. Delivery does not automatically complete the DSR, allowing controlled re-delivery if the HTTP response is interrupted. Fiscal/accounting records are not deleted by this operation.
 
 ### POST `/privacy/requests/{id}/anonymize`
 
@@ -381,10 +381,11 @@ Supported types: `supply` and `withdrawal`. Cash movement, finance ledger entry 
 - A mismatch returns `409` with stable error code `price_changed`; no sale, stock movement, ledger entry, or idempotency result is committed.
 - Requests without `unit_price` retain the legacy idempotency hash shape so previously persisted v2 intents remain replay-compatible at the API level. The browser, however, quarantines pre-snapshot intents for manual reconciliation rather than auto-sending them.
 
-## Round 9 — destructive privacy workflow
-- Subject anonymization/deletion and user blocking require the DSR to be in `in_progress` with a compatible `request_type`.
-- A successful destructive action, transition of the DSR to `completed`, and its `privacy.subject.anonymize` / `privacy.subject.block` audit event commit in one database transaction.
-- If the critical audit insert fails, the subject mutation and DSR status transition roll back.
+## Round 9 — audited privacy workflow
+- Privacy writes (`privacy.request.create`, `privacy.request.update`, `privacy.consent.create`, `privacy.consent.revoke`, `privacy.subject.anonymize`, and `privacy.subject.block`) commit their mutation and critical audit event in one database transaction.
+- If a critical audit insert fails, the corresponding privacy mutation rolls back.
+- Subject anonymization/deletion and user blocking require the DSR to be `in_progress` with a compatible `request_type`; success also moves the DSR to `completed` in that same transaction.
+- Subject export requires an `in_progress` export DSR. Data is released only if `privacy.subject.export` is persisted successfully; the DSR is intentionally not auto-completed by delivery.
 - User blocking/anonymization returns `409 conflict` while that user owns an `open` cash session in the tenant.
 - Cash opening rechecks and locks the active membership inside the cash transaction, so a concurrently revoked membership cannot create a new orphan cash session.
 
