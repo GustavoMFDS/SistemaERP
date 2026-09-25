@@ -109,7 +109,11 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 		case common.ErrConflict:
 			status = http.StatusConflict
 		}
-		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		code := errorCodeForStatus(status)
+		if err == common.ErrPriceChanged {
+			code = "price_changed"
+		}
+		writeError(w, r, status, code, friendlyErrorMessage(err), nil)
 		return
 	}
 	code := http.StatusCreated
