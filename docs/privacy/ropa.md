@@ -25,8 +25,8 @@ Initial activity map:
 - Login/logout: Redis refresh token store, `users.last_login_at`, audit actions `auth.login`, `auth.logout`.
 - Sale: `sales`, `sale_items`, `payments`, `ledger_entries`, audit action `sale.created`.
 - Customer creation/update: `customers`, audit actions `customer.created`, `customer.updated`.
-- Data subject request: `data_subject_requests`, audit actions `privacy.request.create`, `privacy.request.update`.
-- Export: `/api/v1/privacy/requests/{id}/export`, audit action `privacy.subject.export`.
-- Blocking/anonymization: data subject workflow, audit actions `privacy.subject.block`, `privacy.subject.anonymize`.
-- Consent: `consent_records`, audit actions `privacy.consent.create`, `privacy.consent.revoke`.
+- Data subject request: `data_subject_requests`, audit actions `privacy.request.create`, `privacy.request.update`; request writes and audits share one transaction.
+- Export: `/api/v1/privacy/requests/{id}/export`, audit action `privacy.subject.export`; an `in_progress` export DSR is required and data is released only after audit persistence succeeds.
+- Blocking/anonymization: data subject workflow, audit actions `privacy.subject.block`, `privacy.subject.anonymize`; subject mutation, DSR completion, and audit commit atomically.
+- Consent: `consent_records`, audit actions `privacy.consent.create`, `privacy.consent.revoke`; consent mutation and audit commit atomically.
 - Audit review: `/api/v1/audit/logs`, audit metadata is sanitized before persistence and output.
