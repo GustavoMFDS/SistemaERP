@@ -25,6 +25,48 @@ func TestCreateRequestValidatesAndUsesTenantContext(t *testing.T) {
 	}
 }
 
+func TestCreateRequestRejectsSubjectOutsideTenant(t *testing.T) {
+	subjectID := "11111111-1111-1111-1111-111111111111"
+	allowed := false
+	svc := NewService(&fakePrivacyRepo{subjectAllowed: &allowed})
+
+	_, err := svc.CreateRequest(context.Background(), "tenant-1", "actor-1", "req-1", CreateRequest{
+		SubjectType: "customer",
+		SubjectID:   &subjectID,
+		RequestType: "export",
+	})
+	if err != common.ErrNotFound {
+		t.Fatalf("expected tenant subject to be rejected, got %v", err)
+	}
+}
+
+func TestConsentRequiresSubjectInsideTenant(t *testing.T) {
+	svc := NewService(&fakePrivacyRepo{})
+	_, err := svc.RecordConsent(context.Background(), "tenant-1", "req-1", ConsentCreateRequest{
+		SubjectType:        "customer",
+		Purpose:            "marketing",
+		ConsentTextVersion: "v1",
+		Source:             "web",
+	})
+	if err != common.ErrValidation {
+		t.Fatalf("expected missing subject validation error, got %v", err)
+	}
+
+	subjectID := "11111111-1111-1111-1111-111111111111"
+	allowed := false
+	svc = NewService(&fakePrivacyRepo{subjectAllowed: &allowed})
+	_, err = svc.RecordConsent(context.Background(), "tenant-1", "req-1", ConsentCreateRequest{
+		SubjectType:        "customer",
+		SubjectID:          &subjectID,
+		Purpose:            "marketing",
+		ConsentTextVersion: "v1",
+		Source:             "web",
+	})
+	if err != common.ErrNotFound {
+		t.Fatalf("expected cross-tenant consent subject rejection, got %v", err)
+	}
+}
+
 func TestCreateRequestRejectsInvalidInput(t *testing.T) {
 	svc := NewService(&fakePrivacyRepo{})
 	_, err := svc.CreateRequest(context.Background(), "tenant-1", "actor-1", "req-1", CreateRequest{
@@ -145,9 +187,17 @@ type fakePrivacyRepo struct {
 	consentTenant  string
 	exportedTenant string
 	expectedTenant string
+	subjectAllowed *bool
 	anonymized     bool
 	revoked        bool
 	request        privacy.DataSubjectRequest
+}
+
+func (f *fakePrivacyRepo) SubjectBelongsToTenant(ctx context.Context, tenantID, subjectType, subjectID string) (bool, error) {
+	if f.subjectAllowed != nil {
+		return *f.subjectAllowed, nil
+	}
+	return true, nil
 }
 
 func (f *fakePrivacyRepo) CreateRequest(ctx context.Context, tenantID, actorUserID, requestID string, req CreateRequest) (string, error) {
