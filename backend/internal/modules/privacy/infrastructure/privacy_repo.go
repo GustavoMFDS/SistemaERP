@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
 	"github.com/example/sistemaemgo/internal/modules/common"
+	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
 	privacy "github.com/example/sistemaemgo/internal/modules/privacy/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
