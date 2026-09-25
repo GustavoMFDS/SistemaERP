@@ -147,6 +147,8 @@ func (h *AuthHandler) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "tenant invalido", nil)
 		case common.ErrForbidden:
 			writeError(w, r, http.StatusForbidden, "authorization_error", "usuario sem acesso a esta loja", nil)
+		case common.ErrConflict:
+			writeError(w, r, http.StatusConflict, "session_conflict", "sessao alterada em outra aba", nil)
 		case common.ErrInactiveUser:
 			writeError(w, r, http.StatusForbidden, "authorization_error", "usuario inativo", nil)
 		case common.ErrInvalidCredentials:
