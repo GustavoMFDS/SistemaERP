@@ -32,3 +32,13 @@
 - Fechamento reconcilia esperado, declarado e diferença por `cash`, `pix`, `debit`, `credit`, `transfer` e `voucher`.
 - Dinheiro físico esperado = abertura + vendas em dinheiro + suprimentos - sangrias.
 - XML fiscal é gerado somente de venda `finalized` e bloqueia a venda enquanto a invoice é criada.
+
+## Round 7 — isolamento entre CNPJs
+- Cada loja/CNPJ continua sendo um tenant independente; referências de categoria, produto, cliente, caixa, venda, pagamento, razão e fiscal devem permanecer no mesmo tenant.
+- O mesmo código de barras/EAN pode existir em tenants diferentes; unicidade de barcode é tenant-scoped.
+- Atualizar um produto inexistente ou de outro tenant retorna not found e não gera sucesso/audit falso.
+- Uma venda não aceita `customer_id` pertencente a outro tenant.
+- Bloquear um usuário por LGPD bloqueia somente a membership daquele tenant; não desativa a identidade global usada por outra loja.
+- Anonimização global de usuário compartilhado por múltiplos tenants é recusada com conflito até que as memberships sejam reconciliadas.
+- Consentimentos LGPD exigem um titular identificado e pertencente ao tenant.
+
