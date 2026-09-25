@@ -158,6 +158,9 @@ func (f *logoutUsersRepo) UpdateLastLogin(context.Context, string) error { retur
 func (f *logoutUsersRepo) GetDefaultTenantID(context.Context, string) (string, error) {
 	return "22222222-2222-2222-2222-222222222222", nil
 }
+func (f *logoutUsersRepo) ListUserTenants(context.Context, string) ([]authapp.AuthTenantInfo, error) {
+	return []authapp.AuthTenantInfo{{ID: "22222222-2222-2222-2222-222222222222", LegalName: "Tenant"}}, nil
+}
 func (f *logoutUsersRepo) UserHasTenant(context.Context, string, string) (bool, error) {
 	return true, nil
 }
