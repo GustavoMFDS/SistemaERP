@@ -75,3 +75,91 @@ test('shared admin switches CNPJ without leaking tenant catalog or local scope',
   })
   expect(tenantALocalCash).toBe('local-cash-tenant-a')
 })
+
+test('PDV recovers an open server cash session after local state is lost', async ({
+  page,
+}) => {
+  await login(page)
+
+  await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    const current = await apiJson<{
+      session: { id: string } | null
+    }>('/api/v1/cash/sessions/current')
+    if (current.session) {
+      await apiJson(`/api/v1/cash/sessions/${current.session.id}/close`, {
+        method: 'POST',
+        body: { closing_amount: 0, notes: 'round7 recovery pre-cleanup' },
+      })
+    }
+  })
+
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await page.getByRole('button', { name: 'Abrir' }).click()
+
+  const openedID = await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .not.toBe('')
+
+  const originalID = await page.evaluate(async () => {
+    const { getCashSessionId } = await import('/src/lib/auth.ts')
+    return getCashSessionId()
+  })
+  expect(originalID).not.toBe('')
+
+  await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const key = auth.scopedStorageKey('sistemaemgo:cashSession:v2')
+    if (!key) throw new Error('cash scope missing')
+    localStorage.removeItem(key)
+  })
+
+  expect(
+    await page.evaluate(async () => {
+      const { getCashSessionId } = await import('/src/lib/auth.ts')
+      return getCashSessionId()
+    }),
+  ).toBe('')
+
+  await page.reload()
+
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe(originalID)
+
+  await page.getByRole('button', { name: 'Sair' }).click()
+  await expect(
+    page.getByText(/caixa\(s\) local\(is\) ainda aberto\(s\)/),
+  ).toBeVisible()
+  await expect(page).toHaveURL(/\/pdv$/)
+
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
+
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .toBe('')
+
+  const currentAfterClose = await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    return apiJson<{ session: { id: string } | null }>(
+      '/api/v1/cash/sessions/current',
+    )
+  })
+  expect(currentAfterClose.session).toBeNull()
+})
+
