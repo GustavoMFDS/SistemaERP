@@ -43,6 +43,17 @@ ALTER TABLE invoice_xml_files
 ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_company_matches_tenant,
   DROP CONSTRAINT IF EXISTS invoices_tenant_sale_fk;
+ALTER TABLE ledger_entries
+  DROP CONSTRAINT IF EXISTS ledger_entries_tenant_cash_session_fk,
+  DROP CONSTRAINT IF EXISTS ledger_entries_tenant_sale_fk,
+  ADD CONSTRAINT ledger_entries_sale_id_fkey
+  FOREIGN KEY (sale_id)
+  REFERENCES sales(id)
+  ON DELETE SET NULL,
+  ADD CONSTRAINT ledger_entries_cash_session_id_fkey
+  FOREIGN KEY (cash_session_id)
+  REFERENCES cash_sessions(id)
+  ON DELETE SET NULL;
 ALTER TABLE payments
   DROP CONSTRAINT IF EXISTS payments_tenant_sale_fk;
 ALTER TABLE sale_items
