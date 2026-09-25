@@ -122,6 +122,95 @@ test('offline browser state is isolated by tenant and user', async ({ page }) =>
   expect(result.tenantACacheStillStored).toContain('product-a')
 })
 
+test('account-wide logout cleanup clears every tenant scope but preserves another user', async ({
+  page,
+}) => {
+  await page.goto('/login')
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const queue = await import('/src/lib/offlineQueue.ts')
+
+    function token(sub: string, tenant: string): string {
+      const payload = btoa(JSON.stringify({ sub, tenant_id: tenant }))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '')
+      return `x.${payload}.x`
+    }
+
+    const productNamespace = 'sistemaemgo:productsCache:v2'
+    const cashNamespace = 'sistemaemgo:cashSession:v2'
+    const queueNamespace = 'sistemaemgo:offlineQueue:v2'
+
+    auth.setToken(token('shared-user', 'tenant-a'))
+    const productA = auth.scopedStorageKey(productNamespace)
+    const cashA = auth.scopedStorageKey(cashNamespace)
+    const queueA = auth.scopedStorageKey(queueNamespace)
+    if (!productA || !cashA || !queueA) throw new Error('tenant A scope missing')
+    localStorage.setItem(productA, 'product-a')
+    auth.setCashSessionId('cash-a')
+    queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: { cash_session_id: 'cash-a', items: [], payments: [] },
+    })
+
+    auth.setToken(token('shared-user', 'tenant-b'))
+    const productB = auth.scopedStorageKey(productNamespace)
+    const cashB = auth.scopedStorageKey(cashNamespace)
+    const queueB = auth.scopedStorageKey(queueNamespace)
+    if (!productB || !cashB || !queueB) throw new Error('tenant B scope missing')
+    localStorage.setItem(productB, 'product-b')
+    auth.setCashSessionId('cash-b')
+    queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: { cash_session_id: 'cash-b', items: [], payments: [] },
+    })
+
+    const allUserQueueCount = queue.getAllUserQueueCount()
+
+    auth.setToken(token('other-user', 'tenant-c'))
+    const otherProduct = auth.scopedStorageKey(productNamespace)
+    const otherQueue = auth.scopedStorageKey(queueNamespace)
+    if (!otherProduct || !otherQueue) throw new Error('other user scope missing')
+    localStorage.setItem(otherProduct, 'other-product')
+    queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: { cash_session_id: 'cash-c', items: [], payments: [] },
+    })
+
+    auth.setToken(token('shared-user', 'tenant-b'))
+    auth.clearAllCashSessionsForCurrentUser()
+    queue.clearAllOfflineQueuesForCurrentUser()
+    auth.clearAllUserScopedStorage(productNamespace)
+
+    return {
+      allUserQueueCount,
+      productA: localStorage.getItem(productA),
+      productB: localStorage.getItem(productB),
+      cashA: localStorage.getItem(cashA),
+      cashB: localStorage.getItem(cashB),
+      queueA: localStorage.getItem(queueA),
+      queueB: localStorage.getItem(queueB),
+      otherProduct: localStorage.getItem(otherProduct),
+      otherQueue: localStorage.getItem(otherQueue),
+    }
+  })
+
+  expect(result.allUserQueueCount).toBe(2)
+  expect(result.productA).toBeNull()
+  expect(result.productB).toBeNull()
+  expect(result.cashA).toBeNull()
+  expect(result.cashB).toBeNull()
+  expect(result.queueA).toBeNull()
+  expect(result.queueB).toBeNull()
+  expect(result.otherProduct).toBe('other-product')
+  expect(result.otherQueue).not.toBeNull()
+})
+
 test('permanent queue conflict does not block later sales and expired items are preserved', async ({ page }) => {
   await page.goto('/login')
 
