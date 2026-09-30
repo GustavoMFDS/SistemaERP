@@ -31,6 +31,7 @@ type CashRepository interface {
 	OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error)
 	CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, expectedCash, closingAmount platform.Money, notes *string) error
 	GetSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID string) (sales.CashSession, error)
+	GetOpenSession(ctx context.Context, tenantID string) (sales.CashSession, error)
 	InsertMovement(ctx context.Context, tx db.DBTX, tenantID, sessionID, userID, movementType string, amount platform.Money, notes *string) (string, error)
 	SumPaymentsByMethod(ctx context.Context, tx db.DBTX, tenantID, sessionID string) (map[string]platform.Money, error)
 	SumMovements(ctx context.Context, tx db.DBTX, tenantID, sessionID string) (supply platform.Money, withdrawal platform.Money, err error)

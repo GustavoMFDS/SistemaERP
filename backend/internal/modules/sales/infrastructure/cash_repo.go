@@ -8,6 +8,7 @@ import (
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -39,6 +40,38 @@ func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tenantID string) (
 		LIMIT 1
 	`, tenantID).Scan(&id)
 	return id, err
+}
+
+func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string) (sales.CashSession, error) {
+	var s sales.CashSession
+	var openingRaw string
+	err := r.db.QueryRow(ctx, `
+		SELECT cs.id::text, cs.cash_register_id::text, cs.opened_by_user_id::text, cs.status, cs.opening_amount::text
+		FROM cash_sessions cs
+		WHERE cs.tenant_id=$1
+		  AND cs.status='open'
+		  AND cs.cash_register_id = (
+			SELECT cr.id
+			FROM cash_registers cr
+			WHERE cr.tenant_id=$1
+			ORDER BY cr.created_at, cr.id
+			LIMIT 1
+		  )
+		ORDER BY cs.opened_at DESC
+		LIMIT 1
+	`, tenantID).Scan(&s.ID, &s.RegisterID, &s.OpenedByUserID, &s.Status, &openingRaw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return s, common.ErrNotFound
+		}
+		return s, err
+	}
+	opening, err := platform.ParseMoney(openingRaw)
+	if err != nil {
+		return s, err
+	}
+	s.OpeningAmount = opening
+	return s, nil
 }
 
 func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error) {

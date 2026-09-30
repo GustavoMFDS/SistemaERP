@@ -81,6 +81,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			})
 
 			pr.Route("/cash", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("cash:open")).Get("/sessions/current", h.Cash.CurrentSession)
 				rr.With(middleware.RequirePermission("cash:open")).Post("/sessions/open", h.Cash.OpenSession)
 				rr.With(middleware.RequirePermission("cash:move")).Post("/sessions/{id}/movements", h.Cash.RecordMovement)
 				rr.With(middleware.RequirePermission("cash:close")).Post("/sessions/{id}/close", h.Cash.CloseSession)

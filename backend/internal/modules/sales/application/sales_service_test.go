@@ -399,6 +399,9 @@ func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, strin
 func (fakeCashRepo) GetSession(context.Context, db.DBTX, string, string) (sales.CashSession, error) {
 	return sales.CashSession{ID: "cash-1", Status: "open", OpeningAmount: 0}, nil
 }
+func (fakeCashRepo) GetOpenSession(context.Context, string) (sales.CashSession, error) {
+	return sales.CashSession{ID: "cash-1", Status: "open", OpeningAmount: 0}, nil
+}
 func (fakeCashRepo) InsertMovement(context.Context, db.DBTX, string, string, string, string, platform.Money, *string) (string, error) {
 	return "movement-1", nil
 }
