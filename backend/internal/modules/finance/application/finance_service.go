@@ -216,6 +216,20 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 	if err := s.repo.UpdatePaymentReconciliation(ctx, tx, tenantID, paymentID, status, req.ReceivedAmount, req.FeeAmount, req.Notes, actorUserID); err != nil {
 		return "", "", false, err
 	}
+	if req.FeeAmount > 0 {
+		saleID := payment.SaleID
+		note := "Taxa de conciliação do pagamento " + paymentID
+		if _, err := s.repo.InsertLedgerEntry(ctx, tx, tenantID, fin.LedgerEntry{
+			EntryType:       "payment_fee",
+			SaleID:          &saleID,
+			AmountNet:       -req.FeeAmount,
+			ProfitEstimated: -req.FeeAmount,
+			Notes:           &note,
+			CreatedAt:       time.Now().Format(time.RFC3339),
+		}, &actorUserID); err != nil {
+			return "", "", false, err
+		}
+	}
 	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, hash, reconciliationID, status, nil); err != nil {
 		return "", "", false, err
 	}
@@ -337,6 +351,24 @@ func (s *FinanceService) AdjustPaymentReconciliation(ctx context.Context, tenant
 		&notes, actorUserID,
 	); err != nil {
 		return "", "", false, err
+	}
+	feeDelta, err := req.FeeAmount.SubChecked(previousFee)
+	if err != nil {
+		return "", "", false, common.ErrValidation
+	}
+	if feeDelta != 0 {
+		saleID := payment.SaleID
+		note := "Ajuste de taxa da conciliação " + adjustmentID + ": " + req.Notes
+		if _, err := s.repo.InsertLedgerEntry(ctx, tx, tenantID, fin.LedgerEntry{
+			EntryType:       "payment_fee",
+			SaleID:          &saleID,
+			AmountNet:       -feeDelta,
+			ProfitEstimated: -feeDelta,
+			Notes:           &note,
+			CreatedAt:       time.Now().Format(time.RFC3339),
+		}, &actorUserID); err != nil {
+			return "", "", false, err
+		}
 	}
 	resultAmount := req.ReceivedAmount
 	if err := s.repo.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, hash, adjustmentID, status, &resultAmount); err != nil {
