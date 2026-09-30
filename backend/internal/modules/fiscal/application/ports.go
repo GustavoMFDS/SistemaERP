@@ -27,6 +27,8 @@ type FiscalRepository interface {
 	ListXML(ctx context.Context, tenantID string, limit, offset int) ([]fisc.XMLFile, int, error)
 	GetXMLContent(ctx context.Context, tenantID string, id string) (fileName string, content []byte, err error)
 	GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error)
+	GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error)
+	UpsertNFCeConfig(ctx context.Context, tx db.DBTX, tenantID string, actorUserID string, cfg fisc.NFCeConfig) error
 }
 
 type SalesRepository interface {
