@@ -35,8 +35,8 @@ type GenerateXMLRequest struct {
 type PrepareNFCeConfigRequest struct {
 	Environment          string `json:"environment" validate:"required,oneof=homologation production"`
 	Series               int    `json:"series" validate:"min=0,max=889"`
-	CSCID                string `json:"csc_id" validate:"required,max=32"`
-	CSCSecretRef         string `json:"csc_secret_ref" validate:"required,max=500"`
+	CSCID                string `json:"csc_id" validate:"omitempty,max=32"`
+	CSCSecretRef         string `json:"csc_secret_ref" validate:"omitempty,max=500"`
 	CertificateSecretRef string `json:"certificate_secret_ref" validate:"required,max=500"`
 }
 
@@ -242,7 +242,6 @@ func (s *FiscalService) ReserveNFCeDraft(
 		return fisc.NFCeReservation{}, false, err
 	}
 	if reservationContext.Config.Environment != "homologation" ||
-		!reservationContext.Config.CSCReferenceConfigured ||
 		!reservationContext.Config.CertificateReferenceConfigured {
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
 	}
@@ -404,17 +403,28 @@ func (s *FiscalService) PrepareNFCeConfig(
 	if err := s.validate.Struct(req); err != nil {
 		return fisc.NFCeConfig{}, common.ErrValidation
 	}
+	if (req.CSCID == "") != (req.CSCSecretRef == "") {
+		return fisc.NFCeConfig{}, common.ErrValidation
+	}
 
-	cscID := req.CSCID
-	cscSecretRef := req.CSCSecretRef
+	var cscID *string
+	var cscSecretRef *string
+	if req.CSCID != "" {
+		value := req.CSCID
+		cscID = &value
+	}
+	if req.CSCSecretRef != "" {
+		value := req.CSCSecretRef
+		cscSecretRef = &value
+	}
 	certificateSecretRef := req.CertificateSecretRef
 	cfg := fisc.NFCeConfig{
 		TenantID:             tenantID,
 		Enabled:              false,
 		Environment:          req.Environment,
 		Series:               req.Series,
-		CSCID:                &cscID,
-		CSCSecretRef:         &cscSecretRef,
+		CSCID:                cscID,
+		CSCSecretRef:         cscSecretRef,
 		CertificateSecretRef: &certificateSecretRef,
 	}
 
