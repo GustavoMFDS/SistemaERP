@@ -61,6 +61,33 @@ case "$DATABASE_URL" in
     ;;
 esac
 
+read -r role_super role_createdb role_createrole role_replication role_bypassrls < <(
+  psql "$DATABASE_URL" -At -F ' ' -c "
+    SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls
+    FROM pg_roles
+    WHERE rolname=current_user;
+  "
+)
+if [ "$role_super" = "t" ] || [ "$role_createdb" = "t" ] || [ "$role_createrole" = "t" ] || [ "$role_replication" = "t" ] || [ "$role_bypassrls" = "t" ]; then
+  fail "application database role has elevated cluster privileges (superuser/createdb/createrole/replication/bypassrls)"
+else
+  pass "application database role has no elevated cluster privileges"
+fi
+
+database_create="$(psql "$DATABASE_URL" -At -c "SELECT has_database_privilege(current_user, current_database(), 'CREATE');")"
+if [ "$database_create" = "t" ]; then
+  fail "application database role can CREATE objects at database level; use a separate migrator/owner role"
+else
+  pass "application database role cannot CREATE at database level"
+fi
+
+schema_create="$(psql "$DATABASE_URL" -At -c "SELECT has_schema_privilege(current_user, 'public', 'CREATE');")"
+if [ "$schema_create" = "t" ]; then
+  fail "application database role can CREATE objects in public schema; use a separate migrator/owner role"
+else
+  pass "application database role cannot CREATE in public schema"
+fi
+
 case "${APP_ENV:-}" in
   staging|prod|production)
     pass "APP_ENV is production-like (${APP_ENV})"
