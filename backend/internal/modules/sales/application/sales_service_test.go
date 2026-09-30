@@ -420,3 +420,12 @@ type fakeFinanceRepo struct{}
 func (fakeFinanceRepo) InsertLedgerEntry(context.Context, db.DBTX, string, fin.LedgerEntry, *string) (string, error) {
 	return "ledger-1", nil
 }
+func (fakeFinanceRepo) LockIdempotencyKey(context.Context, db.DBTX, string, string, string) error {
+	return nil
+}
+func (fakeFinanceRepo) GetIdempotencyResult(context.Context, db.DBTX, string, string, string) (string, string, string, *platform.Money, bool, error) {
+	return "", "", "", nil, false, nil
+}
+func (fakeFinanceRepo) SaveIdempotencyResult(context.Context, db.DBTX, string, string, string, string, string, string, *platform.Money) error {
+	return nil
+}
