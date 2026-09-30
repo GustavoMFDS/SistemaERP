@@ -160,7 +160,7 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 			  AND NULLIF(btrim(c.address_number), '') IS NOT NULL
 			  AND NULLIF(btrim(c.address_neighborhood), '') IS NOT NULL
 			  AND NULLIF(btrim(c.address_city), '') IS NOT NULL
-			  AND char_length(btrim(c.address_state)) = 2
+			  AND COALESCE(char_length(btrim(c.address_state)) = 2, false)
 			  AND NULLIF(btrim(c.address_zip), '') IS NOT NULL AS issuer_address_configured,
 			COALESCE(c.address_city_code ~ '^[0-9]{7}$', false) AS municipality_code_configured,
 			cfg.tenant_id IS NOT NULL AS config_exists,
@@ -174,9 +174,9 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 			) AS csc_reference_configured,
 			COALESCE(NULLIF(btrim(cfg.certificate_secret_ref), '') IS NOT NULL, false)
 				AS certificate_reference_configured,
-			(SELECT count(*) FROM products p WHERE p.tenant_id=c.id AND p.active=true) AS active_products,
+			(SELECT count(*)::int FROM products p WHERE p.tenant_id=c.id AND p.active=true) AS active_products,
 			(
-				SELECT count(*)
+				SELECT count(*)::int
 				FROM products p
 				WHERE p.tenant_id=c.id
 				  AND p.active=true
