@@ -581,7 +581,7 @@ jobs:
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='companies' AND column_name='address_city_code';" \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('model','series','document_number','environment','access_key','emission_type','numeric_code','access_key_check_digit','issued_at','authorization_protocol','authorized_at','rejection_code','rejection_message','updated_at') ORDER BY column_name;" \
             -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('invoices_tenant_id_id_unique','invoices_tenant_model_series_number_unique','invoices_access_key_unique') ORDER BY indexname;" \
-            -c "SELECT conname FROM pg_constraint WHERE conname IN ('nfce_configs_updated_by_tenant_fk','invoices_tenant_sale_fk','invoices_company_matches_tenant_check','invoice_xml_files_tenant_invoice_fk') ORDER BY conname;"
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('nfce_configs_updated_by_tenant_fk','invoices_tenant_sale_fk','invoices_company_matches_tenant_check','invoice_xml_files_tenant_invoice_fk','invoices_access_key_metadata_check','invoices_status_check','invoices_response_fields_check','invoices_real_document_fields_check') ORDER BY conname;"
 
           ACCESS_KEY_CONSTRAINT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='invoices_access_key_check';" | tr -d '\r')"
           if ! printf '%s\n' "$ACCESS_KEY_CONSTRAINT" | grep -Fq '[A-Z0-9]{12}'; then
@@ -621,7 +621,10 @@ jobs:
               WHERE conname IN (
                 'invoices_tenant_sale_fk',
                 'invoices_company_matches_tenant_check',
-                'invoice_xml_files_tenant_invoice_fk'
+                'invoice_xml_files_tenant_invoice_fk',
+                'invoices_access_key_metadata_check',
+                'invoices_response_fields_check',
+                'invoices_real_document_fields_check'
               )
             ) OR EXISTS (
               SELECT 1 FROM pg_indexes
