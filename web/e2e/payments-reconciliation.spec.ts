@@ -202,7 +202,7 @@ test('reconciles digital payments and settles return refunds without double-coun
         headers: { 'Idempotency-Key': adjustmentKey },
         body: {
           received_amount: 20,
-          fee_amount: 1,
+          fee_amount: 2,
           notes: 'corrigir divergencia E2E',
         },
       },
@@ -214,7 +214,7 @@ test('reconciles digital payments and settles return refunds without double-coun
         headers: { 'Idempotency-Key': adjustmentKey },
         body: {
           received_amount: 20,
-          fee_amount: 1,
+          fee_amount: 2,
           notes: 'corrigir divergencia E2E',
         },
       },
@@ -240,9 +240,32 @@ test('reconciles digital payments and settles return refunds without double-coun
       }>
     }>(`/api/v1/finance/payments/${payment.id}/reconciliation-history`)
 
-    await apiJson(`/api/v1/sales/${secondSale.id}/cancel`, {
+    const secondSaleDetail = await apiJson<{
+      items: Array<{ id: string }>
+    }>(`/api/v1/sales/${secondSale.id}`)
+    const secondReturn = await apiJson<{ id: string }>(
+      `/api/v1/sales/${secondSale.id}/returns`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: {
+          kind: 'return',
+          reason: 'Cleanup venda auxiliar E2E',
+          items: [{ sale_item_id: secondSaleDetail.items[0].id, qty: 1, restock: true }],
+        },
+      },
+    )
+    await apiJson(`/api/v1/finance/returns/${secondReturn.id}/refunds`, {
       method: 'POST',
-      body: { reason: 'cleanup duplicate external ref E2E' },
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: {
+        method: 'pix',
+        amount: 20,
+        provider: 'e2e-provider',
+        external_ref: `REFUND-CLEANUP-${suffix}`,
+        cash_session_id: cash.id,
+        notes: 'cleanup venda auxiliar E2E',
+      },
     })
 
     let digitalCancelStatus = 0
@@ -423,6 +446,13 @@ test('reconciles digital payments and settles return refunds without double-coun
     const refundLedgerTotal = ledger.items
       .filter((item) => item.entry_type === 'return_refund' && item.sale_id === sale.id)
       .reduce((sum, item) => sum + item.amount_net, 0)
+    const paymentFeeEntries = ledger.items.filter(
+      (item) => item.entry_type === 'payment_fee' && item.sale_id === sale.id,
+    )
+    const paymentFeeLedgerTotal = paymentFeeEntries.reduce(
+      (sum, item) => sum + item.amount_net,
+      0,
+    )
 
     return {
       saleTotal: sale.total,
@@ -444,7 +474,9 @@ test('reconciles digital payments and settles return refunds without double-coun
       historyInitialExternalRef: reconciliationHistory.initial.external_ref,
       historyAdjustmentCount: reconciliationHistory.adjustments.length,
       historyAdjustmentPreviousReceived: reconciliationHistory.adjustments[0]?.previous_received_amount,
+      historyAdjustmentPreviousFee: reconciliationHistory.adjustments[0]?.previous_fee_amount,
       historyAdjustmentNewReceived: reconciliationHistory.adjustments[0]?.new_received_amount,
+      historyAdjustmentNewFee: reconciliationHistory.adjustments[0]?.new_fee_amount,
       historyAdjustmentStatus: reconciliationHistory.adjustments[0]?.status,
       historyAdjustmentNotes: reconciliationHistory.adjustments[0]?.notes,
       paymentAfterStatus: paymentAfter.reconciliation_status,
@@ -472,6 +504,8 @@ test('reconciles digital payments and settles return refunds without double-coun
       closeExpectedPix: close.expected_by_method.pix,
       closePixDifference: close.difference_by_method.pix,
       refundLedgerTotal,
+      paymentFeeLedgerCount: paymentFeeEntries.length,
+      paymentFeeLedgerTotal,
     }
   }, suffix)
 
@@ -494,7 +528,9 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.historyInitialExternalRef).toContain('SETTLE-')
   expect(result.historyAdjustmentCount).toBe(1)
   expect(result.historyAdjustmentPreviousReceived).toBe(19)
+  expect(result.historyAdjustmentPreviousFee).toBe(1)
   expect(result.historyAdjustmentNewReceived).toBe(20)
+  expect(result.historyAdjustmentNewFee).toBe(2)
   expect(result.historyAdjustmentStatus).toBe('reconciled')
   expect(result.historyAdjustmentNotes).toBe('corrigir divergencia E2E')
   expect(result.paymentAfterStatus).toBe('reconciled')
@@ -502,7 +538,7 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.paymentAfterTransactionRef).toContain('TX-')
   expect(result.paymentAfterTransactionRef).not.toContain('SETTLE-')
   expect(result.paymentAfterAmount).toBe(20)
-  expect(result.paymentAfterFee).toBe(1)
+  expect(result.paymentAfterFee).toBe(2)
   expect(result.digitalCancelStatus).toBe(409)
   expect(result.returnDue).toBe(20)
   expect(result.cashRefundStatus).toBe('partial')
@@ -523,6 +559,8 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.closeExpectedPix).toBe(5)
   expect(result.closePixDifference).toBe(0)
   expect(result.refundLedgerTotal).toBe(-20)
+  expect(result.paymentFeeLedgerCount).toBe(2)
+  expect(result.paymentFeeLedgerTotal).toBe(-2)
 
   await page.getByRole('link', { name: 'Financeiro' }).click()
   await expect(page).toHaveURL(/\/finance$/)
