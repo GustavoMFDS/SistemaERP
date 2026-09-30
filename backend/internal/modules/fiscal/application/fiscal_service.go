@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
@@ -26,6 +27,14 @@ type FiscalService struct {
 
 type GenerateXMLRequest struct {
 	SaleID string `json:"sale_id" validate:"required"`
+}
+
+type PrepareNFCeConfigRequest struct {
+	Environment          string `json:"environment" validate:"required,oneof=homologation production"`
+	Series               int    `json:"series" validate:"min=0,max=889"`
+	CSCID                string `json:"csc_id" validate:"required,max=32"`
+	CSCSecretRef         string `json:"csc_secret_ref" validate:"required,max=500"`
+	CertificateSecretRef string `json:"certificate_secret_ref" validate:"required,max=500"`
 }
 
 func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *FiscalService {
@@ -130,4 +139,50 @@ func uniqueProductIDs(items []sales.SaleItem) []string {
 
 func (s *FiscalService) NFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error) {
 	return s.fiscal.GetNFCeReadiness(ctx, tenantID)
+}
+
+func (s *FiscalService) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
+	return s.fiscal.GetNFCeConfig(ctx, tenantID)
+}
+
+func (s *FiscalService) PrepareNFCeConfig(
+	ctx context.Context,
+	tenantID string,
+	actorUserID string,
+	req PrepareNFCeConfigRequest,
+) (fisc.NFCeConfig, error) {
+	req.Environment = strings.ToLower(strings.TrimSpace(req.Environment))
+	req.CSCID = strings.TrimSpace(req.CSCID)
+	req.CSCSecretRef = strings.TrimSpace(req.CSCSecretRef)
+	req.CertificateSecretRef = strings.TrimSpace(req.CertificateSecretRef)
+	if err := s.validate.Struct(req); err != nil {
+		return fisc.NFCeConfig{}, common.ErrValidation
+	}
+
+	cscID := req.CSCID
+	cscSecretRef := req.CSCSecretRef
+	certificateSecretRef := req.CertificateSecretRef
+	cfg := fisc.NFCeConfig{
+		TenantID:             tenantID,
+		Enabled:              false,
+		Environment:          req.Environment,
+		Series:               req.Series,
+		CSCID:                &cscID,
+		CSCSecretRef:         &cscSecretRef,
+		CertificateSecretRef: &certificateSecretRef,
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.fiscal.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, cfg); err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	return s.fiscal.GetNFCeConfig(ctx, tenantID)
 }

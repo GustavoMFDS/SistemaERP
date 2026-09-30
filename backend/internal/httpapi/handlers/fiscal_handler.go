@@ -23,6 +23,52 @@ func NewFiscalHandler(svc *fiscapp.FiscalService, auditSvc *audit.Service, logge
 	return &FiscalHandler{svc: svc, audit: auditSvc, logger: logger}
 }
 
+func (h *FiscalHandler) GetNFCeConfig(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	cfg, err := h.svc.GetNFCeConfig(r.Context(), au.TenantID)
+	if err != nil {
+		if err == common.ErrNotFound {
+			writeError(w, r, http.StatusNotFound, "not_found", "configuracao NFC-e nao encontrada", nil)
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar configuracao NFC-e", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (h *FiscalHandler) PrepareNFCeConfig(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	var req fiscapp.PrepareNFCeConfigRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	cfg, err := h.svc.PrepareNFCeConfig(r.Context(), au.TenantID, au.UserID, req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if err == common.ErrValidation {
+			status = http.StatusUnprocessableEntity
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfce_config.prepare", "nfce_config", au.TenantID, "success", map[string]any{
+		"environment": cfg.Environment,
+		"series":      cfg.Series,
+		"enabled":     false,
+	})
+	writeJSON(w, http.StatusOK, cfg)
+}
+
 func (h *FiscalHandler) NFCeReadiness(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
