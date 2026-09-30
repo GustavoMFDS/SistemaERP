@@ -63,7 +63,6 @@ const blockerLabels: Record<string, string> = {
   issuer_municipality_code: 'Código IBGE do município ausente/inválido',
   nfce_config: 'Configuração NFC-e ainda não preparada',
   homologation_environment: 'Ambiente deve estar em homologação nesta etapa',
-  csc_secret_reference: 'Referência do CSC ausente',
   certificate_secret_reference: 'Referência do certificado ausente',
   active_products: 'Nenhum produto ativo para validar',
   product_ncm: 'Há produtos ativos sem NCM',
@@ -95,8 +94,6 @@ export default function FiscalPage() {
 
   const [environment, setEnvironment] = useState('homologation')
   const [series, setSeries] = useState(1)
-  const [cscId, setCSCId] = useState('')
-  const [cscSecretRef, setCSCSecretRef] = useState('')
   const [certificateSecretRef, setCertificateSecretRef] = useState('')
 
   function applyIssuer(profile: NFCeIssuerProfile) {
@@ -117,8 +114,6 @@ export default function FiscalPage() {
     setConfig(next)
     setEnvironment(next?.environment || 'homologation')
     setSeries(next?.series ?? 1)
-    setCSCId(next?.csc_id ?? '')
-    setCSCSecretRef('')
     setCertificateSecretRef('')
   }
 
@@ -204,8 +199,6 @@ export default function FiscalPage() {
         body: {
           environment,
           series: Number(series),
-          csc_id: cscId.trim(),
-          csc_secret_ref: cscSecretRef.trim(),
           certificate_secret_ref: certificateSecretRef.trim(),
         },
       })
@@ -288,7 +281,9 @@ export default function FiscalPage() {
             <div>Emitente: {readiness.issuer_identity_configured ? 'OK' : 'Pendente'}</div>
             <div>Endereço: {readiness.issuer_address_configured ? 'OK' : 'Pendente'}</div>
             <div>Município IBGE: {readiness.municipality_code_configured ? 'OK' : 'Pendente'}</div>
-            <div>CSC ref.: {readiness.csc_reference_configured ? 'OK' : 'Pendente'}</div>
+            <div>
+              CSC legado (QR v2): {readiness.csc_reference_configured ? 'Configurado' : 'Opcional'}
+            </div>
             <div>Certificado ref.: {readiness.certificate_reference_configured ? 'OK' : 'Pendente'}</div>
             <div>NCM ausente: {readiness.products_missing_ncm}</div>
           </div>
@@ -375,8 +370,8 @@ export default function FiscalPage() {
       <section className="mt-4 rounded-md border p-4">
         <h3 className="text-sm font-semibold">Configuração de homologação</h3>
         <p className="mt-1 text-xs text-gray-600">
-          Informe referências do seu secret manager. Não cole o certificado PFX nem o CSC secreto.
-          As referências são write-only nesta tela.
+          O QR Code v3 não exige CSC. Informe somente a referência do certificado A1 no gerenciador
+          seguro da implantação. A referência é write-only nesta tela.
         </p>
         <form onSubmit={saveConfig} className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
           <label>
@@ -389,14 +384,6 @@ export default function FiscalPage() {
           <label>
             <span className="text-xs text-gray-600">Série</span>
             <input value={series} onChange={(e) => setSeries(Number(e.target.value))} type="number" min={0} max={889} className="mt-1 w-full rounded-md border px-3 py-2 text-sm" disabled={!canPrepare} />
-          </label>
-          <label>
-            <span className="text-xs text-gray-600">ID do CSC</span>
-            <input value={cscId} onChange={(e) => setCSCId(e.target.value)} className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm" disabled={!canPrepare} />
-          </label>
-          <label className="md:col-span-3">
-            <span className="text-xs text-gray-600">Referência do secret do CSC</span>
-            <input value={cscSecretRef} onChange={(e) => setCSCSecretRef(e.target.value)} placeholder={config?.csc_reference_configured ? 'Já configurado — informe novamente para salvar alterações' : 'Ex.: secret://nfce/csc'} className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm" disabled={!canPrepare} />
           </label>
           <label className="md:col-span-3">
             <span className="text-xs text-gray-600">Referência do certificado A1</span>
