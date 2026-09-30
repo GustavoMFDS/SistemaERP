@@ -43,6 +43,7 @@
 - Dinheiro é conciliado pelo fechamento da sessão de caixa e não pelo endpoint de adquirentes.
 - Pagamentos não monetários podem registrar provedor, referência da transação, autorização e parcelas.
 - A conciliação registra recebido bruto, taxa, líquido e diferença contra o pagamento esperado.
+- Taxas de adquirente conciliadas geram `payment_fee` negativo no ledger; ajustes posteriores lançam apenas o delta da taxa, de modo que o acumulado por pagamento permaneça igual à taxa corrente.
 - Valor bruto diferente do esperado produz status `divergent`; taxa de adquirente é armazenada separadamente.
 - Cada pagamento aceita uma única conciliação inicial. Replay da mesma `Idempotency-Key` retorna o resultado original; uma nova tentativa de conciliação inicial retorna conflito.
 - Correções posteriores usam o fluxo explícito de ajuste: o registro inicial permanece imutável, cada ajuste exige justificativa, guarda valores/taxas anteriores e novos, é idempotente e grava auditoria transacional.
