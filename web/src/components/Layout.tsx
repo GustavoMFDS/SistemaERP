@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
-import { clearOfflineQueue, getQueueCount } from '../lib/offlineQueue'
-import { clearSuspendedCarts, getSuspendedCarts } from '../lib/suspendedCart'
+import { getQueueCount } from '../lib/offlineQueue'
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 
@@ -55,18 +54,11 @@ export default function Layout() {
     if (loggingOut) return
 
     const pending = getQueueCount()
-    const suspended = getSuspendedCarts().length
-    if (pending > 0 || suspended > 0) {
-      const parts: string[] = []
-      if (pending > 0) parts.push(`${pending} venda(s) offline pendente(s)`)
-      if (suspended > 0) parts.push(`${suspended} carrinho(s) suspenso(s)`)
-      if (
-        !window.confirm(
-          `Existem ${parts.join(' e ')}. Sair agora vai limpar esses dados locais. Deseja continuar?`,
-        )
-      ) {
-        return
-      }
+    if (pending > 0) {
+      setLogoutError(
+        `Não é possível sair enquanto existirem ${pending} venda(s) offline preservada(s). Sincronize, reconcilie ou descarte cada item explicitamente no PDV antes de encerrar a sessão.`,
+      )
+      return
     }
 
     setLogoutError('')
@@ -80,8 +72,6 @@ export default function Layout() {
       // Clear scoped state while the current access token still identifies
       // the tenant/user namespace.
       clearCashSessionId()
-      clearOfflineQueue()
-      clearSuspendedCarts()
       clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
       clearToken()
       navigate('/login', { replace: true })
