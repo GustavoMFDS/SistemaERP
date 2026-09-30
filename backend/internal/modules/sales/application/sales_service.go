@@ -65,6 +65,19 @@ type SaleCancelRequest struct {
 	Reason string `json:"reason" validate:"required,min=3,max=250"`
 }
 
+func validateSalePaymentSemantics(payments []SalePaymentRequest) error {
+	for _, payment := range payments {
+		if payment.Method != "credit" && payment.Installments != 1 {
+			return common.ErrValidation
+		}
+		if payment.Method == "cash" &&
+			(payment.Provider != nil || payment.TransactionRef != nil || payment.AuthorizationCode != nil) {
+			return common.ErrValidation
+		}
+	}
+	return nil
+}
+
 func NewSalesService(cfg config.Config, uow db.UnitOfWork, salesRepo SalesRepository, invRepo InventoryRepository, finRepo FinanceRepository, cashRepo CashRepository, productsRepo ProductsRepository, auditSvc *audit.Service, bus *events.Bus, v *validator.Validate, logger *slog.Logger) *SalesService {
 	return &SalesService{cfg: cfg, uow: uow, sales: salesRepo, inv: invRepo, fin: finRepo, cash: cashRepo, products: productsRepo, audit: auditSvc, events: bus, validate: v, logger: logger}
 }
@@ -93,6 +106,9 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 	}
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, false, common.ErrValidation
+	}
+	if err := validateSalePaymentSemantics(req.Payments); err != nil {
+		return "", 0, false, err
 	}
 	op := "sales.create_and_finalize"
 	requestHash, err := saleRequestHash(req)
