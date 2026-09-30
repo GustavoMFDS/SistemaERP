@@ -93,6 +93,58 @@ func (r *FiscalRepo) ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, tenan
 }
 
 
+func (r *FiscalRepo) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
+	var cfg fisc.NFCeConfig
+	cfg.TenantID = tenantID
+	err := r.db.QueryRow(ctx, `
+		SELECT enabled, environment, series, csc_id, csc_secret_ref, certificate_secret_ref
+		FROM nfce_configs
+		WHERE tenant_id=$1
+	`, tenantID).Scan(
+		&cfg.Enabled,
+		&cfg.Environment,
+		&cfg.Series,
+		&cfg.CSCID,
+		&cfg.CSCSecretRef,
+		&cfg.CertificateSecretRef,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeConfig{}, common.ErrNotFound
+		}
+		return fisc.NFCeConfig{}, err
+	}
+	cfg.CSCReferenceConfigured = cfg.CSCID != nil && cfg.CSCSecretRef != nil
+	cfg.CertificateReferenceConfigured = cfg.CertificateSecretRef != nil
+	return cfg, nil
+}
+
+func (r *FiscalRepo) UpsertNFCeConfig(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	actorUserID string,
+	cfg fisc.NFCeConfig,
+) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO nfce_configs(
+			tenant_id, enabled, environment, series, csc_id,
+			csc_secret_ref, certificate_secret_ref, updated_by_user_id
+		)
+		VALUES ($1, false, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (tenant_id) DO UPDATE
+		SET enabled=false,
+		    environment=EXCLUDED.environment,
+		    series=EXCLUDED.series,
+		    csc_id=EXCLUDED.csc_id,
+		    csc_secret_ref=EXCLUDED.csc_secret_ref,
+		    certificate_secret_ref=EXCLUDED.certificate_secret_ref,
+		    updated_by_user_id=EXCLUDED.updated_by_user_id,
+		    updated_at=now()
+	`, tenantID, cfg.Environment, cfg.Series, cfg.CSCID, cfg.CSCSecretRef, cfg.CertificateSecretRef, actorUserID)
+	return err
+}
+
 func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error) {
 	out := fisc.NFCeReadiness{
 		TenantID: tenantID,
