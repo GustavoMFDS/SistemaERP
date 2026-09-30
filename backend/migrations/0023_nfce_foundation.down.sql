@@ -2,8 +2,16 @@
 
 BEGIN;
 
+ALTER TABLE invoice_xml_files
+  DROP CONSTRAINT IF EXISTS invoice_xml_files_tenant_invoice_fk;
+
+ALTER TABLE invoices
+  DROP CONSTRAINT IF EXISTS invoices_company_matches_tenant_check,
+  DROP CONSTRAINT IF EXISTS invoices_tenant_sale_fk;
+
 DROP INDEX IF EXISTS invoices_access_key_unique;
 DROP INDEX IF EXISTS invoices_tenant_model_series_number_unique;
+DROP INDEX IF EXISTS invoices_tenant_id_id_unique;
 
 ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_real_document_fields_check,
