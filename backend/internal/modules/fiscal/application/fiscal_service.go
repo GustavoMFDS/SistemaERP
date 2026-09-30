@@ -210,6 +210,9 @@ func (s *FiscalService) PrepareNFCeIssuerProfile(
 	if err := s.validate.Struct(req); err != nil {
 		return fisc.NFCeIssuerProfile{}, common.ErrValidation
 	}
+	if !fisc.IsValidUF(req.AddressState) {
+		return fisc.NFCeIssuerProfile{}, common.ErrValidation
+	}
 
 	profile := fisc.NFCeIssuerProfile{
 		TenantID:            tenantID,
