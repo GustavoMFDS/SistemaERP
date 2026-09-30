@@ -515,9 +515,6 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 		if out.Environment != "homologation" {
 			reasons = append(reasons, "homologation_environment")
 		}
-		if !out.CSCReferenceConfigured {
-			reasons = append(reasons, "csc_secret_reference")
-		}
 		if !out.CertificateReferenceConfigured {
 			reasons = append(reasons, "certificate_secret_reference")
 		}
