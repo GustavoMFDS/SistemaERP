@@ -35,6 +35,12 @@ The current portal lists, among the official material in use:
 - NT 2025.002 updates for Reforma Tributária do Consumo;
 - NT 2026.002 and NT 2026.003;
 - NT 2026.004 for CNPJ alfanumérico;
+
+Current DFe compatibility rules used by this foundation:
+
+- normalized CNPJ format: `[A-Z0-9]{12}[0-9]{2}`;
+- 44-character access-key format: `[0-9]{6}[A-Z0-9]{12}[0-9]{26}`;
+- access-key DV converts every base character using ASCII minus 48 before modulo 11, preserving the historical numeric result for numeric-only CNPJ.
 - NT 2025.001 for NFC-e QR Code version 3;
 - NT 2024.001 allowing CRT 4 for MEI.
 
