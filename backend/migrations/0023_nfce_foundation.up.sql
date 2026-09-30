@@ -123,19 +123,7 @@ ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_access_key_check;
 ALTER TABLE invoices
   ADD CONSTRAINT invoices_access_key_check
-  CHECK (access_key IS NULL OR access_key ~ '^[0-9]{44}
-CREATE UNIQUE INDEX IF NOT EXISTS invoices_tenant_model_series_number_unique
-  ON invoices(tenant_id, model, series, document_number)
-  WHERE model IS NOT NULL
-    AND series IS NOT NULL
-    AND document_number IS NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS invoices_access_key_unique
-  ON invoices(access_key)
-  WHERE access_key IS NOT NULL;
-
-COMMIT;
-);
+  CHECK (access_key IS NULL OR access_key ~ '^[0-9]{44}$');
 
 ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_emission_type_check;
@@ -147,19 +135,7 @@ ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_numeric_code_check;
 ALTER TABLE invoices
   ADD CONSTRAINT invoices_numeric_code_check
-  CHECK (numeric_code IS NULL OR numeric_code ~ '^[0-9]{8}
-CREATE UNIQUE INDEX IF NOT EXISTS invoices_tenant_model_series_number_unique
-  ON invoices(tenant_id, model, series, document_number)
-  WHERE model IS NOT NULL
-    AND series IS NOT NULL
-    AND document_number IS NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS invoices_access_key_unique
-  ON invoices(access_key)
-  WHERE access_key IS NOT NULL;
-
-COMMIT;
-);
+  CHECK (numeric_code IS NULL OR numeric_code ~ '^[0-9]{8}$');
 
 ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_access_key_check_digit_check;
