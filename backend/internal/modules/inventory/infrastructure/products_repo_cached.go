@@ -3,7 +3,6 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -34,50 +33,6 @@ func (r *CachedProductsRepo) cacheEnabled() bool {
 
 func productCacheKey(tenantID, id string) string {
 	return "cache:products:tenant:" + strings.TrimSpace(tenantID) + ":get:" + strings.TrimSpace(id)
-}
-
-func productsListVerKey(tenantID string) string {
-	return "cache:products:tenant:" + strings.TrimSpace(tenantID) + ":list:ver"
-}
-
-func (r *CachedProductsRepo) getProductsListVersion(ctx context.Context, tenantID string) int64 {
-	if !r.cacheEnabled() {
-		return 0
-	}
-	ver, err := r.rdb.Get(ctx, productsListVerKey(tenantID)).Int64()
-	if err == nil {
-		if ver <= 0 {
-			return 1
-		}
-		return ver
-	}
-	if err == redis.Nil {
-		_ = r.rdb.Set(ctx, productsListVerKey(tenantID), 1, 0).Err()
-		return 1
-	}
-	// If Redis is flaky, just bypass caching.
-	return 1
-}
-
-func productsListCacheKey(tenantID string, ver int64, query string, limit, offset int) string {
-	// We cache only query="" currently, but keep the signature flexible.
-	q := strings.TrimSpace(query)
-	return fmt.Sprintf("cache:products:tenant:%s:list:v%d:q=%s:l=%d:o=%d", strings.TrimSpace(tenantID), ver, q, limit, offset)
-}
-
-type cachedProductsList struct {
-	Items []inv.Product `json:"items"`
-	Total int           `json:"total"`
-}
-
-func normalizeLimitOffset(limit, offset int) (int, int) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	return limit, offset
 }
 
 func (r *CachedProductsRepo) List(ctx context.Context, tenantID string, query string, limit, offset int) ([]inv.Product, int, error) {
@@ -135,11 +90,8 @@ func (r *CachedProductsRepo) InvalidateProduct(ctx context.Context, tenantID str
 	return r.rdb.Del(ctx, productCacheKey(tenantID, id)).Err()
 }
 
-// BumpProductsListVersion invalidates list cache by versioning.
-// Call it after a successful commit that mutates products.
-func (r *CachedProductsRepo) BumpProductsListVersion(ctx context.Context, tenantID string) error {
-	if !r.cacheEnabled() {
-		return nil
-	}
-	return r.rdb.Incr(ctx, productsListVerKey(tenantID)).Err()
+// BumpProductsListVersion remains for service compatibility. Operational list
+// queries are intentionally uncached, so there is no list version to advance.
+func (r *CachedProductsRepo) BumpProductsListVersion(context.Context, string) error {
+	return nil
 }
