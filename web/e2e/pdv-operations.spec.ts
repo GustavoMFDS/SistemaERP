@@ -99,6 +99,50 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(recoveredCash.id).toBe(opened.id)
   expect(recoveredCash.status).toBe('open')
 
+  const movementIdempotency = await page.evaluate(async (cashSessionId) => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    const key = crypto.randomUUID()
+    const path = `/api/v1/cash/sessions/${cashSessionId}/movements`
+    const body = { movement_type: 'supply', amount: 1, notes: null }
+
+    const first = await apiJson<{ id: string; replayed: boolean }>(path, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': key },
+      body,
+    })
+    const replay = await apiJson<{ id: string; replayed: boolean }>(path, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': key },
+      body,
+    })
+
+    let changedPayloadStatus = 0
+    try {
+      await apiJson(path, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': key },
+        body: { ...body, amount: 2 },
+      })
+      changedPayloadStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) changedPayloadStatus = error.status
+      else throw error
+    }
+
+    return {
+      firstId: first.id,
+      firstReplayed: first.replayed,
+      replayId: replay.id,
+      replayReplayed: replay.replayed,
+      changedPayloadStatus,
+    }
+  }, opened.id)
+
+  expect(movementIdempotency.firstReplayed).toBe(false)
+  expect(movementIdempotency.replayReplayed).toBe(true)
+  expect(movementIdempotency.replayId).toBe(movementIdempotency.firstId)
+  expect(movementIdempotency.changedPayloadStatus).toBe(409)
+
   const invalidPaymentSemanticsStatus = await page.evaluate(
     async ({ cashSessionId, productId }) => {
       const { APIError, apiJson } = await import('/src/lib/api.ts')

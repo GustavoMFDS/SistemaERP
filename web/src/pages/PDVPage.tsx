@@ -158,6 +158,7 @@ export default function PDVPage() {
   const [receipt, setReceipt] = useState<ReceiptSnapshot | null>(null)
   const [finalizing, setFinalizing] = useState(false)
   const finalizeInFlight = useRef(false)
+  const cashMovementAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
 
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
@@ -350,17 +351,30 @@ export default function PDVPage() {
   async function recordCashMovement(movementType: 'supply' | 'withdrawal') {
     if (!cashSessionId || movementAmount <= 0) return
     setError('')
+
+    const amount = Number(movementAmount) || 0
+    const fingerprint = `${cashSessionId}|${movementType}|${amount.toFixed(2)}`
+    let attempt = cashMovementAttempt.current
+    if (!attempt || attempt.fingerprint !== fingerprint) {
+      attempt = { fingerprint, key: crypto.randomUUID() }
+      cashMovementAttempt.current = attempt
+    }
+
     try {
       await apiJson(`/api/v1/cash/sessions/${cashSessionId}/movements`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': attempt.key },
         body: {
           movement_type: movementType,
-          amount: Number(movementAmount) || 0,
+          amount,
           notes: null,
         },
       })
+      cashMovementAttempt.current = null
       setMovementAmount(0)
     } catch (e: unknown) {
+      // Keep the same key after an ambiguous/network failure. Retrying the same
+      // movement is safe because the backend replays the committed result.
       setError(errorMessage(e))
     }
   }
@@ -381,6 +395,7 @@ export default function PDVPage() {
         },
       )
       setCashCloseSummary(result)
+      cashMovementAttempt.current = null
       clearCashSessionId()
       setCashSessionIdState('')
       setClosingAmount(0)

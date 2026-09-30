@@ -130,6 +130,16 @@ Returns the currently open session for the tenant's default cash register. This 
 
 Opens the default cash register session for the authenticated tenant. Only one open session is allowed per tenant/register.
 
+### POST `/cash/sessions/{id}/movements`
+
+Requires `Idempotency-Key`. This endpoint records manual cash `supply` or `withdrawal` movements and the matching ledger entry in the same transaction.
+
+```json
+{ "movement_type": "supply", "amount": 100, "notes": "Troco inicial adicional" }
+```
+
+A new key returns `201` with `"replayed": false`. Retrying the same key with the same normalized request returns the original movement with `200` and `"replayed": true`; reusing the key with a different request returns `409 conflict`. This makes retrying after a lost response safe.
+
 ### POST `/cash/sessions/{id}/close`
 
 Request:
