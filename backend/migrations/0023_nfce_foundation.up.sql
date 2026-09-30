@@ -125,7 +125,7 @@ ALTER TABLE invoices
   ADD CONSTRAINT invoices_access_key_check
   -- DFe access keys remain 44 characters; the 12 CNPJ positions can now be
   -- alphanumeric while all other positions remain numeric.
-  CHECK (access_key IS NULL OR access_key ~ '^[0-9]{6}[A-Z0-9]{12}[0-9]{26}
+  CHECK (access_key IS NULL OR access_key ~ '^[0-9]{6}[A-Z0-9]{12}[0-9]{26}$');
 
 ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_emission_type_check;
