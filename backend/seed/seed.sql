@@ -146,8 +146,8 @@ INSERT INTO categories (id, tenant_id, name, created_at) VALUES
   (gen_random_uuid(), :'tenant_id'::uuid, 'Mercearia', now())
 ON CONFLICT (tenant_id, name) DO NOTHING;
 
-INSERT INTO products (id, tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active, created_at)
-SELECT gen_random_uuid(), :'tenant_id'::uuid, c.id, 'SKU-COCA-2L', '7890000000000', 'Coca-Cola 2L', '', 'UN', 7.00, 10.90, NULL, 5, true, now()
+INSERT INTO products (id, tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active, ncm, created_at)
+SELECT gen_random_uuid(), :'tenant_id'::uuid, c.id, 'SKU-COCA-2L', '7890000000000', 'Coca-Cola 2L', '', 'UN', 7.00, 10.90, NULL, 5, true, '22021000', now()
 FROM categories c
 WHERE c.tenant_id = :'tenant_id'::uuid AND c.name='Bebidas'
 ON CONFLICT (tenant_id, sku) DO NOTHING;
