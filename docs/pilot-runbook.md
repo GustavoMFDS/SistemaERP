@@ -151,6 +151,7 @@ For sampled sales compare:
 Perform only in a controlled window.
 
 - [ ] Finalize one sale with network unavailable.
+- [ ] Tentativa de fechar caixa com venda offline pendente é bloqueada até sincronização/reconciliação.
 - [ ] Exact intent remains pending.
 - [ ] Restore network and confirm a single server sale.
 - [ ] Rejected item remains visible for attention.
