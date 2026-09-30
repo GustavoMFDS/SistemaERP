@@ -13,7 +13,7 @@ type ProductsRepository interface {
 	Get(ctx context.Context, tenantID string, id string) (inv.Product, error)
 	GetByBarcode(ctx context.Context, tenantID string, barcode string) (inv.Product, error)
 	Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error)
-	Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product) error
+	Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error
 	GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error)
 }
 
