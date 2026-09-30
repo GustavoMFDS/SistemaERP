@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -49,6 +51,14 @@ type NFCeAccessKeyInput struct {
 	Number       int64
 	NumericCode  string
 	EmissionType int
+}
+
+func GenerateNFCeNumericCode() (string, error) {
+	value, err := rand.Int(rand.Reader, big.NewInt(100000000))
+	if err != nil {
+		return "", fmt.Errorf("generate NFC-e numeric code: %w", err)
+	}
+	return fmt.Sprintf("%08d", value.Int64()), nil
 }
 
 func BuildNFCeAccessKey(in NFCeAccessKeyInput) (string, error) {
