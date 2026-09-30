@@ -32,7 +32,7 @@ All items are mandatory before operator training.
 - [ ] Demo seed is disabled.
 - [ ] Fiscal provider is disabled until a SEFAZ-ready integration exists.
 - [ ] Demo users are absent.
-- [ ] Real tenant/company exists with a 14-digit CNPJ.
+- [ ] Real tenant/company exists with a current DFe-compatible CNPJ (14 normalized characters: first 12 alphanumeric, final 2 numeric).
 - [ ] At least one active cash register exists and no cash session is already open at pilot start.
 - [ ] Active product pricing is consistent (`promo_price` never exceeds `price_cash`).
 - [ ] At least one admin/manager and one cashier have individual accounts.
