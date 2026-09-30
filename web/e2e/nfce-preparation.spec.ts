@@ -100,6 +100,18 @@ test('NFC-e preparation rejects invalid municipality and series', async ({ page 
         address_state: 'MG',
         address_zip: '38400000',
       }),
+      issuerUF: await statusFor('/api/v1/fiscal/nfce/issuer', {
+        ie: '123',
+        crt: '4',
+        address_street: 'Rua A',
+        address_number: '1',
+        address_complement: null,
+        address_neighborhood: 'Centro',
+        address_city: 'Cidade',
+        address_city_code: '3170206',
+        address_state: 'XX',
+        address_zip: '38400000',
+      }),
       config: await statusFor('/api/v1/fiscal/nfce/config', {
         environment: 'homologation',
         series: 890,
@@ -111,5 +123,6 @@ test('NFC-e preparation rejects invalid municipality and series', async ({ page 
   })
 
   expect(statuses.issuer).toBe(422)
+  expect(statuses.issuerUF).toBe(422)
   expect(statuses.config).toBe(422)
 })
