@@ -195,6 +195,54 @@ func TestCreateAndFinalizeConcurrentDuplicateRequests(t *testing.T) {
 	}
 }
 
+func TestValidateSalePaymentSemanticsRejectsInstallmentsOutsideCredit(t *testing.T) {
+	err := validateSalePaymentSemantics([]SalePaymentRequest{{
+		Method:       "pix",
+		Installments: 2,
+	}})
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("want ErrValidation for pix installments, got %v", err)
+	}
+}
+
+func TestValidateSalePaymentSemanticsRejectsCashProviderMetadata(t *testing.T) {
+	provider := "acquirer"
+	err := validateSalePaymentSemantics([]SalePaymentRequest{{
+		Method:       "cash",
+		Installments: 1,
+		Provider:     &provider,
+	}})
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("want ErrValidation for cash provider metadata, got %v", err)
+	}
+}
+
+func TestValidateSalePaymentSemanticsAllowsCreditInstallments(t *testing.T) {
+	provider := "acquirer"
+	transactionRef := "txn-123"
+	authorizationCode := "auth-456"
+	err := validateSalePaymentSemantics([]SalePaymentRequest{{
+		Method:            "credit",
+		Installments:      12,
+		Provider:          &provider,
+		TransactionRef:    &transactionRef,
+		AuthorizationCode: &authorizationCode,
+	}})
+	if err != nil {
+		t.Fatalf("expected credit installments and metadata to be valid, got %v", err)
+	}
+}
+
+func TestValidateSalePaymentSemanticsAllowsSingleInstallmentDigitalPayment(t *testing.T) {
+	err := validateSalePaymentSemantics([]SalePaymentRequest{{
+		Method:       "debit",
+		Installments: 1,
+	}})
+	if err != nil {
+		t.Fatalf("expected single-installment debit payment to be valid, got %v", err)
+	}
+}
+
 func newSalesServiceFixture(stock platform.Quantity) (*SalesService, *fakeSalesRepo, *fakeInventoryRepo, *fakeProductsRepo) {
 	salesRepo := &fakeSalesRepo{results: map[string]idemResult{}}
 	fakeTxUnlock = salesRepo.mu.Unlock
