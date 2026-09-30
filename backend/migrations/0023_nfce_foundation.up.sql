@@ -123,76 +123,9 @@ ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_access_key_check;
 ALTER TABLE invoices
   ADD CONSTRAINT invoices_access_key_check
-  -- DFe access keys remain 44 characters; the 12 CNPJ positions can now be
-  -- alphanumeric while all other positions remain numeric.
-  CHECK (access_key IS NULL OR access_key ~ '^[0-9]{6}[A-Z0-9]{12}[0-9]{26}
-
-ALTER TABLE invoices
-  DROP CONSTRAINT IF EXISTS invoices_emission_type_check;
-ALTER TABLE invoices
-  ADD CONSTRAINT invoices_emission_type_check
-  CHECK (emission_type IS NULL OR emission_type BETWEEN 1 AND 9);
-
-ALTER TABLE invoices
-  DROP CONSTRAINT IF EXISTS invoices_numeric_code_check;
-ALTER TABLE invoices
-  ADD CONSTRAINT invoices_numeric_code_check
-  CHECK (numeric_code IS NULL OR numeric_code ~ '^[0-9]{8}$');
-
-ALTER TABLE invoices
-  DROP CONSTRAINT IF EXISTS invoices_access_key_check_digit_check;
-ALTER TABLE invoices
-  ADD CONSTRAINT invoices_access_key_check_digit_check
-  CHECK (access_key_check_digit IS NULL OR access_key_check_digit BETWEEN 0 AND 9);
-
-ALTER TABLE invoices
-  DROP CONSTRAINT IF EXISTS invoices_status_check;
-ALTER TABLE invoices
-  ADD CONSTRAINT invoices_status_check
-  CHECK (
-    status IN (
-      'xml_generated',
-      'reserved',
-      'signed',
-      'submitted',
-      'authorized',
-      'rejected',
-      'contingency_pending',
-      'cancelled'
-    )
-  );
-
-ALTER TABLE invoices
-  DROP CONSTRAINT IF EXISTS invoices_real_document_fields_check;
-ALTER TABLE invoices
-  ADD CONSTRAINT invoices_real_document_fields_check
-  CHECK (
-    status = 'xml_generated'
-    OR (
-      model = 65
-      AND series IS NOT NULL
-      AND document_number IS NOT NULL
-      AND environment IS NOT NULL
-      AND access_key IS NOT NULL
-      AND emission_type IS NOT NULL
-      AND numeric_code IS NOT NULL
-      AND access_key_check_digit IS NOT NULL
-      AND issued_at IS NOT NULL
-    )
-  );
-
-CREATE UNIQUE INDEX IF NOT EXISTS invoices_tenant_model_series_number_unique
-  ON invoices(tenant_id, model, series, document_number)
-  WHERE model IS NOT NULL
-    AND series IS NOT NULL
-    AND document_number IS NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS invoices_access_key_unique
-  ON invoices(access_key)
-  WHERE access_key IS NOT NULL;
-
-COMMIT;
-);
+  -- DFe access keys remain 44 characters; the 12 CNPJ body positions can now be
+  -- alphanumeric while every other position remains numeric.
+  CHECK (access_key IS NULL OR access_key ~ '^[0-9]{6}[A-Z0-9]{12}[0-9]{26}$');
 
 ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_emission_type_check;

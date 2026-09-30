@@ -584,7 +584,7 @@ jobs:
             -c "SELECT conname FROM pg_constraint WHERE conname='nfce_configs_updated_by_tenant_fk';"
 
           ACCESS_KEY_CONSTRAINT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='invoices_access_key_check';" | tr -d '\r')"
-          if ! printf '%s\n' "$ACCESS_KEY_CONSTRAINT" | grep -Fq '[A-Z0-9]{12}'; then
+          if ! printf '%s\n' "$ACCESS_KEY_CONSTRAINT" | grep -Fq '^[0-9]{6}[A-Z0-9]{12}[0-9]{26}$'; then
             echo "migration 0023 access-key constraint is not compatible with alphanumeric CNPJ"
             printf '%s\n' "$ACCESS_KEY_CONSTRAINT"
             exit 1
