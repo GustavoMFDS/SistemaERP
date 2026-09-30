@@ -7,6 +7,8 @@ type Product struct {
 	CategoryID  *string           `json:"category_id"`
 	SKU         string            `json:"sku"`
 	Barcode     *string           `json:"barcode"`
+	NCM         *string           `json:"ncm"`
+	CEST        *string           `json:"cest"`
 	Name        string            `json:"name"`
 	Description *string           `json:"description"`
 	Unit        string            `json:"unit"`
