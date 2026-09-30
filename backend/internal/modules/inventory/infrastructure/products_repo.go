@@ -172,13 +172,14 @@ func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, 
 	return id, err
 }
 
-func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product) error {
+func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error {
 	tag, err := tx.Exec(ctx, `
 		UPDATE products
 		SET category_id=$2, sku=$3, barcode=$4, name=$5, description=$6, unit=$7,
-		    cost_price=$8, price_cash=$9, promo_price=$10, min_stock=$11, active=$12, updated_at=now()
+		    cost_price=CASE WHEN $14 THEN cost_price ELSE $8 END,
+		    price_cash=$9, promo_price=$10, min_stock=$11, active=$12, updated_at=now()
 		WHERE tenant_id=$1 AND id=$13
-	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active, id)
+	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active, id, preserveCost)
 	if err != nil {
 		return mapProductWriteError(err)
 	}
