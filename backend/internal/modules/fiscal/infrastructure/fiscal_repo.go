@@ -453,7 +453,8 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 			    'RO','AC','AM','RR','PA','AP','TO','MA','PI','CE','RN','PB','PE',
 			    'AL','SE','BA','MG','ES','RJ','SP','PR','SC','RS','MS','MT','GO','DF'
 			  )
-			  AND COALESCE(btrim(c.address_zip) ~ '^[0-9]{8}
+			  AND COALESCE(btrim(c.address_zip) ~ '^[0-9]{8}$', false)
+			    AS issuer_address_configured,
 			COALESCE(c.address_city_code ~ '^[0-9]{7}$', false) AS municipality_code_configured,
 			cfg.tenant_id IS NOT NULL AS config_exists,
 			COALESCE(cfg.enabled, false) AS transmission_enabled,
