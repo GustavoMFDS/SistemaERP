@@ -126,3 +126,8 @@ func uniqueProductIDs(items []sales.SaleItem) []string {
 	}
 	return out
 }
+
+
+func (s *FiscalService) NFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error) {
+	return s.fiscal.GetNFCeReadiness(ctx, tenantID)
+}
