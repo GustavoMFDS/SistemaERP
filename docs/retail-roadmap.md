@@ -63,9 +63,39 @@ Criterios de aceite:
 - checklist de abertura, venda, fechamento, devolucao e reconciliacao;
 - coleta de problemas operacionais antes da expansao.
 
-## 1. NFC-e / SEFAZ — por ultimo
+## 1. NFC-e / SEFAZ — fundação/preparação implementada; provider real pendente
 
-A integracao fiscal real fica para a etapa final, depois que o fluxo comercial e operacional estiver estabilizado. O provider MVP permanece proibido em staging/producao.
+A etapa fiscal final foi iniciada sem liberar emissão prematura.
+
+Implementado no repositório:
+
+- migration `0023` com fundação NFC-e modelo 65;
+- configuração fiscal tenant-scoped e série `0..889`;
+- sequência fiscal por tenant/modelo/série;
+- metadados de autorização/rejeição na invoice;
+- NCM/CEST no catálogo e validações de formato;
+- perfil do emitente com IE, CRT, endereço e código IBGE;
+- referências de CSC/certificado em secret store, sem armazenar o segredo/certificado em claro na API;
+- `GET /fiscal/nfce/readiness` com bloqueios de dados por tenant;
+- tela Fiscal convertida de “gerar XML MVP” para preparação NFC-e;
+- configuração preparada continua forçada como `enabled=false`;
+- preview de desenvolvimento explicitamente usa modelo 65 e é marcado como não fiscal/não transmitir;
+- integração/E2E/CI adicionados para constraints, isolamento e rollback da `0023`.
+
+Ainda pendente antes de qualquer emissão real:
+
+- modelagem tributária vigente completa (CFOP por operação, CST/CSOSN e grupos tributários aplicáveis, inclusive mudanças vigentes);
+- geração de chave de acesso e numeração transacional efetiva;
+- XML conforme schemas oficiais vigentes;
+- assinatura XML com certificado A1;
+- QR Code/CSC conforme versão vigente;
+- comunicação com serviços SEFAZ de homologação;
+- tratamento de autorização, rejeições, consulta, contingência, cancelamento e inutilização;
+- persistência de protocolo/XML autorizado;
+- DANFE-NFC-e;
+- homologação por UF/emitente e aprovação contábil/fiscal.
+
+`FISCAL_PROVIDER=mvp` continua proibido em staging/produção. `FISCAL_PROVIDER=disabled` permanece obrigatório até o provider SEFAZ-ready passar pela homologação.
 
 
 ### Etapa 4 — decisões implementadas
@@ -112,8 +142,8 @@ A integracao fiscal real fica para a etapa final, depois que o fluxo comercial e
 - runbook de piloto controlado em uma loja;
 - template versionado de evidências e decisão go/no-go;
 - checker read-only de prontidão para ambiente production-like;
-- checker valida health/live, health/ready, migration limpa >= 22, objetos críticos, ausência de usuários demo, sessões de caixa duplicadas e papéis tenant-scoped;
+- checker valida health/live, health/ready, migration limpa >= 23, objetos críticos, ausência de usuários demo, sessões de caixa duplicadas e papéis tenant-scoped;
 - CI valida a sintaxe do checker;
-- backup/restore continua seguindo `docs/deployment.md` e só pode ser marcado como testado com evidência do ambiente real;
-- a execução do piloto, reconciliação com operação física, monitoramento real e aprovações de owner/accounting permanecem pendências externas;
+- backup/restore possui drill automatizado e runbook próprio, mas só pode ser marcado como testado com evidência do ambiente real;
+- a execução do piloto, evidência real de backup/restore, alert delivery, carga/falha, reconciliação com operação física e aprovações de owner/accounting permanecem pendências externas;
 - fiscal continua fora do piloto e permanece bloqueado até implementação SEFAZ-ready.
