@@ -93,6 +93,92 @@ func (r *FiscalRepo) ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, tenan
 }
 
 
+func (r *FiscalRepo) GetNFCeIssuerProfile(ctx context.Context, tenantID string) (fisc.NFCeIssuerProfile, error) {
+	var profile fisc.NFCeIssuerProfile
+	profile.TenantID = tenantID
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			legal_name,
+			trade_name,
+			cnpj,
+			COALESCE(ie, ''),
+			COALESCE(crt, ''),
+			COALESCE(address_street, ''),
+			COALESCE(address_number, ''),
+			address_complement,
+			COALESCE(address_neighborhood, ''),
+			COALESCE(address_city, ''),
+			COALESCE(address_city_code, ''),
+			COALESCE(address_state, ''),
+			COALESCE(address_zip, '')
+		FROM companies
+		WHERE id=$1
+	`, tenantID).Scan(
+		&profile.LegalName,
+		&profile.TradeName,
+		&profile.CNPJ,
+		&profile.IE,
+		&profile.CRT,
+		&profile.AddressStreet,
+		&profile.AddressNumber,
+		&profile.AddressComplement,
+		&profile.AddressNeighborhood,
+		&profile.AddressCity,
+		&profile.AddressCityCode,
+		&profile.AddressState,
+		&profile.AddressZIP,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeIssuerProfile{}, common.ErrNotFound
+		}
+		return fisc.NFCeIssuerProfile{}, err
+	}
+	return profile, nil
+}
+
+func (r *FiscalRepo) UpdateNFCeIssuerProfile(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	profile fisc.NFCeIssuerProfile,
+) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE companies
+		SET ie=$2,
+		    crt=$3,
+		    address_street=$4,
+		    address_number=$5,
+		    address_complement=$6,
+		    address_neighborhood=$7,
+		    address_city=$8,
+		    address_city_code=$9,
+		    address_state=$10,
+		    address_zip=$11,
+		    updated_at=now()
+		WHERE id=$1
+	`,
+		tenantID,
+		profile.IE,
+		profile.CRT,
+		profile.AddressStreet,
+		profile.AddressNumber,
+		profile.AddressComplement,
+		profile.AddressNeighborhood,
+		profile.AddressCity,
+		profile.AddressCityCode,
+		profile.AddressState,
+		profile.AddressZIP,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return common.ErrNotFound
+	}
+	return nil
+}
+
 func (r *FiscalRepo) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
 	var cfg fisc.NFCeConfig
 	cfg.TenantID = tenantID
