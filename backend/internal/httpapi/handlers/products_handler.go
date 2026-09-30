@@ -130,19 +130,8 @@ func (h *ProductsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if !middleware.HasPermission(r.Context(), "finance:read") {
-		current, err := h.svc.Get(r.Context(), au.TenantID, id)
-		if err != nil {
-			if err == common.ErrNotFound {
-				writeError(w, r, http.StatusNotFound, "not_found", "produto nao encontrado", nil)
-			} else {
-				writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar produto", nil)
-			}
-			return
-		}
-		req.CostPrice = current.CostPrice
-	}
-	if err := h.svc.Update(r.Context(), au.TenantID, au.UserID, id, req); err != nil {
+	preserveCost := !middleware.HasPermission(r.Context(), "finance:read")
+	if err := h.svc.Update(r.Context(), au.TenantID, au.UserID, id, preserveCost, req); err != nil {
 		status := http.StatusBadRequest
 		switch err {
 		case common.ErrValidation:
