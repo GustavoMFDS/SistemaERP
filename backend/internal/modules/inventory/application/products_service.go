@@ -146,7 +146,7 @@ func (s *ProductsService) Create(ctx context.Context, tenantID, actorUserID stri
 	return id, nil
 }
 
-func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id string, req ProductUpdateRequest) error {
+func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id string, preserveCost bool, req ProductUpdateRequest) error {
 	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
@@ -159,6 +159,17 @@ func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id 
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if preserveCost {
+		current, err := s.repo.GetManyByIDs(ctx, tx, tenantID, []string{id})
+		if err != nil {
+			return err
+		}
+		product, ok := current[id]
+		if !ok {
+			return common.ErrNotFound
+		}
+		req.CostPrice = product.CostPrice
+	}
 	p := inv.Product{
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
