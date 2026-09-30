@@ -29,6 +29,12 @@ func TestValidateCNPJOfficialAlphanumericExamples(t *testing.T) {
 	}
 }
 
+func TestValidateCNPJRejectsPlaceholderCNPJ(t *testing.T) {
+	if err := ValidateCNPJ("00000000000000"); err == nil {
+		t.Fatal("expected zero placeholder CNPJ to fail")
+	}
+}
+
 func TestValidateCNPJRejectsInvalidCheckDigits(t *testing.T) {
 	for _, cnpj := range []string{
 		"12.ABC.345/01DE-36",
