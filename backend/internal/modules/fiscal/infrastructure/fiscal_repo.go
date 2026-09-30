@@ -234,6 +234,31 @@ func (r *FiscalRepo) UpsertNFCeConfig(
 	return err
 }
 
+func (r *FiscalRepo) ReserveNextNFCeNumber(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	series int,
+) (int64, error) {
+	var number int64
+	err := tx.QueryRow(ctx, `
+		INSERT INTO fiscal_document_sequences(tenant_id, model, series, next_number)
+		VALUES ($1, 65, $2, 2)
+		ON CONFLICT (tenant_id, model, series) DO UPDATE
+		SET next_number=fiscal_document_sequences.next_number + 1,
+		    updated_at=now()
+		WHERE fiscal_document_sequences.next_number <= 999999999
+		RETURNING next_number - 1
+	`, tenantID, series).Scan(&number)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, common.ErrFiscalSequenceExhausted
+		}
+		return 0, err
+	}
+	return number, nil
+}
+
 func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error) {
 	out := fisc.NFCeReadiness{
 		TenantID: tenantID,
