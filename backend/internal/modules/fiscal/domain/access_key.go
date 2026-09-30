@@ -59,8 +59,9 @@ func BuildNFCeAccessKey(in NFCeAccessKeyInput) (string, error) {
 	if in.IssuedAt.IsZero() {
 		return "", fmt.Errorf("issuance timestamp is required")
 	}
-	if !isDigits(in.CNPJ, 14) {
-		return "", fmt.Errorf("issuer CNPJ must contain 14 digits")
+	cnpj := normalizeCNPJ(in.CNPJ)
+	if !isCurrentCNPJFormat(cnpj) {
+		return "", fmt.Errorf("issuer CNPJ must contain 14 characters matching [A-Z0-9]{12}[0-9]{2}")
 	}
 	if in.Series < 0 || in.Series > 889 {
 		return "", fmt.Errorf("NFC-e series must be between 0 and 889")
@@ -79,7 +80,7 @@ func BuildNFCeAccessKey(in NFCeAccessKeyInput) (string, error) {
 		"%s%s%s%02d%03d%09d%d%s",
 		ufCode,
 		in.IssuedAt.Format("0601"),
-		in.CNPJ,
+		cnpj,
 		NFCeModel,
 		in.Series,
 		in.Number,
@@ -93,15 +94,24 @@ func BuildNFCeAccessKey(in NFCeAccessKeyInput) (string, error) {
 	return fmt.Sprintf("%s%d", base, dv), nil
 }
 
+// AccessKeyCheckDigit calculates cDV for the 43-character access-key base.
+//
+// Since the CNPJ alphanumeric transition, characters are converted to their
+// ASCII code minus 48 before the same right-to-left modulo-11 weighting is
+// applied. Numeric-only keys therefore retain the historical result.
 func AccessKeyCheckDigit(base string) (int, error) {
-	if !isDigits(base, 43) {
-		return 0, fmt.Errorf("access-key base must contain 43 digits")
+	if !isAccessKeyBaseFormat(base) {
+		return 0, fmt.Errorf("access-key base must match [0-9]{6}[A-Z0-9]{12}[0-9]{25}")
 	}
 
 	sum := 0
 	weight := 2
 	for i := len(base) - 1; i >= 0; i-- {
-		sum += int(base[i]-'0') * weight
+		value, err := accessKeyCharValue(base[i])
+		if err != nil {
+			return 0, err
+		}
+		sum += value * weight
 		weight++
 		if weight > 9 {
 			weight = 2
@@ -115,12 +125,71 @@ func AccessKeyCheckDigit(base string) (int, error) {
 	return 11 - remainder, nil
 }
 
+func normalizeCNPJ(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(strings.TrimSpace(value)) {
+		if (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func isCurrentCNPJFormat(value string) bool {
+	if len(value) != 14 {
+		return false
+	}
+	for i := 0; i < 12; i++ {
+		if !isUpperAlphaNumeric(value[i]) {
+			return false
+		}
+	}
+	return isDigit(value[12]) && isDigit(value[13])
+}
+
+func isAccessKeyBaseFormat(value string) bool {
+	if len(value) != 43 {
+		return false
+	}
+	for i := 0; i < 6; i++ {
+		if !isDigit(value[i]) {
+			return false
+		}
+	}
+	for i := 6; i < 18; i++ {
+		if !isUpperAlphaNumeric(value[i]) {
+			return false
+		}
+	}
+	for i := 18; i < 43; i++ {
+		if !isDigit(value[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func accessKeyCharValue(value byte) (int, error) {
+	if !isUpperAlphaNumeric(value) {
+		return 0, fmt.Errorf("invalid access-key character %q", value)
+	}
+	return int(value) - 48, nil
+}
+
+func isUpperAlphaNumeric(value byte) bool {
+	return isDigit(value) || (value >= 'A' && value <= 'Z')
+}
+
+func isDigit(value byte) bool {
+	return value >= '0' && value <= '9'
+}
+
 func isDigits(value string, length int) bool {
 	if len(value) != length {
 		return false
 	}
 	for i := 0; i < len(value); i++ {
-		if value[i] < '0' || value[i] > '9' {
+		if !isDigit(value[i]) {
 			return false
 		}
 	}
