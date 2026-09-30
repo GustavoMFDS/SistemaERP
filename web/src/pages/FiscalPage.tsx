@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiDownload, apiJson, errorMessage } from '../lib/api'
+import { APIError, apiDownload, apiJson, errorMessage } from '../lib/api'
 
 type XMLFile = {
   id: string
@@ -141,8 +141,12 @@ export default function FiscalPage() {
       try {
         const configData = await apiJson<NFCeConfig>('/api/v1/fiscal/nfce/config')
         applyConfig(configData)
-      } catch {
-        applyConfig(null)
+      } catch (configError: unknown) {
+        if (configError instanceof APIError && configError.status === 404) {
+          applyConfig(null)
+        } else {
+          throw configError
+        }
       }
     } catch (e: unknown) {
       setError(errorMessage(e))
