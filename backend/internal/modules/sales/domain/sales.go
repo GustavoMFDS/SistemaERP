@@ -76,7 +76,7 @@ func (s *Sale) CalcularTotal(items []SaleItem) ([]SaleItem, error) {
 	if err != nil {
 		return nil, ErrInvalidMoney
 	}
-	if total < 0 {
+	if total <= 0 {
 		return nil, ErrInvalidMoney
 	}
 
