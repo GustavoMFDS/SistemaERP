@@ -169,8 +169,8 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 	if err := s.validate.Struct(req); err != nil {
 		return sales.CashCloseResult{}, common.ErrValidation
 	}
-	for method, amount := range req.ClosingByMethod {
-		if !isCashReconciliationMethod(method) || (method == "cash" && amount < 0) {
+	for method := range req.ClosingByMethod {
+		if method == "cash" || !isCashReconciliationMethod(method) {
 			return sales.CashCloseResult{}, common.ErrValidation
 		}
 	}
