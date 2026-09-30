@@ -92,6 +92,31 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(openResponse.ok()).toBe(true)
   const opened = (await openResponse.json()) as { id: string }
 
+  const invalidPaymentSemanticsStatus = await page.evaluate(
+    async ({ cashSessionId, productId }) => {
+      const { APIError, apiJson } = await import('/src/lib/api.ts')
+      try {
+        await apiJson('/api/v1/sales', {
+          method: 'POST',
+          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          body: {
+            cash_session_id: cashSessionId,
+            customer_id: null,
+            discount_value: 0,
+            items: [{ product_id: productId, qty: 1, discount_value: 0 }],
+            payments: [{ method: 'pix', amount: 8, installments: 2 }],
+          },
+        })
+        return 200
+      } catch (error) {
+        if (error instanceof APIError) return error.status
+        throw error
+      }
+    },
+    { cashSessionId: opened.id, productId: setup.productId },
+  )
+  expect(invalidPaymentSemanticsStatus).toBe(422)
+
   await page.keyboard.press('F4')
   const quickSearch = page.getByLabel('Busca rápida por nome, SKU ou código')
   await expect(quickSearch).toBeFocused()
