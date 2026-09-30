@@ -94,7 +94,7 @@ test('rebinding an already committed legacy sale preserves key and cannot duplic
       customer_id: null,
       discount_value: 0,
       items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
-      payments: [{ method: 'pix', amount: product.price_cash }],
+      payments: [{ method: 'cash', amount: product.price_cash }],
     }
     const sale = await apiJson<{ id: string }>('/api/v1/sales', {
       method: 'POST',
