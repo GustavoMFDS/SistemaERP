@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -155,5 +156,87 @@ func TestCashCloseWaitsForInFlightSaleAndIncludesIt(t *testing.T) {
 	}
 	if status != "closed" || expected != "110.00" {
 		t.Fatalf("unexpected closed session status=%s expected_cash=%s", status, expected)
+	}
+}
+
+
+func TestEnsureDefaultRegisterConcurrentFirstUse(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	cnpj := fmt.Sprintf("%014d", time.Now().UnixNano()%100000000000000)
+	var tenantID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO companies(legal_name, trade_name, cnpj)
+		VALUES ($1,$2,$3)
+		RETURNING id::text
+	`, "Cash register race integration", "Cash race", cnpj).Scan(&tenantID); err != nil {
+		t.Fatalf("create isolated tenant: %v", err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM cash_registers WHERE tenant_id=$1`, tenantID)
+		_, _ = pool.Exec(bg, `DELETE FROM companies WHERE id=$1`, tenantID)
+	})
+
+	repo := salesinfra.NewCashRepo(pool)
+	const workers = 8
+	ids := make(chan string, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			id, err := repo.EnsureDefaultRegister(context.Background(), tenantID)
+			ids <- id
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent EnsureDefaultRegister failed: %v", err)
+		}
+	}
+
+	var first string
+	for id := range ids {
+		if id == "" {
+			t.Fatal("concurrent EnsureDefaultRegister returned empty id")
+		}
+		if first == "" {
+			first = id
+			continue
+		}
+		if id != first {
+			t.Fatalf("workers resolved different default registers: first=%s got=%s", first, id)
+		}
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM cash_registers
+		WHERE tenant_id=$1
+	`).Scan(&count); err != nil {
+		t.Fatalf("count registers: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("want one default register after concurrent first use, got %d", count)
 	}
 }
