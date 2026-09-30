@@ -21,8 +21,8 @@ BEGIN;
 -- We use psql variables via \gset so the rest of the file can reference :'tenant_id'.
 WITH ins AS (
   INSERT INTO companies (legal_name, trade_name, cnpj, ie, crt, created_at)
-  SELECT 'Empresa Exemplo LTDA', 'Loja Exemplo', '00000000000000', 'ISENTO', '1', now()
-  WHERE NOT EXISTS (SELECT 1 FROM companies WHERE cnpj='00000000000000')
+  SELECT 'Empresa Exemplo LTDA', 'Loja Exemplo', '12345678000195', 'ISENTO', '1', now()
+  WHERE NOT EXISTS (SELECT 1 FROM companies WHERE cnpj='12345678000195')
   RETURNING id, created_at
 )
 SELECT id AS tenant_id, created_at AS tenant_created_at
@@ -30,7 +30,7 @@ FROM ins
 UNION ALL
 SELECT id AS tenant_id, created_at AS tenant_created_at
 FROM companies
-WHERE cnpj='00000000000000'
+WHERE cnpj='12345678000195'
 ORDER BY tenant_created_at
 LIMIT 1
 \gset
