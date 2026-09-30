@@ -68,7 +68,7 @@ source_schema_version="${source_version%%|*}"
 if [ "$source_dirty" != "f" ]; then
   fail "source database migration state is dirty"
 fi
-if [ "$source_schema_version" -lt 22 ]; then
+if [ "$source_schema_version" -lt 23 ]; then
   fail "source schema version $source_schema_version is below the current pilot baseline (23)"
 fi
 
