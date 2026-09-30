@@ -75,7 +75,7 @@ test('partial return is idempotent, bounded by sold quantity and blocks full can
         customer_id: null,
         discount_value: 0,
         items: [{ product_id: product.id, qty: 2, discount_value: 0 }],
-        payments: [{ method: 'pix', amount: 20 }],
+        payments: [{ method: 'cash', amount: 20 }],
       },
     })
 
@@ -158,7 +158,7 @@ test('partial return is idempotent, bounded by sold quantity and blocks full can
 
     await apiJson(`/api/v1/cash/sessions/${cash.id}/close`, {
       method: 'POST',
-      body: { closing_amount: 0, notes: 'cleanup return E2E' },
+      body: { closing_amount: 20, notes: 'cleanup return E2E' },
     })
 
     return {
