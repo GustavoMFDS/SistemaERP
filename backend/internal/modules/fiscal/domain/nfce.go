@@ -20,3 +20,19 @@ type NFCeReadiness struct {
 	ReadyForHomologationData      bool     `json:"ready_for_homologation_data"`
 	BlockingReasons               []string `json:"blocking_reasons"`
 }
+
+
+// NFCeConfig contains tenant-scoped NFC-e preparation. SecretRef fields hold
+// identifiers in an external secret store and are intentionally excluded from
+// JSON responses.
+type NFCeConfig struct {
+	TenantID                       string  `json:"tenant_id"`
+	Enabled                        bool    `json:"enabled"`
+	Environment                    string  `json:"environment"`
+	Series                         int     `json:"series"`
+	CSCID                          *string `json:"csc_id,omitempty"`
+	CSCSecretRef                   *string `json:"-"`
+	CertificateSecretRef           *string `json:"-"`
+	CSCReferenceConfigured         bool    `json:"csc_reference_configured"`
+	CertificateReferenceConfigured bool    `json:"certificate_reference_configured"`
+}
