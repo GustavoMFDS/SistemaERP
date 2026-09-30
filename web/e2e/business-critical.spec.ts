@@ -45,7 +45,7 @@ test('admin sale cancellation restores stock and fiscalized sale cannot be cance
         customer_id: null,
         discount_value: 0,
         items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
-        payments: [{ method: 'pix', amount: product.price_cash }],
+        payments: [{ method: 'cash', amount: product.price_cash }],
       },
     })
 
@@ -71,7 +71,7 @@ test('admin sale cancellation restores stock and fiscalized sale cannot be cance
         customer_id: null,
         discount_value: 0,
         items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
-        payments: [{ method: 'pix', amount: product.price_cash }],
+        payments: [{ method: 'cash', amount: product.price_cash }],
       },
     })
 
@@ -95,7 +95,7 @@ test('admin sale cancellation restores stock and fiscalized sale cannot be cance
 
     await apiJson(`/api/v1/cash/sessions/${cash.id}/close`, {
       method: 'POST',
-      body: { closing_amount: 0, notes: 'E2E cleanup' },
+      body: { closing_amount: product.price_cash, notes: 'E2E cleanup' },
     })
 
     return {

@@ -2,9 +2,12 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 
+	"github.com/example/sistemaemgo/internal/modules/common"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -87,4 +90,99 @@ func (r *FiscalRepo) ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, tenan
 	var exists bool
 	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID).Scan(&exists)
 	return exists, err
+}
+
+
+func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error) {
+	out := fisc.NFCeReadiness{
+		TenantID: tenantID,
+		Model:    65,
+	}
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			NULLIF(btrim(c.legal_name), '') IS NOT NULL
+			  AND NULLIF(btrim(c.cnpj), '') IS NOT NULL
+			  AND NULLIF(btrim(c.ie), '') IS NOT NULL
+			  AND NULLIF(btrim(c.crt), '') IS NOT NULL AS issuer_identity_configured,
+			NULLIF(btrim(c.address_street), '') IS NOT NULL
+			  AND NULLIF(btrim(c.address_number), '') IS NOT NULL
+			  AND NULLIF(btrim(c.address_neighborhood), '') IS NOT NULL
+			  AND NULLIF(btrim(c.address_city), '') IS NOT NULL
+			  AND char_length(btrim(c.address_state)) = 2
+			  AND NULLIF(btrim(c.address_zip), '') IS NOT NULL AS issuer_address_configured,
+			COALESCE(c.address_city_code ~ '^[0-9]{7}$', false) AS municipality_code_configured,
+			cfg.tenant_id IS NOT NULL AS config_exists,
+			COALESCE(cfg.enabled, false) AS transmission_enabled,
+			COALESCE(cfg.environment, '') AS environment,
+			COALESCE(cfg.series, 0) AS series,
+			COALESCE(
+				NULLIF(btrim(cfg.csc_id), '') IS NOT NULL
+				AND NULLIF(btrim(cfg.csc_secret_ref), '') IS NOT NULL,
+				false
+			) AS csc_reference_configured,
+			COALESCE(NULLIF(btrim(cfg.certificate_secret_ref), '') IS NOT NULL, false)
+				AS certificate_reference_configured,
+			(SELECT count(*) FROM products p WHERE p.tenant_id=c.id AND p.active=true) AS active_products,
+			(
+				SELECT count(*)
+				FROM products p
+				WHERE p.tenant_id=c.id
+				  AND p.active=true
+				  AND NULLIF(btrim(p.ncm), '') IS NULL
+			) AS products_missing_ncm
+		FROM companies c
+		LEFT JOIN nfce_configs cfg ON cfg.tenant_id=c.id
+		WHERE c.id=$1
+	`, tenantID).Scan(
+		&out.IssuerIdentityConfigured,
+		&out.IssuerAddressConfigured,
+		&out.MunicipalityCodeConfigured,
+		&out.ConfigExists,
+		&out.TransmissionEnabled,
+		&out.Environment,
+		&out.Series,
+		&out.CSCReferenceConfigured,
+		&out.CertificateReferenceConfigured,
+		&out.ActiveProducts,
+		&out.ProductsMissingNCM,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeReadiness{}, common.ErrNotFound
+		}
+		return fisc.NFCeReadiness{}, err
+	}
+
+	reasons := make([]string, 0, 8)
+	if !out.IssuerIdentityConfigured {
+		reasons = append(reasons, "issuer_identity")
+	}
+	if !out.IssuerAddressConfigured {
+		reasons = append(reasons, "issuer_address")
+	}
+	if !out.MunicipalityCodeConfigured {
+		reasons = append(reasons, "issuer_municipality_code")
+	}
+	if !out.ConfigExists {
+		reasons = append(reasons, "nfce_config")
+	} else {
+		if out.Environment != "homologation" {
+			reasons = append(reasons, "homologation_environment")
+		}
+		if !out.CSCReferenceConfigured {
+			reasons = append(reasons, "csc_secret_reference")
+		}
+		if !out.CertificateReferenceConfigured {
+			reasons = append(reasons, "certificate_secret_reference")
+		}
+	}
+	if out.ActiveProducts < 1 {
+		reasons = append(reasons, "active_products")
+	}
+	if out.ProductsMissingNCM > 0 {
+		reasons = append(reasons, "product_ncm")
+	}
+	out.BlockingReasons = reasons
+	out.ReadyForHomologationData = len(reasons) == 0
+	return out, nil
 }

@@ -26,6 +26,7 @@ type FiscalRepository interface {
 	CreateInvoiceWithXML(ctx context.Context, tx db.DBTX, tenantID string, saleID, companyID string, createdByUserID *string, fileName string, content []byte, sha256 string) (invoiceID, xmlID string, err error)
 	ListXML(ctx context.Context, tenantID string, limit, offset int) ([]fisc.XMLFile, int, error)
 	GetXMLContent(ctx context.Context, tenantID string, id string) (fileName string, content []byte, err error)
+	GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error)
 }
 
 type SalesRepository interface {

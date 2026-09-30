@@ -16,11 +16,32 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
   const result = await page.evaluate(async () => {
     const { APIError, apiJson } = await import('/src/lib/api.ts')
 
-    const products = await apiJson<{
-      items: Array<{ id: string; active: boolean; price_cash: number }>
-    }>('/api/v1/products?limit=200&offset=0')
-    const product = products.items.find((item) => item.active)
-    if (!product) throw new Error('seeded product missing')
+    const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+    const product = await apiJson<{ id: string }>('/api/v1/products', {
+      method: 'POST',
+      body: {
+        category_id: null,
+        sku: `E2E-R6-${suffix}`,
+        barcode: null,
+        name: `Produto Round6 ${suffix}`,
+        description: null,
+        unit: 'UN',
+        cost_price: 5,
+        price_cash: 20,
+        promo_price: null,
+        min_stock: 0,
+        active: true,
+      },
+    })
+    await apiJson('/api/v1/inventory/adjust', {
+      method: 'POST',
+      body: {
+        product_id: product.id,
+        delta: 2,
+        reason: 'Carga round6',
+        type: 'adjustment',
+      },
+    })
 
     const opening = 100
     const cash = await apiJson<{ id: string }>('/api/v1/cash/sessions/open', {
@@ -36,7 +57,7 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
       },
     )
 
-    const total = product.price_cash
+    const total = 20
     const cashPart = Math.min(5, Math.max(0.01, Math.round((total / 2) * 100) / 100))
     const pixPart = Math.round((total - cashPart) * 100) / 100
     const sale = await apiJson<{ id: string }>('/api/v1/sales', {
@@ -54,6 +75,19 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
       },
     })
 
+    const cashCancelAmount = 20
+    const cashCancelSale = await apiJson<{ id: string }>('/api/v1/sales', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': `round6-cash-${crypto.randomUUID()}` },
+      body: {
+        cash_session_id: cash.id,
+        customer_id: null,
+        discount_value: 0,
+        items: [{ product_id: product.id, qty: 1, discount_value: 0 }],
+        payments: [{ method: 'cash', amount: cashCancelAmount }],
+      },
+    })
+
     const withdrawal = await apiJson<{ id: string }>(
       `/api/v1/cash/sessions/${cash.id}/movements`,
       {
@@ -62,7 +96,7 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
       },
     )
 
-    const expectedCash = Math.round((opening + 20 - 10 + cashPart) * 100) / 100
+    const expectedCash = Math.round((opening + 20 - 10 + cashPart + cashCancelAmount) * 100) / 100
     const declaredCash = Math.round((expectedCash - 1.25) * 100) / 100
     const declaredPix = Math.round(Math.max(0, pixPart - 0.1) * 100) / 100
 
@@ -91,7 +125,7 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
 
     let cancelStatus = 0
     try {
-      await apiJson(`/api/v1/sales/${sale.id}/cancel`, {
+      await apiJson(`/api/v1/sales/${cashCancelSale.id}/cancel`, {
         method: 'POST',
         body: { reason: 'must be blocked after cash close' },
       })
@@ -120,6 +154,7 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
     return {
       cashPart,
       pixPart,
+      cashCancelAmount,
       expectedCash,
       declaredCash,
       declaredPix,
