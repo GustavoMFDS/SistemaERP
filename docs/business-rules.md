@@ -137,3 +137,11 @@
 - Subtotais de venda, lucro estimado, totais de compra e rateios de devolução usam aritmética verificada; overflow de intermediário não pode produzir wraparound silencioso.
 - Multiplicações e rateios que precisam de intermediário maior usam cálculo de precisão arbitrária e validam o resultado final antes de convertê-lo para os tipos do domínio.
 - Operações fora da faixa suportada são rejeitadas como entrada inválida e não geram mutação parcial.
+
+
+### Cancelamento integral versus reembolso
+
+- Cancelamento integral de venda é permitido apenas quando todos os pagamentos da venda são em dinheiro e a sessão original ainda está aberta.
+- Se a venda contém PIX, débito, crédito, transferência ou voucher, o cancelamento integral retorna conflito.
+- Reversões de vendas digitais devem usar devolução/troca e a liquidação de reembolso, preservando trilha financeira, provedor/referência externa e reconciliação do fechamento.
+- Essa separação evita retirar a venda do esperado por método sem prova de que o valor digital foi efetivamente devolvido.
