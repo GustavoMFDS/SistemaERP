@@ -33,8 +33,9 @@ ALTER TABLE products
   ADD CONSTRAINT products_cest_check
   CHECK (cest IS NULL OR cest ~ '^[0-9]{7}$');
 
--- NFC-e configuration is tenant-scoped. Secrets are never stored here:
--- certificate_secret_ref and csc_secret_ref point to the deployment secret store.
+-- NFC-e configuration is tenant-scoped. Secrets are never stored here.
+-- QR Code v3 does not require CSC; csc_* remains optional for legacy QR v2
+-- compatibility only. certificate_secret_ref points to the deployment secret store.
 CREATE TABLE IF NOT EXISTS nfce_configs (
   tenant_id uuid PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
   enabled boolean NOT NULL DEFAULT false,
@@ -57,11 +58,7 @@ CREATE TABLE IF NOT EXISTS nfce_configs (
   CONSTRAINT nfce_configs_enabled_secrets_check
     CHECK (
       NOT enabled
-      OR (
-        NULLIF(btrim(csc_id), '') IS NOT NULL
-        AND NULLIF(btrim(csc_secret_ref), '') IS NOT NULL
-        AND NULLIF(btrim(certificate_secret_ref), '') IS NOT NULL
-      )
+      OR NULLIF(btrim(certificate_secret_ref), '') IS NOT NULL
     )
 );
 
