@@ -264,13 +264,300 @@ fi
 
 pilot_identity_ok="$(
   psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    WITH candidate AS (
+      SELECT
+        id,
+        legal_name,
+        upper(regexp_replace(cnpj, '[^A-Za-z0-9]', '', 'g')) AS normalized_cnpj
+      FROM companies
+      WHERE id=:'tenant_id'::uuid
+    ),
+    with_first_dv AS (
+      SELECT
+        c.*,
+        CASE WHEN calc.remainder IN (0, 1) THEN 0 ELSE 11 - calc.remainder END AS first_dv
+      FROM candidate c
+      CROSS JOIN LATERAL (
+        SELECT mod(
+          sum(
+            (ascii(substr(c.normalized_cnpj, i, 1)) - 48)
+            * (ARRAY[5,4,3,2,9,8,7,6,5,4,3,2])[i]
+          ),
+          11
+        )::int AS remainder
+        FROM generate_series(1, 12) AS i
+      ) calc
+      WHERE c.normalized_cnpj ~ '^[A-Z0-9]{12}[0-9]{2}
+if [ "$pilot_identity_ok" != "1" ]; then
+  fail "pilot tenant uses incomplete/demo identity or an invalid CNPJ check digit"
+else
+  pass "pilot tenant company identity is configured"
+fi
+
+active_products="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
     SELECT count(*)
-    FROM companies
-    WHERE id=:'tenant_id'::uuid
-      AND length(trim(legal_name)) > 0
-      AND upper(regexp_replace(cnpj, '[^A-Za-z0-9]', '', 'g')) ~ '^[A-Z0-9]{12}[0-9]{2}$'
-      AND upper(regexp_replace(cnpj, '[^A-Za-z0-9]', '', 'g'))
-          NOT IN ('00000000000000','11111111111111');
+    FROM products
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true;
+  "
+)"
+if [ "$active_products" -lt 1 ]; then
+  fail "pilot tenant has no active products"
+else
+  pass "pilot tenant has active products"
+fi
+
+barcoded_products="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM products
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true
+      AND barcode IS NOT NULL
+      AND length(trim(barcode)) > 0;
+  "
+)"
+if [ "$barcoded_products" -lt 1 ]; then
+  fail "pilot tenant has no active barcoded product for scanner validation"
+else
+  pass "pilot tenant has active barcoded products"
+fi
+
+sellable_stock="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM inventory_balances b
+    JOIN products p
+      ON p.id=b.product_id
+     AND p.tenant_id=b.tenant_id
+    WHERE b.tenant_id=:'tenant_id'::uuid
+      AND p.active=true
+      AND b.qty_on_hand > 0;
+  "
+)"
+if [ "$sellable_stock" -lt 1 ]; then
+  fail "pilot tenant has no active product with positive opening stock"
+else
+  pass "pilot tenant has sellable opening stock"
+fi
+
+invalid_pricing="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM products
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true
+      AND promo_price IS NOT NULL
+      AND promo_price > price_cash;
+  "
+)"
+if [ "$invalid_pricing" != "0" ]; then
+  fail "pilot tenant has active products with promo_price above price_cash ($invalid_pricing)"
+else
+  pass "pilot tenant promotional pricing is consistent"
+fi
+
+active_registers="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM cash_registers
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true;
+  "
+)"
+if [ "$active_registers" -lt 1 ]; then
+  fail "pilot tenant has no active cash register"
+else
+  pass "pilot tenant has an active cash register"
+fi
+
+pilot_open_sessions="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM cash_sessions
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND status='open';
+  "
+)"
+if [ "$pilot_open_sessions" != "0" ]; then
+  fail "pilot tenant must start with no open cash session ($pilot_open_sessions found)"
+else
+  pass "pilot tenant starts with a clean cash-session baseline"
+fi
+
+active_suppliers="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM suppliers
+    WHERE tenant_id=:'tenant_id'::uuid
+      AND active=true;
+  "
+)"
+if [ "$active_suppliers" -lt 1 ]; then
+  fail "pilot tenant has no active supplier for procurement validation"
+else
+  pass "pilot tenant has active suppliers"
+fi
+
+active_user_count="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(DISTINCT u.id)
+    FROM users u
+    JOIN user_tenants ut ON ut.user_id=u.id
+    WHERE ut.tenant_id=:'tenant_id'::uuid
+      AND u.active=true;
+  "
+)"
+if [ "$active_user_count" -lt 2 ]; then
+  fail "pilot tenant has fewer than two active users; provision an operator plus an admin/manager"
+else
+  pass "pilot tenant has at least two active users"
+fi
+
+orphan_roles="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM users u
+    JOIN user_tenants ut ON ut.user_id=u.id
+    LEFT JOIN user_tenant_roles utr
+      ON utr.user_id=u.id
+     AND utr.tenant_id=ut.tenant_id
+    WHERE ut.tenant_id=:'tenant_id'::uuid
+      AND u.active=true
+      AND utr.user_id IS NULL;
+  "
+)"
+if [ "$orphan_roles" != "0" ]; then
+  fail "pilot tenant has active memberships without tenant-scoped roles ($orphan_roles)"
+else
+  pass "pilot tenant memberships have tenant-scoped roles"
+fi
+
+operator_count="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(DISTINCT u.id)
+    FROM users u
+    JOIN user_tenants ut
+      ON ut.user_id=u.id
+     AND ut.tenant_id=:'tenant_id'::uuid
+    JOIN user_tenant_roles utr
+      ON utr.user_id=u.id
+     AND utr.tenant_id=ut.tenant_id
+    JOIN role_permissions rp ON rp.role_id=utr.role_id
+    JOIN permissions p ON p.id=rp.permission_id
+    WHERE u.active=true
+      AND p.code='sale:write';
+  "
+)"
+if [ "$operator_count" -lt 1 ]; then
+  fail "pilot tenant has no active operator with sale:write"
+else
+  pass "pilot tenant has an active sales operator"
+fi
+
+manager_count="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    SELECT count(*)
+    FROM (
+      SELECT u.id
+      FROM users u
+      JOIN user_tenants ut
+        ON ut.user_id=u.id
+       AND ut.tenant_id=:'tenant_id'::uuid
+      JOIN user_tenant_roles utr
+        ON utr.user_id=u.id
+       AND utr.tenant_id=ut.tenant_id
+      JOIN role_permissions rp ON rp.role_id=utr.role_id
+      JOIN permissions p ON p.id=rp.permission_id
+      WHERE u.active=true
+        AND p.code IN ('finance:read','audit:read')
+      GROUP BY u.id
+      HAVING count(DISTINCT p.code)=2
+    ) q;
+  "
+)"
+if [ "$manager_count" -lt 1 ]; then
+  fail "pilot tenant has no active responsible user with finance:read and audit:read"
+else
+  pass "pilot tenant has an active responsible user for finance and audit"
+fi
+
+separated_duties_count="$(
+  psql "$DATABASE_URL" -At -v tenant_id="$PILOT_TENANT_ID" -c "
+    WITH operator_users AS (
+      SELECT DISTINCT u.id
+      FROM users u
+      JOIN user_tenants ut
+        ON ut.user_id=u.id
+       AND ut.tenant_id=:'tenant_id'::uuid
+      JOIN user_tenant_roles utr
+        ON utr.user_id=u.id
+       AND utr.tenant_id=ut.tenant_id
+      JOIN role_permissions rp ON rp.role_id=utr.role_id
+      JOIN permissions p ON p.id=rp.permission_id
+      WHERE u.active=true
+        AND p.code='sale:write'
+    ),
+    responsible_users AS (
+      SELECT u.id
+      FROM users u
+      JOIN user_tenants ut
+        ON ut.user_id=u.id
+       AND ut.tenant_id=:'tenant_id'::uuid
+      JOIN user_tenant_roles utr
+        ON utr.user_id=u.id
+       AND utr.tenant_id=ut.tenant_id
+      JOIN role_permissions rp ON rp.role_id=utr.role_id
+      JOIN permissions p ON p.id=rp.permission_id
+      WHERE u.active=true
+        AND p.code IN ('finance:read','audit:read')
+      GROUP BY u.id
+      HAVING count(DISTINCT p.code)=2
+    )
+    SELECT count(*)
+    FROM operator_users o
+    CROSS JOIN responsible_users r
+    WHERE o.id <> r.id;
+  "
+)"
+if [ "$separated_duties_count" -lt 1 ]; then
+  fail "pilot tenant needs distinct active operator and responsible-user accounts"
+else
+  pass "pilot tenant has separate operator and responsible-user accounts"
+fi
+
+printf '\nPilot readiness summary: %d failure(s), %d warning(s).\n' "$failures" "$warnings"
+if [ "$failures" -gt 0 ]; then
+  exit 1
+fi
+
+    ),
+    with_second_dv AS (
+      SELECT
+        c.*,
+        CASE WHEN calc.remainder IN (0, 1) THEN 0 ELSE 11 - calc.remainder END AS second_dv
+      FROM with_first_dv c
+      CROSS JOIN LATERAL (
+        SELECT mod(
+          sum(
+            (CASE
+              WHEN i <= 12 THEN ascii(substr(c.normalized_cnpj, i, 1)) - 48
+              ELSE c.first_dv
+            END)
+            * (ARRAY[6,5,4,3,2,9,8,7,6,5,4,3,2])[i]
+          ),
+          11
+        )::int AS remainder
+        FROM generate_series(1, 13) AS i
+      ) calc
+    )
+    SELECT count(*)
+    FROM with_second_dv
+    WHERE length(trim(legal_name)) > 0
+      AND normalized_cnpj NOT IN ('00000000000000','11111111111111')
+      AND substr(normalized_cnpj, 13, 1)::int = first_dv
+      AND substr(normalized_cnpj, 14, 1)::int = second_dv;
   "
 )"
 if [ "$pilot_identity_ok" != "1" ]; then
