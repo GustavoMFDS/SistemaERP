@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
@@ -199,8 +200,11 @@ func (r *FiscalRepo) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.N
 		}
 		return fisc.NFCeConfig{}, err
 	}
-	cfg.CSCReferenceConfigured = cfg.CSCID != nil && cfg.CSCSecretRef != nil
-	cfg.CertificateReferenceConfigured = cfg.CertificateSecretRef != nil
+	cfg.CSCReferenceConfigured =
+		cfg.CSCID != nil && strings.TrimSpace(*cfg.CSCID) != "" &&
+			cfg.CSCSecretRef != nil && strings.TrimSpace(*cfg.CSCSecretRef) != ""
+	cfg.CertificateReferenceConfigured =
+		cfg.CertificateSecretRef != nil && strings.TrimSpace(*cfg.CertificateSecretRef) != ""
 	return cfg, nil
 }
 
