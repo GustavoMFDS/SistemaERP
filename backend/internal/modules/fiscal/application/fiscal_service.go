@@ -150,7 +150,31 @@ func uniqueProductIDs(items []sales.SaleItem) []string {
 }
 
 func (s *FiscalService) NFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error) {
-	return s.fiscal.GetNFCeReadiness(ctx, tenantID)
+	readiness, err := s.fiscal.GetNFCeReadiness(ctx, tenantID)
+	if err != nil {
+		return fisc.NFCeReadiness{}, err
+	}
+	profile, err := s.fiscal.GetNFCeIssuerProfile(ctx, tenantID)
+	if err != nil {
+		return fisc.NFCeReadiness{}, err
+	}
+	if err := fisc.ValidateCNPJ(profile.CNPJ); err != nil {
+		readiness.IssuerIdentityConfigured = false
+		readiness.ReadyForHomologationData = false
+		if !containsReadinessReason(readiness.BlockingReasons, "issuer_identity") {
+			readiness.BlockingReasons = append(readiness.BlockingReasons, "issuer_identity")
+		}
+	}
+	return readiness, nil
+}
+
+func containsReadinessReason(reasons []string, target string) bool {
+	for _, reason := range reasons {
+		if reason == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *FiscalService) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
