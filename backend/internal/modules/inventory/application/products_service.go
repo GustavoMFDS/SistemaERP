@@ -25,6 +25,8 @@ type ProductCreateRequest struct {
 	CategoryID  *string           `json:"category_id"`
 	SKU         string            `json:"sku" validate:"required,min=1,max=64"`
 	Barcode     *string           `json:"barcode" validate:"omitempty,min=8,max=32"`
+	NCM         *string           `json:"ncm" validate:"omitempty,numeric,len=8"`
+	CEST        *string           `json:"cest" validate:"omitempty,numeric,len=7"`
 	Name        string            `json:"name" validate:"required,min=2,max=200"`
 	Description *string           `json:"description"`
 	Unit        string            `json:"unit" validate:"required,min=1,max=8"`
@@ -57,15 +59,19 @@ func (s *ProductsService) GetByBarcode(ctx context.Context, tenantID string, bar
 	return s.repo.GetByBarcode(ctx, tenantID, barcode)
 }
 
-func normalizeBarcode(value *string) *string {
+func normalizeOptionalProductString(value *string) *string {
 	if value == nil {
 		return nil
 	}
-	barcode := strings.TrimSpace(*value)
-	if barcode == "" {
+	normalized := strings.TrimSpace(*value)
+	if normalized == "" {
 		return nil
 	}
-	return &barcode
+	return &normalized
+}
+
+func normalizeBarcode(value *string) *string {
+	return normalizeOptionalProductString(value)
 }
 
 func normalizeProductRequest(req ProductCreateRequest) ProductCreateRequest {
@@ -73,6 +79,8 @@ func normalizeProductRequest(req ProductCreateRequest) ProductCreateRequest {
 	req.Name = strings.TrimSpace(req.Name)
 	req.Unit = strings.TrimSpace(req.Unit)
 	req.Barcode = normalizeBarcode(req.Barcode)
+	req.NCM = normalizeOptionalProductString(req.NCM)
+	req.CEST = normalizeOptionalProductString(req.CEST)
 	if req.Description != nil {
 		description := strings.TrimSpace(*req.Description)
 		if description == "" {
@@ -108,6 +116,8 @@ func (s *ProductsService) Create(ctx context.Context, tenantID, actorUserID stri
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
 		Barcode:     req.Barcode,
+		NCM:         req.NCM,
+		CEST:        req.CEST,
 		Name:        req.Name,
 		Description: req.Description,
 		Unit:        req.Unit,
@@ -163,6 +173,8 @@ func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id 
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
 		Barcode:     req.Barcode,
+		NCM:         req.NCM,
+		CEST:        req.CEST,
 		Name:        req.Name,
 		Description: req.Description,
 		Unit:        req.Unit,
