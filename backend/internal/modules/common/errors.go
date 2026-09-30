@@ -18,4 +18,5 @@ var (
 	ErrSaleNotFinalized       = errors.New("sale not finalized")
 	ErrSaleAlreadyCancelled   = errors.New("sale already cancelled")
 	ErrInvoiceAlreadyExists   = errors.New("invoice already exists")
+	ErrFiscalSequenceExhausted = errors.New("fiscal sequence exhausted")
 )
