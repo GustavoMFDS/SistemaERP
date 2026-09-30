@@ -107,3 +107,14 @@ func TestSale_CalcularTotal_RejectsAggregateMoneyRangeOverflow(t *testing.T) {
 		t.Fatalf("want ErrInvalidMoney for overflowing sale total, got %v", err)
 	}
 }
+
+
+func TestSale_CalcularTotal_RejectsZeroTotal(t *testing.T) {
+	s := sales.NewFinalizedSale("cs", nil, "u", platform.NewMoneyCents(1000))
+	items := []sales.SaleItem{
+		{ProductID: "p1", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(1000)},
+	}
+	if _, err := s.CalcularTotal(items); err != sales.ErrInvalidMoney {
+		t.Fatalf("want ErrInvalidMoney for zero-total sale, got %v", err)
+	}
+}
