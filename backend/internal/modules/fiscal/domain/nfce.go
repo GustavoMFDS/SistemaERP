@@ -36,3 +36,23 @@ type NFCeConfig struct {
 	CSCReferenceConfigured         bool    `json:"csc_reference_configured"`
 	CertificateReferenceConfigured bool    `json:"certificate_reference_configured"`
 }
+
+
+// NFCeIssuerProfile is the issuer data that can be prepared for NFC-e without
+// changing the tenant legal identity (legal name/CNPJ).
+type NFCeIssuerProfile struct {
+	TenantID            string  `json:"tenant_id"`
+	LegalName           string  `json:"legal_name"`
+	TradeName           *string `json:"trade_name,omitempty"`
+	CNPJ                string  `json:"cnpj"`
+	IE                  string  `json:"ie"`
+	CRT                 string  `json:"crt"`
+	AddressStreet       string  `json:"address_street"`
+	AddressNumber       string  `json:"address_number"`
+	AddressComplement   *string `json:"address_complement,omitempty"`
+	AddressNeighborhood string  `json:"address_neighborhood"`
+	AddressCity         string  `json:"address_city"`
+	AddressCityCode     string  `json:"address_city_code"`
+	AddressState        string  `json:"address_state"`
+	AddressZIP          string  `json:"address_zip"`
+}

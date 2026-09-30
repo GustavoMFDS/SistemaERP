@@ -37,6 +37,19 @@ type PrepareNFCeConfigRequest struct {
 	CertificateSecretRef string `json:"certificate_secret_ref" validate:"required,max=500"`
 }
 
+type PrepareNFCeIssuerRequest struct {
+	IE                  string  `json:"ie" validate:"required,min=2,max=30"`
+	CRT                 string  `json:"crt" validate:"required,oneof=1 2 3 4"`
+	AddressStreet       string  `json:"address_street" validate:"required,min=2,max=200"`
+	AddressNumber       string  `json:"address_number" validate:"required,min=1,max=30"`
+	AddressComplement   *string `json:"address_complement" validate:"omitempty,max=100"`
+	AddressNeighborhood string  `json:"address_neighborhood" validate:"required,min=2,max=120"`
+	AddressCity         string  `json:"address_city" validate:"required,min=2,max=120"`
+	AddressCityCode     string  `json:"address_city_code" validate:"required,numeric,len=7"`
+	AddressState        string  `json:"address_state" validate:"required,alpha,len=2"`
+	AddressZIP          string  `json:"address_zip" validate:"required,numeric,len=8"`
+}
+
 func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *FiscalService {
 	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nil, validate: v, logger: logger}
 }
@@ -143,6 +156,65 @@ func (s *FiscalService) NFCeReadiness(ctx context.Context, tenantID string) (fis
 
 func (s *FiscalService) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
 	return s.fiscal.GetNFCeConfig(ctx, tenantID)
+}
+
+func (s *FiscalService) GetNFCeIssuerProfile(ctx context.Context, tenantID string) (fisc.NFCeIssuerProfile, error) {
+	return s.fiscal.GetNFCeIssuerProfile(ctx, tenantID)
+}
+
+func (s *FiscalService) PrepareNFCeIssuerProfile(
+	ctx context.Context,
+	tenantID string,
+	req PrepareNFCeIssuerRequest,
+) (fisc.NFCeIssuerProfile, error) {
+	req.IE = strings.TrimSpace(req.IE)
+	req.CRT = strings.TrimSpace(req.CRT)
+	req.AddressStreet = strings.TrimSpace(req.AddressStreet)
+	req.AddressNumber = strings.TrimSpace(req.AddressNumber)
+	req.AddressNeighborhood = strings.TrimSpace(req.AddressNeighborhood)
+	req.AddressCity = strings.TrimSpace(req.AddressCity)
+	req.AddressCityCode = strings.TrimSpace(req.AddressCityCode)
+	req.AddressState = strings.ToUpper(strings.TrimSpace(req.AddressState))
+	req.AddressZIP = strings.TrimSpace(req.AddressZIP)
+	if req.AddressComplement != nil {
+		value := strings.TrimSpace(*req.AddressComplement)
+		if value == "" {
+			req.AddressComplement = nil
+		} else {
+			req.AddressComplement = &value
+		}
+	}
+	if err := s.validate.Struct(req); err != nil {
+		return fisc.NFCeIssuerProfile{}, common.ErrValidation
+	}
+
+	profile := fisc.NFCeIssuerProfile{
+		TenantID:            tenantID,
+		IE:                  req.IE,
+		CRT:                 req.CRT,
+		AddressStreet:       req.AddressStreet,
+		AddressNumber:       req.AddressNumber,
+		AddressComplement:   req.AddressComplement,
+		AddressNeighborhood: req.AddressNeighborhood,
+		AddressCity:         req.AddressCity,
+		AddressCityCode:     req.AddressCityCode,
+		AddressState:        req.AddressState,
+		AddressZIP:          req.AddressZIP,
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeIssuerProfile{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.fiscal.UpdateNFCeIssuerProfile(ctx, tx, tenantID, profile); err != nil {
+		return fisc.NFCeIssuerProfile{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeIssuerProfile{}, err
+	}
+	return s.fiscal.GetNFCeIssuerProfile(ctx, tenantID)
 }
 
 func (s *FiscalService) PrepareNFCeConfig(
