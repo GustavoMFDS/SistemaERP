@@ -48,6 +48,13 @@ type ProductsListResponse = { items: Product[]; total: number }
 type ProductCache = { savedAt: number; items: Product[] }
 
 type CashOpenResponse = { id: string }
+type CurrentCashSessionResponse = {
+  id: string
+  cash_register_id: string
+  opened_by_user_id: string
+  status: string
+  opening_amount: number
+}
 type CashCloseResponse = {
   status: string
   expected_cash: number
@@ -259,6 +266,9 @@ export default function PDVPage() {
 
   useEffect(() => {
     void loadProducts()
+    void reconcileCurrentCashSession().catch(() => {
+      // Keep the local session hint on transient connectivity failures.
+    })
     apiJson<MeResponse>('/api/v1/auth/me')
       .then((me) => {
         const allowed = Boolean(me.permissions?.includes('sale:discount'))
@@ -295,6 +305,22 @@ export default function PDVPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function reconcileCurrentCashSession(): Promise<boolean> {
+    try {
+      const current = await apiJson<CurrentCashSessionResponse>('/api/v1/cash/sessions/current')
+      setCashSessionId(current.id)
+      setCashSessionIdState(current.id)
+      return true
+    } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 404) {
+        clearCashSessionId()
+        setCashSessionIdState('')
+        return false
+      }
+      throw e
+    }
+  }
+
   async function openCash(e: FormEvent) {
     e.preventDefault()
     setError('')
@@ -307,6 +333,16 @@ export default function PDVPage() {
       setCashSessionIdState(res.id)
       setCashCloseSummary(null)
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) {
+        try {
+          if (await reconcileCurrentCashSession()) {
+            setError('Sessão de caixa já estava aberta e foi recuperada.')
+            return
+          }
+        } catch {
+          // Fall through to the original API error.
+        }
+      }
       setError(errorMessage(e))
     }
   }
@@ -356,6 +392,17 @@ export default function PDVPage() {
         voucher: 0,
       })
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) {
+        try {
+          const stillOpen = await reconcileCurrentCashSession()
+          if (!stillOpen) {
+            setError('A sessão de caixa já estava fechada e o estado local foi reconciliado.')
+            return
+          }
+        } catch {
+          // Fall through to the original API error.
+        }
+      }
       setError(errorMessage(e))
     }
   }

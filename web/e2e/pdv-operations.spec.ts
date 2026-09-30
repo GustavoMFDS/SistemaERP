@@ -92,6 +92,13 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(openResponse.ok()).toBe(true)
   const opened = (await openResponse.json()) as { id: string }
 
+  const recoveredCash = await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    return apiJson<{ id: string; status: string }>('/api/v1/cash/sessions/current')
+  })
+  expect(recoveredCash.id).toBe(opened.id)
+  expect(recoveredCash.status).toBe('open')
+
   const invalidPaymentSemanticsStatus = await page.evaluate(
     async ({ cashSessionId, productId }) => {
       const { APIError, apiJson } = await import('/src/lib/api.ts')

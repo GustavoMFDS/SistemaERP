@@ -122,6 +122,10 @@ Returns products with `qty_on_hand <= min_stock`.
 
 
 Manual inventory adjustment accepts only `adjustment`, `loss`, and `damage`. `purchase` and `return` movements are reserved for the transactional procurement and return workflows.
+### GET `/cash/sessions/current`
+
+Returns the currently open session for the tenant's default cash register. This endpoint is used to recover browser state after a lost or ambiguous open-session response. It returns `404 not_found` when no session is open.
+
 ### POST `/cash/sessions/open`
 
 Opens the default cash register session for the authenticated tenant. Only one open session is allowed per tenant/register.
