@@ -29,6 +29,8 @@ type FiscalRepository interface {
 	GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error)
 	GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error)
 	UpsertNFCeConfig(ctx context.Context, tx db.DBTX, tenantID string, actorUserID string, cfg fisc.NFCeConfig) error
+	GetNFCeIssuerProfile(ctx context.Context, tenantID string) (fisc.NFCeIssuerProfile, error)
+	UpdateNFCeIssuerProfile(ctx context.Context, tx db.DBTX, tenantID string, profile fisc.NFCeIssuerProfile) error
 }
 
 type SalesRepository interface {
