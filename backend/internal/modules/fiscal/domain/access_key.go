@@ -99,6 +99,24 @@ func BuildNFCeAccessKey(in NFCeAccessKeyInput) (string, error) {
 // Since the CNPJ alphanumeric transition, characters are converted to their
 // ASCII code minus 48 before the same right-to-left modulo-11 weighting is
 // applied. Numeric-only keys therefore retain the historical result.
+func ValidateNFCeAccessKey(key string) error {
+	key = strings.TrimSpace(key)
+	if len(key) != 44 {
+		return fmt.Errorf("access key must contain 44 characters")
+	}
+	if !isAccessKeyBaseFormat(key[:43]) || !isDigit(key[43]) {
+		return fmt.Errorf("access key has invalid format")
+	}
+	dv, err := AccessKeyCheckDigit(key[:43])
+	if err != nil {
+		return err
+	}
+	if int(key[43]-'0') != dv {
+		return fmt.Errorf("access key check digit mismatch")
+	}
+	return nil
+}
+
 func AccessKeyCheckDigit(base string) (int, error) {
 	if !isAccessKeyBaseFormat(base) {
 		return 0, fmt.Errorf("access-key base must match [0-9]{6}[A-Z0-9]{12}[0-9]{25}")
