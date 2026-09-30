@@ -60,8 +60,8 @@ func BuildNFCeAccessKey(in NFCeAccessKeyInput) (string, error) {
 		return "", fmt.Errorf("issuance timestamp is required")
 	}
 	cnpj := normalizeCNPJ(in.CNPJ)
-	if !isCurrentCNPJFormat(cnpj) {
-		return "", fmt.Errorf("issuer CNPJ must contain 14 characters matching [A-Z0-9]{12}[0-9]{2}")
+	if err := ValidateCNPJ(cnpj); err != nil {
+		return "", fmt.Errorf("invalid issuer CNPJ: %w", err)
 	}
 	if in.Series < 0 || in.Series > 889 {
 		return "", fmt.Errorf("NFC-e series must be between 0 and 889")
@@ -99,6 +99,39 @@ func BuildNFCeAccessKey(in NFCeAccessKeyInput) (string, error) {
 // Since the CNPJ alphanumeric transition, characters are converted to their
 // ASCII code minus 48 before the same right-to-left modulo-11 weighting is
 // applied. Numeric-only keys therefore retain the historical result.
+func ValidateCNPJ(value string) error {
+	cnpj := normalizeCNPJ(value)
+	if !isCurrentCNPJFormat(cnpj) {
+		return fmt.Errorf("CNPJ must contain 14 characters matching [A-Z0-9]{12}[0-9]{2}")
+	}
+
+	body := cnpj[:12]
+	first := cnpjCheckDigit(body, []int{5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2})
+	if int(cnpj[12]-'0') != first {
+		return fmt.Errorf("first CNPJ check digit mismatch")
+	}
+	second := cnpjCheckDigit(
+		body+string(byte('0'+first)),
+		[]int{6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2},
+	)
+	if int(cnpj[13]-'0') != second {
+		return fmt.Errorf("second CNPJ check digit mismatch")
+	}
+	return nil
+}
+
+func cnpjCheckDigit(value string, weights []int) int {
+	sum := 0
+	for i := 0; i < len(value); i++ {
+		sum += (int(value[i]) - 48) * weights[i]
+	}
+	remainder := sum % 11
+	if remainder == 0 || remainder == 1 {
+		return 0
+	}
+	return 11 - remainder
+}
+
 func ValidateNFCeAccessKey(key string) error {
 	key = strings.TrimSpace(key)
 	if len(key) != 44 {
