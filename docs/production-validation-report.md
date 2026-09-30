@@ -34,7 +34,7 @@
 - Product catalog text is normalized before validation; invalid promotional pricing (`promo_price > price_cash`) is rejected.
 - PDV now uses the same effective promotional price as the backend, refreshes prices before resuming a suspended cart, refuses stale offline catalog cache after 24 hours, and never silently evicts an older suspended cart when the local cap is reached.
 - Finance reconciliation requires provider/external-reference pairs when settlement metadata is supplied, prevents duplicate initial reconciliation per payment, supports explicit audited adjustments/history, and preserves exact idempotent replay payloads for refunds.
-- Pilot preflight now requires schema >=23, validates 36 critical tables plus reconciliation-history immutability triggers, a 14-digit CNPJ, active cash register, clean no-open-session baseline, sellable stock, active supplier, valid promotional pricing, least-privilege runtime DB credentials and separated operator/responsible-user duties.
+- Pilot preflight now requires schema >=23, validates 36 critical tables plus reconciliation-history immutability triggers, a current DFe-compatible 14-character CNPJ, active cash register, clean no-open-session baseline, sellable stock, active supplier, valid promotional pricing, least-privilege runtime DB credentials and separated operator/responsible-user duties.
 
 ### NFC-e foundation added after the static retail audit
 
