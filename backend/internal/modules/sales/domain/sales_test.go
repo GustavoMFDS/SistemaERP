@@ -108,7 +108,6 @@ func TestSale_CalcularTotal_RejectsAggregateMoneyRangeOverflow(t *testing.T) {
 	}
 }
 
-
 func TestSale_CalcularTotal_RejectsZeroTotal(t *testing.T) {
 	s := sales.NewFinalizedSale("cs", nil, "u", platform.NewMoneyCents(1000))
 	items := []sales.SaleItem{
