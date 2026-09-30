@@ -13,8 +13,8 @@ import (
 )
 
 // CachedProductsRepo is a thin Redis cache in front of ProductsRepo.
-// It is intentionally conservative: it caches only the common list shape
-// (query="", offset=0, limit<=200) and individual Get(id).
+// It is intentionally conservative: operational list queries always hit PostgreSQL
+// because they include live price/stock; only individual Get(id) reads are cached.
 //
 // Invalidation is exposed via methods that the service can call AFTER commit.
 // (We avoid invalidating inside Create/Update because those operations run inside a DB tx.)
@@ -81,38 +81,11 @@ func normalizeLimitOffset(limit, offset int) (int, int) {
 }
 
 func (r *CachedProductsRepo) List(ctx context.Context, tenantID string, query string, limit, offset int) ([]inv.Product, int, error) {
-	if !r.cacheEnabled() {
-		return r.base.List(ctx, tenantID, query, limit, offset)
-	}
-	q := strings.TrimSpace(query)
-	limit, offset = normalizeLimitOffset(limit, offset)
-
-	// Only cache the most frequent shape used by the UI (PDV/Estoque): full list, first page.
-	if q != "" || offset != 0 || limit > 200 {
-		return r.base.List(ctx, tenantID, q, limit, offset)
-	}
-
-	ver := r.getProductsListVersion(ctx, tenantID)
-	key := productsListCacheKey(tenantID, ver, q, limit, offset)
-	if b, err := r.rdb.Get(ctx, key).Bytes(); err == nil {
-		var v cachedProductsList
-		if json.Unmarshal(b, &v) == nil {
-			return v.Items, v.Total, nil
-		}
-	} else if err != redis.Nil {
-		// ignore and fall back to DB
-	}
-
-	items, total, err := r.base.List(ctx, tenantID, q, limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	if b, merr := json.Marshal(cachedProductsList{Items: items, Total: total}); merr == nil {
-		_ = r.rdb.Set(ctx, key, b, r.ttl).Err()
-	}
-	return items, total, nil
+	// Operational catalog lists include live price and stock. Always read them from
+	// PostgreSQL so a transient Redis invalidation failure cannot resurrect stale
+	// inventory or pricing in the PDV.
+	return r.base.List(ctx, tenantID, query, limit, offset)
 }
-
 func (r *CachedProductsRepo) Get(ctx context.Context, tenantID string, id string) (inv.Product, error) {
 	if !r.cacheEnabled() {
 		return r.base.Get(ctx, tenantID, id)
