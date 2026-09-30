@@ -17,11 +17,11 @@ func TestAccessKeyCheckDigitOfficialModule11Example(t *testing.T) {
 	}
 }
 
-func TestBuildNFCeAccessKey(t *testing.T) {
+func TestBuildNFCeAccessKeyNumericCNPJ(t *testing.T) {
 	key, err := BuildNFCeAccessKey(NFCeAccessKeyInput{
 		UF:           "MG",
 		IssuedAt:     time.Date(2026, time.September, 30, 10, 0, 0, 0, time.FixedZone("BRT", -3*60*60)),
-		CNPJ:         "12345678000195",
+		CNPJ:         "12.345.678/0001-95",
 		Series:       1,
 		Number:       42,
 		NumericCode:  "12345678",
@@ -45,6 +45,32 @@ func TestBuildNFCeAccessKey(t *testing.T) {
 	}
 }
 
+func TestBuildNFCeAccessKeyAlphanumericCNPJ(t *testing.T) {
+	key, err := BuildNFCeAccessKey(NFCeAccessKeyInput{
+		UF:           "mg",
+		IssuedAt:     time.Date(2026, time.September, 30, 10, 0, 0, 0, time.UTC),
+		CNPJ:         "12abc34501de35",
+		Series:       1,
+		Number:       42,
+		NumericCode:  "12345678",
+		EmissionType: NFCeNormalEmissionType,
+	})
+	if err != nil {
+		t.Fatalf("BuildNFCeAccessKey: %v", err)
+	}
+	const want = "31260912ABC34501DE35650010000000421123456788"
+	if key != want {
+		t.Fatalf("key=%s, want %s", key, want)
+	}
+}
+
+func TestAccessKeyCheckDigitRejectsLetterOutsideCNPJPositions(t *testing.T) {
+	const invalid = "A1260912ABC34501DE3565001000000042112345678"
+	if _, err := AccessKeyCheckDigit(invalid); err == nil {
+		t.Fatal("expected access-key base with letter outside CNPJ positions to fail")
+	}
+}
+
 func TestBuildNFCeAccessKeyRejectsUnsupportedInputs(t *testing.T) {
 	base := NFCeAccessKeyInput{
 		UF:           "MG",
@@ -61,7 +87,8 @@ func TestBuildNFCeAccessKeyRejectsUnsupportedInputs(t *testing.T) {
 		edit func(*NFCeAccessKeyInput)
 	}{
 		{"invalid UF", func(v *NFCeAccessKeyInput) { v.UF = "XX" }},
-		{"invalid CNPJ", func(v *NFCeAccessKeyInput) { v.CNPJ = "123" }},
+		{"invalid CNPJ length", func(v *NFCeAccessKeyInput) { v.CNPJ = "123" }},
+		{"letter in CNPJ check digits", func(v *NFCeAccessKeyInput) { v.CNPJ = "12ABC34501DE3X" }},
 		{"series above NFC-e range", func(v *NFCeAccessKeyInput) { v.Series = 890 }},
 		{"zero number", func(v *NFCeAccessKeyInput) { v.Number = 0 }},
 		{"invalid numeric code", func(v *NFCeAccessKeyInput) { v.NumericCode = "1234ABCD" }},
