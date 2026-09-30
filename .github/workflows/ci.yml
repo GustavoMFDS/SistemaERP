@@ -598,7 +598,16 @@ jobs:
 
           if docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
             -c "INSERT INTO nfce_configs(tenant_id, enabled, environment, series) SELECT id, true, 'homologation', 1 FROM companies ORDER BY created_at LIMIT 1;"; then
-            echo "migration 0023 unexpectedly allowed enabled NFC-e without secret references"
+            echo "migration 0023 unexpectedly allowed enabled NFC-e without a certificate reference"
+            exit 1
+          fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO nfce_configs(tenant_id, enabled, environment, series, certificate_secret_ref) SELECT id, true, 'homologation', 1, 'ci://certificate-ref' FROM companies ORDER BY created_at LIMIT 1;"
+
+          NFCe_CSC_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM nfce_configs WHERE enabled=true AND csc_id IS NULL AND csc_secret_ref IS NULL AND NULLIF(btrim(certificate_secret_ref),'') IS NOT NULL;" | tr -d '[:space:]')"
+          if [ "$NFCe_CSC_COUNT" != "1" ]; then
+            echo "migration 0023 did not accept certificate-only NFC-e configuration for QR Code v3"
             exit 1
           fi
 
