@@ -580,8 +580,8 @@ jobs:
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name IN ('ncm','cest') ORDER BY column_name;" \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='companies' AND column_name='address_city_code';" \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('model','series','document_number','environment','access_key','emission_type','numeric_code','access_key_check_digit','issued_at','authorization_protocol','authorized_at','rejection_code','rejection_message','updated_at') ORDER BY column_name;" \
-            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('invoices_tenant_model_series_number_unique','invoices_access_key_unique') ORDER BY indexname;" \
-            -c "SELECT conname FROM pg_constraint WHERE conname='nfce_configs_updated_by_tenant_fk';"
+            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('invoices_tenant_id_id_unique','invoices_tenant_model_series_number_unique','invoices_access_key_unique') ORDER BY indexname;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('nfce_configs_updated_by_tenant_fk','invoices_tenant_sale_fk','invoices_company_matches_tenant_check','invoice_xml_files_tenant_invoice_fk') ORDER BY conname;"
 
           ACCESS_KEY_CONSTRAINT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='invoices_access_key_check';" | tr -d '\r')"
           if ! printf '%s\n' "$ACCESS_KEY_CONSTRAINT" | grep -Fq '[A-Z0-9]{12}'; then
@@ -615,6 +615,19 @@ jobs:
             IF to_regclass('public.nfce_configs') IS NOT NULL
                OR to_regclass('public.fiscal_document_sequences') IS NOT NULL THEN
               RAISE EXCEPTION 'rollback 0023 left NFC-e foundation tables behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname IN (
+                'invoices_tenant_sale_fk',
+                'invoices_company_matches_tenant_check',
+                'invoice_xml_files_tenant_invoice_fk'
+              )
+            ) OR EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE indexname='invoices_tenant_id_id_unique'
+            ) THEN
+              RAISE EXCEPTION 'rollback 0023 left tenant-safe fiscal constraints behind';
             END IF;
             IF EXISTS (
               SELECT 1 FROM information_schema.columns
