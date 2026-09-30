@@ -148,3 +148,16 @@ func TestBuildNFCeAccessKeyRejectsUnsupportedInputs(t *testing.T) {
 		})
 	}
 }
+
+
+func TestGenerateNFCeNumericCode(t *testing.T) {
+	for i := 0; i < 32; i++ {
+		code, err := GenerateNFCeNumericCode()
+		if err != nil {
+			t.Fatalf("GenerateNFCeNumericCode: %v", err)
+		}
+		if !isDigits(code, 8) {
+			t.Fatalf("numeric code=%q, want exactly 8 digits", code)
+		}
+	}
+}
