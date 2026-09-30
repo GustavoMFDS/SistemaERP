@@ -35,6 +35,8 @@ jobs:
           grep -q 'require_env PILOT_TENANT_ID' ../scripts/pilot-readiness.sh
           grep -q "p.code='sale:write'" ../scripts/pilot-readiness.sh
           grep -q "p.code IN ('finance:read','audit:read')" ../scripts/pilot-readiness.sh
+          grep -q 'rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls' ../scripts/pilot-readiness.sh
+          grep -q "has_schema_privilege(current_user, 'public', 'CREATE')" ../scripts/pilot-readiness.sh
 
           bash -n ../scripts/postgres-backup-drill.sh
           grep -q 'require_env SOURCE_DATABASE_URL' ../scripts/postgres-backup-drill.sh
