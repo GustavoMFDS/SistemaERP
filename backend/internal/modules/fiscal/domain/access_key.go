@@ -43,6 +43,11 @@ var ufCodes = map[string]string{
 	"DF": "53",
 }
 
+func IsValidUF(value string) bool {
+	_, ok := ufCodes[strings.ToUpper(strings.TrimSpace(value))]
+	return ok
+}
+
 type NFCeAccessKeyInput struct {
 	UF           string
 	IssuedAt     time.Time
