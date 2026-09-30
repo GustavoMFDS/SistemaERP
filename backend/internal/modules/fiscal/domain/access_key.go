@@ -104,6 +104,9 @@ func ValidateCNPJ(value string) error {
 	if !isCurrentCNPJFormat(cnpj) {
 		return fmt.Errorf("CNPJ must contain 14 characters matching [A-Z0-9]{12}[0-9]{2}")
 	}
+	if isRepeatedCNPJ(cnpj) {
+		return fmt.Errorf("CNPJ must not be a repeated-character placeholder")
+	}
 
 	body := cnpj[:12]
 	first := cnpjCheckDigit(body, []int{5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2})
@@ -184,6 +187,18 @@ func normalizeCNPJ(value string) string {
 		}
 	}
 	return b.String()
+}
+
+func isRepeatedCNPJ(value string) bool {
+	if len(value) == 0 {
+		return false
+	}
+	for i := 1; i < len(value); i++ {
+		if value[i] != value[0] {
+			return false
+		}
+	}
+	return true
 }
 
 func isCurrentCNPJFormat(value string) bool {
