@@ -245,6 +245,18 @@ test('reconciles digital payments and settles return refunds without double-coun
       body: { reason: 'cleanup duplicate external ref E2E' },
     })
 
+    let digitalCancelStatus = 0
+    try {
+      await apiJson(`/api/v1/sales/${sale.id}/cancel`, {
+        method: 'POST',
+        body: { reason: 'Cancelamento digital deve usar devolucao' },
+      })
+      digitalCancelStatus = 200
+    } catch (error) {
+      if (error instanceof APIError) digitalCancelStatus = error.status
+      else throw error
+    }
+
     const saleDetail = await apiJson<{
       items: Array<{ id: string }>
     }>(`/api/v1/sales/${sale.id}`)
@@ -440,6 +452,7 @@ test('reconciles digital payments and settles return refunds without double-coun
       paymentAfterTransactionRef: paymentAfter.transaction_ref,
       paymentAfterAmount: paymentAfter.reconciled_amount,
       paymentAfterFee: paymentAfter.reconciled_fee,
+      digitalCancelStatus,
       returnDue: saleReturn.refund_due,
       cashRefundStatus: cashRefund.status,
       cashRefundRemaining: cashRefund.remaining_amount,
@@ -490,6 +503,7 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.paymentAfterTransactionRef).not.toContain('SETTLE-')
   expect(result.paymentAfterAmount).toBe(20)
   expect(result.paymentAfterFee).toBe(1)
+  expect(result.digitalCancelStatus).toBe(409)
   expect(result.returnDue).toBe(20)
   expect(result.cashRefundStatus).toBe('partial')
   expect(result.cashRefundRemaining).toBe(15)
