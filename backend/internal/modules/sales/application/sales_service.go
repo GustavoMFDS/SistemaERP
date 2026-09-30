@@ -439,7 +439,7 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	sale, items, _, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, saleID)
+	sale, items, payments, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, saleID)
 	if err != nil {
 		return common.ErrNotFound
 	}
@@ -451,6 +451,11 @@ func (s *SalesService) Cancel(ctx context.Context, tenantID string, actorUserID 
 			return common.ErrSaleNotFinalized
 		default:
 			return derr
+		}
+	}
+	for _, payment := range payments {
+		if payment.Method != "cash" {
+			return common.ErrConflict
 		}
 	}
 
