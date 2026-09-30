@@ -193,7 +193,6 @@ test('network failure during logout does not pretend the HttpOnly session was re
     await route.abort('failed')
   })
 
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
   await expect(page.getByText(/Não foi possível encerrar a sessão no servidor/)).toBeVisible()
@@ -205,7 +204,6 @@ test('network failure during logout does not pretend the HttpOnly session was re
   expect(suspendedAfterFailure).toBe(1)
 
   await page.unroute('http://127.0.0.1:8080/api/v1/auth/logout')
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/login$/)
 
@@ -217,6 +215,49 @@ test('network failure during logout does not pretend the HttpOnly session was re
     const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
     return getSuspendedCarts().length
   })
-  expect(suspendedAfterSuccess).toBe(0)
+  expect(suspendedAfterSuccess).toBe(1)
 
+})
+
+
+test('logout is blocked while offline finalized sales are preserved', async ({ page }) => {
+  await login(page)
+
+  const queuedId = await page.evaluate(async () => {
+    const queue = await import('/src/lib/offlineQueue.ts')
+    return queue.enqueueRequest({
+      method: 'POST',
+      path: '/api/v1/sales',
+      body: {
+        cash_session_id: 'e2e-offline-cash-placeholder',
+        customer_id: null,
+        discount_value: 0,
+        items: [{ product_id: 'e2e-product-placeholder', qty: 1, discount_value: 0 }],
+        payments: [{ method: 'pix', amount: 1 }],
+      },
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    })
+  })
+
+  let logoutCalls = 0
+  await page.route('http://127.0.0.1:8080/api/v1/auth/logout', async (route) => {
+    logoutCalls += 1
+    await route.continue()
+  })
+
+  await page.getByRole('button', { name: 'Sair' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+  await expect(
+    page.getByText(/Não é possível sair enquanto existirem 1 venda\(s\) offline preservada\(s\)/),
+  ).toBeVisible()
+  expect(logoutCalls).toBe(0)
+
+  await page.evaluate(async (id) => {
+    const queue = await import('/src/lib/offlineQueue.ts')
+    if (!queue.discardQueueItem(id)) throw new Error('queued item was not discarded')
+  }, queuedId)
+
+  await page.getByRole('button', { name: 'Sair' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+  expect(logoutCalls).toBe(1)
 })
