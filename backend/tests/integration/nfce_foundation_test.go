@@ -4,11 +4,13 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/example/sistemaemgo/internal/modules/common"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	fiscinfra "github.com/example/sistemaemgo/internal/modules/fiscal/infrastructure"
 	"github.com/example/sistemaemgo/internal/platform/db"
@@ -53,6 +55,7 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM fiscal_document_sequences WHERE tenant_id=$1`, tenantA)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM nfce_configs WHERE tenant_id=$1`, tenantA)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
 	})
@@ -131,6 +134,90 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 		VALUES ($1, 55, 1, 1)
 	`, tenantB); err == nil {
 		t.Fatal("database unexpectedly accepted fiscal model 55 in NFC-e sequence")
+	}
+
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin first sequence tx: %v", err)
+	}
+	number, err := repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("reserve first NFC-e number: %v", err)
+	}
+	if number != 1 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("first NFC-e number=%d, want 1", number)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit first sequence tx: %v", err)
+	}
+
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin rollback sequence tx: %v", err)
+	}
+	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("reserve rollback NFC-e number: %v", err)
+	}
+	if number != 2 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("second NFC-e number=%d, want 2", number)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback sequence tx: %v", err)
+	}
+
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin reused sequence tx: %v", err)
+	}
+	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("reserve reused NFC-e number: %v", err)
+	}
+	if number != 2 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("number after rollback=%d, want 2", number)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit reused sequence tx: %v", err)
+	}
+
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tenant B sequence tx: %v", err)
+	}
+	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantB, 889)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("reserve tenant B NFC-e number: %v", err)
+	}
+	if number != 1 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("tenant B first NFC-e number=%d, want 1", number)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tenant B sequence tx: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO fiscal_document_sequences(tenant_id, model, series, next_number)
+		VALUES ($1, 65, 888, 1000000000)
+	`, tenantB); err != nil {
+		t.Fatalf("seed exhausted sequence sentinel: %v", err)
+	}
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin exhausted sequence tx: %v", err)
+	}
+	_, reserveErr := repo.ReserveNextNFCeNumber(ctx, tx, tenantB, 888)
+	_ = tx.Rollback(ctx)
+	if !errors.Is(reserveErr, common.ErrFiscalSequenceExhausted) {
+		t.Fatalf("exhausted sequence error=%v, want ErrFiscalSequenceExhausted", reserveErr)
 	}
 
 	if _, err := pool.Exec(ctx, `
