@@ -398,7 +398,7 @@ Returns non-secret readiness indicators for NFC-e homologation preparation:
   "transmission_enabled": false,
   "environment": "homologation",
   "series": 1,
-  "csc_reference_configured": true,
+  "csc_reference_configured": false,
   "certificate_reference_configured": true,
   "active_products": 120,
   "products_missing_ncm": 0,
@@ -442,25 +442,23 @@ Updates IE, CRT and issuer address data used for NFC-e preparation:
 
 Requires `invoice:read`.
 
-Returns the tenant NFC-e preparation state. Secret-store references are never returned. Only booleans such as `csc_reference_configured` and `certificate_reference_configured` are exposed.
+Returns the tenant NFC-e preparation state. Secret-store references are never returned. `certificate_reference_configured` is the current required secret-reference indicator. `csc_reference_configured` is informational/legacy because QR Code v3 does not require CSC.
 
 ### PUT `/fiscal/nfce/config`
 
 Requires `invoice:generate`.
 
-Stores **references** to CSC/certificate material in an external secret store:
+Stores the **reference** to the A1 certificate material in an external secret store:
 
 ```json
 {
   "environment": "homologation",
   "series": 1,
-  "csc_id": "1",
-  "csc_secret_ref": "secret://nfce/csc",
   "certificate_secret_ref": "secret://nfce/certificate"
 }
 ```
 
-The backend forces `enabled=false` regardless of input. The actual CSC secret and A1/PFX bytes must not be sent to this endpoint or stored in source control.
+QR Code v3 does not require CSC. The API still accepts `csc_id` plus `csc_secret_ref` as an optional legacy pair, but they are not a readiness requirement. The backend forces `enabled=false` regardless of input. Certificate/legacy CSC secret values must not be sent to this endpoint or stored in source control.
 
 ### GET `/fiscal/nfe/xml`
 
