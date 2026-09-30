@@ -146,6 +146,22 @@ ALTER TABLE invoices
   CHECK (access_key_check_digit IS NULL OR access_key_check_digit BETWEEN 0 AND 9);
 
 ALTER TABLE invoices
+  DROP CONSTRAINT IF EXISTS invoices_access_key_metadata_check;
+ALTER TABLE invoices
+  ADD CONSTRAINT invoices_access_key_metadata_check
+  CHECK (
+    access_key IS NULL
+    OR (
+      substr(access_key, 21, 2) = lpad(model::text, 2, '0')
+      AND substr(access_key, 23, 3) = lpad(series::text, 3, '0')
+      AND substr(access_key, 26, 9) = lpad(document_number::text, 9, '0')
+      AND substr(access_key, 35, 1) = emission_type::text
+      AND substr(access_key, 36, 8) = numeric_code
+      AND substr(access_key, 44, 1) = access_key_check_digit::text
+    )
+  );
+
+ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_status_check;
 ALTER TABLE invoices
   ADD CONSTRAINT invoices_status_check
@@ -159,6 +175,31 @@ ALTER TABLE invoices
       'rejected',
       'contingency_pending',
       'cancelled'
+    )
+  );
+
+ALTER TABLE invoices
+  DROP CONSTRAINT IF EXISTS invoices_response_fields_check;
+ALTER TABLE invoices
+  ADD CONSTRAINT invoices_response_fields_check
+  CHECK (
+    (
+      status NOT IN ('authorized','cancelled')
+      OR (
+        NULLIF(btrim(authorization_protocol), '') IS NOT NULL
+        AND authorized_at IS NOT NULL
+        AND rejection_code IS NULL
+        AND rejection_message IS NULL
+      )
+    )
+    AND (
+      status <> 'rejected'
+      OR (
+        NULLIF(btrim(rejection_code), '') IS NOT NULL
+        AND NULLIF(btrim(rejection_message), '') IS NOT NULL
+        AND authorization_protocol IS NULL
+        AND authorized_at IS NULL
+      )
     )
   );
 
