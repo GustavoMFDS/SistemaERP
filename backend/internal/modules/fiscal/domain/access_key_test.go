@@ -64,6 +64,19 @@ func TestBuildNFCeAccessKeyAlphanumericCNPJ(t *testing.T) {
 	}
 }
 
+func TestValidateNFCeAccessKey(t *testing.T) {
+	const key = "31260912ABC34501DE35650010000000421123456788"
+	if err := ValidateNFCeAccessKey(key); err != nil {
+		t.Fatalf("ValidateNFCeAccessKey: %v", err)
+	}
+	if err := ValidateNFCeAccessKey(key[:43] + "9"); err == nil {
+		t.Fatal("expected invalid check digit to fail")
+	}
+	if err := ValidateNFCeAccessKey(strings.ToLower(key)); err == nil {
+		t.Fatal("expected lowercase alphanumeric key to fail")
+	}
+}
+
 func TestAccessKeyCheckDigitRejectsLetterOutsideCNPJPositions(t *testing.T) {
 	const invalid = "A1260912ABC34501DE3565001000000042112345678"
 	if _, err := AccessKeyCheckDigit(invalid); err == nil {
