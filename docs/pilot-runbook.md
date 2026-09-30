@@ -37,10 +37,15 @@ All items are mandatory before operator training.
 - [ ] Active product pricing is consistent (`promo_price` never exceeds `price_cash`).
 - [ ] At least one admin/manager and one cashier have individual accounts.
 - [ ] Tenant-scoped roles reviewed.
+- [ ] Runtime PostgreSQL role passes least-privilege checks (no superuser/role/db/DDL creation privileges).
+- [ ] Migration/owner, application and backup credentials are separated.
 - [ ] Schema version is clean and at least 22.
-- [ ] Pre-pilot backup created.
-- [ ] That backup restored into an isolated database and app startup verified.
-- [ ] Monitoring/alerts active for API, PostgreSQL, Redis, errors, and storage.
+- [ ] Pre-pilot backup created with `scripts/postgres-backup-drill.sh`.
+- [ ] That backup restored into an isolated database and the generated evidence reports PASS.
+- [ ] Monitoring/alerts active for API availability, readiness, 5xx and latency.
+- [ ] Alert delivery tested end-to-end to the person with stop authority.
+- [ ] Controlled load smoke completed with recorded p95/error-rate thresholds.
+- [ ] Redis/PostgreSQL failure/recovery drill completed in an approved non-production target.
 - [ ] Owner/accountant understands the fiscal boundary of this pilot.
 
 Run the read-only preflight against the exact tenant selected for the pilot:
@@ -177,34 +182,68 @@ Perform only in a controlled window.
 
 ## Backup/restore evidence
 
-Use the backup and restore procedure in docs/deployment.md.
+Use `docs/backup-restore-runbook.md` and run:
 
-Do not mark backup/restore as tested unless evidence records:
+```bash
+SOURCE_DATABASE_URL='postgres://.../sistemaemgo?sslmode=verify-full' \
+RESTORE_DATABASE_URL='postgres://.../sistemaemgo_restore_validation?sslmode=verify-full' \
+ALLOW_RESTORE_RESET=1 \
+bash scripts/postgres-backup-drill.sh
+```
+
+Do not mark backup/restore as tested unless the generated evidence records PASS and the operator retains:
 
 - artifact location;
-- checksum;
+- SHA-256 checksum;
 - start/end timestamps;
-- restore target;
+- isolated restore target;
 - restored migration version;
-- application startup result;
-- readiness result.
+- critical-table validation;
+- representative row counts.
 
-Restore only into an isolated target.
+For a quiesced maintenance window, use `STRICT_ROW_COUNTS=1`.
+
+Restore only into an explicitly disposable target.
 
 ## Monitoring
 
-At minimum watch:
+Use `docs/monitoring-runbook.md` as the baseline. The repository includes Prometheus + Blackbox configuration and baseline alerts for:
 
-- API liveness/readiness;
+- API metrics availability;
+- `/health/ready`;
 - HTTP 5xx rate;
-- PostgreSQL errors/storage;
-- Redis availability/errors;
-- authentication/rate-limit failures;
-- operator-reported offline attention items;
-- cash differences;
-- payment reconciliation divergences.
+- p95 HTTP latency.
 
-Assign one named person with authority to stop the pilot.
+The production monitoring platform must authenticate to `/metrics`; the local Compose overlay is only a validation stack.
+
+Also watch PostgreSQL errors/storage, Redis errors, authentication/rate-limit failures, operator-reported offline attention items, cash differences and payment reconciliation divergences.
+
+Assign one named person with authority to stop the pilot and prove alert delivery to that person before pilot entry.
+
+## Resilience and load evidence
+
+Use `docs/resilience-load-runbook.md`.
+
+Record a bounded read-load smoke with `backend/cmd/loadcheck` and preserve:
+
+- URL/scenario;
+- concurrency and duration;
+- request count/RPS;
+- error rate;
+- p50/p95/p99;
+- configured acceptance thresholds.
+
+Then execute `scripts/dependency-failure-drill.sh` only in an approved non-production target and prove:
+
+- Redis outage makes readiness fail and recovery returns it to 200;
+- PostgreSQL outage makes readiness fail and recovery returns it to 200;
+- monitoring raises the expected readiness/availability alert.
+
+## Database credentials
+
+Use `docs/database-least-privilege.md`.
+
+The runtime `DATABASE_URL` must identify the application role, not the migrator/owner. `scripts/pilot-readiness.sh` rejects elevated cluster privileges and database/schema CREATE capability.
 
 ## Stop conditions
 
@@ -230,9 +269,12 @@ Pilot evidence is complete only when:
 - no unresolved high-severity issue remains;
 - sampled stock/cash/payment results reconcile;
 - backup/restore evidence is complete;
+- load/failure evidence is complete;
+- runtime database least-privilege preflight passes;
 - owner/operations accepts the workflow;
 - accountant reviews the non-fiscal boundary;
-- monitoring and support ownership are assigned.
+- privacy/DPO review is recorded when applicable;
+- monitoring and support ownership are assigned and alert delivery is proven.
 
 Expansion to additional stores should repeat the same checklist for each tenant/store.
 
