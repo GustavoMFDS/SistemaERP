@@ -60,7 +60,7 @@ func (r *ProductsRepo) List(ctx context.Context, tenantID string, query string, 
 	listSQL := fmt.Sprintf(`
 		SELECT p.id::text, p.category_id::text, p.sku, p.barcode, p.name, p.description, p.unit,
 		       p.cost_price::text, p.price_cash::text, p.promo_price::text, p.min_stock::text, p.active,
-		       COALESCE(b.qty_on_hand, 0)::text
+		       COALESCE(b.qty_on_hand, 0)::text, p.ncm, p.cest
 		FROM products p
 		LEFT JOIN inventory_balances b ON b.product_id = p.id AND b.tenant_id = p.tenant_id
 		%s
@@ -83,7 +83,7 @@ func (r *ProductsRepo) List(ctx context.Context, tenantID string, query string, 
 		var promo *string
 		var barcode *string
 		var desc *string
-		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand); err != nil {
+		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand, &p.NCM, &p.CEST); err != nil {
 			return nil, 0, err
 		}
 		if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, qtyOnHand); err != nil {
@@ -107,11 +107,11 @@ func (r *ProductsRepo) Get(ctx context.Context, tenantID string, id string) (inv
 	err := r.db.QueryRow(ctx, `
 		SELECT p.id::text, p.category_id::text, p.sku, p.barcode, p.name, p.description, p.unit,
 		       p.cost_price::text, p.price_cash::text, p.promo_price::text, p.min_stock::text, p.active,
-		       COALESCE(b.qty_on_hand, 0)::text
+		       COALESCE(b.qty_on_hand, 0)::text, p.ncm, p.cest
 		FROM products p
 		LEFT JOIN inventory_balances b ON b.product_id = p.id AND b.tenant_id = p.tenant_id
 		WHERE p.tenant_id=$1 AND p.id=$2
-	`, tenantID, id).Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand)
+	`, tenantID, id).Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand, &p.NCM, &p.CEST)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return p, common.ErrNotFound
@@ -137,11 +137,11 @@ func (r *ProductsRepo) GetByBarcode(ctx context.Context, tenantID string, barcod
 	err := r.db.QueryRow(ctx, `
 		SELECT p.id::text, p.category_id::text, p.sku, p.barcode, p.name, p.description, p.unit,
 		       p.cost_price::text, p.price_cash::text, p.promo_price::text, p.min_stock::text, p.active,
-		       COALESCE(b.qty_on_hand, 0)::text
+		       COALESCE(b.qty_on_hand, 0)::text, p.ncm, p.cest
 		FROM products p
 		LEFT JOIN inventory_balances b ON b.product_id = p.id AND b.tenant_id = p.tenant_id
 		WHERE p.tenant_id=$1 AND p.barcode=$2
-	`, tenantID, barcode).Scan(&p.ID, &categoryID, &p.SKU, &storedBarcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand)
+	`, tenantID, barcode).Scan(&p.ID, &categoryID, &p.SKU, &storedBarcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &qtyOnHand, &p.NCM, &p.CEST)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return p, common.ErrNotFound
@@ -160,10 +160,10 @@ func (r *ProductsRepo) GetByBarcode(ctx context.Context, tenantID string, barcod
 func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `
-		INSERT INTO products(tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		INSERT INTO products(tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active, ncm, cest)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		RETURNING id::text
-	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active).
+	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active, p.NCM, p.CEST).
 		Scan(&id)
 	if err != nil {
 		return "", mapProductWriteError(err)
@@ -177,9 +177,10 @@ func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, 
 		UPDATE products
 		SET category_id=$2, sku=$3, barcode=$4, name=$5, description=$6, unit=$7,
 		    cost_price=CASE WHEN $14 THEN cost_price ELSE $8 END,
-		    price_cash=$9, promo_price=$10, min_stock=$11, active=$12, updated_at=now()
+		    price_cash=$9, promo_price=$10, min_stock=$11, active=$12,
+		    ncm=$15, cest=$16, updated_at=now()
 		WHERE tenant_id=$1 AND id=$13
-	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active, id, preserveCost)
+	`, tenantID, p.CategoryID, p.SKU, p.Barcode, p.Name, p.Description, p.Unit, p.CostPrice.DBString(), p.PriceCash.DBString(), moneyPtrDBString(p.PromoPrice), p.MinStock.DBString(), p.Active, id, preserveCost, p.NCM, p.CEST)
 	if err != nil {
 		return mapProductWriteError(err)
 	}
@@ -192,7 +193,7 @@ func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, 
 func (r *ProductsRepo) GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id::text, category_id::text, sku, barcode, name, description, unit,
-		       cost_price::text, price_cash::text, promo_price::text, min_stock::text, active
+		       cost_price::text, price_cash::text, promo_price::text, min_stock::text, active, ncm, cest
 		FROM products
 		WHERE tenant_id=$1 AND id = ANY($2::uuid[])
 	`, tenantID, ids)
@@ -209,7 +210,7 @@ func (r *ProductsRepo) GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID st
 		var desc *string
 		var costPrice, priceCash, minStock string
 		var promo *string
-		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active); err != nil {
+		if err := rows.Scan(&p.ID, &categoryID, &p.SKU, &barcode, &p.Name, &desc, &p.Unit, &costPrice, &priceCash, &promo, &minStock, &p.Active, &p.NCM, &p.CEST); err != nil {
 			return nil, err
 		}
 		if err := assignProductNumbers(&p, costPrice, priceCash, promo, minStock, "0"); err != nil {
