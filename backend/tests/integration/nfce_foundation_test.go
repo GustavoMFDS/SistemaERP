@@ -206,6 +206,38 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO fiscal_document_sequences(tenant_id, model, series, next_number)
+		VALUES ($1, 65, 887, 999999999)
+	`, tenantB); err != nil {
+		t.Fatalf("seed last reservable NFC-e number: %v", err)
+	}
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin last-number sequence tx: %v", err)
+	}
+	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantB, 887)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("reserve last NFC-e number: %v", err)
+	}
+	if number != 999999999 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("last NFC-e number=%d, want 999999999", number)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit last-number sequence tx: %v", err)
+	}
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin post-last sequence tx: %v", err)
+	}
+	_, reserveErr := repo.ReserveNextNFCeNumber(ctx, tx, tenantB, 887)
+	_ = tx.Rollback(ctx)
+	if !errors.Is(reserveErr, common.ErrFiscalSequenceExhausted) {
+		t.Fatalf("post-last sequence error=%v, want ErrFiscalSequenceExhausted", reserveErr)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO fiscal_document_sequences(tenant_id, model, series, next_number)
 		VALUES ($1, 65, 888, 1000000000)
 	`, tenantB); err != nil {
 		t.Fatalf("seed exhausted sequence sentinel: %v", err)
