@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS fiscal_document_sequences (
   PRIMARY KEY (tenant_id, model, series),
   CONSTRAINT fiscal_document_sequences_model_check CHECK (model = 65),
   CONSTRAINT fiscal_document_sequences_series_check CHECK (series BETWEEN 0 AND 889),
-  CONSTRAINT fiscal_document_sequences_number_check CHECK (next_number BETWEEN 1 AND 999999999)
+  CONSTRAINT fiscal_document_sequences_number_check CHECK (next_number BETWEEN 1 AND 1000000000)
 );
 
 ALTER TABLE invoices
