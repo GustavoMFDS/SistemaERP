@@ -17,6 +17,30 @@ func TestAccessKeyCheckDigitOfficialModule11Example(t *testing.T) {
 	}
 }
 
+func TestValidateCNPJOfficialAlphanumericExamples(t *testing.T) {
+	for _, cnpj := range []string{
+		"12.ABC.345/01DE-35",
+		"00.000.000/E08G-12",
+		"12.345.678/0001-95",
+	} {
+		if err := ValidateCNPJ(cnpj); err != nil {
+			t.Fatalf("ValidateCNPJ(%q): %v", cnpj, err)
+		}
+	}
+}
+
+func TestValidateCNPJRejectsInvalidCheckDigits(t *testing.T) {
+	for _, cnpj := range []string{
+		"12.ABC.345/01DE-36",
+		"00.000.000/E08G-13",
+		"12.345.678/0001-96",
+	} {
+		if err := ValidateCNPJ(cnpj); err == nil {
+			t.Fatalf("ValidateCNPJ(%q) unexpectedly succeeded", cnpj)
+		}
+	}
+}
+
 func TestBuildNFCeAccessKeyNumericCNPJ(t *testing.T) {
 	key, err := BuildNFCeAccessKey(NFCeAccessKeyInput{
 		UF:           "MG",
