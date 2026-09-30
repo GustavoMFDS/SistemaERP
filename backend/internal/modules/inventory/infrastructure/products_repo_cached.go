@@ -145,8 +145,8 @@ func (r *CachedProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID st
 	return r.base.Create(ctx, tx, tenantID, p)
 }
 
-func (r *CachedProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product) error {
-	return r.base.Update(ctx, tx, tenantID, id, p)
+func (r *CachedProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error {
+	return r.base.Update(ctx, tx, tenantID, id, p, preserveCost)
 }
 
 func (r *CachedProductsRepo) GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error) {
