@@ -19,10 +19,16 @@
 - Suporta múltiplos pagamentos por venda (pix+dinheiro etc.).
 - Operador deve ter uma sessão de caixa aberta para vender.
 
-## Fiscal (NF-e MVP)
-- XML é gerado a partir de uma venda finalizada.
-- XML fica armazenado e disponível para download.
-- Estrutura preparada para assinatura/transmissão futura (camada separada de montagem do XML).
+## Fiscal — preparação NFC-e modelo 65
+- Em staging/produção, `FISCAL_PROVIDER=disabled` permanece obrigatório enquanto não houver provider SEFAZ-ready homologado.
+- A preparação NFC-e é tenant-scoped e continua acessível mesmo com o provider de transmissão desabilitado.
+- Configuração fiscal armazena somente referências de CSC/certificado em secret store; o segredo do CSC e o certificado A1/PFX não são retornados pela API.
+- Preparar a configuração nunca habilita transmissão: `nfce_configs.enabled` permanece `false`.
+- Série NFC-e aceita somente `0..889`; sequência fiscal é reservada por tenant/modelo/série e o modelo suportado pela fundação é 65.
+- Emitente precisa de CNPJ, IE, CRT, endereço e código IBGE municipal para ficar pronto em nível de dados.
+- Produtos ativos precisam possuir NCM de 8 dígitos; CEST, quando informado, usa 7 dígitos.
+- O preview de desenvolvimento usa modelo 65 e NCM cadastrado, mas continua marcado como **não fiscal / não transmitir**.
+- CFOP, tributação completa vigente, assinatura XML, chave real, QR Code, transmissão, protocolos, contingência, cancelamento/inutilização e DANFE-NFC-e ainda pertencem ao provider SEFAZ real.
 
 
 ## Devoluções e trocas
