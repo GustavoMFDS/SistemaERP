@@ -92,7 +92,6 @@ func (r *FiscalRepo) ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, tenan
 	return exists, err
 }
 
-
 func (r *FiscalRepo) GetNFCeIssuerProfile(ctx context.Context, tenantID string) (fisc.NFCeIssuerProfile, error) {
 	var profile fisc.NFCeIssuerProfile
 	profile.TenantID = tenantID
