@@ -29,12 +29,18 @@ jobs:
             gofmt -d .
             exit 1
           fi
-      - name: Validate pilot readiness script
+      - name: Validate operations scripts
         run: |
           bash -n ../scripts/pilot-readiness.sh
           grep -q 'require_env PILOT_TENANT_ID' ../scripts/pilot-readiness.sh
           grep -q "p.code='sale:write'" ../scripts/pilot-readiness.sh
           grep -q "p.code IN ('finance:read','audit:read')" ../scripts/pilot-readiness.sh
+
+          bash -n ../scripts/postgres-backup-drill.sh
+          grep -q 'require_env SOURCE_DATABASE_URL' ../scripts/postgres-backup-drill.sh
+          grep -q 'require_env RESTORE_DATABASE_URL' ../scripts/postgres-backup-drill.sh
+          grep -q 'ALLOW_RESTORE_RESET' ../scripts/postgres-backup-drill.sh
+          grep -q 'source and restore connections resolve to the same database' ../scripts/postgres-backup-drill.sh
       - run: go test ./...
       - run: go vet ./...
 
