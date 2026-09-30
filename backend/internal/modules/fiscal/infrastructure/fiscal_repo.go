@@ -9,6 +9,7 @@ import (
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -232,6 +233,176 @@ func (r *FiscalRepo) UpsertNFCeConfig(
 		    updated_at=now()
 	`, tenantID, cfg.Environment, cfg.Series, cfg.CSCID, cfg.CSCSecretRef, cfg.CertificateSecretRef, actorUserID)
 	return err
+}
+
+func (r *FiscalRepo) GetNFCeReservationContextForUpdate(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+) (fisc.NFCeReservationContext, error) {
+	var out fisc.NFCeReservationContext
+	out.Issuer.TenantID = tenantID
+	out.Config.TenantID = tenantID
+
+	err := tx.QueryRow(ctx, `
+		SELECT
+			c.legal_name,
+			c.trade_name,
+			c.cnpj,
+			COALESCE(c.ie, ''),
+			COALESCE(c.crt, ''),
+			COALESCE(c.address_street, ''),
+			COALESCE(c.address_number, ''),
+			c.address_complement,
+			COALESCE(c.address_neighborhood, ''),
+			COALESCE(c.address_city, ''),
+			COALESCE(c.address_city_code, ''),
+			COALESCE(c.address_state, ''),
+			COALESCE(c.address_zip, ''),
+			cfg.enabled,
+			cfg.environment,
+			cfg.series,
+			cfg.csc_id,
+			cfg.csc_secret_ref,
+			cfg.certificate_secret_ref
+		FROM companies c
+		JOIN nfce_configs cfg ON cfg.tenant_id=c.id
+		WHERE c.id=$1
+		FOR UPDATE OF c, cfg
+	`, tenantID).Scan(
+		&out.Issuer.LegalName,
+		&out.Issuer.TradeName,
+		&out.Issuer.CNPJ,
+		&out.Issuer.IE,
+		&out.Issuer.CRT,
+		&out.Issuer.AddressStreet,
+		&out.Issuer.AddressNumber,
+		&out.Issuer.AddressComplement,
+		&out.Issuer.AddressNeighborhood,
+		&out.Issuer.AddressCity,
+		&out.Issuer.AddressCityCode,
+		&out.Issuer.AddressState,
+		&out.Issuer.AddressZIP,
+		&out.Config.Enabled,
+		&out.Config.Environment,
+		&out.Config.Series,
+		&out.Config.CSCID,
+		&out.Config.CSCSecretRef,
+		&out.Config.CertificateSecretRef,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeReservationContext{}, common.ErrNotFound
+		}
+		return fisc.NFCeReservationContext{}, err
+	}
+
+	out.Config.CSCReferenceConfigured =
+		out.Config.CSCID != nil && strings.TrimSpace(*out.Config.CSCID) != "" &&
+			out.Config.CSCSecretRef != nil && strings.TrimSpace(*out.Config.CSCSecretRef) != ""
+	out.Config.CertificateReferenceConfigured =
+		out.Config.CertificateSecretRef != nil && strings.TrimSpace(*out.Config.CertificateSecretRef) != ""
+	return out, nil
+}
+
+func (r *FiscalRepo) GetNFCeReservationBySale(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, saleID string,
+) (fisc.NFCeReservation, error) {
+	var out fisc.NFCeReservation
+	err := tx.QueryRow(ctx, `
+		SELECT
+			id::text,
+			sale_id::text,
+			status,
+			model,
+			series,
+			document_number,
+			environment,
+			access_key,
+			emission_type,
+			numeric_code,
+			access_key_check_digit,
+			issued_at
+		FROM invoices
+		WHERE tenant_id=$1
+		  AND sale_id=$2
+		  AND model=65
+		  AND document_number IS NOT NULL
+	`, tenantID, saleID).Scan(
+		&out.InvoiceID,
+		&out.SaleID,
+		&out.Status,
+		&out.Model,
+		&out.Series,
+		&out.DocumentNumber,
+		&out.Environment,
+		&out.AccessKey,
+		&out.EmissionType,
+		&out.NumericCode,
+		&out.CheckDigit,
+		&out.IssuedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeReservation{}, common.ErrNotFound
+		}
+		return fisc.NFCeReservation{}, err
+	}
+	return out, nil
+}
+
+func (r *FiscalRepo) CreateNFCeReservation(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, actorUserID string,
+	reservation fisc.NFCeReservation,
+) (string, error) {
+	var invoiceID string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO invoices(
+			tenant_id,
+			sale_id,
+			company_id,
+			status,
+			created_by_user_id,
+			model,
+			series,
+			document_number,
+			environment,
+			access_key,
+			emission_type,
+			numeric_code,
+			access_key_check_digit,
+			issued_at,
+			updated_at
+		)
+		VALUES (
+			$1,$2,$1,'reserved',$3,65,$4,$5,$6,$7,$8,$9,$10,$11,now()
+		)
+		RETURNING id::text
+	`,
+		tenantID,
+		reservation.SaleID,
+		actorUserID,
+		reservation.Series,
+		reservation.DocumentNumber,
+		reservation.Environment,
+		reservation.AccessKey,
+		reservation.EmissionType,
+		reservation.NumericCode,
+		reservation.CheckDigit,
+		reservation.IssuedAt,
+	).Scan(&invoiceID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", common.ErrConflict
+		}
+		return "", err
+	}
+	return invoiceID, nil
 }
 
 func (r *FiscalRepo) ReserveNextNFCeNumber(
