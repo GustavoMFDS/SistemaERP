@@ -42,6 +42,10 @@ jobs:
           grep -q 'ALLOW_RESTORE_RESET' ../scripts/postgres-backup-drill.sh
           grep -q 'source and restore connections resolve to the same database' ../scripts/postgres-backup-drill.sh
 
+          bash -n ../scripts/dependency-failure-drill.sh
+          grep -q 'ALLOW_DEPENDENCY_FAILURE_DRILL' ../scripts/dependency-failure-drill.sh
+          grep -q 'ALLOW_REMOTE_DOCKER_CONTEXT' ../scripts/dependency-failure-drill.sh
+
       - name: Validate observability configuration
         run: |
           docker compose -f ../docker-compose.observability.yml config >/dev/null
