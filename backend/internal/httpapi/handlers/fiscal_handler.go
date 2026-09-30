@@ -23,6 +23,24 @@ func NewFiscalHandler(svc *fiscapp.FiscalService, auditSvc *audit.Service, logge
 	return &FiscalHandler{svc: svc, audit: auditSvc, logger: logger}
 }
 
+func (h *FiscalHandler) NFCeReadiness(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	readiness, err := h.svc.NFCeReadiness(r.Context(), au.TenantID)
+	if err != nil {
+		if err == common.ErrNotFound {
+			writeError(w, r, http.StatusNotFound, "not_found", "emitente nao encontrado", nil)
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao validar prontidao NFC-e", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, readiness)
+}
+
 func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
