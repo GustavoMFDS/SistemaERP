@@ -15,7 +15,9 @@ DROP INDEX IF EXISTS invoices_tenant_id_id_unique;
 
 ALTER TABLE invoices
   DROP CONSTRAINT IF EXISTS invoices_real_document_fields_check,
+  DROP CONSTRAINT IF EXISTS invoices_response_fields_check,
   DROP CONSTRAINT IF EXISTS invoices_status_check,
+  DROP CONSTRAINT IF EXISTS invoices_access_key_metadata_check,
   DROP CONSTRAINT IF EXISTS invoices_access_key_check_digit_check,
   DROP CONSTRAINT IF EXISTS invoices_numeric_code_check,
   DROP CONSTRAINT IF EXISTS invoices_emission_type_check,
