@@ -123,6 +123,7 @@ Carrinho suspenso e fila offline são conceitos diferentes:
 ## Fechamento de caixa com vendas offline
 
 - O caixa não pode ser fechado enquanto existir intenção offline `pending` ou `attention` cujo `cash_session_id` seja a sessão atual.
+- A fila legada global `sistemaemgo:offlineQueue:v1` também bloqueia fechamento enquanto não for importada para revisão ou descartada explicitamente; como ela não possui namespace confiável de tenant/usuário, o sistema não presume que seus itens sejam irrelevantes para o caixa atual.
 - O operador deve sincronizar ou reconciliar essas vendas antes do fechamento, preservando o período físico/financeiro em que elas ocorreram.
 - Carrinho suspenso não bloqueia fechamento porque ainda não é venda nem intenção finalizada e não está vinculado a uma sessão de caixa.
 - O bloqueio local complementa, mas não substitui, a validação server-side de sessão aberta usada na criação da venda.

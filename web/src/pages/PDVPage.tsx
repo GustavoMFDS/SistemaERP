@@ -370,6 +370,15 @@ export default function PDVPage() {
     if (!cashSessionId) return
     setError('')
 
+    const legacyPending = getLegacyQueueCount()
+    if (legacyPending > 0) {
+      setLegacyQueueCount(legacyPending)
+      setError(
+        `Não é possível fechar o caixa: existem ${legacyPending} item(ns) na fila offline legada ainda não revisada. Importe a fila para atenção ou descarte-a explicitamente antes do fechamento.`,
+      )
+      return
+    }
+
     const queuedForCash = getQueueSummaryForCashSession(cashSessionId)
     if (queuedForCash.total > 0) {
       refreshPending()

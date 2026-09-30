@@ -261,3 +261,56 @@ test('logout is blocked while offline finalized sales are preserved', async ({ p
   await expect(page).toHaveURL(/\/login$/)
   expect(logoutCalls).toBe(1)
 })
+
+
+test('legacy offline queue blocks cash close until explicitly reviewed', async ({ page }) => {
+  await login(page)
+
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await page.getByRole('button', { name: 'Abrir' }).click()
+
+  const cashSessionId = await page.evaluate(async () => {
+    const { getCashSessionId } = await import('/src/lib/auth.ts')
+    return getCashSessionId()
+  })
+  expect(cashSessionId).not.toBe('')
+
+  await page.evaluate((cashId) => {
+    localStorage.setItem(
+      'sistemaemgo:offlineQueue:v1',
+      JSON.stringify([
+        {
+          id: 'legacy-close-guard',
+          createdAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: {
+            cash_session_id: cashId,
+            customer_id: null,
+            discount_value: 0,
+            items: [],
+            payments: [],
+          },
+          headers: { 'Idempotency-Key': 'legacy-close-guard' },
+        },
+      ]),
+    )
+  }, cashSessionId)
+
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await expect(page.getByText(/fila offline legada ainda não revisada/)).toBeVisible()
+
+  const stillOpen = await page.evaluate(async () => {
+    const { getCashSessionId } = await import('/src/lib/auth.ts')
+    return getCashSessionId()
+  })
+  expect(stillOpen).toBe(cashSessionId)
+
+  await page.evaluate(async () => {
+    const { discardLegacyQueue } = await import('/src/lib/offlineQueue.ts')
+    discardLegacyQueue()
+  })
+
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await waitForCashClosed(page)
+})
