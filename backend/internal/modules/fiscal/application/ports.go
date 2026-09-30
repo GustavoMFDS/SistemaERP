@@ -31,6 +31,7 @@ type FiscalRepository interface {
 	UpsertNFCeConfig(ctx context.Context, tx db.DBTX, tenantID string, actorUserID string, cfg fisc.NFCeConfig) error
 	GetNFCeIssuerProfile(ctx context.Context, tenantID string) (fisc.NFCeIssuerProfile, error)
 	UpdateNFCeIssuerProfile(ctx context.Context, tx db.DBTX, tenantID string, profile fisc.NFCeIssuerProfile) error
+	ReserveNextNFCeNumber(ctx context.Context, tx db.DBTX, tenantID string, series int) (int64, error)
 }
 
 type SalesRepository interface {
