@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
@@ -21,6 +23,7 @@ type FiscalService struct {
 	sales    SalesRepository
 	products ProductsRepository
 	nfe      NFeProvider
+	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
 }
@@ -50,8 +53,8 @@ type PrepareNFCeIssuerRequest struct {
 	AddressZIP          string  `json:"address_zip" validate:"required,numeric,len=8"`
 }
 
-func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, v *validator.Validate, logger *slog.Logger) *FiscalService {
-	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nil, validate: v, logger: logger}
+func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *FiscalService {
+	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nil, audit: auditSvc, validate: v, logger: logger}
 }
 
 func NewFiscalServiceWithProvider(
@@ -60,10 +63,11 @@ func NewFiscalServiceWithProvider(
 	salesRepo SalesRepository,
 	productsRepo ProductsRepository,
 	nfeProvider NFeProvider,
+	auditSvc *audit.Service,
 	v *validator.Validate,
 	logger *slog.Logger,
 ) *FiscalService {
-	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nfeProvider, validate: v, logger: logger}
+	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nfeProvider, audit: auditSvc, validate: v, logger: logger}
 }
 
 func (s *FiscalService) GenerateNFeXML(ctx context.Context, tenantID string, actorUserID string, req GenerateXMLRequest) (invoiceID, xmlID string, err error) {
@@ -113,6 +117,13 @@ func (s *FiscalService) GenerateNFeXML(ctx context.Context, tenantID string, act
 	actor := actorUserID
 	invID, xmlFileID, err := s.fiscal.CreateInvoiceWithXML(ctx, tx, tenantID, req.SaleID, companyID, &actor, fileName, xmlBytes, shaHex)
 	if err != nil {
+		return "", "", err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfe_xml.generate",
+		ResourceType: "invoice_xml_file", ResourceID: xmlFileID, Outcome: "success",
+		Metadata: map[string]any{"invoice_id": invID},
+	}); err != nil {
 		return "", "", err
 	}
 
@@ -177,6 +188,131 @@ func containsReadinessReason(reasons []string, target string) bool {
 	return false
 }
 
+func (s *FiscalService) ReserveNFCeDraft(
+	ctx context.Context,
+	tenantID, actorUserID, saleID string,
+	issuedAt time.Time,
+) (fisc.NFCeReservation, bool, error) {
+	saleID = strings.TrimSpace(saleID)
+	if issuedAt.IsZero() || s.validate.Var(saleID, "required,uuid") != nil {
+		return fisc.NFCeReservation{}, false, common.ErrValidation
+	}
+
+	readiness, err := s.NFCeReadiness(ctx, tenantID)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	if !readiness.ReadyForHomologationData || readiness.Environment != "homologation" {
+		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	sale, _, _, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, saleID)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, common.ErrNotFound
+	}
+	if sale.Status != "finalized" {
+		return fisc.NFCeReservation{}, false, common.ErrSaleNotFinalized
+	}
+
+	existing, err := s.fiscal.GetNFCeReservationBySale(ctx, tx, tenantID, saleID)
+	if err == nil {
+		_ = tx.Rollback(ctx)
+		return existing, false, nil
+	}
+	if err != common.ErrNotFound {
+		return fisc.NFCeReservation{}, false, err
+	}
+
+	exists, err := s.fiscal.ExistsInvoiceForSale(ctx, tx, tenantID, saleID)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	if exists {
+		return fisc.NFCeReservation{}, false, common.ErrInvoiceAlreadyExists
+	}
+
+	reservationContext, err := s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	if reservationContext.Config.Environment != "homologation" ||
+		!reservationContext.Config.CSCReferenceConfigured ||
+		!reservationContext.Config.CertificateReferenceConfigured {
+		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
+	}
+
+	numericCode, err := fisc.GenerateNFCeNumericCode()
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	number, err := s.fiscal.ReserveNextNFCeNumber(
+		ctx, tx, tenantID, reservationContext.Config.Series,
+	)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+
+	accessKey, err := fisc.BuildNFCeAccessKey(fisc.NFCeAccessKeyInput{
+		UF: reservationContext.Issuer.AddressState,
+		IssuedAt: issuedAt,
+		CNPJ: reservationContext.Issuer.CNPJ,
+		Series: reservationContext.Config.Series,
+		Number: number,
+		NumericCode: numericCode,
+		EmissionType: fisc.NFCeNormalEmissionType,
+	})
+	if err != nil {
+		return fisc.NFCeReservation{}, false, common.ErrValidation
+	}
+
+	reservation := fisc.NFCeReservation{
+		SaleID: saleID,
+		Status: "reserved",
+		Model: fisc.NFCeModel,
+		Series: reservationContext.Config.Series,
+		DocumentNumber: number,
+		Environment: reservationContext.Config.Environment,
+		AccessKey: accessKey,
+		EmissionType: fisc.NFCeNormalEmissionType,
+		NumericCode: numericCode,
+		CheckDigit: int(accessKey[len(accessKey)-1] - '0'),
+		IssuedAt: issuedAt,
+	}
+	invoiceID, err := s.fiscal.CreateNFCeReservation(
+		ctx, tx, tenantID, actorUserID, reservation,
+	)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	reservation.InvoiceID = invoiceID
+
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce.reserve",
+		ResourceType: "invoice", ResourceID: invoiceID, Outcome: "success",
+		Metadata: map[string]any{
+			"sale_id": saleID,
+			"model": reservation.Model,
+			"series": reservation.Series,
+			"document_number": reservation.DocumentNumber,
+			"environment": reservation.Environment,
+			"emission_type": reservation.EmissionType,
+		},
+	}); err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	return reservation, true, nil
+}
+
 func (s *FiscalService) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
 	return s.fiscal.GetNFCeConfig(ctx, tenantID)
 }
@@ -188,6 +324,7 @@ func (s *FiscalService) GetNFCeIssuerProfile(ctx context.Context, tenantID strin
 func (s *FiscalService) PrepareNFCeIssuerProfile(
 	ctx context.Context,
 	tenantID string,
+	actorUserID string,
 	req PrepareNFCeIssuerRequest,
 ) (fisc.NFCeIssuerProfile, error) {
 	req.IE = strings.TrimSpace(req.IE)
@@ -237,6 +374,17 @@ func (s *FiscalService) PrepareNFCeIssuerProfile(
 	if err := s.fiscal.UpdateNFCeIssuerProfile(ctx, tx, tenantID, profile); err != nil {
 		return fisc.NFCeIssuerProfile{}, err
 	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce_issuer.prepare",
+		ResourceType: "company", ResourceID: tenantID, Outcome: "success",
+		Metadata: map[string]any{
+			"crt": profile.CRT,
+			"state": profile.AddressState,
+			"city_code": profile.AddressCityCode,
+		},
+	}); err != nil {
+		return fisc.NFCeIssuerProfile{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fisc.NFCeIssuerProfile{}, err
 	}
@@ -277,6 +425,17 @@ func (s *FiscalService) PrepareNFCeConfig(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := s.fiscal.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, cfg); err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce_config.prepare",
+		ResourceType: "nfce_config", ResourceID: tenantID, Outcome: "success",
+		Metadata: map[string]any{
+			"environment": cfg.Environment,
+			"series": cfg.Series,
+			"enabled": false,
+		},
+	}); err != nil {
 		return fisc.NFCeConfig{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
