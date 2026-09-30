@@ -181,6 +181,32 @@ ALTER TABLE invoices
     )
   );
 
+-- Defense-in-depth tenant isolation for fiscal records.
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_tenant_id_id_unique
+  ON invoices(tenant_id, id);
+
+ALTER TABLE invoices
+  DROP CONSTRAINT IF EXISTS invoices_tenant_sale_fk;
+ALTER TABLE invoices
+  ADD CONSTRAINT invoices_tenant_sale_fk
+  FOREIGN KEY (tenant_id, sale_id)
+  REFERENCES sales(tenant_id, id)
+  ON DELETE RESTRICT;
+
+ALTER TABLE invoices
+  DROP CONSTRAINT IF EXISTS invoices_company_matches_tenant_check;
+ALTER TABLE invoices
+  ADD CONSTRAINT invoices_company_matches_tenant_check
+  CHECK (company_id = tenant_id);
+
+ALTER TABLE invoice_xml_files
+  DROP CONSTRAINT IF EXISTS invoice_xml_files_tenant_invoice_fk;
+ALTER TABLE invoice_xml_files
+  ADD CONSTRAINT invoice_xml_files_tenant_invoice_fk
+  FOREIGN KEY (tenant_id, invoice_id)
+  REFERENCES invoices(tenant_id, id)
+  ON DELETE CASCADE;
+
 CREATE UNIQUE INDEX IF NOT EXISTS invoices_tenant_model_series_number_unique
   ON invoices(tenant_id, model, series, document_number)
   WHERE model IS NOT NULL
