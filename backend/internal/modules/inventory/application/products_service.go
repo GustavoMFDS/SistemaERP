@@ -159,17 +159,6 @@ func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id 
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if preserveCost {
-		current, err := s.repo.GetManyByIDs(ctx, tx, tenantID, []string{id})
-		if err != nil {
-			return err
-		}
-		product, ok := current[id]
-		if !ok {
-			return common.ErrNotFound
-		}
-		req.CostPrice = product.CostPrice
-	}
 	p := inv.Product{
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
@@ -183,7 +172,7 @@ func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id 
 		MinStock:    req.MinStock,
 		Active:      req.Active,
 	}
-	if err := s.repo.Update(ctx, tx, tenantID, id, p); err != nil {
+	if err := s.repo.Update(ctx, tx, tenantID, id, p, preserveCost); err != nil {
 		return err
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
