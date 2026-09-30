@@ -10,7 +10,7 @@ The repository currently implements **preparation**, not fiscal authorization:
 - product NCM and optional CEST;
 - tenant-scoped NFC-e configuration;
 - series validation (0..889);
-- external secret references for CSC and A1 certificate;
+- external secret reference for the A1 certificate; optional legacy CSC references can be retained for QR Code v2 compatibility;
 - fiscal-document sequence storage for model 65;
 - invoice fields for number, access key, protocol, authorization/rejection metadata;
 - readiness API/UI;
@@ -41,7 +41,7 @@ Current DFe compatibility rules used by this foundation:
 - normalized CNPJ format: `[A-Z0-9]{12}[0-9]{2}`;
 - 44-character access-key format: `[0-9]{6}[A-Z0-9]{12}[0-9]{26}`;
 - access-key DV converts every base character using ASCII minus 48 before modulo 11, preserving the historical numeric result for numeric-only CNPJ.
-- NT 2025.001 for NFC-e QR Code version 3;
+- NT 2025.001 for NFC-e QR Code version 3, where online consultation uses the access key, QR version and environment without CSC; contingency adds the signed parameters defined by the NT;
 - NT 2024.001 allowing CRT 4 for MEI.
 
 Do not vendor an old XSD package and assume it remains current. Pin the exact official package/version used by the provider and add a controlled upgrade process.
@@ -52,8 +52,8 @@ Do not vendor an old XSD package and assume it remains current. Pin the exact of
 2. Keep fiscal provider disabled.
 3. Complete the issuer through `GET/PUT /api/v1/fiscal/nfce/issuer`.
 4. Classify active products with NCM; add CEST where applicable.
-5. Store the CSC and certificate in the deployment secret manager.
-6. Save only references through `GET/PUT /api/v1/fiscal/nfce/config`.
+5. Store the A1 certificate in the deployment secret manager.
+6. Save only its reference through `GET/PUT /api/v1/fiscal/nfce/config`. CSC is not required by QR Code v3; legacy CSC fields are optional.
 7. Check `GET /api/v1/fiscal/nfce/readiness`.
 8. Resolve every blocking reason.
 9. Only then begin provider implementation/homologation work.
@@ -64,7 +64,7 @@ Do not vendor an old XSD package and assume it remains current. Pin the exact of
 
 Never store in PostgreSQL, Git, logs, audit metadata, frontend state persistence, or evidence files:
 
-- CSC secret value;
+- legacy CSC secret value, if legacy QR Code v2 compatibility is ever retained;
 - PFX/A1 bytes;
 - certificate password;
 - private key.
@@ -88,7 +88,7 @@ At minimum it needs:
 - payment-method mapping;
 - access-key generation and check digit;
 - XML digital signature;
-- QR Code using the current NFC-e specification;
+- QR Code v3 using the current NFC-e specification (online without CSC; contingency with the required signed parameters);
 - UF-specific authorization endpoints;
 - service-status check;
 - authorization submission and response parsing;
