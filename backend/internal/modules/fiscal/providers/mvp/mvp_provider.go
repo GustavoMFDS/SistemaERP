@@ -10,8 +10,9 @@ import (
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 )
 
-// Provider generates an MVP NF-e XML that is well-formed and internally consistent.
-// It is NOT a SEFAZ-ready NF-e.
+// Provider generates a development-only NFC-e model 65 preview XML that is
+// well-formed and internally consistent.
+// It is NOT a SEFAZ-ready NFC-e and must never be used for fiscal authorization.
 //
 // This implementation is intentionally minimal and exists mainly to validate the
 // end-to-end flow and storage architecture.
@@ -95,14 +96,14 @@ func build(in input) ([]byte, string, error) {
 		Versao: "4.00",
 		Ide: Ide{
 			NatOp:  "VENDA",
-			Mod:    "55",
+			Mod:    "65",
 			Serie:  "1",
 			NNF:    "1",
 			DhEmi:  now,
 			TpNF:   "1",
 			FinNFe: "1",
 		},
-		InfAdic: &InfAdic{InfCpl: fmt.Sprintf("XML MVP gerado a partir da venda %s", in.sale.ID)},
+		InfAdic: &InfAdic{InfCpl: fmt.Sprintf("PREVIEW NFC-e 65 NAO FISCAL / NAO TRANSMITIR - venda %s", in.sale.ID)},
 	}}
 
 	var vProd = sales.Sale{}.Total
@@ -124,8 +125,12 @@ func build(in input) ([]byte, string, error) {
 		if p.Barcode != nil {
 			barcode = *p.Barcode
 		}
-		// Defaults (configuráveis no futuro)
-		ncm := "00000000"
+		if p.NCM == nil || len(*p.NCM) != 8 {
+			return nil, "", fmt.Errorf("missing valid NCM for product_id=%s", it.ProductID)
+		}
+		ncm := *p.NCM
+		// CFOP remains a preview-only placeholder until the fiscal-operation
+		// rules are modeled. It must not be treated as SEFAZ-ready data.
 		cfop := "5102"
 		nfe.InfNFe.Det = append(nfe.InfNFe.Det, Det{
 			NItem: fmt.Sprintf("%d", i + 1),
@@ -154,6 +159,6 @@ func build(in input) ([]byte, string, error) {
 		return nil, "", err
 	}
 	out = append([]byte(xml.Header), out...)
-	fileName := fmt.Sprintf("NFe-%s.xml", in.sale.ID)
+	fileName := fmt.Sprintf("NFCe-preview-%s.xml", in.sale.ID)
 	return out, fileName, nil
 }

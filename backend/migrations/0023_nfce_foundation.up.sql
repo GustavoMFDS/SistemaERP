@@ -43,13 +43,17 @@ CREATE TABLE IF NOT EXISTS nfce_configs (
   csc_id text NULL,
   csc_secret_ref text NULL,
   certificate_secret_ref text NULL,
-  updated_by_user_id uuid NULL REFERENCES users(id) ON DELETE SET NULL,
+  updated_by_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT nfce_configs_environment_check
     CHECK (environment IN ('homologation','production')),
   CONSTRAINT nfce_configs_series_check
     CHECK (series BETWEEN 0 AND 889),
+  CONSTRAINT nfce_configs_updated_by_tenant_fk
+    FOREIGN KEY (updated_by_user_id, tenant_id)
+    REFERENCES user_tenants(user_id, tenant_id)
+    ON DELETE SET NULL (updated_by_user_id),
   CONSTRAINT nfce_configs_enabled_secrets_check
     CHECK (
       NOT enabled

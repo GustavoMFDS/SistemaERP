@@ -93,6 +93,144 @@ func (r *FiscalRepo) ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, tenan
 }
 
 
+func (r *FiscalRepo) GetNFCeIssuerProfile(ctx context.Context, tenantID string) (fisc.NFCeIssuerProfile, error) {
+	var profile fisc.NFCeIssuerProfile
+	profile.TenantID = tenantID
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			legal_name,
+			trade_name,
+			cnpj,
+			COALESCE(ie, ''),
+			COALESCE(crt, ''),
+			COALESCE(address_street, ''),
+			COALESCE(address_number, ''),
+			address_complement,
+			COALESCE(address_neighborhood, ''),
+			COALESCE(address_city, ''),
+			COALESCE(address_city_code, ''),
+			COALESCE(address_state, ''),
+			COALESCE(address_zip, '')
+		FROM companies
+		WHERE id=$1
+	`, tenantID).Scan(
+		&profile.LegalName,
+		&profile.TradeName,
+		&profile.CNPJ,
+		&profile.IE,
+		&profile.CRT,
+		&profile.AddressStreet,
+		&profile.AddressNumber,
+		&profile.AddressComplement,
+		&profile.AddressNeighborhood,
+		&profile.AddressCity,
+		&profile.AddressCityCode,
+		&profile.AddressState,
+		&profile.AddressZIP,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeIssuerProfile{}, common.ErrNotFound
+		}
+		return fisc.NFCeIssuerProfile{}, err
+	}
+	return profile, nil
+}
+
+func (r *FiscalRepo) UpdateNFCeIssuerProfile(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	profile fisc.NFCeIssuerProfile,
+) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE companies
+		SET ie=$2,
+		    crt=$3,
+		    address_street=$4,
+		    address_number=$5,
+		    address_complement=$6,
+		    address_neighborhood=$7,
+		    address_city=$8,
+		    address_city_code=$9,
+		    address_state=$10,
+		    address_zip=$11,
+		    updated_at=now()
+		WHERE id=$1
+	`,
+		tenantID,
+		profile.IE,
+		profile.CRT,
+		profile.AddressStreet,
+		profile.AddressNumber,
+		profile.AddressComplement,
+		profile.AddressNeighborhood,
+		profile.AddressCity,
+		profile.AddressCityCode,
+		profile.AddressState,
+		profile.AddressZIP,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return common.ErrNotFound
+	}
+	return nil
+}
+
+func (r *FiscalRepo) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
+	var cfg fisc.NFCeConfig
+	cfg.TenantID = tenantID
+	err := r.db.QueryRow(ctx, `
+		SELECT enabled, environment, series, csc_id, csc_secret_ref, certificate_secret_ref
+		FROM nfce_configs
+		WHERE tenant_id=$1
+	`, tenantID).Scan(
+		&cfg.Enabled,
+		&cfg.Environment,
+		&cfg.Series,
+		&cfg.CSCID,
+		&cfg.CSCSecretRef,
+		&cfg.CertificateSecretRef,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeConfig{}, common.ErrNotFound
+		}
+		return fisc.NFCeConfig{}, err
+	}
+	cfg.CSCReferenceConfigured = cfg.CSCID != nil && cfg.CSCSecretRef != nil
+	cfg.CertificateReferenceConfigured = cfg.CertificateSecretRef != nil
+	return cfg, nil
+}
+
+func (r *FiscalRepo) UpsertNFCeConfig(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	actorUserID string,
+	cfg fisc.NFCeConfig,
+) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO nfce_configs(
+			tenant_id, enabled, environment, series, csc_id,
+			csc_secret_ref, certificate_secret_ref, updated_by_user_id
+		)
+		VALUES ($1, false, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (tenant_id) DO UPDATE
+		SET enabled=false,
+		    environment=EXCLUDED.environment,
+		    series=EXCLUDED.series,
+		    csc_id=EXCLUDED.csc_id,
+		    csc_secret_ref=EXCLUDED.csc_secret_ref,
+		    certificate_secret_ref=EXCLUDED.certificate_secret_ref,
+		    updated_by_user_id=EXCLUDED.updated_by_user_id,
+		    updated_at=now()
+	`, tenantID, cfg.Environment, cfg.Series, cfg.CSCID, cfg.CSCSecretRef, cfg.CertificateSecretRef, actorUserID)
+	return err
+}
+
 func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error) {
 	out := fisc.NFCeReadiness{
 		TenantID: tenantID,
@@ -108,7 +246,7 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 			  AND NULLIF(btrim(c.address_number), '') IS NOT NULL
 			  AND NULLIF(btrim(c.address_neighborhood), '') IS NOT NULL
 			  AND NULLIF(btrim(c.address_city), '') IS NOT NULL
-			  AND char_length(btrim(c.address_state)) = 2
+			  AND COALESCE(char_length(btrim(c.address_state)) = 2, false)
 			  AND NULLIF(btrim(c.address_zip), '') IS NOT NULL AS issuer_address_configured,
 			COALESCE(c.address_city_code ~ '^[0-9]{7}$', false) AS municipality_code_configured,
 			cfg.tenant_id IS NOT NULL AS config_exists,
@@ -122,9 +260,9 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 			) AS csc_reference_configured,
 			COALESCE(NULLIF(btrim(cfg.certificate_secret_ref), '') IS NOT NULL, false)
 				AS certificate_reference_configured,
-			(SELECT count(*) FROM products p WHERE p.tenant_id=c.id AND p.active=true) AS active_products,
+			(SELECT count(*)::int FROM products p WHERE p.tenant_id=c.id AND p.active=true) AS active_products,
 			(
-				SELECT count(*)
+				SELECT count(*)::int
 				FROM products p
 				WHERE p.tenant_id=c.id
 				  AND p.active=true

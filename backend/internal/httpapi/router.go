@@ -113,9 +113,16 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 			if mods.Fiscal != nil {
 				pr.Route("/fiscal", func(rr chi.Router) {
-					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfe/xml", h.Fiscal.GenerateNFeXML)
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/readiness", h.Fiscal.NFCeReadiness)
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/issuer", h.Fiscal.GetNFCeIssuerProfile)
+					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Put("/nfce/issuer", h.Fiscal.PrepareNFCeIssuerProfile)
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/config", h.Fiscal.GetNFCeConfig)
+					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Put("/nfce/config", h.Fiscal.PrepareNFCeConfig)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfe/xml", h.Fiscal.ListXML)
 					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/nfe/xml/{id}/download", h.Fiscal.DownloadXML)
+					if cfg.FiscalProvider == "" || cfg.FiscalProvider == "mvp" {
+						rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfe/xml", h.Fiscal.GenerateNFeXML)
+					}
 				})
 			}
 
