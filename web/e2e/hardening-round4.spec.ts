@@ -314,3 +314,50 @@ test('legacy offline queue blocks cash close until explicitly reviewed', async (
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
   await waitForCashClosed(page)
 })
+
+
+test('logout is blocked while legacy offline work is unresolved', async ({ page }) => {
+  await login(page)
+
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'sistemaemgo:offlineQueue:v1',
+      JSON.stringify([
+        {
+          id: 'legacy-logout-guard',
+          createdAt: Date.now(),
+          method: 'POST',
+          path: '/api/v1/sales',
+          body: {
+            cash_session_id: 'legacy-unscoped-cash',
+            customer_id: null,
+            discount_value: 0,
+            items: [],
+            payments: [],
+          },
+          headers: { 'Idempotency-Key': 'legacy-logout-guard' },
+        },
+      ]),
+    )
+  })
+
+  let logoutCalls = 0
+  await page.route('http://127.0.0.1:8080/api/v1/auth/logout', async (route) => {
+    logoutCalls += 1
+    await route.continue()
+  })
+
+  await page.getByRole('button', { name: 'Sair' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+  await expect(page.getByText(/fila offline legada ainda não revisada/)).toBeVisible()
+  expect(logoutCalls).toBe(0)
+
+  await page.evaluate(async () => {
+    const { discardLegacyQueue } = await import('/src/lib/offlineQueue.ts')
+    discardLegacyQueue()
+  })
+
+  await page.getByRole('button', { name: 'Sair' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+  expect(logoutCalls).toBe(1)
+})

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
-import { getQueueCount } from '../lib/offlineQueue'
+import { getLegacyQueueCount, getQueueCount } from '../lib/offlineQueue'
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 
@@ -52,6 +52,14 @@ export default function Layout() {
 
   async function logout() {
     if (loggingOut) return
+
+    const legacyPending = getLegacyQueueCount()
+    if (legacyPending > 0) {
+      setLogoutError(
+        `Não é possível sair enquanto existirem ${legacyPending} item(ns) na fila offline legada ainda não revisada. Abra o PDV e importe a fila para atenção ou descarte-a explicitamente antes de encerrar a sessão.`,
+      )
+      return
+    }
 
     const pending = getQueueCount()
     if (pending > 0) {

@@ -115,6 +115,7 @@ Carrinho suspenso e fila offline são conceitos diferentes:
 - Carrinho suspenso é apenas rascunho local, escopado por tenant+usuário; não cria venda nem reserva estoque.
 - O navegador mantém no máximo 20 carrinhos suspensos e rejeita o próximo em vez de descartar silenciosamente um rascunho antigo.
 - Se houver qualquer item na fila offline, o logout é bloqueado até sincronização, reconciliação ou descarte explícito item a item no PDV.
+- A fila legada global também bloqueia logout enquanto não for importada ou descartada explicitamente, evitando que trabalho não escopado fique disponível para o próximo usuário autenticado no mesmo navegador.
 - Falha ao revogar a sessão no servidor preserva token e todo o estado local.
 - Carrinhos suspensos permanecem salvos no escopo tenant+usuário após logout e reaparecem quando o mesmo operador entra novamente.
 - Outro usuário autenticado no mesmo navegador recebe outro namespace e não carrega esses carrinhos pela aplicação.
