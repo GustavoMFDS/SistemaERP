@@ -117,3 +117,11 @@ Carrinho suspenso e fila offline são conceitos diferentes:
 - Se houver fila offline pendente ou carrinho suspenso, o logout pede confirmação explícita antes de limpar os dados locais.
 - Falha ao revogar a sessão no servidor preserva token, fila, cache e carrinhos suspensos.
 - Carrinhos suspensos também são removidos no logout confirmado, adequado para terminais compartilhados de loja.
+
+
+## Fechamento de caixa com vendas offline
+
+- O caixa não pode ser fechado enquanto existir intenção offline `pending` ou `attention` cujo `cash_session_id` seja a sessão atual.
+- O operador deve sincronizar ou reconciliar essas vendas antes do fechamento, preservando o período físico/financeiro em que elas ocorreram.
+- Carrinho suspenso não bloqueia fechamento porque ainda não é venda nem intenção finalizada e não está vinculado a uma sessão de caixa.
+- O bloqueio local complementa, mas não substitui, a validação server-side de sessão aberta usada na criação da venda.
