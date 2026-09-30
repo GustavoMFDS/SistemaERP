@@ -198,14 +198,6 @@ func (s *FiscalService) ReserveNFCeDraft(
 		return fisc.NFCeReservation{}, false, common.ErrValidation
 	}
 
-	readiness, err := s.NFCeReadiness(ctx, tenantID)
-	if err != nil {
-		return fisc.NFCeReservation{}, false, err
-	}
-	if !readiness.ReadyForHomologationData || readiness.Environment != "homologation" {
-		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
-	}
-
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return fisc.NFCeReservation{}, false, err
@@ -237,11 +229,35 @@ func (s *FiscalService) ReserveNFCeDraft(
 		return fisc.NFCeReservation{}, false, common.ErrInvoiceAlreadyExists
 	}
 
+	readiness, err := s.NFCeReadiness(ctx, tenantID)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	if !readiness.ReadyForHomologationData || readiness.Environment != "homologation" {
+		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
+	}
+
 	reservationContext, err := s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
 	if err != nil {
 		return fisc.NFCeReservation{}, false, err
 	}
+	issuerReq := PrepareNFCeIssuerRequest{
+		IE: reservationContext.Issuer.IE,
+		CRT: reservationContext.Issuer.CRT,
+		AddressStreet: reservationContext.Issuer.AddressStreet,
+		AddressNumber: reservationContext.Issuer.AddressNumber,
+		AddressComplement: reservationContext.Issuer.AddressComplement,
+		AddressNeighborhood: reservationContext.Issuer.AddressNeighborhood,
+		AddressCity: reservationContext.Issuer.AddressCity,
+		AddressCityCode: reservationContext.Issuer.AddressCityCode,
+		AddressState: reservationContext.Issuer.AddressState,
+		AddressZIP: reservationContext.Issuer.AddressZIP,
+	}
+	if s.validate.Struct(issuerReq) != nil || fisc.ValidateCNPJ(reservationContext.Issuer.CNPJ) != nil {
+		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
+	}
 	if reservationContext.Config.Environment != "homologation" ||
+		!reservationContext.Config.CSCReferenceConfigured ||
 		!reservationContext.Config.CertificateReferenceConfigured {
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
 	}
