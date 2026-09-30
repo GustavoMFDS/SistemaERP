@@ -36,28 +36,64 @@ Copy this file for each pilot execution. Do not overwrite old evidence.
 - Command timestamp:
 - Failures:
 - Warnings:
+- Runtime DB role elevated privileges: NONE / list
+- Runtime DB role database CREATE: NO / YES
+- Runtime DB role public-schema CREATE: NO / YES
 - Reviewer:
 
 ## Backup and restore
 
+- Backup drill evidence file:
 - Backup artifact:
 - Backup checksum:
 - Backup timestamp:
 - Restore target:
 - Restore start/end:
 - Restored migration version / dirty:
-- API startup against restore:
-- `/health/ready` against restore:
+- Critical tables found:
+- Source representative counts:
+- Restore representative counts:
+- Strict row-count mode used: YES / NO
 - Reviewer:
 
 ## Monitoring
 
 - Dashboard/reference:
-- API availability alert tested:
-- PostgreSQL alert tested:
-- Redis alert tested:
-- Error-rate alert tested:
+- Metrics-unavailable alert tested:
+- Readiness alert tested:
+- HTTP 5xx alert tested:
+- p95 latency alert tested:
+- Alert delivery destination:
 - On-call / stop authority:
+
+## Resilience and load
+
+- Loadcheck target/scenario:
+- Command/options reference:
+- Duration:
+- Concurrency:
+- Requests / RPS:
+- Error rate / threshold:
+- p50:
+- p95 / threshold:
+- p99:
+- Load result: PASS / FAIL
+- Redis outage detected by readiness: YES / NO
+- Redis recovery detected: YES / NO
+- PostgreSQL outage detected by readiness: YES / NO
+- PostgreSQL recovery detected: YES / NO
+- Failure-drill evidence file:
+- Reviewer:
+
+## Database credential separation
+
+- Runtime application DB role:
+- Migrator/owner role separate: YES / NO
+- Backup role separate: YES / NO
+- Runtime role SUPERUSER/CREATEDB/CREATEROLE/REPLICATION/BYPASSRLS: NONE / list
+- Runtime role database CREATE: NO / YES
+- Runtime role public-schema CREATE: NO / YES
+- Reviewer:
 
 ## Data load reconciliation
 
