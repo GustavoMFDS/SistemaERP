@@ -19,4 +19,5 @@ var (
 	ErrSaleAlreadyCancelled    = errors.New("sale already cancelled")
 	ErrInvoiceAlreadyExists    = errors.New("invoice already exists")
 	ErrFiscalSequenceExhausted = errors.New("fiscal sequence exhausted")
+	ErrFiscalNotReady          = errors.New("fiscal data is not ready for homologation")
 )
