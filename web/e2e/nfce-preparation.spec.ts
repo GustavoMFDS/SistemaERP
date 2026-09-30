@@ -35,8 +35,6 @@ test('NFC-e preparation stays disabled and never exposes secret references', asy
       body: {
         environment: 'homologation',
         series: 1,
-        csc_id: '1',
-        csc_secret_ref: 'secret://nfce/e2e/csc',
         certificate_secret_ref: 'secret://nfce/e2e/certificate',
       },
     })
@@ -52,7 +50,7 @@ test('NFC-e preparation stays disabled and never exposes secret references', asy
 
   expect(result.config.enabled).toBe(false)
   expect(result.config.environment).toBe('homologation')
-  expect(result.config.csc_reference_configured).toBe(true)
+  expect(result.config.csc_reference_configured).toBe(false)
   expect(result.config.certificate_reference_configured).toBe(true)
 
   expect(result.fetchedConfig.enabled).toBe(false)
@@ -64,6 +62,10 @@ test('NFC-e preparation stays disabled and never exposes secret references', asy
   expect(result.readiness.issuer_identity_configured).toBe(true)
   expect(result.readiness.issuer_address_configured).toBe(true)
   expect(result.readiness.municipality_code_configured).toBe(true)
+  expect(result.readiness.csc_reference_configured).toBe(false)
+  expect(result.readiness.certificate_reference_configured).toBe(true)
+  expect(result.readiness.products_missing_ncm).toBe(0)
+  expect(result.readiness.ready_for_homologation_data).toBe(true)
 
   await page.goto('/fiscal')
   await expect(page.getByRole('heading', { name: 'Fiscal — preparação NFC-e' })).toBeVisible()
@@ -115,8 +117,6 @@ test('NFC-e preparation rejects invalid municipality and series', async ({ page 
       config: await statusFor('/api/v1/fiscal/nfce/config', {
         environment: 'homologation',
         series: 890,
-        csc_id: '1',
-        csc_secret_ref: 'secret://nfce/e2e/csc',
         certificate_secret_ref: 'secret://nfce/e2e/certificate',
       }),
     }
