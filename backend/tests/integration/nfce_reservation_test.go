@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/example/sistemaemgo/internal/modules/audit"
+	"github.com/example/sistemaemgo/internal/modules/common"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	fiscinfra "github.com/example/sistemaemgo/internal/modules/fiscal/infrastructure"
