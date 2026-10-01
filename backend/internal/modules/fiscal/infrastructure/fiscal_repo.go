@@ -791,11 +791,10 @@ func (r *FiscalRepo) CreateSaleItemFiscalSnapshots(
 				is_cst,
 				is_classification,
 				reference_version,
-				tax_calculation,
 				snapshot_sha256
 			)
 			VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
 			)
 		`,
 			tenantID,
@@ -815,7 +814,6 @@ func (r *FiscalRepo) CreateSaleItemFiscalSnapshots(
 			snapshot.ISCST,
 			snapshot.ISClassification,
 			snapshot.ReferenceVersion,
-			string(snapshot.TaxCalculation),
 			snapshot.SnapshotSHA256,
 		)
 		if err != nil {
@@ -855,7 +853,6 @@ func (r *FiscalRepo) GetSaleItemFiscalSnapshots(
 			is_cst,
 			is_classification,
 			reference_version,
-			tax_calculation::text,
 			snapshot_sha256
 		FROM sale_item_fiscal_snapshots
 		WHERE tenant_id=$1 AND sale_id=$2
@@ -869,7 +866,6 @@ func (r *FiscalRepo) GetSaleItemFiscalSnapshots(
 	out := make([]fisc.SaleItemFiscalSnapshot, 0)
 	for rows.Next() {
 		var snapshot fisc.SaleItemFiscalSnapshot
-		var taxJSON string
 		snapshot.TenantID = tenantID
 		if err := rows.Scan(
 			&snapshot.SaleItemID,
@@ -888,12 +884,10 @@ func (r *FiscalRepo) GetSaleItemFiscalSnapshots(
 			&snapshot.ISCST,
 			&snapshot.ISClassification,
 			&snapshot.ReferenceVersion,
-			&taxJSON,
 			&snapshot.SnapshotSHA256,
 		); err != nil {
 			return nil, err
 		}
-		snapshot.TaxCalculation = []byte(taxJSON)
 		out = append(out, snapshot)
 	}
 	return out, rows.Err()
