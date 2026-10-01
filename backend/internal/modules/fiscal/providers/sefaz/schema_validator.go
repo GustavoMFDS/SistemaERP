@@ -41,6 +41,10 @@ func newXMLLintSchemaValidator(schemaDir, entrypoint, binary string) (*XMLLintSc
 	if err != nil {
 		return nil, fmt.Errorf("resolve NFC-e schema directory: %w", err)
 	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve NFC-e schema directory symlinks: %w", err)
+	}
 	info, err := os.Stat(root)
 	if err != nil {
 		return nil, fmt.Errorf("stat NFC-e schema directory: %w", err)
@@ -50,6 +54,15 @@ func newXMLLintSchemaValidator(schemaDir, entrypoint, binary string) (*XMLLintSc
 	}
 
 	schemaPath := filepath.Join(root, entrypoint)
+	resolvedSchemaPath, err := filepath.EvalSymlinks(schemaPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve NFC-e schema entrypoint symlinks: %w", err)
+	}
+	relative, err := filepath.Rel(root, resolvedSchemaPath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("NFC-e schema entrypoint resolves outside the configured schema directory")
+	}
+	schemaPath = resolvedSchemaPath
 	schemaInfo, err := os.Stat(schemaPath)
 	if err != nil {
 		return nil, fmt.Errorf("stat NFC-e schema entrypoint: %w", err)
