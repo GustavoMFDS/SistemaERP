@@ -33,6 +33,7 @@ type FiscalRepository interface {
 	UpdateNFCeIssuerProfile(ctx context.Context, tx db.DBTX, tenantID string, profile fisc.NFCeIssuerProfile) error
 	GetNFCeReservationContextForUpdate(ctx context.Context, tx db.DBTX, tenantID string) (fisc.NFCeReservationContext, error)
 	GetNFCeReservationBySale(ctx context.Context, tx db.DBTX, tenantID, saleID string) (fisc.NFCeReservation, error)
+	GetNFCeReservationByInvoiceForUpdate(ctx context.Context, tx db.DBTX, tenantID, invoiceID string) (fisc.NFCeReservation, error)
 	CreateNFCeReservation(ctx context.Context, tx db.DBTX, tenantID, actorUserID string, reservation fisc.NFCeReservation) (string, error)
 	ReserveNextNFCeNumber(ctx context.Context, tx db.DBTX, tenantID string, series int) (int64, error)
 	StoreSignedNFCeXML(ctx context.Context, tx db.DBTX, tenantID, invoiceID, accessKey, fileName string, content []byte, sha256 string) (string, error)
@@ -42,6 +43,8 @@ type FiscalRepository interface {
 	UpsertProductFiscalProfile(ctx context.Context, tx db.DBTX, tenantID, actorUserID string, profile fisc.ProductFiscalProfile) error
 	CreateSaleItemFiscalSnapshots(ctx context.Context, tx db.DBTX, tenantID string, snapshots []fisc.SaleItemFiscalSnapshot) error
 	GetSaleItemFiscalSnapshots(ctx context.Context, tx db.DBTX, tenantID, saleID string) ([]fisc.SaleItemFiscalSnapshot, error)
+	InsertInvoiceItemTaxCalculation(ctx context.Context, tx db.DBTX, calculation fisc.InvoiceItemTaxCalculation) error
+	GetInvoiceItemTaxCalculations(ctx context.Context, tx db.DBTX, tenantID, invoiceID string) ([]fisc.InvoiceItemTaxCalculation, error)
 }
 
 type SalesRepository interface {
