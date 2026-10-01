@@ -50,6 +50,7 @@ type Config struct {
 	NFCeCertificateSecretDir string
 	NFCeSchemaDir            string
 	NFCeSchemaEntrypoint     string
+	NFCeSEFAZHomologationEnabled bool
 	DisableRedis        bool
 	PrivacyContactEmail string
 	AppPublicURL        string
@@ -116,6 +117,7 @@ func LoadFromEnv() (Config, error) {
 		NFCeCertificateSecretDir: strings.TrimSpace(os.Getenv("NFCE_CERTIFICATE_SECRET_DIR")),
 		NFCeSchemaDir:            strings.TrimSpace(os.Getenv("NFCE_SCHEMA_DIR")),
 		NFCeSchemaEntrypoint:     strings.TrimSpace(os.Getenv("NFCE_SCHEMA_ENTRYPOINT")),
+		NFCeSEFAZHomologationEnabled: getEnvBool("NFCE_SEFAZ_HOMOLOGATION_ENABLED", false),
 		DisableRedis:        getEnvBool("DISABLE_REDIS", false),
 		PrivacyContactEmail: strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
 		AppPublicURL:        strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
@@ -239,6 +241,18 @@ func (c Config) Validate() error {
 
 	if (c.NFCeSchemaDir == "") != (c.NFCeSchemaEntrypoint == "") {
 		errs = append(errs, "NFCE_SCHEMA_DIR and NFCE_SCHEMA_ENTRYPOINT must be configured together")
+	}
+
+	if c.NFCeSEFAZHomologationEnabled {
+		if e == "prod" || e == "production" {
+			errs = append(errs, "NFCE_SEFAZ_HOMOLOGATION_ENABLED must not be enabled in production")
+		}
+		if strings.TrimSpace(c.NFCeCertificateSecretDir) == "" {
+			errs = append(errs, "NFCE_CERTIFICATE_SECRET_DIR is required when SEFAZ homologation is enabled")
+		}
+		if c.NFCeSchemaDir == "" || c.NFCeSchemaEntrypoint == "" {
+			errs = append(errs, "NFCE schema bundle is required when SEFAZ homologation is enabled")
+		}
 	}
 
 	if len(errs) > 0 {
