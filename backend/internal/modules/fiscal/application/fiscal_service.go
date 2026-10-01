@@ -26,8 +26,9 @@ type FiscalService struct {
 	sales    SalesRepository
 	products ProductsRepository
 	nfe      NFeProvider
-	nfceDoc  NFCeDocumentBuilder
-	audit    *audit.Service
+	nfceDoc    NFCeDocumentBuilder
+	nfceSigner NFCeXMLSigner
+	audit      *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
 }
@@ -87,6 +88,10 @@ func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo Sale
 
 func (s *FiscalService) SetNFCeDocumentBuilder(builder NFCeDocumentBuilder) {
 	s.nfceDoc = builder
+}
+
+func (s *FiscalService) SetNFCeXMLSigner(signer NFCeXMLSigner) {
+	s.nfceSigner = signer
 }
 
 func NewFiscalServiceWithProvider(
@@ -1052,6 +1057,53 @@ func (s *FiscalService) BuildNFCeUnsignedCandidate(
 		return nil, "", err
 	}
 	return content, "NFCe-candidate-" + draft.Reservation.AccessKey + ".xml", nil
+}
+
+func (s *FiscalService) SignNFCeReserved(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID string,
+) (string, string, error) {
+	if s.nfceDoc == nil || s.nfceSigner == nil {
+		return "", "", common.ErrFiscalNotReady
+	}
+	draft, err := s.GetNFCeDocumentDraft(ctx, tenantID, invoiceID)
+	if err != nil {
+		return "", "", err
+	}
+	unsigned, err := s.nfceDoc.BuildUnsignedLegacyCandidate(draft)
+	if err != nil {
+		return "", "", err
+	}
+	cfg, err := s.fiscal.GetNFCeConfig(ctx, tenantID)
+	if err != nil {
+		return "", "", err
+	}
+	if cfg.CertificateSecretRef == nil || strings.TrimSpace(*cfg.CertificateSecretRef) == "" {
+		return "", "", common.ErrFiscalNotReady
+	}
+	signed, err := s.nfceSigner.Sign(
+		ctx,
+		strings.TrimSpace(*cfg.CertificateSecretRef),
+		draft.Reservation.AccessKey,
+		unsigned,
+	)
+	if err != nil {
+		return "", "", err
+	}
+	fileName := "NFCe-" + draft.Reservation.AccessKey + ".xml"
+	xmlID, err := s.StoreSignedNFCeXML(
+		ctx,
+		tenantID,
+		actorUserID,
+		draft.Reservation.InvoiceID,
+		draft.Reservation.AccessKey,
+		fileName,
+		signed,
+	)
+	if err != nil {
+		return "", "", err
+	}
+	return xmlID, fileName, nil
 }
 
 func (s *FiscalService) GetInvoiceTaxCalculations(
