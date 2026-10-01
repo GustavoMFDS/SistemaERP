@@ -3,6 +3,7 @@ module github.com/example/sistemaemgo
 go 1.25.0
 
 require (
+	github.com/beevik/etree v1.7.0
 	github.com/exaring/otelpgx v0.12.0
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-playground/validator/v10 v10.27.0
@@ -12,6 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/extra/redisotel/v9 v9.18.0
 	github.com/redis/go-redis/v9 v9.18.0
+	github.com/russellhaering/goxmldsig v1.6.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
@@ -22,6 +24,7 @@ require (
 )
 
 require (
+	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
