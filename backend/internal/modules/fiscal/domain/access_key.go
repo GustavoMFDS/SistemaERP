@@ -163,6 +163,12 @@ func ValidateNFCeAccessKey(key string) error {
 	if !isAccessKeyBaseFormat(key[:43]) || !isDigit(key[43]) {
 		return fmt.Errorf("access key has invalid format")
 	}
+	if key[20:22] != "65" {
+		return fmt.Errorf("access key model must be 65")
+	}
+	if err := ValidateCNPJ(key[6:20]); err != nil {
+		return fmt.Errorf("access key CNPJ: %w", err)
+	}
 	dv, err := AccessKeyCheckDigit(key[:43])
 	if err != nil {
 		return err
