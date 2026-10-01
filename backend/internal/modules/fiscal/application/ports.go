@@ -35,6 +35,7 @@ type FiscalRepository interface {
 	GetNFCeReservationBySale(ctx context.Context, tx db.DBTX, tenantID, saleID string) (fisc.NFCeReservation, error)
 	CreateNFCeReservation(ctx context.Context, tx db.DBTX, tenantID, actorUserID string, reservation fisc.NFCeReservation) (string, error)
 	ReserveNextNFCeNumber(ctx context.Context, tx db.DBTX, tenantID string, series int) (int64, error)
+	StoreSignedNFCeXML(ctx context.Context, tx db.DBTX, tenantID, invoiceID, accessKey, fileName string, content []byte, sha256 string) (string, error)
 	MarkNFCeSubmitted(ctx context.Context, tx db.DBTX, tenantID, invoiceID, accessKey string) error
 	ApplyNFCeAuthorizationResult(ctx context.Context, tx db.DBTX, tenantID, invoiceID string, result fisc.NFCeAuthorizationResult) error
 }
