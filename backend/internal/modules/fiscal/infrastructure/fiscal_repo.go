@@ -842,6 +842,9 @@ func (r *FiscalRepo) CreateSaleItemFiscalSnapshots(
 				sale_item_id,
 				sale_id,
 				product_id,
+				product_code,
+				product_description,
+				unit,
 				ncm,
 				cest,
 				cfop,
@@ -858,13 +861,16 @@ func (r *FiscalRepo) CreateSaleItemFiscalSnapshots(
 				snapshot_sha256
 			)
 			VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
 			)
 		`,
 			tenantID,
 			snapshot.SaleItemID,
 			snapshot.SaleID,
 			snapshot.ProductID,
+			snapshot.ProductCode,
+			snapshot.ProductDescription,
+			snapshot.Unit,
 			snapshot.NCM,
 			snapshot.CEST,
 			snapshot.CFOP,
@@ -904,6 +910,9 @@ func (r *FiscalRepo) GetSaleItemFiscalSnapshots(
 			sale_item_id::text,
 			sale_id::text,
 			product_id::text,
+			product_code,
+			product_description,
+			unit,
 			ncm,
 			cest,
 			cfop,
@@ -935,6 +944,9 @@ func (r *FiscalRepo) GetSaleItemFiscalSnapshots(
 			&snapshot.SaleItemID,
 			&snapshot.SaleID,
 			&snapshot.ProductID,
+			&snapshot.ProductCode,
+			&snapshot.ProductDescription,
+			&snapshot.Unit,
 			&snapshot.NCM,
 			&snapshot.CEST,
 			&snapshot.CFOP,
