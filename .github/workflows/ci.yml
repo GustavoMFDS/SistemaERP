@@ -132,34 +132,44 @@ jobs:
           # Prove that a legacy duplicate-open state is rejected instead of
           # being silently mutated by migration 0013.
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO cash_registers(tenant_id, name, active)
-          SELECT c.id, 'Caixa Upgrade CI', true
-          FROM companies c
-          ORDER BY c.created_at
-          LIMIT 1
-          ON CONFLICT (tenant_id, name) DO NOTHING;
+          DO $do$
+          DECLARE
+            v_tenant uuid;
+            v_user uuid;
+            v_register uuid;
+          BEGIN
+            SELECT ut.tenant_id, ut.user_id
+              INTO v_tenant, v_user
+            FROM user_tenants ut
+            ORDER BY ut.created_at, ut.user_id
+            LIMIT 1;
 
-          INSERT INTO cash_sessions(
-            tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
-          )
-          SELECT cr.tenant_id, cr.id, u.id, 0, 'open'
-          FROM cash_registers cr
-          JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
-          JOIN users u ON u.id=ut.user_id
-          WHERE cr.name='Caixa Upgrade CI'
-          ORDER BY cr.created_at, u.created_at
-          LIMIT 1;
+            IF v_tenant IS NULL OR v_user IS NULL THEN
+              RAISE EXCEPTION 'seed must provide a tenant/user relation for migration 0013 test';
+            END IF;
 
-          INSERT INTO cash_sessions(
-            tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
-          )
-          SELECT cr.tenant_id, cr.id, u.id, 0, 'open'
-          FROM cash_registers cr
-          JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
-          JOIN users u ON u.id=ut.user_id
-          WHERE cr.name='Caixa Upgrade CI'
-          ORDER BY cr.created_at, u.created_at
-          LIMIT 1;
+            INSERT INTO cash_registers(tenant_id, name, active)
+            VALUES (v_tenant, 'Caixa Upgrade CI ' || gen_random_uuid()::text, true)
+            RETURNING id INTO v_register;
+
+            INSERT INTO cash_sessions(
+              tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
+            )
+            VALUES
+              (v_tenant, v_register, v_user, 0, 'open'),
+              (v_tenant, v_register, v_user, 0, 'open');
+
+            IF (
+              SELECT count(*)
+              FROM cash_sessions
+              WHERE tenant_id=v_tenant
+                AND cash_register_id=v_register
+                AND status='open'
+            ) <> 2 THEN
+              RAISE EXCEPTION 'failed to create deterministic duplicate-open fixture for migration 0013';
+            END IF;
+          END
+          $do$;
           SQL
 
           if docker run --rm --network host \
