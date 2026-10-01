@@ -747,6 +747,37 @@ func (s *FiscalService) validateInvoiceTaxCalculationsComplete(
 	return nil
 }
 
+func (s *FiscalService) GetInvoiceTaxCalculations(
+	ctx context.Context,
+	tenantID, invoiceID string,
+) ([]fisc.InvoiceItemTaxCalculation, error) {
+	invoiceID = strings.TrimSpace(invoiceID)
+	if s.validate.Var(invoiceID, "required,uuid") != nil {
+		return nil, common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(ctx, tx, tenantID, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	calculations, err := s.fiscal.GetInvoiceItemTaxCalculations(
+		ctx, tx, tenantID, reservation.InvoiceID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return calculations, nil
+}
+
 func (s *FiscalService) StoreSignedNFCeXML(
 	ctx context.Context,
 	tenantID, actorUserID, invoiceID, accessKey, fileName string,
