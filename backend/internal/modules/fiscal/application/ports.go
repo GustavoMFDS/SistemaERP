@@ -21,6 +21,10 @@ type NFCeXMLSigner interface {
 	Sign(ctx context.Context, secretRef string, expectedAccessKey string, unsignedXML []byte) ([]byte, error)
 }
 
+type NFCeSchemaValidator interface {
+	Validate(ctx context.Context, unsignedXML []byte) error
+}
+
 type NFCeDocumentBuilder interface {
 	BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDraft) ([]byte, error)
 }
