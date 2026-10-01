@@ -17,6 +17,7 @@ type NFCeReadiness struct {
 	CertificateReferenceConfigured bool     `json:"certificate_reference_configured"`
 	ActiveProducts                 int      `json:"active_products"`
 	ProductsMissingNCM             int      `json:"products_missing_ncm"`
+	ProductsMissingFiscalProfile   int      `json:"products_missing_fiscal_profile"`
 	ReadyForHomologationData       bool     `json:"ready_for_homologation_data"`
 	BlockingReasons                []string `json:"blocking_reasons"`
 }
