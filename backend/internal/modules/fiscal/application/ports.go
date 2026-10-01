@@ -25,6 +25,25 @@ type NFCeSchemaValidator interface {
 	Validate(ctx context.Context, unsignedXML []byte) error
 }
 
+type NFCeRemoteAuthorizer interface {
+	Authorize(
+		ctx context.Context,
+		certificateSecretRef string,
+		issuerUF string,
+		environment string,
+		accessKey string,
+		documentNumber int64,
+		signedXML []byte,
+	) (fisc.NFCeRemoteOutcome, error)
+	Consult(
+		ctx context.Context,
+		certificateSecretRef string,
+		issuerUF string,
+		environment string,
+		accessKey string,
+	) (fisc.NFCeRemoteOutcome, error)
+}
+
 type NFCeDocumentBuilder interface {
 	BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDraft) ([]byte, error)
 }
@@ -57,6 +76,7 @@ type FiscalRepository interface {
 	GetSaleItemFiscalSnapshots(ctx context.Context, tx db.DBTX, tenantID, saleID string) ([]fisc.SaleItemFiscalSnapshot, error)
 	InsertInvoiceItemTaxCalculation(ctx context.Context, tx db.DBTX, calculation fisc.InvoiceItemTaxCalculation) error
 	GetInvoiceItemTaxCalculations(ctx context.Context, tx db.DBTX, tenantID, invoiceID string) ([]fisc.InvoiceItemTaxCalculation, error)
+	GetLatestNFCeXMLContent(ctx context.Context, tx db.DBTX, tenantID, invoiceID string) (fileName string, content []byte, err error)
 }
 
 type SalesRepository interface {
