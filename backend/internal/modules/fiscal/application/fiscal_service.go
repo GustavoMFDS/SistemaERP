@@ -327,6 +327,143 @@ func (s *FiscalService) ReserveNFCeDraft(
 	return reservation, true, nil
 }
 
+func (s *FiscalService) StoreSignedNFCeXML(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID, accessKey, fileName string,
+	content []byte,
+) (string, error) {
+	invoiceID = strings.TrimSpace(invoiceID)
+	accessKey = strings.TrimSpace(accessKey)
+	fileName = strings.TrimSpace(fileName)
+	if s.validate.Var(invoiceID, "required,uuid") != nil ||
+		fileName == "" ||
+		len(content) == 0 ||
+		fisc.ValidateNFCeAccessKey(accessKey) != nil {
+		return "", common.ErrValidation
+	}
+	sum := sha256.Sum256(content)
+	shaHex := hex.EncodeToString(sum[:])
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	xmlID, err := s.fiscal.StoreSignedNFCeXML(
+		ctx, tx, tenantID, invoiceID, accessKey, fileName, content, shaHex,
+	)
+	if err != nil {
+		return "", err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce.sign",
+		ResourceType: "invoice", ResourceID: invoiceID, Outcome: "success",
+		Metadata: map[string]any{
+			"access_key": accessKey,
+			"xml_file_id": xmlID,
+			"sha256": shaHex,
+		},
+	}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return xmlID, nil
+}
+
+func (s *FiscalService) MarkNFCeSubmitted(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID, accessKey string,
+) error {
+	invoiceID = strings.TrimSpace(invoiceID)
+	accessKey = strings.TrimSpace(accessKey)
+	if s.validate.Var(invoiceID, "required,uuid") != nil ||
+		fisc.ValidateNFCeAccessKey(accessKey) != nil {
+		return common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.fiscal.MarkNFCeSubmitted(ctx, tx, tenantID, invoiceID, accessKey); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce.submit",
+		ResourceType: "invoice", ResourceID: invoiceID, Outcome: "success",
+		Metadata: map[string]any{"access_key": accessKey},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *FiscalService) ApplyNFCeAuthorizationResult(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID string,
+	result fisc.NFCeAuthorizationResult,
+) error {
+	invoiceID = strings.TrimSpace(invoiceID)
+	result.AccessKey = strings.TrimSpace(result.AccessKey)
+	result.Protocol = strings.TrimSpace(result.Protocol)
+	result.RejectionCode = strings.TrimSpace(result.RejectionCode)
+	result.RejectionMessage = strings.TrimSpace(result.RejectionMessage)
+
+	if s.validate.Var(invoiceID, "required,uuid") != nil ||
+		fisc.ValidateNFCeAccessKey(result.AccessKey) != nil {
+		return common.ErrValidation
+	}
+	switch {
+	case result.IsAuthorized():
+		if result.Protocol == "" || result.AuthorizedAt.IsZero() ||
+			result.RejectionCode != "" || result.RejectionMessage != "" {
+			return common.ErrValidation
+		}
+	case result.IsRejected():
+		if result.RejectionCode == "" || result.RejectionMessage == "" ||
+			result.Protocol != "" || !result.AuthorizedAt.IsZero() {
+			return common.ErrValidation
+		}
+	default:
+		return common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.fiscal.ApplyNFCeAuthorizationResult(ctx, tx, tenantID, invoiceID, result); err != nil {
+		return err
+	}
+	action := "fiscal.nfce.rejected"
+	metadata := map[string]any{
+		"access_key": result.AccessKey,
+		"rejection_code": result.RejectionCode,
+	}
+	if result.IsAuthorized() {
+		action = "fiscal.nfce.authorized"
+		metadata = map[string]any{
+			"access_key": result.AccessKey,
+			"authorization_protocol": result.Protocol,
+		}
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: action,
+		ResourceType: "invoice", ResourceID: invoiceID, Outcome: "success",
+		Metadata: metadata,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *FiscalService) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
 	return s.fiscal.GetNFCeConfig(ctx, tenantID)
 }
