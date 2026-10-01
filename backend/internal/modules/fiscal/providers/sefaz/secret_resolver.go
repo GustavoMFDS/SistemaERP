@@ -132,13 +132,10 @@ func (s *XMLSigningService) Sign(
 	expectedAccessKey string,
 	unsignedXML []byte,
 ) ([]byte, error) {
-	cert, err := ResolveAndValidateCertificate(ctx, s.resolver, secretRef, timeNowUTC())
+	now := time.Now().UTC()
+	cert, err := ResolveAndValidateCertificate(ctx, s.resolver, secretRef, now)
 	if err != nil {
 		return nil, err
 	}
-	return SignNFCeXML(unsignedXML, cert, expectedAccessKey, timeNowUTC())
-}
-
-var timeNowUTC = func() time.Time {
-	return time.Now().UTC()
+	return SignNFCeXML(unsignedXML, cert, expectedAccessKey, now)
 }
