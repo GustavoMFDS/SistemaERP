@@ -783,6 +783,33 @@ func (s *FiscalService) StoreSignedNFCeXML(
 		return "", err
 	}
 
+	sale, _, payments, err := s.sales.GetSaleForUpdate(
+		ctx, tx, tenantID, reservation.SaleID,
+	)
+	if err != nil {
+		return "", err
+	}
+	calculations, err := s.fiscal.GetInvoiceItemTaxCalculations(
+		ctx, tx, tenantID, reservation.InvoiceID,
+	)
+	if err != nil {
+		return "", err
+	}
+	fiscalTotals, err := fisc.CalculateNFCeFiscalTotals(sale.Total, calculations)
+	if err != nil {
+		return "", common.ErrFiscalNotReady
+	}
+	var paidTotal platform.Money
+	for _, payment := range payments {
+		paidTotal, err = paidTotal.AddChecked(payment.Amount)
+		if err != nil {
+			return "", common.ErrFiscalNotReady
+		}
+	}
+	if err := fisc.ValidateNFCePaidTotal(paidTotal, fiscalTotals.FiscalTotal); err != nil {
+		return "", common.ErrFiscalNotReady
+	}
+
 	xmlID, err := s.fiscal.StoreSignedNFCeXML(
 		ctx, tx, tenantID, invoiceID, accessKey, fileName, content, shaHex,
 	)
@@ -793,9 +820,13 @@ func (s *FiscalService) StoreSignedNFCeXML(
 		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce.sign",
 		ResourceType: "invoice", ResourceID: invoiceID, Outcome: "success",
 		Metadata: map[string]any{
-			"access_key": accessKey,
-			"xml_file_id": xmlID,
-			"sha256": shaHex,
+			"access_key":     accessKey,
+			"xml_file_id":    xmlID,
+			"sha256":         shaHex,
+			"legacy_total":   fiscalTotals.LegacyDocumentTotal.DBString(),
+			"rtc_tax_total":  fiscalTotals.RTCTaxTotal.DBString(),
+			"fiscal_total":   fiscalTotals.FiscalTotal.DBString(),
+			"paid_total":     paidTotal.DBString(),
 		},
 	}); err != nil {
 		return "", err
