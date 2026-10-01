@@ -72,7 +72,6 @@ func SignNFCeXML(unsignedXML []byte, cert tls.Certificate) ([]byte, error) {
 	}
 	root.InsertChildAt(insertIndex, signature)
 
-	doc.WriteSettings.CanonicalAttrVal = true
 	content, err := doc.WriteToBytes()
 	if err != nil {
 		return nil, fmt.Errorf("serialize signed NFC-e XML: %w", err)
