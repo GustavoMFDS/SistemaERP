@@ -849,6 +849,148 @@ func (s *FiscalService) validateInvoiceTaxCalculationsComplete(
 	return nil
 }
 
+func (s *FiscalService) GetNFCeDocumentDraft(
+	ctx context.Context,
+	tenantID, invoiceID string,
+) (fisc.NFCeDocumentDraft, error) {
+	invoiceID = strings.TrimSpace(invoiceID)
+	if s.validate.Var(invoiceID, "required,uuid") != nil {
+		return fisc.NFCeDocumentDraft{}, common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(ctx, tx, tenantID, invoiceID)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	if reservation.Status != fisc.NFCeStatusReserved {
+		return fisc.NFCeDocumentDraft{}, common.ErrConflict
+	}
+	if err := s.validateInvoiceTaxCalculationsComplete(ctx, tx, tenantID, reservation); err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+
+	sale, saleItems, payments, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, reservation.SaleID)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	if sale.Status != "finalized" {
+		return fisc.NFCeDocumentDraft{}, common.ErrSaleNotFinalized
+	}
+	if err := sale.ValidarPagamentos(payments); err != nil {
+		return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+	}
+
+	reservationContext, err := s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	if reservationContext.Config.Environment != reservation.Environment ||
+		reservationContext.Config.Series != reservation.Series {
+		return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+	}
+
+	snapshots, err := s.fiscal.GetSaleItemFiscalSnapshots(ctx, tx, tenantID, reservation.SaleID)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	calculations, err := s.fiscal.GetInvoiceItemTaxCalculations(ctx, tx, tenantID, reservation.InvoiceID)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	netValues, err := fiscalItemNetValues(sale, saleItems)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+
+	snapshotByItem := make(map[string]fisc.SaleItemFiscalSnapshot, len(snapshots))
+	for _, snapshot := range snapshots {
+		snapshotByItem[snapshot.SaleItemID] = snapshot
+	}
+	calculationByItem := make(map[string]fisc.InvoiceItemTaxCalculation, len(calculations))
+	for _, calculation := range calculations {
+		calculationByItem[calculation.SaleItemID] = calculation
+	}
+
+	documentItems := make([]fisc.NFCeDocumentItem, 0, len(saleItems))
+	var netTotal platform.Money
+	for index, item := range saleItems {
+		snapshot, ok := snapshotByItem[item.ID]
+		if !ok {
+			return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+		}
+		calculation, ok := calculationByItem[item.ID]
+		if !ok {
+			return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+		}
+		gross, _, err := item.CalcularSubtotal()
+		if err != nil {
+			return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+		}
+		net, ok := netValues[item.ID]
+		if !ok || net < 0 || net > gross {
+			return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+		}
+		discount, err := gross.SubChecked(net)
+		if err != nil || discount < 0 {
+			return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+		}
+		netTotal, err = netTotal.AddChecked(net)
+		if err != nil {
+			return fisc.NFCeDocumentDraft{}, err
+		}
+		documentItems = append(documentItems, fisc.NFCeDocumentItem{
+			Number:        index + 1,
+			SaleItemID:    item.ID,
+			ProductID:     item.ProductID,
+			Code:          snapshot.ProductCode,
+			Description:   snapshot.ProductDescription,
+			Unit:          snapshot.Unit,
+			NCM:           snapshot.NCM,
+			CEST:          snapshot.CEST,
+			CFOP:          snapshot.CFOP,
+			Quantity:      item.Qty,
+			UnitPrice:     item.UnitPrice,
+			GrossValue:    gross,
+			DiscountValue: discount,
+			NetValue:      net,
+			Tax:           calculation,
+		})
+	}
+	if netTotal != sale.Total {
+		return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+	}
+
+	documentPayments := make([]fisc.NFCeDocumentPayment, 0, len(payments))
+	for _, payment := range payments {
+		documentPayments = append(documentPayments, fisc.NFCeDocumentPayment{
+			Method:            payment.Method,
+			Amount:            payment.Amount,
+			Provider:          payment.Provider,
+			TransactionRef:    payment.TransactionRef,
+			AuthorizationCode: payment.AuthorizationCode,
+			Installments:      payment.Installments,
+		})
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	return fisc.NFCeDocumentDraft{
+		Reservation:     reservation,
+		Issuer:          reservationContext.Issuer,
+		CustomerID:      sale.CustomerID,
+		CommercialTotal: sale.Total,
+		Items:           documentItems,
+		Payments:        documentPayments,
+	}, nil
+}
+
 func (s *FiscalService) GetInvoiceTaxCalculations(
 	ctx context.Context,
 	tenantID, invoiceID string,
