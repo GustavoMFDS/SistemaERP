@@ -22,6 +22,31 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type fakeRemoteAuthorizer struct {
+	authorizeCalls int
+	consultCalls   int
+	authorizeOut   fisc.NFCeRemoteOutcome
+	consultOut     fisc.NFCeRemoteOutcome
+}
+
+func (f *fakeRemoteAuthorizer) Authorize(
+	_ context.Context,
+	_, _, _, _ string,
+	_ int64,
+	_ []byte,
+) (fisc.NFCeRemoteOutcome, error) {
+	f.authorizeCalls++
+	return f.authorizeOut, nil
+}
+
+func (f *fakeRemoteAuthorizer) Consult(
+	_ context.Context,
+	_, _, _, _ string,
+) (fisc.NFCeRemoteOutcome, error) {
+	f.consultCalls++
+	return f.consultOut, nil
+}
+
 func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
