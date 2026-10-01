@@ -636,3 +636,265 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 	out.ReadyForHomologationData = len(reasons) == 0
 	return out, nil
 }
+
+
+func (r *FiscalRepo) GetProductFiscalProfiles(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	productIDs []string,
+) (map[string]fisc.ProductFiscalProfile, error) {
+	out := make(map[string]fisc.ProductFiscalProfile, len(productIDs))
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT
+			product_id::text,
+			cfop,
+			icms_origin,
+			icms_regime,
+			icms_code,
+			pis_cst,
+			cofins_cst,
+			ibs_cbs_cst,
+			ibs_cbs_classification,
+			is_cst,
+			is_classification,
+			reference_version
+		FROM product_fiscal_profiles
+		WHERE tenant_id=$1
+		  AND product_id = ANY($2::uuid[])
+	`, tenantID, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var profile fisc.ProductFiscalProfile
+		profile.TenantID = tenantID
+		if err := rows.Scan(
+			&profile.ProductID,
+			&profile.CFOP,
+			&profile.ICMSOrigin,
+			&profile.ICMSRegime,
+			&profile.ICMSCode,
+			&profile.PISCST,
+			&profile.COFINSCST,
+			&profile.IBSCBSCST,
+			&profile.IBSCBSClassification,
+			&profile.ISCST,
+			&profile.ISClassification,
+			&profile.ReferenceVersion,
+		); err != nil {
+			return nil, err
+		}
+		out[profile.ProductID] = profile
+	}
+	return out, rows.Err()
+}
+
+func (r *FiscalRepo) UpsertProductFiscalProfile(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, actorUserID string,
+	profile fisc.ProductFiscalProfile,
+) error {
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO product_fiscal_profiles(
+			tenant_id,
+			product_id,
+			cfop,
+			icms_origin,
+			icms_regime,
+			icms_code,
+			pis_cst,
+			cofins_cst,
+			ibs_cbs_cst,
+			ibs_cbs_classification,
+			is_cst,
+			is_classification,
+			reference_version,
+			updated_by_user_id
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		ON CONFLICT (tenant_id, product_id) DO UPDATE
+		SET cfop=EXCLUDED.cfop,
+		    icms_origin=EXCLUDED.icms_origin,
+		    icms_regime=EXCLUDED.icms_regime,
+		    icms_code=EXCLUDED.icms_code,
+		    pis_cst=EXCLUDED.pis_cst,
+		    cofins_cst=EXCLUDED.cofins_cst,
+		    ibs_cbs_cst=EXCLUDED.ibs_cbs_cst,
+		    ibs_cbs_classification=EXCLUDED.ibs_cbs_classification,
+		    is_cst=EXCLUDED.is_cst,
+		    is_classification=EXCLUDED.is_classification,
+		    reference_version=EXCLUDED.reference_version,
+		    updated_by_user_id=EXCLUDED.updated_by_user_id,
+		    updated_at=now()
+	`,
+		tenantID,
+		profile.ProductID,
+		profile.CFOP,
+		profile.ICMSOrigin,
+		profile.ICMSRegime,
+		profile.ICMSCode,
+		profile.PISCST,
+		profile.COFINSCST,
+		profile.IBSCBSCST,
+		profile.IBSCBSClassification,
+		profile.ISCST,
+		profile.ISClassification,
+		profile.ReferenceVersion,
+		actorUserID,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return common.ErrNotFound
+		}
+		if errors.As(err, &pgErr) && pgErr.Code == "23514" {
+			return common.ErrValidation
+		}
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return common.ErrConflict
+	}
+	return nil
+}
+
+func (r *FiscalRepo) CreateSaleItemFiscalSnapshots(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	snapshots []fisc.SaleItemFiscalSnapshot,
+) error {
+	for _, snapshot := range snapshots {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO sale_item_fiscal_snapshots(
+				tenant_id,
+				sale_item_id,
+				sale_id,
+				product_id,
+				ncm,
+				cest,
+				cfop,
+				icms_origin,
+				icms_regime,
+				icms_code,
+				pis_cst,
+				cofins_cst,
+				ibs_cbs_cst,
+				ibs_cbs_classification,
+				is_cst,
+				is_classification,
+				reference_version,
+				tax_calculation,
+				snapshot_sha256
+			)
+			VALUES (
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19
+			)
+		`,
+			tenantID,
+			snapshot.SaleItemID,
+			snapshot.SaleID,
+			snapshot.ProductID,
+			snapshot.NCM,
+			snapshot.CEST,
+			snapshot.CFOP,
+			snapshot.ICMSOrigin,
+			snapshot.ICMSRegime,
+			snapshot.ICMSCode,
+			snapshot.PISCST,
+			snapshot.COFINSCST,
+			snapshot.IBSCBSCST,
+			snapshot.IBSCBSClassification,
+			snapshot.ISCST,
+			snapshot.ISClassification,
+			snapshot.ReferenceVersion,
+			string(snapshot.TaxCalculation),
+			snapshot.SnapshotSHA256,
+		)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return common.ErrConflict
+			}
+			if errors.As(err, &pgErr) && pgErr.Code == "23514" {
+				return common.ErrValidation
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *FiscalRepo) GetSaleItemFiscalSnapshots(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, saleID string,
+) ([]fisc.SaleItemFiscalSnapshot, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT
+			sale_item_id::text,
+			sale_id::text,
+			product_id::text,
+			ncm,
+			cest,
+			cfop,
+			icms_origin,
+			icms_regime,
+			icms_code,
+			pis_cst,
+			cofins_cst,
+			ibs_cbs_cst,
+			ibs_cbs_classification,
+			is_cst,
+			is_classification,
+			reference_version,
+			tax_calculation::text,
+			snapshot_sha256
+		FROM sale_item_fiscal_snapshots
+		WHERE tenant_id=$1 AND sale_id=$2
+		ORDER BY sale_item_id
+	`, tenantID, saleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]fisc.SaleItemFiscalSnapshot, 0)
+	for rows.Next() {
+		var snapshot fisc.SaleItemFiscalSnapshot
+		var taxJSON string
+		snapshot.TenantID = tenantID
+		if err := rows.Scan(
+			&snapshot.SaleItemID,
+			&snapshot.SaleID,
+			&snapshot.ProductID,
+			&snapshot.NCM,
+			&snapshot.CEST,
+			&snapshot.CFOP,
+			&snapshot.ICMSOrigin,
+			&snapshot.ICMSRegime,
+			&snapshot.ICMSCode,
+			&snapshot.PISCST,
+			&snapshot.COFINSCST,
+			&snapshot.IBSCBSCST,
+			&snapshot.IBSCBSClassification,
+			&snapshot.ISCST,
+			&snapshot.ISClassification,
+			&snapshot.ReferenceVersion,
+			&taxJSON,
+			&snapshot.SnapshotSHA256,
+		); err != nil {
+			return nil, err
+		}
+		snapshot.TaxCalculation = []byte(taxJSON)
+		out = append(out, snapshot)
+	}
+	return out, rows.Err()
+}
