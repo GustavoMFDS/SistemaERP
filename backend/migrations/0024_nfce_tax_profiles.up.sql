@@ -99,10 +99,6 @@ CREATE TABLE IF NOT EXISTS sale_item_fiscal_snapshots (
   sale_id uuid NOT NULL,
   product_id uuid NOT NULL,
 
-  product_code text NOT NULL,
-  product_description text NOT NULL,
-  unit text NOT NULL,
-
   ncm text NOT NULL,
   cest text NULL,
   cfop text NOT NULL,
@@ -131,15 +127,6 @@ CREATE TABLE IF NOT EXISTS sale_item_fiscal_snapshots (
     FOREIGN KEY (tenant_id, product_id)
     REFERENCES products(tenant_id, id)
     ON DELETE RESTRICT,
-
-  CONSTRAINT sale_item_fiscal_snapshots_product_code_check
-    CHECK (NULLIF(btrim(product_code), '') IS NOT NULL AND char_length(product_code) <= 60),
-
-  CONSTRAINT sale_item_fiscal_snapshots_product_description_check
-    CHECK (NULLIF(btrim(product_description), '') IS NOT NULL AND char_length(product_description) <= 120),
-
-  CONSTRAINT sale_item_fiscal_snapshots_unit_check
-    CHECK (NULLIF(btrim(unit), '') IS NOT NULL AND char_length(unit) <= 6),
 
   CONSTRAINT sale_item_fiscal_snapshots_ncm_check
     CHECK (ncm ~ '^[0-9]{8}
