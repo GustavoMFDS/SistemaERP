@@ -178,9 +178,6 @@ CREATE TABLE IF NOT EXISTS sale_item_fiscal_snapshots (
   CONSTRAINT sale_item_fiscal_snapshots_reference_version_check
     CHECK (NULLIF(btrim(reference_version), '') IS NOT NULL),
 
-  CONSTRAINT sale_item_fiscal_snapshots_tax_calculation_object_check
-    CHECK (jsonb_typeof(tax_calculation) = 'object'),
-
   CONSTRAINT sale_item_fiscal_snapshots_sha256_check
     CHECK (snapshot_sha256 ~ '^[0-9a-f]{64}$')
 );
