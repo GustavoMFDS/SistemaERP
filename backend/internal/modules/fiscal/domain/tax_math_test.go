@@ -25,7 +25,7 @@ func TestTaxRateParseFormatAndJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(content) != ""0.1000"" {
+	if string(content) != "\"0.1000\"" {
 		t.Fatalf("JSON=%s", content)
 	}
 	var decoded TaxRate
