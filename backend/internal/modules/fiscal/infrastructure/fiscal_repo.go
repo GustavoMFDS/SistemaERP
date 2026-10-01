@@ -582,7 +582,17 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 				WHERE p.tenant_id=c.id
 				  AND p.active=true
 				  AND NULLIF(btrim(p.ncm), '') IS NULL
-			) AS products_missing_ncm
+			) AS products_missing_ncm,
+			(
+				SELECT count(*)::int
+				FROM products p
+				LEFT JOIN product_fiscal_profiles fp
+				  ON fp.tenant_id=p.tenant_id
+				 AND fp.product_id=p.id
+				WHERE p.tenant_id=c.id
+				  AND p.active=true
+				  AND fp.product_id IS NULL
+			) AS products_missing_fiscal_profile
 		FROM companies c
 		LEFT JOIN nfce_configs cfg ON cfg.tenant_id=c.id
 		WHERE c.id=$1
@@ -598,6 +608,7 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 		&out.CertificateReferenceConfigured,
 		&out.ActiveProducts,
 		&out.ProductsMissingNCM,
+		&out.ProductsMissingFiscalProfile,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -631,6 +642,9 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 	}
 	if out.ProductsMissingNCM > 0 {
 		reasons = append(reasons, "product_ncm")
+	}
+	if out.ProductsMissingFiscalProfile > 0 {
+		reasons = append(reasons, "product_fiscal_profile")
 	}
 	out.BlockingReasons = reasons
 	out.ReadyForHomologationData = len(reasons) == 0
