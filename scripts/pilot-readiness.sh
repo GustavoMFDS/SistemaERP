@@ -276,7 +276,20 @@ pilot_identity_ok="$(
     candidate AS (
       SELECT *
       FROM normalized
-      WHERE normalized_cnpj ~ '^[A-Z0-9]{12}[0-9]{2}        SELECT mod(
+      WHERE NULLIF(btrim(legal_name), '') IS NOT NULL
+        AND normalized_cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'
+        AND normalized_cnpj NOT IN ('00000000000000','11111111111111')
+    ),
+    first_digit AS (
+      SELECT
+        c.*,
+        CASE
+          WHEN calc.remainder IN (0,1) THEN 0
+          ELSE 11 - calc.remainder
+        END AS dv1
+      FROM candidate c
+      CROSS JOIN LATERAL (
+        SELECT mod(
           sum(
             (ascii(substr(c.normalized_cnpj, i, 1)) - 48)
             * (ARRAY[5,4,3,2,9,8,7,6,5,4,3,2])[i]
@@ -285,7 +298,32 @@ pilot_identity_ok="$(
         )::int AS remainder
         FROM generate_series(1, 12) AS i
       ) calc
-      WHERE c.normalized_cnpj ~ '^[A-Z0-9]{12}[0-9]{2}
+    ),
+    second_digit AS (
+      SELECT
+        f.*,
+        CASE
+          WHEN calc.remainder IN (0,1) THEN 0
+          ELSE 11 - calc.remainder
+        END AS dv2
+      FROM first_digit f
+      CROSS JOIN LATERAL (
+        SELECT mod(
+          sum(
+            (ascii(substr(f.normalized_cnpj || f.dv1::text, i, 1)) - 48)
+            * (ARRAY[6,5,4,3,2,9,8,7,6,5,4,3,2])[i]
+          ),
+          11
+        )::int AS remainder
+        FROM generate_series(1, 13) AS i
+      ) calc
+    )
+    SELECT count(*)
+    FROM second_digit
+    WHERE substr(normalized_cnpj, 13, 1)::int = dv1
+      AND substr(normalized_cnpj, 14, 1)::int = dv2;
+  "
+)"
 if [ "$pilot_identity_ok" != "1" ]; then
   fail "pilot tenant uses incomplete/demo identity or an invalid CNPJ check digit"
 else
