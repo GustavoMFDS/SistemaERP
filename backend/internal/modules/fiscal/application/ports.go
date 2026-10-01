@@ -17,6 +17,10 @@ import (
 // - SEFAZ transmission + protocol handling
 // - DANFE generation
 // without changing the service/API surface.
+type NFCeDocumentBuilder interface {
+	BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDraft) ([]byte, error)
+}
+
 type NFeProvider interface {
 	GenerateNFeXML(ctx context.Context, sale sales.Sale, items []sales.SaleItem, products map[string]inv.Product) (content []byte, fileName string, err error)
 }
