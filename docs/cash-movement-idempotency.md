@@ -11,6 +11,8 @@ Comportamento:
 - mesma chave + payload diferente: `409 conflict`;
 - chave ausente: `422 validation_error`.
 
-No PDV, uma tentativa ambígua mantém a mesma chave enquanto sessão, tipo e valor não mudarem. Isso torna seguro repetir a operação após perda de resposta sem criar uma segunda sangria/suprimento.
+No PDV, a tentativa é persistida por tenant/usuário **antes** do primeiro envio. Uma resposta ambígua mantém a mesma chave mesmo após reload da página enquanto sessão, tipo e valor não mudarem. Se existir uma tentativa pendente com outro tipo/valor, o PDV exige reconciliar a tentativa anterior primeiro. O fechamento do caixa também fica bloqueado enquanto essa tentativa ambígua da sessão atual não for resolvida.
+
+Isso torna seguro repetir a operação após perda de resposta sem criar uma segunda sangria/suprimento e evita fechar o turno sem saber se o movimento entrou no caixa.
 
 A implementação reutiliza `finance_idempotency_keys`; não cria uma segunda infraestrutura de idempotência nem exige migration adicional.
