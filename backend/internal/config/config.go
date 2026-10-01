@@ -47,6 +47,7 @@ type Config struct {
 	RateLimitSales      int
 	RateLimitFiscal     int
 	FiscalProvider      string
+	NFCeCertificateSecretDir string
 	DisableRedis        bool
 	PrivacyContactEmail string
 	AppPublicURL        string
@@ -110,6 +111,7 @@ func LoadFromEnv() (Config, error) {
 		RateLimitSales:      getEnvInt("RATE_LIMIT_SALES_PER_MINUTE", 60),
 		RateLimitFiscal:     getEnvInt("RATE_LIMIT_FISCAL_PER_MINUTE", 20),
 		FiscalProvider:      strings.ToLower(strings.TrimSpace(getEnv("FISCAL_PROVIDER", "mvp"))),
+		NFCeCertificateSecretDir: strings.TrimSpace(os.Getenv("NFCE_CERTIFICATE_SECRET_DIR")),
 		DisableRedis:        getEnvBool("DISABLE_REDIS", false),
 		PrivacyContactEmail: strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
 		AppPublicURL:        strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
