@@ -8,7 +8,7 @@ The repository script is:
 bash scripts/postgres-backup-drill.sh
 ```
 
-It creates a PostgreSQL custom-format dump, records a SHA-256 checksum, restores it into a **disposable** database, validates the restored schema, checks the 36 critical pilot tables, compares representative row counts, and writes an evidence file.
+It creates a PostgreSQL custom-format dump, records a SHA-256 checksum, restores it into a **disposable** database, validates the restored schema, checks the 38 critical pilot tables, compares representative row counts, and writes an evidence file.
 
 ## Safety model
 
@@ -21,7 +21,7 @@ Protections:
 - the restore database name must contain `restore`, `backup`, `drill`, `validation`, or `test`;
 - `ALLOW_RESTORE_RESET=1` is mandatory;
 - the source database must have a clean migration state;
-- the source schema must be at least version 23;
+- the source schema must be at least version 24;
 - credentials are not written to the evidence file.
 
 Never point `RESTORE_DATABASE_URL` at staging or production data that must be preserved.
@@ -104,7 +104,7 @@ A backup drill is considered successful when:
 - checksum verification passes;
 - `pg_restore` completes with `--exit-on-error`;
 - restored `schema_migrations` is clean and matches the source version;
-- all 36 critical pilot tables exist;
+- all 38 critical pilot tables exist;
 - representative row counts are captured;
 - the evidence file reports `Result: PASS`.
 
