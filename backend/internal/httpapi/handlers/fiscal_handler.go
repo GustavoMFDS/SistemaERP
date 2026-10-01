@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"log/slog"
 
@@ -10,8 +11,27 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
+	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/go-chi/chi/v5"
 )
+
+type reserveNFCeRequest struct {
+	SaleID   string `json:"sale_id"`
+	IssuedAt string `json:"issued_at"`
+}
+
+type prepareLegacyTaxRequest struct {
+	CalculationVersion string `json:"calculation_version"`
+}
+
+type prepareRegularIBSCBSTaxRequest struct {
+	CalculationVersion string                        `json:"calculation_version"`
+	Base               platform.Money                `json:"base"`
+	IBSUF              fisc.RegularTaxComponentInput `json:"ibs_uf"`
+	IBSMunicipal       fisc.RegularTaxComponentInput `json:"ibs_municipal"`
+	CBS                fisc.RegularTaxComponentInput `json:"cbs"`
+}
 
 type FiscalHandler struct {
 	svc    *fiscapp.FiscalService
@@ -159,6 +179,147 @@ func (h *FiscalHandler) PrepareProductFiscalProfile(w http.ResponseWriter, r *ht
 		return
 	}
 	writeJSON(w, http.StatusOK, profile)
+}
+
+func (h *FiscalHandler) ReserveNFCeDraft(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	var req reserveNFCeRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	issuedAt, err := time.Parse(time.RFC3339, req.IssuedAt)
+	if err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "issued_at deve usar RFC3339 com fuso horario", nil)
+		return
+	}
+	reservation, created, err := h.svc.ReserveNFCeDraft(
+		r.Context(), au.TenantID, au.UserID, req.SaleID, issuedAt,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict, common.ErrInvoiceAlreadyExists, common.ErrSaleNotFinalized, common.ErrFiscalNotReady:
+			status = http.StatusConflict
+		case common.ErrFiscalSequenceExhausted:
+			status = http.StatusServiceUnavailable
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, map[string]any{
+		"reservation": reservation,
+		"created":     created,
+	})
+}
+
+func (h *FiscalHandler) PrepareLegacyOnlyTaxCalculation(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	invoiceID := chi.URLParam(r, "invoiceID")
+	saleItemID := chi.URLParam(r, "saleItemID")
+	var req prepareLegacyTaxRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	calculation, err := h.svc.PrepareLegacyOnlyTaxCalculation(
+		r.Context(), au.TenantID, au.UserID, invoiceID, saleItemID, req.CalculationVersion,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict, common.ErrFiscalNotReady:
+			status = http.StatusConflict
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	writeJSON(w, http.StatusCreated, calculation)
+}
+
+func (h *FiscalHandler) PrepareRegularIBSCBSCalculation(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	invoiceID := chi.URLParam(r, "invoiceID")
+	saleItemID := chi.URLParam(r, "saleItemID")
+	var req prepareRegularIBSCBSTaxRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	calculation, err := h.svc.PrepareRegularIBSCBSCalculation(
+		r.Context(),
+		au.TenantID,
+		au.UserID,
+		fiscapp.PrepareRegularIBSCBSCalculationInput{
+			InvoiceID:          invoiceID,
+			SaleItemID:         saleItemID,
+			CalculationVersion: req.CalculationVersion,
+			Base:               req.Base,
+			IBSUF:              req.IBSUF,
+			IBSMunicipal:       req.IBSMunicipal,
+			CBS:                req.CBS,
+		},
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict, common.ErrFiscalNotReady:
+			status = http.StatusConflict
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	writeJSON(w, http.StatusCreated, calculation)
+}
+
+func (h *FiscalHandler) ListInvoiceTaxCalculations(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	invoiceID := chi.URLParam(r, "invoiceID")
+	items, err := h.svc.GetInvoiceTaxCalculations(r.Context(), au.TenantID, invoiceID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (h *FiscalHandler) NFCeReadiness(w http.ResponseWriter, r *http.Request) {
