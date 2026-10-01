@@ -48,6 +48,11 @@ func IsValidUF(value string) bool {
 	return ok
 }
 
+func UFCode(value string) (string, bool) {
+	code, ok := ufCodes[strings.ToUpper(strings.TrimSpace(value))]
+	return code, ok
+}
+
 type NFCeAccessKeyInput struct {
 	UF           string
 	IssuedAt     time.Time
