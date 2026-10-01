@@ -48,6 +48,8 @@ type Config struct {
 	RateLimitFiscal     int
 	FiscalProvider      string
 	NFCeCertificateSecretDir string
+	NFCeSchemaDir            string
+	NFCeSchemaEntrypoint     string
 	DisableRedis        bool
 	PrivacyContactEmail string
 	AppPublicURL        string
@@ -112,6 +114,8 @@ func LoadFromEnv() (Config, error) {
 		RateLimitFiscal:     getEnvInt("RATE_LIMIT_FISCAL_PER_MINUTE", 20),
 		FiscalProvider:      strings.ToLower(strings.TrimSpace(getEnv("FISCAL_PROVIDER", "mvp"))),
 		NFCeCertificateSecretDir: strings.TrimSpace(os.Getenv("NFCE_CERTIFICATE_SECRET_DIR")),
+		NFCeSchemaDir:            strings.TrimSpace(os.Getenv("NFCE_SCHEMA_DIR")),
+		NFCeSchemaEntrypoint:     strings.TrimSpace(os.Getenv("NFCE_SCHEMA_ENTRYPOINT")),
 		DisableRedis:        getEnvBool("DISABLE_REDIS", false),
 		PrivacyContactEmail: strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
 		AppPublicURL:        strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
@@ -231,6 +235,10 @@ func (c Config) Validate() error {
 	}
 	if c.IsProdLike() && fiscalProvider == "mvp" {
 		errs = append(errs, "FISCAL_PROVIDER=mvp is not allowed in staging/prod because it is not SEFAZ-ready; use disabled until a production fiscal provider is configured")
+	}
+
+	if (c.NFCeSchemaDir == "") != (c.NFCeSchemaEntrypoint == "") {
+		errs = append(errs, "NFCE_SCHEMA_DIR and NFCE_SCHEMA_ENTRYPOINT must be configured together")
 	}
 
 	if len(errs) > 0 {
