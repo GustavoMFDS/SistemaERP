@@ -95,7 +95,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v24 migration upgrade and rollback
+      - name: Verify v12 to v25 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -735,6 +735,49 @@ jobs:
             IF to_regclass('public.product_fiscal_profiles') IS NOT NULL
                OR to_regclass('public.sale_item_fiscal_snapshots') IS NOT NULL THEN
               RAISE EXCEPTION 'rollback 0024 left fiscal profile/snapshot tables behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0024 -> 0025 and verify immutable per-invoice tax calculations.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='invoice_item_tax_calculations';" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('invoices_tenant_id_id_sale_id_unique','sale_item_fiscal_snapshots_tenant_item_sale_unique','invoice_item_tax_calculations_tenant_sale_idx') ORDER BY indexname;" \
+            -c "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgname='invoice_item_tax_calculations_immutable';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.invoice_item_tax_calculations') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0025 left invoice_item_tax_calculations behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_trigger
+              WHERE tgname='invoice_item_tax_calculations_immutable'
+                AND NOT tgisinternal
+            ) THEN
+              RAISE EXCEPTION 'rollback 0025 left immutability trigger behind';
             END IF;
           END $do$;
           SQL
