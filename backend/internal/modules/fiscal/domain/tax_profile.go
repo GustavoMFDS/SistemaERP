@@ -21,6 +21,9 @@ type SaleItemFiscalSnapshot struct {
 	SaleItemID          string          `json:"sale_item_id"`
 	SaleID              string          `json:"sale_id"`
 	ProductID           string          `json:"product_id"`
+	ProductCode         string          `json:"product_code"`
+	ProductDescription  string          `json:"product_description"`
+	Unit                string          `json:"unit"`
 	NCM                 string          `json:"ncm"`
 	CEST                *string         `json:"cest,omitempty"`
 	CFOP                string          `json:"cfop"`
