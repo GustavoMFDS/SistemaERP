@@ -126,8 +126,8 @@ read -r version dirty < <(
 )
 if [ "${dirty:-}" != "f" ]; then
   fail "database migration state is dirty"
-elif [ "${version:-0}" -lt 25 ]; then
-  fail "database migration version ${version:-unknown} is below required pilot version 25"
+elif [ "${version:-0}" -lt 26 ]; then
+  fail "database migration version ${version:-unknown} is below required pilot version 26"
 else
   pass "database schema version ${version} is clean"
 fi
