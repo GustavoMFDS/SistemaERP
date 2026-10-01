@@ -108,6 +108,59 @@ func (h *FiscalHandler) PrepareNFCeConfig(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, cfg)
 }
 
+func (h *FiscalHandler) GetProductFiscalProfile(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	productID := chi.URLParam(r, "productID")
+	profile, err := h.svc.GetProductFiscalProfile(r.Context(), au.TenantID, productID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, profile)
+}
+
+func (h *FiscalHandler) PrepareProductFiscalProfile(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	productID := chi.URLParam(r, "productID")
+	var req fiscapp.PrepareProductFiscalProfileRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	profile, err := h.svc.PrepareProductFiscalProfile(
+		r.Context(), au.TenantID, au.UserID, productID, req,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict:
+			status = http.StatusConflict
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, profile)
+}
+
 func (h *FiscalHandler) NFCeReadiness(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
