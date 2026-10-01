@@ -4,39 +4,38 @@ package domain
 // to start NFC-e homologation work. It does not mean that SEFAZ transmission
 // is enabled or homologated.
 type NFCeReadiness struct {
-	TenantID                      string   `json:"tenant_id"`
-	Model                         int      `json:"model"`
-	IssuerIdentityConfigured      bool     `json:"issuer_identity_configured"`
-	IssuerAddressConfigured       bool     `json:"issuer_address_configured"`
-	MunicipalityCodeConfigured    bool     `json:"municipality_code_configured"`
-	ConfigExists                  bool     `json:"config_exists"`
-	TransmissionEnabled           bool     `json:"transmission_enabled"`
-	Environment                   string   `json:"environment,omitempty"`
-	Series                        int      `json:"series,omitempty"`
-	CSCReferenceConfigured        bool     `json:"csc_reference_configured"`
-	CertificateReferenceConfigured bool    `json:"certificate_reference_configured"`
-	ActiveProducts                int      `json:"active_products"`
-	ProductsMissingNCM            int      `json:"products_missing_ncm"`
-	ReadyForHomologationData      bool     `json:"ready_for_homologation_data"`
-	BlockingReasons               []string `json:"blocking_reasons"`
+	TenantID                       string   `json:"tenant_id"`
+	Model                          int      `json:"model"`
+	IssuerIdentityConfigured       bool     `json:"issuer_identity_configured"`
+	IssuerAddressConfigured        bool     `json:"issuer_address_configured"`
+	MunicipalityCodeConfigured     bool     `json:"municipality_code_configured"`
+	ConfigExists                   bool     `json:"config_exists"`
+	TransmissionEnabled            bool     `json:"transmission_enabled"`
+	Environment                    string   `json:"environment,omitempty"`
+	Series                         int      `json:"series,omitempty"`
+	CSCReferenceConfigured         bool     `json:"csc_reference_configured"`
+	CertificateReferenceConfigured bool     `json:"certificate_reference_configured"`
+	ActiveProducts                 int      `json:"active_products"`
+	ProductsMissingNCM             int      `json:"products_missing_ncm"`
+	ReadyForHomologationData       bool     `json:"ready_for_homologation_data"`
+	BlockingReasons                []string `json:"blocking_reasons"`
 }
-
 
 // NFCeConfig contains tenant-scoped NFC-e preparation. SecretRef fields hold
 // identifiers in an external secret store and are intentionally excluded from
-// JSON responses.
+// JSON responses. CSC fields are legacy/optional for QR Code v2 compatibility;
+// the current QR Code v3 flow does not require CSC.
 type NFCeConfig struct {
-	TenantID                       string  `json:"tenant_id"`
-	Enabled                        bool    `json:"enabled"`
-	Environment                    string  `json:"environment"`
-	Series                         int     `json:"series"`
-	CSCID                          *string `json:"csc_id,omitempty"`
-	CSCSecretRef                   *string `json:"-"`
-	CertificateSecretRef           *string `json:"-"`
-	CSCReferenceConfigured         bool    `json:"csc_reference_configured"`
+	TenantID                        string  `json:"tenant_id"`
+	Enabled                         bool    `json:"enabled"`
+	Environment                     string  `json:"environment"`
+	Series                          int     `json:"series"`
+	CSCID                           *string `json:"csc_id,omitempty"`
+	CSCSecretRef                    *string `json:"-"`
+	CertificateSecretRef            *string `json:"-"`
+	CSCReferenceConfigured          bool    `json:"csc_reference_configured"`
 	CertificateReferenceConfigured bool    `json:"certificate_reference_configured"`
 }
-
 
 // NFCeIssuerProfile is the issuer data that can be prepared for NFC-e without
 // changing the tenant legal identity (legal name/CNPJ).

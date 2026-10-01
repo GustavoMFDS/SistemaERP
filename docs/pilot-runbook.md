@@ -32,14 +32,14 @@ All items are mandatory before operator training.
 - [ ] Demo seed is disabled.
 - [ ] Fiscal provider is disabled until a SEFAZ-ready integration exists.
 - [ ] Demo users are absent.
-- [ ] Real tenant/company exists with a 14-digit CNPJ.
+- [ ] Real tenant/company exists with a current DFe-compatible CNPJ (14 normalized characters: first 12 alphanumeric, final 2 numeric).
 - [ ] At least one active cash register exists and no cash session is already open at pilot start.
 - [ ] Active product pricing is consistent (`promo_price` never exceeds `price_cash`).
 - [ ] At least one admin/manager and one cashier have individual accounts.
 - [ ] Tenant-scoped roles reviewed.
 - [ ] Runtime PostgreSQL role passes least-privilege checks (no superuser/role/db/DDL creation privileges).
 - [ ] Migration/owner, application and backup credentials are separated.
-- [ ] Schema version is clean and at least 22.
+- [ ] Schema version is clean and at least 23.
 - [ ] Pre-pilot backup created with `scripts/postgres-backup-drill.sh`.
 - [ ] That backup restored into an isolated database and the generated evidence reports PASS.
 - [ ] Monitoring/alerts active for API availability, readiness, 5xx and latency.
@@ -151,6 +151,7 @@ For sampled sales compare:
 Perform only in a controlled window.
 
 - [ ] Finalize one sale with network unavailable.
+- [ ] Tentativa de fechar caixa com venda offline pendente é bloqueada até sincronização/reconciliação.
 - [ ] Exact intent remains pending.
 - [ ] Restore network and confirm a single server sale.
 - [ ] Rejected item remains visible for attention.

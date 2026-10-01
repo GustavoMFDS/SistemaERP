@@ -49,7 +49,7 @@ Migração:
 - Evite incluir dados pessoais sensiveis no payload de venda offline. Quando o cliente for opcional, prefira venda sem identificacao.
 - `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
 - A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
-- Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo que outro tenant/usuário leia o estado anterior no mesmo navegador. Logout limpa apenas o escopo atual antes de remover o access token.
+- Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo acesso cruzado pelo aplicativo no mesmo navegador. Logout limpa a referência local de caixa e o cache de catálogo, mas não apaga fila offline nem carrinhos suspensos.
 - A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual.
 - Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova.
 - Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
@@ -114,6 +114,15 @@ Carrinho suspenso e fila offline são conceitos diferentes:
 
 - Carrinho suspenso é apenas rascunho local, escopado por tenant+usuário; não cria venda nem reserva estoque.
 - O navegador mantém no máximo 20 carrinhos suspensos e rejeita o próximo em vez de descartar silenciosamente um rascunho antigo.
-- Se houver fila offline pendente ou carrinho suspenso, o logout pede confirmação explícita antes de limpar os dados locais.
-- Falha ao revogar a sessão no servidor preserva token, fila, cache e carrinhos suspensos.
-- Carrinhos suspensos também são removidos no logout confirmado, adequado para terminais compartilhados de loja.
+- Se houver qualquer item na fila offline, o logout é bloqueado até sincronização, reconciliação ou descarte explícito item a item no PDV.
+- Falha ao revogar a sessão no servidor preserva token e todo o estado local.
+- Carrinhos suspensos permanecem salvos no escopo tenant+usuário após logout e reaparecem quando o mesmo operador entra novamente.
+- Outro usuário autenticado no mesmo navegador recebe outro namespace e não carrega esses carrinhos pela aplicação.
+
+
+## Fechamento de caixa com vendas offline
+
+- O caixa não pode ser fechado enquanto existir intenção offline `pending` ou `attention` cujo `cash_session_id` seja a sessão atual.
+- O operador deve sincronizar ou reconciliar essas vendas antes do fechamento, preservando o período físico/financeiro em que elas ocorreram.
+- Carrinho suspenso não bloqueia fechamento porque ainda não é venda nem intenção finalizada e não está vinculado a uma sessão de caixa.
+- O bloqueio local complementa, mas não substitui, a validação server-side de sessão aberta usada na criação da venda.

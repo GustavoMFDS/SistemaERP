@@ -125,3 +125,6 @@ After restoring a backup into isolated staging:
 - Request IDs for critical flows.
 - Audit event IDs for auth, sale, fiscal, and privacy flows.
 - Any failed checks and remediation tickets.
+
+| Logout with offline sale | Queue one finalized offline sale and click logout. | Logout is blocked before calling the server until the sale is synchronized, reconciled, or explicitly discarded. |
+| Suspended cart across logout | Suspend a cart, logout successfully, then login as the same tenant/user. | Suspended cart remains available; another scoped user does not load it. |

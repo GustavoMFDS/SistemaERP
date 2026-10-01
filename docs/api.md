@@ -377,21 +377,102 @@ The sum of settlements can never exceed the return's `refund_due`. Cash refunds 
 
 ## Fiscal
 
-### POST `/fiscal/nfe/xml`
+The repository currently implements **NFC-e model 65 preparation**, not real SEFAZ authorization. Production-like environments must keep `FISCAL_PROVIDER=disabled` until a SEFAZ-ready provider is implemented and homologated.
+
+All routes below are tenant-scoped and require JWT authentication plus the indicated RBAC permission.
+
+### GET `/fiscal/nfce/readiness`
+
+Requires `invoice:read`.
+
+Returns non-secret readiness indicators for NFC-e homologation preparation:
 
 ```json
-{ "sale_id": "..." }
+{
+  "tenant_id": "...",
+  "model": 65,
+  "issuer_identity_configured": true,
+  "issuer_address_configured": true,
+  "municipality_code_configured": true,
+  "config_exists": true,
+  "transmission_enabled": false,
+  "environment": "homologation",
+  "series": 1,
+  "csc_reference_configured": false,
+  "certificate_reference_configured": true,
+  "active_products": 120,
+  "products_missing_ncm": 0,
+  "ready_for_homologation_data": true,
+  "blocking_reasons": []
+}
 ```
 
-Response:
+`ready_for_homologation_data=true` means only that the repository has the minimum non-secret data prepared. It does **not** mean the tenant is authorized or homologated by SEFAZ.
+
+### GET `/fiscal/nfce/issuer`
+
+Requires `invoice:read`.
+
+Returns legal identity plus the editable NFC-e issuer profile. Legal name and CNPJ are read-only through this fiscal endpoint.
+
+### PUT `/fiscal/nfce/issuer`
+
+Requires `invoice:generate`.
+
+Updates IE, CRT and issuer address data used for NFC-e preparation:
 
 ```json
-{ "invoice_id": "...", "xml_file_id": "..." }
+{
+  "ie": "110042490114",
+  "crt": "4",
+  "address_street": "Avenida Fiscal",
+  "address_number": "100",
+  "address_complement": null,
+  "address_neighborhood": "Centro",
+  "address_city": "Uberlandia",
+  "address_city_code": "3170206",
+  "address_state": "MG",
+  "address_zip": "38400000"
+}
 ```
+
+`crt` accepts `1`, `2`, `3`, or `4`. Municipality code must contain 7 digits and ZIP 8 digits.
+
+### GET `/fiscal/nfce/config`
+
+Requires `invoice:read`.
+
+Returns the tenant NFC-e preparation state. Secret-store references are never returned. `certificate_reference_configured` is the current required secret-reference indicator. `csc_reference_configured` is informational/legacy because QR Code v3 does not require CSC.
+
+### PUT `/fiscal/nfce/config`
+
+Requires `invoice:generate`.
+
+Stores the **reference** to the A1 certificate material in an external secret store:
+
+```json
+{
+  "environment": "homologation",
+  "series": 1,
+  "certificate_secret_ref": "secret://nfce/certificate"
+}
+```
+
+QR Code v3 does not require CSC. The API still accepts `csc_id` plus `csc_secret_ref` as an optional legacy pair, but they are not a readiness requirement. The backend forces `enabled=false` regardless of input. Certificate/legacy CSC secret values must not be sent to this endpoint or stored in source control.
+
+### GET `/fiscal/nfe/xml`
+
+Requires `invoice:read`. Lists historical XML files and development previews already stored for the tenant.
 
 ### GET `/fiscal/nfe/xml/{id}/download`
 
-Returns `application/xml`.
+Requires `invoice:read`. Returns `application/xml`.
+
+### POST `/fiscal/nfe/xml` — development preview only
+
+Available only when `FISCAL_PROVIDER=mvp` (development/test). The MVP provider now produces an explicitly marked **NFC-e model 65 preview** and requires product NCM, but it is not signed, authorized, transmitted, protocolled, or suitable for fiscal use.
+
+This route is not registered when `FISCAL_PROVIDER=disabled`.
 
 ## Metrics
 

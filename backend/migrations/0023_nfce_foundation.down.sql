@@ -2,10 +2,25 @@
 
 BEGIN;
 
-DROP INDEX IF EXISTS invoices_access_key_unique;
-DROP INDEX IF EXISTS invoices_tenant_model_series_number_unique;
+ALTER TABLE invoice_xml_files
+  DROP CONSTRAINT IF EXISTS invoice_xml_files_tenant_invoice_fk;
 
 ALTER TABLE invoices
+  DROP CONSTRAINT IF EXISTS invoices_company_matches_tenant_check,
+  DROP CONSTRAINT IF EXISTS invoices_tenant_sale_fk;
+
+DROP INDEX IF EXISTS invoices_access_key_unique;
+DROP INDEX IF EXISTS invoices_tenant_model_series_number_unique;
+DROP INDEX IF EXISTS invoices_tenant_id_id_unique;
+
+ALTER TABLE invoices
+  DROP CONSTRAINT IF EXISTS invoices_real_document_fields_check,
+  DROP CONSTRAINT IF EXISTS invoices_response_fields_check,
+  DROP CONSTRAINT IF EXISTS invoices_status_check,
+  DROP CONSTRAINT IF EXISTS invoices_access_key_metadata_check,
+  DROP CONSTRAINT IF EXISTS invoices_access_key_check_digit_check,
+  DROP CONSTRAINT IF EXISTS invoices_numeric_code_check,
+  DROP CONSTRAINT IF EXISTS invoices_emission_type_check,
   DROP CONSTRAINT IF EXISTS invoices_access_key_check,
   DROP CONSTRAINT IF EXISTS invoices_environment_check,
   DROP CONSTRAINT IF EXISTS invoices_document_number_check,
@@ -16,7 +31,12 @@ ALTER TABLE invoices
   DROP COLUMN IF EXISTS rejection_message,
   DROP COLUMN IF EXISTS rejection_code,
   DROP COLUMN IF EXISTS authorized_at,
+  DROP COLUMN IF EXISTS updated_at,
   DROP COLUMN IF EXISTS authorization_protocol,
+  DROP COLUMN IF EXISTS issued_at,
+  DROP COLUMN IF EXISTS access_key_check_digit,
+  DROP COLUMN IF EXISTS numeric_code,
+  DROP COLUMN IF EXISTS emission_type,
   DROP COLUMN IF EXISTS access_key,
   DROP COLUMN IF EXISTS environment,
   DROP COLUMN IF EXISTS document_number,

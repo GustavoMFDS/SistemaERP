@@ -52,7 +52,7 @@ func (h *FiscalHandler) PrepareNFCeIssuerProfile(w http.ResponseWriter, r *http.
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	profile, err := h.svc.PrepareNFCeIssuerProfile(r.Context(), au.TenantID, req)
+	profile, err := h.svc.PrepareNFCeIssuerProfile(r.Context(), au.TenantID, au.UserID, req)
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch err {
@@ -64,11 +64,6 @@ func (h *FiscalHandler) PrepareNFCeIssuerProfile(w http.ResponseWriter, r *http.
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfce_issuer.prepare", "company", au.TenantID, "success", map[string]any{
-		"crt":       profile.CRT,
-		"state":     profile.AddressState,
-		"city_code": profile.AddressCityCode,
-	})
 	writeJSON(w, http.StatusOK, profile)
 }
 
@@ -110,11 +105,6 @@ func (h *FiscalHandler) PrepareNFCeConfig(w http.ResponseWriter, r *http.Request
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfce_config.prepare", "nfce_config", au.TenantID, "success", map[string]any{
-		"environment": cfg.Environment,
-		"series":      cfg.Series,
-		"enabled":     false,
-	})
 	writeJSON(w, http.StatusOK, cfg)
 }
 
@@ -163,7 +153,6 @@ func (h *FiscalHandler) GenerateNFeXML(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfe_xml.generate", "invoice_xml_file", xmlID, "success", map[string]any{"invoice_id": invoiceID})
 	writeJSON(w, http.StatusCreated, map[string]any{"invoice_id": invoiceID, "xml_file_id": xmlID})
 }
 

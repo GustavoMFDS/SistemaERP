@@ -3,11 +3,13 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -91,7 +93,6 @@ func (r *FiscalRepo) ExistsInvoiceForSale(ctx context.Context, tx db.DBTX, tenan
 	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID).Scan(&exists)
 	return exists, err
 }
-
 
 func (r *FiscalRepo) GetNFCeIssuerProfile(ctx context.Context, tenantID string) (fisc.NFCeIssuerProfile, error) {
 	var profile fisc.NFCeIssuerProfile
@@ -200,8 +201,11 @@ func (r *FiscalRepo) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.N
 		}
 		return fisc.NFCeConfig{}, err
 	}
-	cfg.CSCReferenceConfigured = cfg.CSCID != nil && cfg.CSCSecretRef != nil
-	cfg.CertificateReferenceConfigured = cfg.CertificateSecretRef != nil
+	cfg.CSCReferenceConfigured =
+		cfg.CSCID != nil && strings.TrimSpace(*cfg.CSCID) != "" &&
+			cfg.CSCSecretRef != nil && strings.TrimSpace(*cfg.CSCSecretRef) != ""
+	cfg.CertificateReferenceConfigured =
+		cfg.CertificateSecretRef != nil && strings.TrimSpace(*cfg.CertificateSecretRef) != ""
 	return cfg, nil
 }
 
@@ -231,6 +235,201 @@ func (r *FiscalRepo) UpsertNFCeConfig(
 	return err
 }
 
+func (r *FiscalRepo) GetNFCeReservationContextForUpdate(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+) (fisc.NFCeReservationContext, error) {
+	var out fisc.NFCeReservationContext
+	out.Issuer.TenantID = tenantID
+	out.Config.TenantID = tenantID
+
+	err := tx.QueryRow(ctx, `
+		SELECT
+			c.legal_name,
+			c.trade_name,
+			c.cnpj,
+			COALESCE(c.ie, ''),
+			COALESCE(c.crt, ''),
+			COALESCE(c.address_street, ''),
+			COALESCE(c.address_number, ''),
+			c.address_complement,
+			COALESCE(c.address_neighborhood, ''),
+			COALESCE(c.address_city, ''),
+			COALESCE(c.address_city_code, ''),
+			COALESCE(c.address_state, ''),
+			COALESCE(c.address_zip, ''),
+			cfg.enabled,
+			cfg.environment,
+			cfg.series,
+			cfg.csc_id,
+			cfg.csc_secret_ref,
+			cfg.certificate_secret_ref
+		FROM companies c
+		JOIN nfce_configs cfg ON cfg.tenant_id=c.id
+		WHERE c.id=$1
+		FOR UPDATE OF c, cfg
+	`, tenantID).Scan(
+		&out.Issuer.LegalName,
+		&out.Issuer.TradeName,
+		&out.Issuer.CNPJ,
+		&out.Issuer.IE,
+		&out.Issuer.CRT,
+		&out.Issuer.AddressStreet,
+		&out.Issuer.AddressNumber,
+		&out.Issuer.AddressComplement,
+		&out.Issuer.AddressNeighborhood,
+		&out.Issuer.AddressCity,
+		&out.Issuer.AddressCityCode,
+		&out.Issuer.AddressState,
+		&out.Issuer.AddressZIP,
+		&out.Config.Enabled,
+		&out.Config.Environment,
+		&out.Config.Series,
+		&out.Config.CSCID,
+		&out.Config.CSCSecretRef,
+		&out.Config.CertificateSecretRef,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeReservationContext{}, common.ErrNotFound
+		}
+		return fisc.NFCeReservationContext{}, err
+	}
+
+	out.Config.CSCReferenceConfigured =
+		out.Config.CSCID != nil && strings.TrimSpace(*out.Config.CSCID) != "" &&
+			out.Config.CSCSecretRef != nil && strings.TrimSpace(*out.Config.CSCSecretRef) != ""
+	out.Config.CertificateReferenceConfigured =
+		out.Config.CertificateSecretRef != nil && strings.TrimSpace(*out.Config.CertificateSecretRef) != ""
+	return out, nil
+}
+
+func (r *FiscalRepo) GetNFCeReservationBySale(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, saleID string,
+) (fisc.NFCeReservation, error) {
+	var out fisc.NFCeReservation
+	err := tx.QueryRow(ctx, `
+		SELECT
+			id::text,
+			sale_id::text,
+			status,
+			model,
+			series,
+			document_number,
+			environment,
+			access_key,
+			emission_type,
+			numeric_code,
+			access_key_check_digit,
+			issued_at
+		FROM invoices
+		WHERE tenant_id=$1
+		  AND sale_id=$2
+		  AND model=65
+		  AND document_number IS NOT NULL
+	`, tenantID, saleID).Scan(
+		&out.InvoiceID,
+		&out.SaleID,
+		&out.Status,
+		&out.Model,
+		&out.Series,
+		&out.DocumentNumber,
+		&out.Environment,
+		&out.AccessKey,
+		&out.EmissionType,
+		&out.NumericCode,
+		&out.CheckDigit,
+		&out.IssuedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeReservation{}, common.ErrNotFound
+		}
+		return fisc.NFCeReservation{}, err
+	}
+	return out, nil
+}
+
+func (r *FiscalRepo) CreateNFCeReservation(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, actorUserID string,
+	reservation fisc.NFCeReservation,
+) (string, error) {
+	var invoiceID string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO invoices(
+			tenant_id,
+			sale_id,
+			company_id,
+			status,
+			created_by_user_id,
+			model,
+			series,
+			document_number,
+			environment,
+			access_key,
+			emission_type,
+			numeric_code,
+			access_key_check_digit,
+			issued_at,
+			updated_at
+		)
+		VALUES (
+			$1,$2,$1,'reserved',$3,65,$4,$5,$6,$7,$8,$9,$10,$11,now()
+		)
+		RETURNING id::text
+	`,
+		tenantID,
+		reservation.SaleID,
+		actorUserID,
+		reservation.Series,
+		reservation.DocumentNumber,
+		reservation.Environment,
+		reservation.AccessKey,
+		reservation.EmissionType,
+		reservation.NumericCode,
+		reservation.CheckDigit,
+		reservation.IssuedAt,
+	).Scan(&invoiceID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", common.ErrConflict
+		}
+		return "", err
+	}
+	return invoiceID, nil
+}
+
+func (r *FiscalRepo) ReserveNextNFCeNumber(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	series int,
+) (int64, error) {
+	var number int64
+	err := tx.QueryRow(ctx, `
+		INSERT INTO fiscal_document_sequences(tenant_id, model, series, next_number)
+		VALUES ($1, 65, $2, 2)
+		ON CONFLICT (tenant_id, model, series) DO UPDATE
+		SET next_number=fiscal_document_sequences.next_number + 1,
+		    updated_at=now()
+		WHERE fiscal_document_sequences.next_number <= 999999999
+		RETURNING next_number - 1
+	`, tenantID, series).Scan(&number)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, common.ErrFiscalSequenceExhausted
+		}
+		return 0, err
+	}
+	return number, nil
+}
+
 func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error) {
 	out := fisc.NFCeReadiness{
 		TenantID: tenantID,
@@ -239,15 +438,23 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 	err := r.db.QueryRow(ctx, `
 		SELECT
 			NULLIF(btrim(c.legal_name), '') IS NOT NULL
-			  AND NULLIF(btrim(c.cnpj), '') IS NOT NULL
+			  AND COALESCE(
+			    upper(regexp_replace(c.cnpj, '[^A-Za-z0-9]', '', 'g'))
+			      ~ '^[A-Z0-9]{12}[0-9]{2}$',
+			    false
+			  )
 			  AND NULLIF(btrim(c.ie), '') IS NOT NULL
-			  AND NULLIF(btrim(c.crt), '') IS NOT NULL AS issuer_identity_configured,
+			  AND btrim(c.crt) IN ('1','2','3','4') AS issuer_identity_configured,
 			NULLIF(btrim(c.address_street), '') IS NOT NULL
 			  AND NULLIF(btrim(c.address_number), '') IS NOT NULL
 			  AND NULLIF(btrim(c.address_neighborhood), '') IS NOT NULL
 			  AND NULLIF(btrim(c.address_city), '') IS NOT NULL
-			  AND COALESCE(char_length(btrim(c.address_state)) = 2, false)
-			  AND NULLIF(btrim(c.address_zip), '') IS NOT NULL AS issuer_address_configured,
+			  AND upper(btrim(c.address_state)) IN (
+			    'RO','AC','AM','RR','PA','AP','TO','MA','PI','CE','RN','PB','PE',
+			    'AL','SE','BA','MG','ES','RJ','SP','PR','SC','RS','MS','MT','GO','DF'
+			  )
+			  AND COALESCE(btrim(c.address_zip) ~ '^[0-9]{8}$', false)
+			    AS issuer_address_configured,
 			COALESCE(c.address_city_code ~ '^[0-9]{7}$', false) AS municipality_code_configured,
 			cfg.tenant_id IS NOT NULL AS config_exists,
 			COALESCE(cfg.enabled, false) AS transmission_enabled,
@@ -260,7 +467,8 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 			) AS csc_reference_configured,
 			COALESCE(NULLIF(btrim(cfg.certificate_secret_ref), '') IS NOT NULL, false)
 				AS certificate_reference_configured,
-			(SELECT count(*)::int FROM products p WHERE p.tenant_id=c.id AND p.active=true) AS active_products,
+			(SELECT count(*)::int FROM products p WHERE p.tenant_id=c.id AND p.active=true)
+				AS active_products,
 			(
 				SELECT count(*)::int
 				FROM products p
@@ -306,9 +514,6 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 	} else {
 		if out.Environment != "homologation" {
 			reasons = append(reasons, "homologation_environment")
-		}
-		if !out.CSCReferenceConfigured {
-			reasons = append(reasons, "csc_secret_reference")
 		}
 		if !out.CertificateReferenceConfigured {
 			reasons = append(reasons, "certificate_secret_reference")

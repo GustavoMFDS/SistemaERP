@@ -214,7 +214,27 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
 
   await page.evaluate(
     async ({ cashId }) => {
-      const { apiJson } = await import('/src/lib/api.ts')
+      const { APIError, apiJson } = await import('/src/lib/api.ts')
+
+      let invalidCashMapStatus = 0
+      try {
+        await apiJson(`/api/v1/cash/sessions/${cashId}/close`, {
+          method: 'POST',
+          body: {
+            closing_amount: 0,
+            closing_by_method: { cash: 0 },
+            notes: 'cash must not be duplicated in method map',
+          },
+        })
+        invalidCashMapStatus = 200
+      } catch (error) {
+        if (error instanceof APIError) invalidCashMapStatus = error.status
+        else throw error
+      }
+      if (invalidCashMapStatus !== 422) {
+        throw new Error(`expected 422 for closing_by_method.cash, got ${invalidCashMapStatus}`)
+      }
+
       await apiJson(`/api/v1/cash/sessions/${cashId}/close`, {
         method: 'POST',
         body: {

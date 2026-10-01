@@ -34,13 +34,27 @@
 - Product catalog text is normalized before validation; invalid promotional pricing (`promo_price > price_cash`) is rejected.
 - PDV now uses the same effective promotional price as the backend, refreshes prices before resuming a suspended cart, refuses stale offline catalog cache after 24 hours, and never silently evicts an older suspended cart when the local cap is reached.
 - Finance reconciliation requires provider/external-reference pairs when settlement metadata is supplied, prevents duplicate initial reconciliation per payment, supports explicit audited adjustments/history, and preserves exact idempotent replay payloads for refunds.
-- Pilot preflight now requires schema >=22, validates 34 critical tables plus reconciliation-history immutability triggers, a 14-digit CNPJ, active cash register, clean no-open-session baseline, sellable stock, active supplier, valid promotional pricing and separated operator/responsible-user duties.
+- Pilot preflight now requires schema >=23, validates 36 critical tables plus reconciliation-history immutability triggers, a current DFe-compatible 14-character CNPJ, active cash register, clean no-open-session baseline, sellable stock, active supplier, valid promotional pricing, least-privilege runtime DB credentials and separated operator/responsible-user duties.
+
+### NFC-e foundation added after the static retail audit
+
+- Migration `0023_nfce_foundation` adds model-65-only sequencing, tenant NFC-e configuration, issuer municipality IBGE code, product NCM/CEST fields, and invoice authorization/rejection metadata.
+- NFC-e config stores only secret-manager references; API responses never expose CSC/certificate references and SQL forces preparation state to `enabled=false`.
+- Config actor is protected by a composite tenant/user foreign key to `user_tenants`.
+- Product writes validate NCM as 8 digits and CEST, when present, as 7 digits.
+- The development MVP output was converted from an ambiguous model-55 stub to an explicit model-65 non-fiscal preview that refuses missing NCM.
+- `GET /fiscal/nfce/readiness` reports tenant data blockers without exposing secrets.
+- Issuer and preparation config can be maintained through RBAC-protected endpoints/UI while transmission stays disabled.
+- Integration/E2E/CI coverage was added for migration rollback/reapply, tenant isolation, invalid series/model/NCM, secret-reference non-disclosure and absence of an issuance/transmission action in the production-facing UI.
+- This foundation is **not** SEFAZ authorization and does not claim fiscal homologation.
 
 ### Current verdict
 
 The integrated branch is **statically hardened and mergeable, but not merge-approved**. Dynamic validation is still blocked outside the application because GitHub Actions is not provisioning a runner. Once Actions can execute again, the final SHA must pass backend, frontend, integration, security, browser E2E and production-like E2E before merge.
 
-The fiscal limitation is unchanged: staging/production must keep the MVP fiscal provider disabled until a real SEFAZ-ready provider is implemented and homologated. Backup/restore evidence in the target environment, monitoring/alerting, failure/load exercises, infrastructure least privilege, and legal/accounting/LGPD approvals remain external prerequisites.
+The fiscal gate remains closed for real issuance, but the repository now contains the NFC-e model 65 preparation foundation: migration `0023`, tenant-scoped issuer/config readiness, product NCM/CEST, secret-store references, fiscal sequencing metadata, safe preparation UI/API, and development preview hardening. Staging/production must still keep `FISCAL_PROVIDER=disabled` until a SEFAZ-ready provider implements current tax/schema rules, access-key generation, XML signing, QR/CSC, transmission/protocol handling, contingency/cancellation flows and DANFE-NFC-e, followed by homologation.
+
+Backup/restore, monitoring/alerting, bounded load testing, dependency-failure drills and runtime DB least-privilege now have reproducible tooling/runbooks in the repository. They are still **environment evidence gates**: the target staging/pilot infrastructure must execute them and retain evidence. Legal/accounting/LGPD approvals also remain external prerequisites.
 
 ## Revalidation — 2026-09-22 (round 5 hardening)
 

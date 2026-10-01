@@ -31,6 +31,19 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
   await expect(page.getByText(/Venda registrada offline/)).toBeVisible()
   await expect(page.getByText(/Pendências: 1/)).toBeVisible()
 
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await expect(
+    page.getByText(/Não é possível fechar o caixa: existem 1 venda\(s\) offline deste caixa/),
+  ).toBeVisible()
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      }),
+    )
+    .not.toBe('')
+
   await context.setOffline(false)
   await expect(page.getByText(/Pendências: 0/)).toBeVisible({ timeout: 15000 })
   await page.getByRole('button', { name: 'Fechar caixa' }).click()

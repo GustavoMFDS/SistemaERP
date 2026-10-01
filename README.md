@@ -12,7 +12,7 @@ The project is currently a pre-production / staging candidate. It implements tec
 - Supplier and procurement workflows with tenant-scoped RBAC, partial receiving, stock/cost updates on receipt, and optional accounts payable linkage.
 - Returns/exchanges with quantity guards, optional restock, refund-due calculation, and cancellation protection after a return.
 - Finance ledger/dashboard, immutable initial digital-payment reconciliation, audited reconciliation adjustments/history, partial/multimethod refund settlement, and per-method cash-session closing.
-- Fiscal XML/NFe preparation and access flows. The bundled provider is an MVP test provider and is blocked in staging/production.
+- NFC-e model 65 preparation with tenant-scoped issuer/config readiness, product NCM/CEST data, secret-store references, and a development-only non-fiscal preview. Real SEFAZ authorization remains disabled in staging/production.
 - Offline POS queue with TTL/idempotency plus tenant+user-scoped product cache with a 24-hour freshness limit.
 - JWT access tokens plus HttpOnly refresh-token cookies with rotation.
 - Standardized JSON API errors with request IDs.
@@ -86,7 +86,7 @@ Important variables:
 - `TRUSTED_PROXY_CIDRS`: reverse-proxy networks allowed to supply forwarded client IP headers; leave empty for direct exposure.
 - `METRICS_BEARER_TOKEN` or `METRICS_BASIC_USER` / `METRICS_BASIC_PASS`: required for metrics in staging/production.
 - `RATE_LIMIT_*`: sensitive endpoint rate limits.
-- `FISCAL_PROVIDER`: `mvp` only for dev/test; use `disabled` in staging/production until a SEFAZ-ready provider exists.
+- `FISCAL_PROVIDER`: `mvp` only for development/test preview; use `disabled` in staging/production until a SEFAZ-ready provider is implemented and homologated.
 - `PRIVACY_CONTACT_EMAIL`, `APP_PUBLIC_URL`: privacy/DPO contact and public URL.
 
 See [docs/security.md](docs/security.md), [.env.example](.env.example), and [.env.prod.example](.env.prod.example) for configuration details.
@@ -197,13 +197,14 @@ Use [docs/smoke-test.md](docs/smoke-test.md) for critical functional validation 
 - CI is green for backend and frontend.
 - Frontend production build has been validated with `npm run build`; run `npm ci`, lint, and build again after frontend dependency or source changes.
 - Backend `gofmt`, tests, and vet pass with Go `1.25.x`.
-- Clean database migrations have been validated.
+- Clean database migrations through schema 23 must be validated.
 - Production secrets are strong and not placeholders.
 - CORS origins are explicit.
 - Metrics are protected.
 - Demo seed is disabled.
 - Tenant memberships and tenant-scoped roles are configured.
-- Backup/restore has been tested in staging.
+- Backup/restore drill has been executed and evidenced in the target staging environment.
+- Monitoring alerts, bounded load smoke, and dependency-failure recovery have been evidenced in the target staging environment.
 - Smoke test checklist has passed.
 - Legal/accounting/DPO review has approved retention and privacy procedures.
 

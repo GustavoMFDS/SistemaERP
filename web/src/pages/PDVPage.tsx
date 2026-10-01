@@ -10,6 +10,7 @@ import {
   getLegacyQueueCount,
   getQueueItems,
   getQueueSummary,
+  getQueueSummaryForCashSession,
   markQueueItemAttention,
   rebindQueueItemToCashSession,
   retryQueueItem,
@@ -368,6 +369,16 @@ export default function PDVPage() {
   async function closeCash() {
     if (!cashSessionId) return
     setError('')
+
+    const queuedForCash = getQueueSummaryForCashSession(cashSessionId)
+    if (queuedForCash.total > 0) {
+      refreshPending()
+      setError(
+        `Não é possível fechar o caixa: existem ${queuedForCash.total} venda(s) offline deste caixa (${queuedForCash.pending} pendente(s), ${queuedForCash.attention} em atenção). Sincronize ou reconcilie essas vendas primeiro.`,
+      )
+      return
+    }
+
     try {
       const result = await apiJson<CashCloseResponse>(
         `/api/v1/cash/sessions/${cashSessionId}/close`,
