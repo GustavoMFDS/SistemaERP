@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"strings"
 	"time"
 
@@ -546,6 +547,87 @@ func (s *FiscalService) PrepareLegacyOnlyTaxCalculation(
 	return calculation, nil
 }
 
+func fiscalItemNetValues(
+	sale sales.Sale,
+	items []sales.SaleItem,
+) (map[string]platform.Money, error) {
+	if len(items) == 0 {
+		return nil, common.ErrFiscalNotReady
+	}
+
+	var itemDiscountTotal platform.Money
+	var allocatableTotal platform.Money
+	lineNet := make(map[string]platform.Money, len(items))
+	for _, item := range items {
+		if item.ID == "" {
+			return nil, common.ErrFiscalNotReady
+		}
+		gross, net, err := item.CalcularSubtotal()
+		if err != nil || gross <= 0 || net < 0 {
+			return nil, common.ErrFiscalNotReady
+		}
+		itemDiscountTotal, err = itemDiscountTotal.AddChecked(item.DiscountValue)
+		if err != nil {
+			return nil, common.ErrValidation
+		}
+		allocatableTotal, err = allocatableTotal.AddChecked(net)
+		if err != nil {
+			return nil, common.ErrValidation
+		}
+		lineNet[item.ID] = net
+	}
+
+	globalDiscount, err := sale.DiscountValue.SubChecked(itemDiscountTotal)
+	if err != nil || globalDiscount < 0 || globalDiscount > allocatableTotal {
+		return nil, common.ErrFiscalNotReady
+	}
+	if globalDiscount == 0 {
+		return lineNet, nil
+	}
+	if allocatableTotal <= 0 {
+		return nil, common.ErrFiscalNotReady
+	}
+
+	remainingDiscount := globalDiscount.Cents()
+	remainingWeight := allocatableTotal.Cents()
+	for index, item := range items {
+		net := lineNet[item.ID]
+		if index == len(items)-1 {
+			netAfter, err := net.SubChecked(platform.NewMoneyCents(remainingDiscount))
+			if err != nil || netAfter < 0 {
+				return nil, common.ErrFiscalNotReady
+			}
+			lineNet[item.ID] = netAfter
+			break
+		}
+
+		share, err := proportionalFloor(remainingDiscount, net.Cents(), remainingWeight)
+		if err != nil {
+			return nil, err
+		}
+		netAfter, err := net.SubChecked(platform.NewMoneyCents(share))
+		if err != nil || netAfter < 0 {
+			return nil, common.ErrFiscalNotReady
+		}
+		lineNet[item.ID] = netAfter
+		remainingDiscount -= share
+		remainingWeight -= net.Cents()
+	}
+	return lineNet, nil
+}
+
+func proportionalFloor(value, weight, totalWeight int64) (int64, error) {
+	if value < 0 || weight < 0 || totalWeight <= 0 || weight > totalWeight {
+		return 0, common.ErrValidation
+	}
+	product := new(big.Int).Mul(big.NewInt(value), big.NewInt(weight))
+	quotient := new(big.Int).Quo(product, big.NewInt(totalWeight))
+	if !quotient.IsInt64() {
+		return 0, common.ErrValidation
+	}
+	return quotient.Int64(), nil
+}
+
 func (s *FiscalService) PrepareRegularIBSCBSCalculation(
 	ctx context.Context,
 	tenantID, actorUserID string,
@@ -582,6 +664,19 @@ func (s *FiscalService) PrepareRegularIBSCBSCalculation(
 	)
 	if err != nil {
 		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+
+	sale, saleItems, _, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, reservation.SaleID)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	netValues, err := fiscalItemNetValues(sale, saleItems)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	expectedBase, ok := netValues[input.SaleItemID]
+	if !ok || input.Base != expectedBase {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrValidation
 	}
 	var snapshot *fisc.SaleItemFiscalSnapshot
 	for i := range snapshots {
