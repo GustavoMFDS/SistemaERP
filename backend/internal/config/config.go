@@ -16,6 +16,7 @@ import (
 type Config struct {
 	Env                 string
 	ServiceName         string
+	AppVersion          string
 	HTTPAddr            string
 	DatabaseURL         string
 	RedisURL            string
@@ -78,6 +79,7 @@ func LoadFromEnv() (Config, error) {
 	cfg := Config{
 		Env:                 env,
 		ServiceName:         getEnv("SERVICE_NAME", "sistemaemgo-api"),
+		AppVersion:          getEnv("APP_VERSION", "dev"),
 		HTTPAddr:            getEnv("HTTP_ADDR", ":8080"),
 		DatabaseURL:         dbURL,
 		RedisURL:            strings.TrimSpace(os.Getenv("REDIS_URL")),
