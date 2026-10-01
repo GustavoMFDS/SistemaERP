@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"time"
 
@@ -29,10 +30,15 @@ func SignNFCeXML(
 	if !ok {
 		return nil, fmt.Errorf("NF-e/NFC-e XMLDSig requires an RSA private key")
 	}
-	if cert.Leaf == nil {
-		return nil, fmt.Errorf("client certificate leaf is required after validation")
+	leaf := cert.Leaf
+	if leaf == nil {
+		parsed, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			return nil, fmt.Errorf("parse client certificate: %w", err)
+		}
+		leaf = parsed
 	}
-	publicKey, ok := cert.Leaf.PublicKey.(*rsa.PublicKey)
+	publicKey, ok := leaf.PublicKey.(*rsa.PublicKey)
 	if !ok {
 		return nil, fmt.Errorf("NF-e/NFC-e certificate must contain an RSA public key")
 	}
