@@ -455,8 +455,48 @@ func (s *FiscalService) buildSaleItemFiscalSnapshots(
 }
 
 func fiscalSnapshotHash(snapshot fisc.SaleItemFiscalSnapshot) (string, error) {
-	snapshot.SnapshotSHA256 = ""
-	content, err := json.Marshal(snapshot)
+	// Keep the v1 hash payload stable for snapshots created before migration
+	// 0026. Product identity is protected separately by the immutable DB trigger.
+	payload := struct {
+		TenantID             string  `json:"tenant_id"`
+		SaleItemID           string  `json:"sale_item_id"`
+		SaleID               string  `json:"sale_id"`
+		ProductID            string  `json:"product_id"`
+		NCM                  string  `json:"ncm"`
+		CEST                 *string `json:"cest,omitempty"`
+		CFOP                 string  `json:"cfop"`
+		ICMSOrigin           string  `json:"icms_origin"`
+		ICMSRegime           string  `json:"icms_regime"`
+		ICMSCode             string  `json:"icms_code"`
+		PISCST               string  `json:"pis_cst"`
+		COFINSCST            string  `json:"cofins_cst"`
+		IBSCBSCST            *string `json:"ibs_cbs_cst,omitempty"`
+		IBSCBSClassification *string `json:"ibs_cbs_classification,omitempty"`
+		ISCST                *string `json:"is_cst,omitempty"`
+		ISClassification     *string `json:"is_classification,omitempty"`
+		ReferenceVersion     string  `json:"reference_version"`
+		SnapshotSHA256       string  `json:"snapshot_sha256"`
+	}{
+		TenantID: snapshot.TenantID,
+		SaleItemID: snapshot.SaleItemID,
+		SaleID: snapshot.SaleID,
+		ProductID: snapshot.ProductID,
+		NCM: snapshot.NCM,
+		CEST: snapshot.CEST,
+		CFOP: snapshot.CFOP,
+		ICMSOrigin: snapshot.ICMSOrigin,
+		ICMSRegime: snapshot.ICMSRegime,
+		ICMSCode: snapshot.ICMSCode,
+		PISCST: snapshot.PISCST,
+		COFINSCST: snapshot.COFINSCST,
+		IBSCBSCST: snapshot.IBSCBSCST,
+		IBSCBSClassification: snapshot.IBSCBSClassification,
+		ISCST: snapshot.ISCST,
+		ISClassification: snapshot.ISClassification,
+		ReferenceVersion: snapshot.ReferenceVersion,
+		SnapshotSHA256: "",
+	}
+	content, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
