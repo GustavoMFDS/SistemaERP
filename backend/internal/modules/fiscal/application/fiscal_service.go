@@ -834,6 +834,10 @@ func (s *FiscalService) validateInvoiceTaxCalculationsComplete(
 		byItem[calculation.SaleItemID] = calculation
 	}
 	for _, snapshot := range snapshots {
+		snapshotHash, err := fiscalSnapshotHash(snapshot)
+		if err != nil || snapshotHash != snapshot.SnapshotSHA256 {
+			return common.ErrFiscalNotReady
+		}
 		calculation, ok := byItem[snapshot.SaleItemID]
 		if !ok {
 			return common.ErrFiscalNotReady
