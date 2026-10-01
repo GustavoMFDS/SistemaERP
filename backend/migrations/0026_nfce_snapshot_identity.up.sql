@@ -74,6 +74,14 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS invoice_item_tax_calculations_immutable
+  ON invoice_item_tax_calculations;
+
+CREATE TRIGGER invoice_item_tax_calculations_immutable
+BEFORE UPDATE ON invoice_item_tax_calculations
+FOR EACH ROW
+EXECUTE FUNCTION prevent_invoice_item_tax_calculation_mutation();
+
 DROP TRIGGER IF EXISTS sale_item_fiscal_snapshots_immutable
   ON sale_item_fiscal_snapshots;
 
