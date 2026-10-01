@@ -405,6 +405,113 @@ func (r *FiscalRepo) CreateNFCeReservation(
 	return invoiceID, nil
 }
 
+func (r *FiscalRepo) StoreSignedNFCeXML(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, invoiceID, accessKey, fileName string,
+	content []byte,
+	sha256 string,
+) (string, error) {
+	tag, err := tx.Exec(ctx, `
+		UPDATE invoices
+		SET status='signed', updated_at=now()
+		WHERE tenant_id=$1
+		  AND id=$2
+		  AND access_key=$3
+		  AND status='reserved'
+	`, tenantID, invoiceID, accessKey)
+	if err != nil {
+		return "", err
+	}
+	if tag.RowsAffected() != 1 {
+		return "", common.ErrConflict
+	}
+
+	var xmlID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO invoice_xml_files(tenant_id, invoice_id, file_name, content, sha256)
+		VALUES ($1,$2,$3,$4,$5)
+		RETURNING id::text
+	`, tenantID, invoiceID, fileName, content, sha256).Scan(&xmlID)
+	if err != nil {
+		return "", err
+	}
+	return xmlID, nil
+}
+
+func (r *FiscalRepo) MarkNFCeSubmitted(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, invoiceID, accessKey string,
+) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE invoices
+		SET status='submitted', updated_at=now()
+		WHERE tenant_id=$1
+		  AND id=$2
+		  AND access_key=$3
+		  AND status='signed'
+	`, tenantID, invoiceID, accessKey)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return common.ErrConflict
+	}
+	return nil
+}
+
+func (r *FiscalRepo) ApplyNFCeAuthorizationResult(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, invoiceID string,
+	result fisc.NFCeAuthorizationResult,
+) error {
+	var (
+		tag pgconn.CommandTag
+		err error
+	)
+	switch {
+	case result.IsAuthorized():
+		tag, err = tx.Exec(ctx, `
+			UPDATE invoices
+			SET status='authorized',
+			    authorization_protocol=$4,
+			    authorized_at=$5,
+			    rejection_code=NULL,
+			    rejection_message=NULL,
+			    updated_at=now()
+			WHERE tenant_id=$1
+			  AND id=$2
+			  AND access_key=$3
+			  AND status='submitted'
+		`, tenantID, invoiceID, result.AccessKey, result.Protocol, result.AuthorizedAt)
+	case result.IsRejected():
+		tag, err = tx.Exec(ctx, `
+			UPDATE invoices
+			SET status='rejected',
+			    authorization_protocol=NULL,
+			    authorized_at=NULL,
+			    rejection_code=$4,
+			    rejection_message=$5,
+			    updated_at=now()
+			WHERE tenant_id=$1
+			  AND id=$2
+			  AND access_key=$3
+			  AND status='submitted'
+		`, tenantID, invoiceID, result.AccessKey, result.RejectionCode, result.RejectionMessage)
+	default:
+		return common.ErrValidation
+	}
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return common.ErrConflict
+	}
+	return nil
+}
+
 func (r *FiscalRepo) ReserveNextNFCeNumber(
 	ctx context.Context,
 	tx db.DBTX,
