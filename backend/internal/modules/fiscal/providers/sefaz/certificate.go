@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/rsa"
 	"fmt"
 	"net/http"
 	"strings"
@@ -54,6 +55,12 @@ func ValidateClientCertificate(cert tls.Certificate, now time.Time) error {
 	}
 	if now.IsZero() {
 		now = time.Now()
+	}
+	if leaf.PublicKeyAlgorithm != x509.RSA {
+		return fmt.Errorf("client certificate must use RSA for NF-e/NFC-e XMLDSig")
+	}
+	if _, ok := cert.PrivateKey.(*rsa.PrivateKey); !ok {
+		return fmt.Errorf("client certificate private key must be RSA")
 	}
 	if now.Before(leaf.NotBefore) {
 		return fmt.Errorf("client certificate is not valid yet")
