@@ -26,8 +26,9 @@ type FiscalService struct {
 	sales    SalesRepository
 	products ProductsRepository
 	nfe      NFeProvider
-	nfceDoc    NFCeDocumentBuilder
-	nfceSigner NFCeXMLSigner
+	nfceDoc       NFCeDocumentBuilder
+	nfceSigner    NFCeXMLSigner
+	nfceValidator NFCeSchemaValidator
 	audit      *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
@@ -92,6 +93,10 @@ func (s *FiscalService) SetNFCeDocumentBuilder(builder NFCeDocumentBuilder) {
 
 func (s *FiscalService) SetNFCeXMLSigner(signer NFCeXMLSigner) {
 	s.nfceSigner = signer
+}
+
+func (s *FiscalService) SetNFCeSchemaValidator(schemaValidator NFCeSchemaValidator) {
+	s.nfceValidator = schemaValidator
 }
 
 func NewFiscalServiceWithProvider(
@@ -1063,7 +1068,7 @@ func (s *FiscalService) SignNFCeReserved(
 	ctx context.Context,
 	tenantID, actorUserID, invoiceID string,
 ) (string, string, error) {
-	if s.nfceDoc == nil || s.nfceSigner == nil {
+	if s.nfceDoc == nil || s.nfceSigner == nil || s.nfceValidator == nil {
 		return "", "", common.ErrFiscalNotReady
 	}
 	draft, err := s.GetNFCeDocumentDraft(ctx, tenantID, invoiceID)
@@ -1073,6 +1078,9 @@ func (s *FiscalService) SignNFCeReserved(
 	unsigned, err := s.nfceDoc.BuildUnsignedLegacyCandidate(draft)
 	if err != nil {
 		return "", "", err
+	}
+	if err := s.nfceValidator.Validate(ctx, unsigned); err != nil {
+		return "", "", fmt.Errorf("validate NFC-e candidate against pinned XSD: %w", err)
 	}
 	cfg, err := s.fiscal.GetNFCeConfig(ctx, tenantID)
 	if err != nil {
