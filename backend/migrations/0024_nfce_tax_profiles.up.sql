@@ -109,7 +109,6 @@ CREATE TABLE IF NOT EXISTS sale_item_fiscal_snapshots (
   is_classification text NULL,
   reference_version text NOT NULL,
 
-  tax_calculation jsonb NOT NULL DEFAULT '{}'::jsonb,
   snapshot_sha256 text NOT NULL,
   captured_at timestamptz NOT NULL DEFAULT now(),
 
