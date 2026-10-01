@@ -20,7 +20,11 @@ jobs:
       - name: Verify Go module files
         run: |
           go mod tidy
-          git diff --quiet -- go.mod go.sum
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo "go mod tidy changed module files:"
+            git --no-pager diff -- go.mod go.sum
+            exit 1
+          fi
       - name: gofmt check
         run: |
           files="$(gofmt -l .)"
