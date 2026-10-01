@@ -300,6 +300,36 @@ func (h *FiscalHandler) PrepareRegularIBSCBSCalculation(w http.ResponseWriter, r
 	writeJSON(w, http.StatusCreated, calculation)
 }
 
+func (h *FiscalHandler) PreviewNFCeXMLCandidate(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	invoiceID := chi.URLParam(r, "invoiceID")
+	content, fileName, err := h.svc.BuildNFCeUnsignedCandidate(
+		r.Context(), au.TenantID, invoiceID,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict, common.ErrFiscalNotReady:
+			status = http.StatusConflict
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("Content-Disposition", "inline; filename=\""+fileName+"\"")
+	w.Header().Set("X-Fiscal-Document-State", "unsigned-candidate")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
+}
+
 func (h *FiscalHandler) ListInvoiceTaxCalculations(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
