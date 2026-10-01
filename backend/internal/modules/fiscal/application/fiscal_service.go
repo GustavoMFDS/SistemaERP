@@ -455,6 +455,97 @@ func fiscalSnapshotHash(snapshot fisc.SaleItemFiscalSnapshot) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func (s *FiscalService) PrepareLegacyOnlyTaxCalculation(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID, saleItemID, calculationVersion string,
+) (fisc.InvoiceItemTaxCalculation, error) {
+	invoiceID = strings.TrimSpace(invoiceID)
+	saleItemID = strings.TrimSpace(saleItemID)
+	calculationVersion = strings.TrimSpace(calculationVersion)
+	if s.validate.Var(invoiceID, "required,uuid") != nil ||
+		s.validate.Var(saleItemID, "required,uuid") != nil ||
+		calculationVersion == "" ||
+		len(calculationVersion) > 120 {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(ctx, tx, tenantID, invoiceID)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	if reservation.Status != fisc.NFCeStatusReserved {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrConflict
+	}
+
+	snapshots, err := s.fiscal.GetSaleItemFiscalSnapshots(ctx, tx, tenantID, reservation.SaleID)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	var snapshot *fisc.SaleItemFiscalSnapshot
+	for i := range snapshots {
+		if snapshots[i].SaleItemID == saleItemID {
+			snapshot = &snapshots[i]
+			break
+		}
+	}
+	if snapshot == nil {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrNotFound
+	}
+	if snapshot.IBSCBSCST != nil || snapshot.IBSCBSClassification != nil ||
+		snapshot.ISCST != nil || snapshot.ISClassification != nil {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrFiscalNotReady
+	}
+
+	calculation := fisc.InvoiceItemTaxCalculation{
+		TenantID:           tenantID,
+		InvoiceID:          reservation.InvoiceID,
+		SaleID:             reservation.SaleID,
+		SaleItemID:         snapshot.SaleItemID,
+		CalculationVersion: calculationVersion,
+		LegacyTax: fisc.LegacyTaxCalculation{
+			ICMS: fisc.LegacyICMSTax{
+				Origin: snapshot.ICMSOrigin,
+				Regime: snapshot.ICMSRegime,
+				Code:   snapshot.ICMSCode,
+			},
+			PIS:    fisc.LegacyContributionTax{CST: snapshot.PISCST},
+			COFINS: fisc.LegacyContributionTax{CST: snapshot.COFINSCST},
+		},
+	}
+	hash, err := invoiceItemTaxCalculationHash(calculation)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	calculation.CalculationSHA256 = hash
+
+	if err := s.fiscal.InsertInvoiceItemTaxCalculation(ctx, tx, calculation); err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID,
+		Action: "fiscal.nfce.tax_calculation.prepare",
+		ResourceType: "invoice", ResourceID: reservation.InvoiceID, Outcome: "success",
+		Metadata: map[string]any{
+			"sale_item_id": snapshot.SaleItemID,
+			"calculation_version": calculation.CalculationVersion,
+			"calculation_sha256": calculation.CalculationSHA256,
+			"rtc": false,
+		},
+	}); err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	return calculation, nil
+}
+
 func (s *FiscalService) PrepareRegularIBSCBSCalculation(
 	ctx context.Context,
 	tenantID, actorUserID string,
@@ -580,6 +671,82 @@ func invoiceItemTaxCalculationHash(calculation fisc.InvoiceItemTaxCalculation) (
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func validateCalculationMatchesSnapshot(
+	snapshot fisc.SaleItemFiscalSnapshot,
+	calculation fisc.InvoiceItemTaxCalculation,
+) error {
+	if calculation.SaleID != snapshot.SaleID ||
+		calculation.SaleItemID != snapshot.SaleItemID ||
+		calculation.LegacyTax.ICMS.Origin != snapshot.ICMSOrigin ||
+		calculation.LegacyTax.ICMS.Regime != snapshot.ICMSRegime ||
+		calculation.LegacyTax.ICMS.Code != snapshot.ICMSCode ||
+		calculation.LegacyTax.PIS.CST != snapshot.PISCST ||
+		calculation.LegacyTax.COFINS.CST != snapshot.COFINSCST {
+		return common.ErrFiscalNotReady
+	}
+	if snapshot.IBSCBSCST != nil || snapshot.IBSCBSClassification != nil {
+		if snapshot.IBSCBSCST == nil || snapshot.IBSCBSClassification == nil ||
+			calculation.RTCTax.IBSCBS == nil ||
+			calculation.RTCTax.IBSCBS.CST != *snapshot.IBSCBSCST ||
+			calculation.RTCTax.IBSCBS.Classification != *snapshot.IBSCBSClassification {
+			return common.ErrFiscalNotReady
+		}
+	} else if calculation.RTCTax.IBSCBS != nil {
+		return common.ErrFiscalNotReady
+	}
+	if snapshot.ISCST != nil || snapshot.ISClassification != nil {
+		if snapshot.ISCST == nil || snapshot.ISClassification == nil ||
+			calculation.RTCTax.IS == nil ||
+			calculation.RTCTax.IS.CST != *snapshot.ISCST ||
+			calculation.RTCTax.IS.Classification != *snapshot.ISClassification {
+			return common.ErrFiscalNotReady
+		}
+	} else if calculation.RTCTax.IS != nil {
+		return common.ErrFiscalNotReady
+	}
+	hash, err := invoiceItemTaxCalculationHash(calculation)
+	if err != nil {
+		return err
+	}
+	if hash != calculation.CalculationSHA256 {
+		return common.ErrFiscalNotReady
+	}
+	return nil
+}
+
+func (s *FiscalService) validateInvoiceTaxCalculationsComplete(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	reservation fisc.NFCeReservation,
+) error {
+	snapshots, err := s.fiscal.GetSaleItemFiscalSnapshots(ctx, tx, tenantID, reservation.SaleID)
+	if err != nil {
+		return err
+	}
+	calculations, err := s.fiscal.GetInvoiceItemTaxCalculations(ctx, tx, tenantID, reservation.InvoiceID)
+	if err != nil {
+		return err
+	}
+	if len(snapshots) == 0 || len(calculations) != len(snapshots) {
+		return common.ErrFiscalNotReady
+	}
+	byItem := make(map[string]fisc.InvoiceItemTaxCalculation, len(calculations))
+	for _, calculation := range calculations {
+		byItem[calculation.SaleItemID] = calculation
+	}
+	for _, snapshot := range snapshots {
+		calculation, ok := byItem[snapshot.SaleItemID]
+		if !ok {
+			return common.ErrFiscalNotReady
+		}
+		if err := validateCalculationMatchesSnapshot(snapshot, calculation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *FiscalService) StoreSignedNFCeXML(
 	ctx context.Context,
 	tenantID, actorUserID, invoiceID, accessKey, fileName string,
@@ -602,6 +769,19 @@ func (s *FiscalService) StoreSignedNFCeXML(
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(
+		ctx, tx, tenantID, invoiceID,
+	)
+	if err != nil {
+		return "", err
+	}
+	if reservation.Status != fisc.NFCeStatusReserved || reservation.AccessKey != accessKey {
+		return "", common.ErrConflict
+	}
+	if err := s.validateInvoiceTaxCalculationsComplete(ctx, tx, tenantID, reservation); err != nil {
+		return "", err
+	}
 
 	xmlID, err := s.fiscal.StoreSignedNFCeXML(
 		ctx, tx, tenantID, invoiceID, accessKey, fileName, content, shaHex,
