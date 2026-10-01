@@ -23,7 +23,8 @@ type NFCeReadiness struct {
 
 // NFCeConfig contains tenant-scoped NFC-e preparation. SecretRef fields hold
 // identifiers in an external secret store and are intentionally excluded from
-// JSON responses.
+// JSON responses. CSC fields are legacy/optional for QR Code v2 compatibility;
+// the current QR Code v3 flow does not require CSC.
 type NFCeConfig struct {
 	TenantID                        string  `json:"tenant_id"`
 	Enabled                         bool    `json:"enabled"`

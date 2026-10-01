@@ -28,7 +28,7 @@ O sistema é composto por:
 ## Fluxos operacionais
 - Venda: abrir caixa → carrinho → finalizar venda → baixa estoque → financeiro.
 - Estoque: cadastro produto → entrada/ajuste → alerta mínimo.
-- Fiscal atual: preparar emitente NFC-e por tenant → classificar produtos com NCM/CEST → preparar referências de CSC/certificado → validar readiness.
+- Fiscal atual: preparar emitente NFC-e por tenant → classificar produtos com NCM/CEST → preparar referência do certificado A1 → validar readiness. CSC permanece somente como compatibilidade legada opcional; QR Code v3 não o exige.
 - Preview fiscal de desenvolvimento: venda finalizada → preview NFC-e modelo 65 marcado como não fiscal → armazenar/download.
 - Fiscal futuro: provider SEFAZ separado para assinatura, schemas oficiais, chave/QR Code, autorização, protocolo, contingência, cancelamento/inutilização e DANFE-NFC-e. Produção mantém `FISCAL_PROVIDER=disabled` até homologação.
 # Architecture notes

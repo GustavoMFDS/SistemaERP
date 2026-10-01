@@ -12,7 +12,7 @@
 - Clientes completo + crediário (contas a receber)
 - Compras/fornecedores + contas a pagar
 - Impressão de cupom não fiscal (ESC/POS) e integração com gaveta
-- Fundação NFC-e modelo 65 por tenant: emitente, NCM/CEST, série, referências de CSC/certificado, readiness e metadados de autorização
+- Fundação NFC-e modelo 65 por tenant: emitente, NCM/CEST, série, referência do certificado A1, readiness e metadados de autorização; CSC apenas legado opcional para QR v2
 - Backup/restore, observabilidade, resiliência/carga e least-privilege validados no ambiente piloto
 - Melhorias de performance (cache de permissões, busca full-text refinada)
 

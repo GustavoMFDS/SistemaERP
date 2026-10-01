@@ -100,7 +100,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	if cfg.FiscalProvider == "" || cfg.FiscalProvider == "mvp" {
 		nfeProvider = fiscmvp.New()
 	}
-	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, v, logger)
+	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
 	returnsSvc := retapp.NewService(uow, returnsRepo, inventoryRepo, productsRepo, auditSvc, v, logger)

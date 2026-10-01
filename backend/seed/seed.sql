@@ -21,8 +21,8 @@ BEGIN;
 -- We use psql variables via \gset so the rest of the file can reference :'tenant_id'.
 WITH ins AS (
   INSERT INTO companies (legal_name, trade_name, cnpj, ie, crt, created_at)
-  SELECT 'Empresa Exemplo LTDA', 'Loja Exemplo', '00000000000000', 'ISENTO', '1', now()
-  WHERE NOT EXISTS (SELECT 1 FROM companies WHERE cnpj='00000000000000')
+  SELECT 'Empresa Exemplo LTDA', 'Loja Exemplo', '12345678000195', 'ISENTO', '1', now()
+  WHERE NOT EXISTS (SELECT 1 FROM companies WHERE cnpj='12345678000195')
   RETURNING id, created_at
 )
 SELECT id AS tenant_id, created_at AS tenant_created_at
@@ -30,7 +30,7 @@ FROM ins
 UNION ALL
 SELECT id AS tenant_id, created_at AS tenant_created_at
 FROM companies
-WHERE cnpj='00000000000000'
+WHERE cnpj='12345678000195'
 ORDER BY tenant_created_at
 LIMIT 1
 \gset
@@ -146,11 +146,28 @@ INSERT INTO categories (id, tenant_id, name, created_at) VALUES
   (gen_random_uuid(), :'tenant_id'::uuid, 'Mercearia', now())
 ON CONFLICT (tenant_id, name) DO NOTHING;
 
-INSERT INTO products (id, tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active, ncm, created_at)
-SELECT gen_random_uuid(), :'tenant_id'::uuid, c.id, 'SKU-COCA-2L', '7890000000000', 'Coca-Cola 2L', '', 'UN', 7.00, 10.90, NULL, 5, true, '22021000', now()
+INSERT INTO products (id, tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active, created_at)
+SELECT gen_random_uuid(), :'tenant_id'::uuid, c.id, 'SKU-COCA-2L', '7890000000000', 'Coca-Cola 2L', '', 'UN', 7.00, 10.90, NULL, 5, true, now()
 FROM categories c
 WHERE c.tenant_id = :'tenant_id'::uuid AND c.name='Bebidas'
 ON CONFLICT (tenant_id, sku) DO NOTHING;
+
+-- Migration 0023 adds fiscal classification. Keep this seed compatible with
+-- historical migration-upgrade tests (e.g. v12) and enrich only when available.
+SELECT EXISTS (
+  SELECT 1
+  FROM information_schema.columns
+  WHERE table_schema='public' AND table_name='products' AND column_name='ncm'
+) AS has_product_ncm
+\gset
+
+\if :has_product_ncm
+UPDATE products
+SET ncm='22021000'
+WHERE tenant_id=:'tenant_id'::uuid
+  AND sku='SKU-COCA-2L'
+  AND ncm IS NULL;
+\endif
 
 -- initial stock balance + movement
 INSERT INTO inventory_balances (product_id, tenant_id, qty_on_hand, updated_at)

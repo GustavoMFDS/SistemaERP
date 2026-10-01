@@ -579,13 +579,35 @@ jobs:
             -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('nfce_configs','fiscal_document_sequences') ORDER BY table_name;" \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name IN ('ncm','cest') ORDER BY column_name;" \
             -c "SELECT column_name FROM information_schema.columns WHERE table_name='companies' AND column_name='address_city_code';" \
-            -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('model','series','document_number','environment','access_key','authorization_protocol','authorized_at','rejection_code','rejection_message') ORDER BY column_name;" \
-            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('invoices_tenant_model_series_number_unique','invoices_access_key_unique') ORDER BY indexname;" \
-            -c "SELECT conname FROM pg_constraint WHERE conname='nfce_configs_updated_by_tenant_fk';"
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('model','series','document_number','environment','access_key','emission_type','numeric_code','access_key_check_digit','issued_at','authorization_protocol','authorized_at','rejection_code','rejection_message','updated_at') ORDER BY column_name;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('invoices_tenant_id_id_unique','invoices_tenant_model_series_number_unique','invoices_access_key_unique') ORDER BY indexname;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('nfce_configs_updated_by_tenant_fk','invoices_tenant_sale_fk','invoices_company_matches_tenant_check','invoice_xml_files_tenant_invoice_fk','invoices_access_key_metadata_check','invoices_status_check','invoices_response_fields_check','invoices_real_document_fields_check') ORDER BY conname;"
+
+          ACCESS_KEY_CONSTRAINT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='invoices_access_key_check';" | tr -d '\r')"
+          if ! printf '%s\n' "$ACCESS_KEY_CONSTRAINT" | grep -Fq '[A-Z0-9]{12}'; then
+            echo "migration 0023 access-key constraint is not compatible with alphanumeric CNPJ"
+            printf '%s\n' "$ACCESS_KEY_CONSTRAINT"
+            exit 1
+          fi
+          SEQUENCE_CONSTRAINT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='fiscal_document_sequences_number_check';" | tr -d '\r')"
+          if ! printf '%s\n' "$SEQUENCE_CONSTRAINT" | grep -Fq '1000000000'; then
+            echo "migration 0023 sequence constraint does not preserve the exhaustion sentinel"
+            printf '%s\n' "$SEQUENCE_CONSTRAINT"
+            exit 1
+          fi
 
           if docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
             -c "INSERT INTO nfce_configs(tenant_id, enabled, environment, series) SELECT id, true, 'homologation', 1 FROM companies ORDER BY created_at LIMIT 1;"; then
-            echo "migration 0023 unexpectedly allowed enabled NFC-e without secret references"
+            echo "migration 0023 unexpectedly allowed enabled NFC-e without a certificate reference"
+            exit 1
+          fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO nfce_configs(tenant_id, enabled, environment, series, certificate_secret_ref) SELECT id, true, 'homologation', 1, 'ci://certificate-ref' FROM companies ORDER BY created_at LIMIT 1;"
+
+          NFCe_CSC_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM nfce_configs WHERE enabled=true AND csc_id IS NULL AND csc_secret_ref IS NULL AND NULLIF(btrim(certificate_secret_ref),'') IS NOT NULL;" | tr -d '[:space:]')"
+          if [ "$NFCe_CSC_COUNT" != "1" ]; then
+            echo "migration 0023 did not accept certificate-only NFC-e configuration for QR Code v3"
             exit 1
           fi
 
@@ -604,6 +626,22 @@ jobs:
               RAISE EXCEPTION 'rollback 0023 left NFC-e foundation tables behind';
             END IF;
             IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname IN (
+                'invoices_tenant_sale_fk',
+                'invoices_company_matches_tenant_check',
+                'invoice_xml_files_tenant_invoice_fk',
+                'invoices_access_key_metadata_check',
+                'invoices_response_fields_check',
+                'invoices_real_document_fields_check'
+              )
+            ) OR EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE indexname='invoices_tenant_id_id_unique'
+            ) THEN
+              RAISE EXCEPTION 'rollback 0023 left tenant-safe fiscal constraints behind';
+            END IF;
+            IF EXISTS (
               SELECT 1 FROM information_schema.columns
               WHERE table_name='products' AND column_name IN ('ncm','cest')
             ) THEN
@@ -620,7 +658,8 @@ jobs:
               WHERE table_name='invoices'
                 AND column_name IN (
                   'model','series','document_number','environment','access_key',
-                  'authorization_protocol','authorized_at','rejection_code','rejection_message'
+                  'emission_type','numeric_code','access_key_check_digit','issued_at',
+                  'authorization_protocol','authorized_at','rejection_code','rejection_message','updated_at'
                 )
             ) THEN
               RAISE EXCEPTION 'rollback 0023 left invoice authorization metadata behind';

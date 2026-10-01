@@ -17,11 +17,41 @@ func TestAccessKeyCheckDigitOfficialModule11Example(t *testing.T) {
 	}
 }
 
-func TestBuildNFCeAccessKey(t *testing.T) {
+func TestValidateCNPJOfficialAlphanumericExamples(t *testing.T) {
+	for _, cnpj := range []string{
+		"12.ABC.345/01DE-35",
+		"00.000.000/E08G-12",
+		"12.345.678/0001-95",
+	} {
+		if err := ValidateCNPJ(cnpj); err != nil {
+			t.Fatalf("ValidateCNPJ(%q): %v", cnpj, err)
+		}
+	}
+}
+
+func TestValidateCNPJRejectsPlaceholderCNPJ(t *testing.T) {
+	if err := ValidateCNPJ("00000000000000"); err == nil {
+		t.Fatal("expected zero placeholder CNPJ to fail")
+	}
+}
+
+func TestValidateCNPJRejectsInvalidCheckDigits(t *testing.T) {
+	for _, cnpj := range []string{
+		"12.ABC.345/01DE-36",
+		"00.000.000/E08G-13",
+		"12.345.678/0001-96",
+	} {
+		if err := ValidateCNPJ(cnpj); err == nil {
+			t.Fatalf("ValidateCNPJ(%q) unexpectedly succeeded", cnpj)
+		}
+	}
+}
+
+func TestBuildNFCeAccessKeyNumericCNPJ(t *testing.T) {
 	key, err := BuildNFCeAccessKey(NFCeAccessKeyInput{
 		UF:           "MG",
 		IssuedAt:     time.Date(2026, time.September, 30, 10, 0, 0, 0, time.FixedZone("BRT", -3*60*60)),
-		CNPJ:         "12345678000195",
+		CNPJ:         "12.345.678/0001-95",
 		Series:       1,
 		Number:       42,
 		NumericCode:  "12345678",
@@ -45,6 +75,45 @@ func TestBuildNFCeAccessKey(t *testing.T) {
 	}
 }
 
+func TestBuildNFCeAccessKeyAlphanumericCNPJ(t *testing.T) {
+	key, err := BuildNFCeAccessKey(NFCeAccessKeyInput{
+		UF:           "mg",
+		IssuedAt:     time.Date(2026, time.September, 30, 10, 0, 0, 0, time.UTC),
+		CNPJ:         "12abc34501de35",
+		Series:       1,
+		Number:       42,
+		NumericCode:  "12345678",
+		EmissionType: NFCeNormalEmissionType,
+	})
+	if err != nil {
+		t.Fatalf("BuildNFCeAccessKey: %v", err)
+	}
+	const want = "31260912ABC34501DE35650010000000421123456788"
+	if key != want {
+		t.Fatalf("key=%s, want %s", key, want)
+	}
+}
+
+func TestValidateNFCeAccessKey(t *testing.T) {
+	const key = "31260912ABC34501DE35650010000000421123456788"
+	if err := ValidateNFCeAccessKey(key); err != nil {
+		t.Fatalf("ValidateNFCeAccessKey: %v", err)
+	}
+	if err := ValidateNFCeAccessKey(key[:43] + "9"); err == nil {
+		t.Fatal("expected invalid check digit to fail")
+	}
+	if err := ValidateNFCeAccessKey(strings.ToLower(key)); err == nil {
+		t.Fatal("expected lowercase alphanumeric key to fail")
+	}
+}
+
+func TestAccessKeyCheckDigitRejectsLetterOutsideCNPJPositions(t *testing.T) {
+	const invalid = "A1260912ABC34501DE3565001000000042112345678"
+	if _, err := AccessKeyCheckDigit(invalid); err == nil {
+		t.Fatal("expected access-key base with letter outside CNPJ positions to fail")
+	}
+}
+
 func TestBuildNFCeAccessKeyRejectsUnsupportedInputs(t *testing.T) {
 	base := NFCeAccessKeyInput{
 		UF:           "MG",
@@ -61,7 +130,8 @@ func TestBuildNFCeAccessKeyRejectsUnsupportedInputs(t *testing.T) {
 		edit func(*NFCeAccessKeyInput)
 	}{
 		{"invalid UF", func(v *NFCeAccessKeyInput) { v.UF = "XX" }},
-		{"invalid CNPJ", func(v *NFCeAccessKeyInput) { v.CNPJ = "123" }},
+		{"invalid CNPJ length", func(v *NFCeAccessKeyInput) { v.CNPJ = "123" }},
+		{"letter in CNPJ check digits", func(v *NFCeAccessKeyInput) { v.CNPJ = "12ABC34501DE3X" }},
 		{"series above NFC-e range", func(v *NFCeAccessKeyInput) { v.Series = 890 }},
 		{"zero number", func(v *NFCeAccessKeyInput) { v.Number = 0 }},
 		{"invalid numeric code", func(v *NFCeAccessKeyInput) { v.NumericCode = "1234ABCD" }},
@@ -76,5 +146,18 @@ func TestBuildNFCeAccessKeyRejectsUnsupportedInputs(t *testing.T) {
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+
+func TestGenerateNFCeNumericCode(t *testing.T) {
+	for i := 0; i < 32; i++ {
+		code, err := GenerateNFCeNumericCode()
+		if err != nil {
+			t.Fatalf("GenerateNFCeNumericCode: %v", err)
+		}
+		if !isDigits(code, 8) {
+			t.Fatalf("numeric code=%q, want exactly 8 digits", code)
+		}
 	}
 }
