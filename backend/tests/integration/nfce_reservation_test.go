@@ -241,4 +241,52 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if nextNumber != 2 {
 		t.Fatalf("next number=%d, want 2 after one committed reservation", nextNumber)
 	}
+
+	xmlID, err := service.StoreSignedNFCeXML(
+		ctx, tenantID, actorUserID, reservation.InvoiceID, reservation.AccessKey,
+		"NFCe-"+reservation.AccessKey+".xml", []byte("<NFe/>"),
+	)
+	if err != nil {
+		t.Fatalf("StoreSignedNFCeXML: %v", err)
+	}
+	if xmlID == "" {
+		t.Fatal("signed XML id is empty")
+	}
+	if err := service.MarkNFCeSubmitted(
+		ctx, tenantID, actorUserID, reservation.InvoiceID, reservation.AccessKey,
+	); err != nil {
+		t.Fatalf("MarkNFCeSubmitted: %v", err)
+	}
+
+	authorizedAt := time.Date(2026, time.September, 30, 10, 31, 0, 0, time.FixedZone("BRT", -3*60*60))
+	result := fisc.NFCeAuthorizationResult{
+		Status: fisc.NFCeStatusAuthorized,
+		AccessKey: reservation.AccessKey,
+		Protocol: "131260000000001",
+		AuthorizedAt: authorizedAt,
+	}
+	if err := service.ApplyNFCeAuthorizationResult(
+		ctx, tenantID, actorUserID, reservation.InvoiceID, result,
+	); err != nil {
+		t.Fatalf("ApplyNFCeAuthorizationResult: %v", err)
+	}
+
+	var status, protocol string
+	var storedAuthorizedAt time.Time
+	if err := pool.QueryRow(ctx,
+		"SELECT status, authorization_protocol, authorized_at FROM invoices WHERE tenant_id=$1 AND id=$2",
+		tenantID, reservation.InvoiceID,
+	).Scan(&status, &protocol, &storedAuthorizedAt); err != nil {
+		t.Fatalf("read authorized invoice: %v", err)
+	}
+	if status != "authorized" || protocol != result.Protocol || !storedAuthorizedAt.Equal(authorizedAt) {
+		t.Fatalf("unexpected authorized invoice state: %s %s %s", status, protocol, storedAuthorizedAt)
+	}
+
+	err = service.ApplyNFCeAuthorizationResult(
+		ctx, tenantID, actorUserID, reservation.InvoiceID, result,
+	)
+	if !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("authorization replay error=%v, want ErrConflict", err)
+	}
 }
