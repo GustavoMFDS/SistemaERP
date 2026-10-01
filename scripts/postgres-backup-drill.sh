@@ -68,8 +68,8 @@ source_schema_version="${source_version%%|*}"
 if [ "$source_dirty" != "f" ]; then
   fail "source database migration state is dirty"
 fi
-if [ "$source_schema_version" -lt 25 ]; then
-  fail "source schema version $source_schema_version is below the current pilot baseline (25)"
+if [ "$source_schema_version" -lt 26 ]; then
+  fail "source schema version $source_schema_version is below the current pilot baseline (26)"
 fi
 
 printf 'Creating logical backup from %s...\n' "$source_db"
