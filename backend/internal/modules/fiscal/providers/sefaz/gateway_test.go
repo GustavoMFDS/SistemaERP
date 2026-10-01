@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 )
 
 func TestGatewayStatusAuthorizeConsult(t *testing.T) {
@@ -65,7 +67,18 @@ func TestGatewayStatusAuthorizeConsult(t *testing.T) {
 }
 
 func TestGatewayRejectsMismatchedProtocolAccessKey(t *testing.T) {
-	const otherKey = "31260912ABC34501DE35650010000000431123456789"
+	otherKey, err := fisc.BuildNFCeAccessKey(fisc.NFCeAccessKeyInput{
+		UF: "MG",
+		IssuedAt: time.Date(2026, time.September, 30, 23, 0, 0, 0, time.FixedZone("BRT", -3*60*60)),
+		CNPJ: "12.ABC.345/01DE-35",
+		Series: 1,
+		Number: 43,
+		NumericCode: "87654321",
+		EmissionType: fisc.NFCeNormalEmissionType,
+	})
+	if err != nil {
+		t.Fatalf("BuildNFCeAccessKey: %v", err)
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`<retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><tpAmb>2</tpAmb><verAplic>TEST</verAplic><cStat>104</cStat><xMotivo>Lote processado</xMotivo><protNFe versao="4.00"><infProt><chNFe>` + otherKey + `</chNFe><dhRecbto>2026-09-30T23:00:00-03:00</dhRecbto><nProt>131260000000001</nProt><digVal>ZmFrZQ==</digVal><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></retEnviNFe>`))
 	}))
