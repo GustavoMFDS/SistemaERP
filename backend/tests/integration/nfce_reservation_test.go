@@ -166,6 +166,15 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("create sale item: %v", err)
 	}
 
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO payments(
+			tenant_id, sale_id, method, amount, installments, reconciliation_status
+		)
+		VALUES ($1,$2,'cash',10,1,'pending')
+	`, tenantID, saleID); err != nil {
+		t.Fatalf("create sale payment: %v", err)
+	}
+
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE tenant_id=$1 AND action='fiscal.nfce.reserve' AND resource_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM invoices WHERE tenant_id=$1 AND sale_id=$2`, tenantID, saleID)
