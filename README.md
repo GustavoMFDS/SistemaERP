@@ -213,3 +213,8 @@ Use [docs/smoke-test.md](docs/smoke-test.md) for critical functional validation 
 License: define before public distribution.
 
 Status: pre-production / staging candidate.
+
+
+### NFC-e / SEFAZ
+
+A emissão real permanece desativada por padrão. Para homologação controlada, configure o certificado A1 por referência externa, monte um bundle XSD oficial pinado e habilite explicitamente `NFCE_SEFAZ_HOMOLOGATION_ENABLED=true` apenas fora de produção. O fluxo valida o XML contra XSD antes da assinatura, assina com o A1 e usa consulta por chave para recuperar tentativas ambíguas sem retransmissão cega.
