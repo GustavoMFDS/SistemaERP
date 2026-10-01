@@ -304,6 +304,21 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("next number=%d, want 2 after one committed reservation", nextNumber)
 	}
 
+	calculation, err := service.PrepareLegacyOnlyTaxCalculation(
+		ctx,
+		tenantID,
+		actorUserID,
+		reservation.InvoiceID,
+		saleItemID,
+		"legacy-ci-v1",
+	)
+	if err != nil {
+		t.Fatalf("PrepareLegacyOnlyTaxCalculation: %v", err)
+	}
+	if calculation.CalculationSHA256 == "" {
+		t.Fatal("tax calculation hash is empty")
+	}
+
 	xmlID, err := service.StoreSignedNFCeXML(
 		ctx, tenantID, actorUserID, reservation.InvoiceID, reservation.AccessKey,
 		"NFCe-"+reservation.AccessKey+".xml", []byte("<NFe/>"),
