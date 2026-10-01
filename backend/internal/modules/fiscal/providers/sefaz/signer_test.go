@@ -2,6 +2,8 @@ package sefaz
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -17,6 +19,35 @@ import (
 	"github.com/beevik/etree"
 	dsig "github.com/russellhaering/goxmldsig"
 )
+
+func testECDSACertificate(t *testing.T, now time.Time) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(43),
+		Subject:      pkix.Name{CommonName: "SistemaEmGo NFC-e ECDSA test"},
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{
+		Certificate: [][]byte{der},
+		PrivateKey:  key,
+		Leaf:        leaf,
+	}
+}
 
 func testRSACertificate(t *testing.T, now time.Time) tls.Certificate {
 	t.Helper()
@@ -159,7 +190,7 @@ func TestSignNFCeXMLRejectsECDSAAndDuplicateSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := input.Reservation.IssuedAt
-	ecdsaCert := testCertificate(t, now.Add(-time.Hour), now.Add(time.Hour))
+	ecdsaCert := testECDSACertificate(t, now)
 	if _, err := SignNFCeXML(unsigned, ecdsaCert, input.Reservation.AccessKey, now); err == nil ||
 		!strings.Contains(err.Error(), "RSA") {
 		t.Fatalf("expected ECDSA rejection, got %v", err)
