@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -95,7 +96,8 @@ func BuildAuthorizationBatch(idLot string, signedNFe []byte) ([]byte, error) {
 	if len(idLot) < 1 || len(idLot) > 15 || !allDigits(idLot) {
 		return nil, fmt.Errorf("idLote must contain 1 to 15 digits")
 	}
-	if err := requireXMLRoot(signedNFe, "NFe"); err != nil {
+	signedNFe = stripXMLHeader(signedNFe)
+	if err := requireXMLDocumentRoot(signedNFe, "NFe"); err != nil {
 		return nil, fmt.Errorf("signed NFC-e: %w", err)
 	}
 	req := AuthorizationBatch{
@@ -313,18 +315,35 @@ func marshalDocument(value any) ([]byte, error) {
 	return append([]byte(xml.Header), content...), nil
 }
 
-func requireXMLRoot(content []byte, want string) error {
+func requireXMLDocumentRoot(content []byte, want string) error {
 	decoder := xml.NewDecoder(bytes.NewReader(content))
+	foundRoot := false
+	depth := 0
 	for {
 		token, err := decoder.Token()
+		if err == io.EOF {
+			if !foundRoot || depth != 0 {
+				return fmt.Errorf("invalid XML document")
+			}
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("invalid XML: %w", err)
 		}
-		if start, ok := token.(xml.StartElement); ok {
-			if start.Name.Local != want {
-				return fmt.Errorf("root element=%s, want %s", start.Name.Local, want)
+		switch value := token.(type) {
+		case xml.StartElement:
+			if !foundRoot {
+				foundRoot = true
+				if value.Name.Local != want {
+					return fmt.Errorf("root element=%s, want %s", value.Name.Local, want)
+				}
 			}
-			return nil
+			depth++
+		case xml.EndElement:
+			depth--
+			if depth < 0 {
+				return fmt.Errorf("invalid XML nesting")
+			}
 		}
 	}
 }
