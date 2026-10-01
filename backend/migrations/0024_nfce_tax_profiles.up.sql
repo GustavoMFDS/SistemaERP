@@ -9,6 +9,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS products_tenant_id_id_unique
 CREATE UNIQUE INDEX IF NOT EXISTS sale_items_tenant_id_id_unique
   ON sale_items(tenant_id, id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS sale_items_tenant_id_id_sale_id_unique
+  ON sale_items(tenant_id, id, sale_id);
+
 -- Current fiscal classification for a product. Values here describe how a product
 -- should be treated when an NFC-e reservation is created. They are copied into
 -- immutable sale-item snapshots so later catalog edits never rewrite history.
@@ -116,8 +119,8 @@ CREATE TABLE IF NOT EXISTS sale_item_fiscal_snapshots (
   PRIMARY KEY (tenant_id, sale_item_id),
 
   CONSTRAINT sale_item_fiscal_snapshots_sale_item_fk
-    FOREIGN KEY (tenant_id, sale_item_id)
-    REFERENCES sale_items(tenant_id, id)
+    FOREIGN KEY (tenant_id, sale_item_id, sale_id)
+    REFERENCES sale_items(tenant_id, id, sale_id)
     ON DELETE CASCADE,
 
   CONSTRAINT sale_item_fiscal_snapshots_product_fk
