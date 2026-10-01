@@ -257,7 +257,6 @@ func (s *FiscalService) ReserveNFCeDraft(
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
 	}
 	if reservationContext.Config.Environment != "homologation" ||
-		!reservationContext.Config.CSCReferenceConfigured ||
 		!reservationContext.Config.CertificateReferenceConfigured {
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
 	}
