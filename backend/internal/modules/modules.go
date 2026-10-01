@@ -103,6 +103,14 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	}
 	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
 	fiscalSvc.SetNFCeDocumentBuilder(fiscsefaz.NewDocumentBuilder(cfg.AppVersion))
+	if cfg.NFCeCertificateSecretDir != "" {
+		resolver, err := fiscsefaz.NewPEMDirectoryCertificateResolver(cfg.NFCeCertificateSecretDir)
+		if err != nil {
+			logger.Error("nfce_certificate_secret_resolver_disabled", slog.Any("error", err))
+		} else {
+			fiscalSvc.SetNFCeXMLSigner(fiscsefaz.NewXMLSigningService(resolver))
+		}
+	}
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
 	returnsSvc := retapp.NewService(uow, returnsRepo, inventoryRepo, productsRepo, auditSvc, v, logger)
