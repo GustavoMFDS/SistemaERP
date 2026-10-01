@@ -354,23 +354,70 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if xmlID == "" {
 		t.Fatal("signed XML id is empty")
 	}
-	if err := service.MarkNFCeSubmitted(
-		ctx, tenantID, actorUserID, reservation.InvoiceID, reservation.AccessKey,
-	); err != nil {
-		t.Fatalf("MarkNFCeSubmitted: %v", err)
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin homologation config tx: %v", err)
+	}
+	if err := fiscalRepo.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, fisc.NFCeConfig{
+		TenantID: tenantID,
+		Environment: "homologation",
+		Series: 321,
+		CertificateSecretRef: &certRef,
+	}); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("restore homologation config: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit homologation config: %v", err)
 	}
 
 	authorizedAt := time.Date(2026, time.September, 30, 10, 31, 0, 0, time.FixedZone("BRT", -3*60*60))
-	result := fisc.NFCeAuthorizationResult{
-		Status: fisc.NFCeStatusAuthorized,
-		AccessKey: reservation.AccessKey,
-		Protocol: "131260000000001",
-		AuthorizedAt: authorizedAt,
+	remote := &fakeRemoteAuthorizer{
+		authorizeOut: fisc.NFCeRemoteOutcome{
+			AccessKey: reservation.AccessKey,
+			StatusCode: 103,
+			Reason: "Lote recebido com sucesso",
+		},
+		consultOut: fisc.NFCeRemoteOutcome{
+			AccessKey: reservation.AccessKey,
+			StatusCode: 100,
+			Reason: "Autorizado o uso da NF-e",
+			FinalStatus: fisc.NFCeStatusAuthorized,
+			Protocol: "131260000000001",
+			ReceivedAt: authorizedAt,
+		},
 	}
-	if err := service.ApplyNFCeAuthorizationResult(
-		ctx, tenantID, actorUserID, reservation.InvoiceID, result,
-	); err != nil {
-		t.Fatalf("ApplyNFCeAuthorizationResult: %v", err)
+	service.SetNFCeRemoteAuthorizer(remote)
+
+	firstOutcome, err := service.AuthorizeNFCeHomologation(
+		ctx, tenantID, actorUserID, reservation.InvoiceID,
+	)
+	if err != nil {
+		t.Fatalf("AuthorizeNFCeHomologation first call: %v", err)
+	}
+	if !firstOutcome.Pending() || remote.authorizeCalls != 1 || remote.consultCalls != 0 {
+		t.Fatalf("unexpected first authorization outcome/calls: outcome=%+v authorize=%d consult=%d", firstOutcome, remote.authorizeCalls, remote.consultCalls)
+	}
+
+	var submittedStatus string
+	if err := pool.QueryRow(ctx,
+		"SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2",
+		tenantID, reservation.InvoiceID,
+	).Scan(&submittedStatus); err != nil {
+		t.Fatalf("read submitted invoice: %v", err)
+	}
+	if submittedStatus != fisc.NFCeStatusSubmitted {
+		t.Fatalf("status=%s, want submitted after ambiguous authorization", submittedStatus)
+	}
+
+	secondOutcome, err := service.AuthorizeNFCeHomologation(
+		ctx, tenantID, actorUserID, reservation.InvoiceID,
+	)
+	if err != nil {
+		t.Fatalf("AuthorizeNFCeHomologation recovery: %v", err)
+	}
+	if !secondOutcome.Authorized() || remote.authorizeCalls != 1 || remote.consultCalls != 1 {
+		t.Fatalf("recovery must consult without retransmission: outcome=%+v authorize=%d consult=%d", secondOutcome, remote.authorizeCalls, remote.consultCalls)
 	}
 
 	var status, protocol string
@@ -381,14 +428,14 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	).Scan(&status, &protocol, &storedAuthorizedAt); err != nil {
 		t.Fatalf("read authorized invoice: %v", err)
 	}
-	if status != "authorized" || protocol != result.Protocol || !storedAuthorizedAt.Equal(authorizedAt) {
+	if status != "authorized" || protocol != secondOutcome.Protocol || !storedAuthorizedAt.Equal(authorizedAt) {
 		t.Fatalf("unexpected authorized invoice state: %s %s %s", status, protocol, storedAuthorizedAt)
 	}
 
-	err = service.ApplyNFCeAuthorizationResult(
-		ctx, tenantID, actorUserID, reservation.InvoiceID, result,
+	_, err = service.AuthorizeNFCeHomologation(
+		ctx, tenantID, actorUserID, reservation.InvoiceID,
 	)
 	if !errors.Is(err, common.ErrConflict) {
-		t.Fatalf("authorization replay error=%v, want ErrConflict", err)
+		t.Fatalf("final authorization replay error=%v, want ErrConflict", err)
 	}
 }
