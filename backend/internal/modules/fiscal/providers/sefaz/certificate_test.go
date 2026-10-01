@@ -2,9 +2,8 @@ package sefaz
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -27,7 +26,7 @@ func (r *staticCertificateResolver) ResolveClientCertificate(_ context.Context, 
 
 func testCertificate(t *testing.T, notBefore, notAfter time.Time) tls.Certificate {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
