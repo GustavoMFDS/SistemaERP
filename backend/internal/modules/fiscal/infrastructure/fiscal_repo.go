@@ -455,6 +455,30 @@ func (r *FiscalRepo) CreateNFCeReservation(
 	return invoiceID, nil
 }
 
+func (r *FiscalRepo) GetLatestNFCeXMLContent(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, invoiceID string,
+) (string, []byte, error) {
+	var fileName string
+	var content []byte
+	err := tx.QueryRow(ctx, `
+		SELECT file_name, content
+		FROM invoice_xml_files
+		WHERE tenant_id=$1
+		  AND invoice_id=$2
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1
+	`, tenantID, invoiceID).Scan(&fileName, &content)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil, common.ErrNotFound
+		}
+		return "", nil, err
+	}
+	return fileName, content, nil
+}
+
 func (r *FiscalRepo) StoreSignedNFCeXML(
 	ctx context.Context,
 	tx db.DBTX,
