@@ -92,8 +92,6 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		TenantID: tenantID,
 		Environment: "homologation",
 		Series: 321,
-		CSCID: &cscID,
-		CSCSecretRef: &cscRef,
 		CertificateSecretRef: &certRef,
 	}); err != nil {
 		_ = tx.Rollback(ctx)
