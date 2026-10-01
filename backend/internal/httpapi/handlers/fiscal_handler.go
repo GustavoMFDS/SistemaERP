@@ -300,6 +300,37 @@ func (h *FiscalHandler) PrepareRegularIBSCBSCalculation(w http.ResponseWriter, r
 	writeJSON(w, http.StatusCreated, calculation)
 }
 
+func (h *FiscalHandler) SignNFCeReserved(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	invoiceID := chi.URLParam(r, "invoiceID")
+	xmlID, fileName, err := h.svc.SignNFCeReserved(
+		r.Context(), au.TenantID, au.UserID, invoiceID,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict, common.ErrFiscalNotReady:
+			status = http.StatusConflict
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"invoice_id": invoiceID,
+		"xml_id":     xmlID,
+		"file_name":  fileName,
+		"status":     "signed",
+	})
+}
+
 func (h *FiscalHandler) PreviewNFCeXMLCandidate(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
