@@ -48,7 +48,7 @@ func SignNFCeXML(
 
 	doc := etree.NewDocument()
 	doc.ReadSettings.ValidateInput = true
-	if _, err := doc.ReadFromBytes(bytes.TrimSpace(unsignedXML)); err != nil {
+	if err := doc.ReadFromBytes(bytes.TrimSpace(unsignedXML)); err != nil {
 		return nil, fmt.Errorf("parse unsigned NFC-e XML: %w", err)
 	}
 	root := doc.Root()
