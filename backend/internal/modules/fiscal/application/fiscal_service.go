@@ -14,6 +14,7 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
 )
@@ -53,6 +54,16 @@ type PrepareProductFiscalProfileRequest struct {
 	ISCST                  *string `json:"is_cst" validate:"omitempty,numeric,len=3"`
 	ISClassification       *string `json:"is_classification" validate:"omitempty,numeric,len=6"`
 	ReferenceVersion       string  `json:"reference_version" validate:"required,min=2,max=120"`
+}
+
+type PrepareRegularIBSCBSCalculationInput struct {
+	InvoiceID          string                         `json:"invoice_id"`
+	SaleItemID         string                         `json:"sale_item_id"`
+	CalculationVersion string                         `json:"calculation_version"`
+	Base               platform.Money                 `json:"base"`
+	IBSUF              fisc.RegularTaxComponentInput  `json:"ibs_uf"`
+	IBSMunicipal       fisc.RegularTaxComponentInput  `json:"ibs_municipal"`
+	CBS                fisc.RegularTaxComponentInput  `json:"cbs"`
 }
 
 type PrepareNFCeIssuerRequest struct {
@@ -437,6 +448,131 @@ func (s *FiscalService) buildSaleItemFiscalSnapshots(
 func fiscalSnapshotHash(snapshot fisc.SaleItemFiscalSnapshot) (string, error) {
 	snapshot.SnapshotSHA256 = ""
 	content, err := json.Marshal(snapshot)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func (s *FiscalService) PrepareRegularIBSCBSCalculation(
+	ctx context.Context,
+	tenantID, actorUserID string,
+	input PrepareRegularIBSCBSCalculationInput,
+) (fisc.InvoiceItemTaxCalculation, error) {
+	input.InvoiceID = strings.TrimSpace(input.InvoiceID)
+	input.SaleItemID = strings.TrimSpace(input.SaleItemID)
+	input.CalculationVersion = strings.TrimSpace(input.CalculationVersion)
+	if s.validate.Var(input.InvoiceID, "required,uuid") != nil ||
+		s.validate.Var(input.SaleItemID, "required,uuid") != nil ||
+		input.CalculationVersion == "" ||
+		len(input.CalculationVersion) > 120 {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(
+		ctx, tx, tenantID, input.InvoiceID,
+	)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	if reservation.Status != fisc.NFCeStatusReserved {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrConflict
+	}
+
+	snapshots, err := s.fiscal.GetSaleItemFiscalSnapshots(
+		ctx, tx, tenantID, reservation.SaleID,
+	)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	var snapshot *fisc.SaleItemFiscalSnapshot
+	for i := range snapshots {
+		if snapshots[i].SaleItemID == input.SaleItemID {
+			snapshot = &snapshots[i]
+			break
+		}
+	}
+	if snapshot == nil {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrNotFound
+	}
+	if snapshot.IBSCBSCST == nil || snapshot.IBSCBSClassification == nil {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrFiscalNotReady
+	}
+	if snapshot.ISCST != nil || snapshot.ISClassification != nil {
+		// Selective Tax calculation is deliberately blocked until its current
+		// legal calculation table/rules are wired into the engine.
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrFiscalNotReady
+	}
+
+	rtc, err := fisc.CalculateRegularIBSCBS(fisc.RegularIBSCBSInput{
+		CST:            *snapshot.IBSCBSCST,
+		Classification: *snapshot.IBSCBSClassification,
+		Base:           input.Base,
+		IBSUF:          input.IBSUF,
+		IBSMunicipal:   input.IBSMunicipal,
+		CBS:            input.CBS,
+	})
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, common.ErrValidation
+	}
+
+	calculation := fisc.InvoiceItemTaxCalculation{
+		TenantID:           tenantID,
+		InvoiceID:          reservation.InvoiceID,
+		SaleID:             reservation.SaleID,
+		SaleItemID:         snapshot.SaleItemID,
+		CalculationVersion: input.CalculationVersion,
+		LegacyTax: fisc.LegacyTaxCalculation{
+			ICMS: fisc.LegacyICMSTax{
+				Origin: snapshot.ICMSOrigin,
+				Regime: snapshot.ICMSRegime,
+				Code:   snapshot.ICMSCode,
+			},
+			PIS:    fisc.LegacyContributionTax{CST: snapshot.PISCST},
+			COFINS: fisc.LegacyContributionTax{CST: snapshot.COFINSCST},
+		},
+		RTCTax: fisc.RTCTaxCalculation{IBSCBS: &rtc},
+	}
+	hash, err := invoiceItemTaxCalculationHash(calculation)
+	if err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	calculation.CalculationSHA256 = hash
+
+	if err := s.fiscal.InsertInvoiceItemTaxCalculation(ctx, tx, calculation); err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID:     tenantID,
+		ActorUserID:  actorUserID,
+		Action:       "fiscal.nfce.tax_calculation.prepare",
+		ResourceType: "invoice",
+		ResourceID:   reservation.InvoiceID,
+		Outcome:      "success",
+		Metadata: map[string]any{
+			"sale_item_id":        snapshot.SaleItemID,
+			"calculation_version": calculation.CalculationVersion,
+			"calculation_sha256":  calculation.CalculationSHA256,
+		},
+	}); err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.InvoiceItemTaxCalculation{}, err
+	}
+	return calculation, nil
+}
+
+func invoiceItemTaxCalculationHash(calculation fisc.InvoiceItemTaxCalculation) (string, error) {
+	calculation.CalculationSHA256 = ""
+	content, err := json.Marshal(calculation)
 	if err != nil {
 		return "", err
 	}
