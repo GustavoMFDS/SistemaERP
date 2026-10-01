@@ -1,7 +1,5 @@
 package domain
 
-import "encoding/json"
-
 type ProductFiscalProfile struct {
 	TenantID             string  `json:"tenant_id"`
 	ProductID            string  `json:"product_id"`
@@ -36,6 +34,5 @@ type SaleItemFiscalSnapshot struct {
 	ISCST                *string         `json:"is_cst,omitempty"`
 	ISClassification     *string         `json:"is_classification,omitempty"`
 	ReferenceVersion     string          `json:"reference_version"`
-	TaxCalculation       json.RawMessage `json:"tax_calculation"`
 	SnapshotSHA256       string          `json:"snapshot_sha256"`
 }
