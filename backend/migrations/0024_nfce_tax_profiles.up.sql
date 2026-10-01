@@ -87,8 +87,9 @@ CREATE TABLE IF NOT EXISTS product_fiscal_profiles (
     CHECK (NULLIF(btrim(reference_version), '') IS NOT NULL)
 );
 
--- Snapshot captured at fiscal reservation time. JSON contains only structured
--- tax calculation data; it is never treated as XML or inserted with innerxml.
+-- Classification snapshot captured at fiscal reservation time. Tax calculation
+-- is intentionally kept separate because it depends on the invoice operation,
+-- current legal tables and calculated monetary values.
 CREATE TABLE IF NOT EXISTS sale_item_fiscal_snapshots (
   tenant_id uuid NOT NULL,
   sale_item_id uuid NOT NULL,
