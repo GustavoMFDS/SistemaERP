@@ -28,7 +28,8 @@ type FiscalService struct {
 	nfe      NFeProvider
 	nfceDoc       NFCeDocumentBuilder
 	nfceSigner    NFCeXMLSigner
-	nfceValidator NFCeSchemaValidator
+	nfceValidator  NFCeSchemaValidator
+	nfceAuthorizer NFCeRemoteAuthorizer
 	audit      *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
@@ -97,6 +98,10 @@ func (s *FiscalService) SetNFCeXMLSigner(signer NFCeXMLSigner) {
 
 func (s *FiscalService) SetNFCeSchemaValidator(schemaValidator NFCeSchemaValidator) {
 	s.nfceValidator = schemaValidator
+}
+
+func (s *FiscalService) SetNFCeRemoteAuthorizer(authorizer NFCeRemoteAuthorizer) {
+	s.nfceAuthorizer = authorizer
 }
 
 func NewFiscalServiceWithProvider(
@@ -1232,6 +1237,134 @@ func (s *FiscalService) MarkNFCeSubmitted(
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *FiscalService) AuthorizeNFCeHomologation(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID string,
+) (fisc.NFCeRemoteOutcome, error) {
+	if s.nfceAuthorizer == nil {
+		return fisc.NFCeRemoteOutcome{}, common.ErrFiscalNotReady
+	}
+	invoiceID = strings.TrimSpace(invoiceID)
+	if s.validate.Var(invoiceID, "required,uuid") != nil {
+		return fisc.NFCeRemoteOutcome{}, common.ErrValidation
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeRemoteOutcome{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(
+		ctx, tx, tenantID, invoiceID,
+	)
+	if err != nil {
+		return fisc.NFCeRemoteOutcome{}, err
+	}
+	reservationContext, err := s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
+	if err != nil {
+		return fisc.NFCeRemoteOutcome{}, err
+	}
+	if reservation.Environment != "homologation" ||
+		reservationContext.Config.Environment != "homologation" ||
+		reservationContext.Config.CertificateSecretRef == nil ||
+		strings.TrimSpace(*reservationContext.Config.CertificateSecretRef) == "" {
+		return fisc.NFCeRemoteOutcome{}, common.ErrFiscalNotReady
+	}
+
+	secretRef := strings.TrimSpace(*reservationContext.Config.CertificateSecretRef)
+	var (
+		signedXML []byte
+		doAuthorize bool
+	)
+	switch reservation.Status {
+	case fisc.NFCeStatusSigned:
+		_, signedXML, err = s.fiscal.GetLatestNFCeXMLContent(
+			ctx, tx, tenantID, reservation.InvoiceID,
+		)
+		if err != nil {
+			return fisc.NFCeRemoteOutcome{}, err
+		}
+		if err := s.fiscal.MarkNFCeSubmitted(
+			ctx, tx, tenantID, reservation.InvoiceID, reservation.AccessKey,
+		); err != nil {
+			return fisc.NFCeRemoteOutcome{}, err
+		}
+		if err := s.audit.RecordTx(ctx, tx, audit.Event{
+			TenantID: tenantID,
+			ActorUserID: actorUserID,
+			Action: "fiscal.nfce.submit",
+			ResourceType: "invoice",
+			ResourceID: reservation.InvoiceID,
+			Outcome: "success",
+			Metadata: map[string]any{
+				"access_key": reservation.AccessKey,
+				"mode": "authorize",
+			},
+		}); err != nil {
+			return fisc.NFCeRemoteOutcome{}, err
+		}
+		doAuthorize = true
+	case fisc.NFCeStatusSubmitted:
+		// Ambiguous/retry state: consult the access key. Never resend blindly.
+	default:
+		return fisc.NFCeRemoteOutcome{}, common.ErrConflict
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeRemoteOutcome{}, err
+	}
+
+	var outcome fisc.NFCeRemoteOutcome
+	if doAuthorize {
+		outcome, err = s.nfceAuthorizer.Authorize(
+			ctx,
+			secretRef,
+			reservationContext.Issuer.AddressState,
+			reservation.Environment,
+			reservation.AccessKey,
+			reservation.DocumentNumber,
+			signedXML,
+		)
+	} else {
+		outcome, err = s.nfceAuthorizer.Consult(
+			ctx,
+			secretRef,
+			reservationContext.Issuer.AddressState,
+			reservation.Environment,
+			reservation.AccessKey,
+		)
+	}
+	if err != nil {
+		// Keep status=submitted. A later call will consult by access key.
+		return fisc.NFCeRemoteOutcome{}, err
+	}
+	if outcome.Pending() {
+		return outcome, nil
+	}
+
+	result := fisc.NFCeAuthorizationResult{
+		AccessKey: reservation.AccessKey,
+	}
+	if outcome.Authorized() {
+		result.Status = fisc.NFCeStatusAuthorized
+		result.Protocol = outcome.Protocol
+		result.AuthorizedAt = outcome.ReceivedAt
+	} else if outcome.Rejected() {
+		result.Status = fisc.NFCeStatusRejected
+		result.RejectionCode = fmt.Sprintf("%d", outcome.StatusCode)
+		result.RejectionMessage = outcome.Reason
+	} else {
+		return outcome, nil
+	}
+	if err := s.ApplyNFCeAuthorizationResult(
+		ctx, tenantID, actorUserID, reservation.InvoiceID, result,
+	); err != nil {
+		return fisc.NFCeRemoteOutcome{}, err
+	}
+	return outcome, nil
 }
 
 func (s *FiscalService) ApplyNFCeAuthorizationResult(
