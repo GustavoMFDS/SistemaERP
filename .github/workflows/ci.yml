@@ -95,7 +95,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v23 migration upgrade and rollback
+      - name: Verify v12 to v24 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -663,6 +663,78 @@ jobs:
                 )
             ) THEN
               RAISE EXCEPTION 'rollback 0023 left invoice authorization metadata behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0023 -> 0024 and verify fiscal classification snapshots.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('product_fiscal_profiles','sale_item_fiscal_snapshots') ORDER BY table_name;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('products_tenant_id_id_unique','sale_items_tenant_id_id_unique','sale_item_fiscal_snapshots_tenant_sale_idx') ORDER BY indexname;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('product_fiscal_profiles_ibs_cbs_check','product_fiscal_profiles_icms_code_check','sale_item_fiscal_snapshots_ibs_cbs_check','sale_item_fiscal_snapshots_sha256_check') ORDER BY conname;"
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          WITH tenant AS (
+            SELECT id FROM companies ORDER BY created_at LIMIT 1
+          )
+          INSERT INTO products(
+            tenant_id, sku, name, unit, cost_price, price_cash, min_stock, active, ncm
+          )
+          SELECT id, 'CI-NFCE-TAX-PROFILE', 'CI NFC-e tax profile', 'UN', 1, 2, 0, true, '00000000'
+          FROM tenant
+          ON CONFLICT (tenant_id, sku) DO NOTHING;
+
+          INSERT INTO product_fiscal_profiles(
+            tenant_id, product_id, cfop, icms_origin, icms_regime, icms_code,
+            pis_cst, cofins_cst, ibs_cbs_cst, ibs_cbs_classification, reference_version
+          )
+          SELECT tenant_id, id, '5102', '0', 'csosn', '102',
+                 '49', '49', '000', '000001', 'ci-reference'
+          FROM products
+          WHERE sku='CI-NFCE-TAX-PROFILE'
+          ON CONFLICT (tenant_id, product_id) DO UPDATE
+          SET ibs_cbs_cst=EXCLUDED.ibs_cbs_cst,
+              ibs_cbs_classification=EXCLUDED.ibs_cbs_classification,
+              updated_at=now();
+          SQL
+
+          if docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          UPDATE product_fiscal_profiles
+          SET ibs_cbs_cst='000', ibs_cbs_classification='200001'
+          WHERE product_id=(SELECT id FROM products WHERE sku='CI-NFCE-TAX-PROFILE' LIMIT 1);
+          SQL
+          then
+            echo "migration 0024 unexpectedly allowed cClassTrib incompatible with CST-IBS/CBS"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.product_fiscal_profiles') IS NOT NULL
+               OR to_regclass('public.sale_item_fiscal_snapshots') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0024 left fiscal profile/snapshot tables behind';
             END IF;
           END $do$;
           SQL
