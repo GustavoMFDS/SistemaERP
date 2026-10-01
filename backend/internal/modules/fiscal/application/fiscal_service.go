@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -204,7 +205,7 @@ func (s *FiscalService) ReserveNFCeDraft(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	sale, _, _, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, saleID)
+	sale, items, _, err := s.sales.GetSaleForUpdate(ctx, tx, tenantID, saleID)
 	if err != nil {
 		return fisc.NFCeReservation{}, false, common.ErrNotFound
 	}
@@ -259,6 +260,16 @@ func (s *FiscalService) ReserveNFCeDraft(
 	if reservationContext.Config.Environment != "homologation" ||
 		!reservationContext.Config.CertificateReferenceConfigured {
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
+	}
+
+	snapshots, err := s.buildSaleItemFiscalSnapshots(
+		ctx, tx, tenantID, saleID, items,
+	)
+	if err != nil {
+		return fisc.NFCeReservation{}, false, err
+	}
+	if err := s.fiscal.CreateSaleItemFiscalSnapshots(ctx, tx, tenantID, snapshots); err != nil {
+		return fisc.NFCeReservation{}, false, err
 	}
 
 	numericCode, err := fisc.GenerateNFCeNumericCode()
@@ -316,6 +327,7 @@ func (s *FiscalService) ReserveNFCeDraft(
 			"document_number": reservation.DocumentNumber,
 			"environment": reservation.Environment,
 			"emission_type": reservation.EmissionType,
+			"fiscal_snapshot_items": len(snapshots),
 		},
 	}); err != nil {
 		return fisc.NFCeReservation{}, false, err
@@ -325,6 +337,97 @@ func (s *FiscalService) ReserveNFCeDraft(
 		return fisc.NFCeReservation{}, false, err
 	}
 	return reservation, true, nil
+}
+
+func (s *FiscalService) buildSaleItemFiscalSnapshots(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, saleID string,
+	items []sales.SaleItem,
+) ([]fisc.SaleItemFiscalSnapshot, error) {
+	if len(items) == 0 {
+		return nil, common.ErrFiscalNotReady
+	}
+
+	productIDs := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item.ID == "" || item.ProductID == "" {
+			return nil, common.ErrFiscalNotReady
+		}
+		if _, ok := seen[item.ProductID]; ok {
+			continue
+		}
+		seen[item.ProductID] = struct{}{}
+		productIDs = append(productIDs, item.ProductID)
+	}
+
+	products, err := s.products.GetManyByIDs(ctx, tx, tenantID, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	profiles, err := s.fiscal.GetProductFiscalProfiles(ctx, tx, tenantID, productIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshots := make([]fisc.SaleItemFiscalSnapshot, 0, len(items))
+	for _, item := range items {
+		product, ok := products[item.ProductID]
+		if !ok || product.NCM == nil || len(strings.TrimSpace(*product.NCM)) != 8 {
+			return nil, common.ErrFiscalNotReady
+		}
+		profile, ok := profiles[item.ProductID]
+		if !ok {
+			return nil, common.ErrFiscalNotReady
+		}
+
+		ncm := strings.TrimSpace(*product.NCM)
+		var cest *string
+		if product.CEST != nil {
+			value := strings.TrimSpace(*product.CEST)
+			if value != "" {
+				cest = &value
+			}
+		}
+
+		snapshot := fisc.SaleItemFiscalSnapshot{
+			TenantID: tenantID,
+			SaleItemID: item.ID,
+			SaleID: saleID,
+			ProductID: item.ProductID,
+			NCM: ncm,
+			CEST: cest,
+			CFOP: profile.CFOP,
+			ICMSOrigin: profile.ICMSOrigin,
+			ICMSRegime: profile.ICMSRegime,
+			ICMSCode: profile.ICMSCode,
+			PISCST: profile.PISCST,
+			COFINSCST: profile.COFINSCST,
+			IBSCBSCST: profile.IBSCBSCST,
+			IBSCBSClassification: profile.IBSCBSClassification,
+			ISCST: profile.ISCST,
+			ISClassification: profile.ISClassification,
+			ReferenceVersion: profile.ReferenceVersion,
+		}
+		hash, err := fiscalSnapshotHash(snapshot)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.SnapshotSHA256 = hash
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, nil
+}
+
+func fiscalSnapshotHash(snapshot fisc.SaleItemFiscalSnapshot) (string, error) {
+	snapshot.SnapshotSHA256 = ""
+	content, err := json.Marshal(snapshot)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (s *FiscalService) StoreSignedNFCeXML(
