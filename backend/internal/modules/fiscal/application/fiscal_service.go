@@ -26,6 +26,7 @@ type FiscalService struct {
 	sales    SalesRepository
 	products ProductsRepository
 	nfe      NFeProvider
+	nfceDoc  NFCeDocumentBuilder
 	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
@@ -82,6 +83,10 @@ type PrepareNFCeIssuerRequest struct {
 
 func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo SalesRepository, productsRepo ProductsRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *FiscalService {
 	return &FiscalService{uow: uow, fiscal: fiscal, sales: salesRepo, products: productsRepo, nfe: nil, audit: auditSvc, validate: v, logger: logger}
+}
+
+func (s *FiscalService) SetNFCeDocumentBuilder(builder NFCeDocumentBuilder) {
+	s.nfceDoc = builder
 }
 
 func NewFiscalServiceWithProvider(
@@ -989,6 +994,24 @@ func (s *FiscalService) GetNFCeDocumentDraft(
 		Items:           documentItems,
 		Payments:        documentPayments,
 	}, nil
+}
+
+func (s *FiscalService) BuildNFCeUnsignedCandidate(
+	ctx context.Context,
+	tenantID, invoiceID string,
+) ([]byte, string, error) {
+	if s.nfceDoc == nil {
+		return nil, "", common.ErrFiscalNotReady
+	}
+	draft, err := s.GetNFCeDocumentDraft(ctx, tenantID, invoiceID)
+	if err != nil {
+		return nil, "", err
+	}
+	content, err := s.nfceDoc.BuildUnsignedLegacyCandidate(draft)
+	if err != nil {
+		return nil, "", err
+	}
+	return content, "NFCe-candidate-" + draft.Reservation.AccessKey + ".xml", nil
 }
 
 func (s *FiscalService) GetInvoiceTaxCalculations(
