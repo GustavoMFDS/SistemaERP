@@ -3,6 +3,7 @@ package modules
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/audit"
@@ -103,11 +104,13 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	}
 	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
 	fiscalSvc.SetNFCeDocumentBuilder(fiscsefaz.NewDocumentBuilder(cfg.AppVersion))
+	var certificateResolver fiscsefaz.CertificateResolver
 	if cfg.NFCeCertificateSecretDir != "" {
 		resolver, err := fiscsefaz.NewPEMDirectoryCertificateResolver(cfg.NFCeCertificateSecretDir)
 		if err != nil {
 			logger.Error("nfce_certificate_secret_resolver_disabled", slog.Any("error", err))
 		} else {
+			certificateResolver = resolver
 			fiscalSvc.SetNFCeXMLSigner(fiscsefaz.NewXMLSigningService(resolver))
 		}
 	}
@@ -121,6 +124,11 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		} else {
 			fiscalSvc.SetNFCeSchemaValidator(schemaValidator)
 		}
+	}
+	if cfg.NFCeSEFAZHomologationEnabled && certificateResolver != nil {
+		fiscalSvc.SetNFCeRemoteAuthorizer(
+			fiscsefaz.NewHomologationAuthorizer(certificateResolver, 30*time.Second),
+		)
 	}
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
