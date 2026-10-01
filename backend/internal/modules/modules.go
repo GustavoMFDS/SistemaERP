@@ -111,6 +111,17 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 			fiscalSvc.SetNFCeXMLSigner(fiscsefaz.NewXMLSigningService(resolver))
 		}
 	}
+	if cfg.NFCeSchemaDir != "" && cfg.NFCeSchemaEntrypoint != "" {
+		schemaValidator, err := fiscsefaz.NewXMLLintSchemaValidator(
+			cfg.NFCeSchemaDir,
+			cfg.NFCeSchemaEntrypoint,
+		)
+		if err != nil {
+			logger.Error("nfce_schema_validator_disabled", slog.Any("error", err))
+		} else {
+			fiscalSvc.SetNFCeSchemaValidator(schemaValidator)
+		}
+	}
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
 	returnsSvc := retapp.NewService(uow, returnsRepo, inventoryRepo, productsRepo, auditSvc, v, logger)
