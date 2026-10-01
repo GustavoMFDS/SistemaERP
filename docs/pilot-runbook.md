@@ -39,7 +39,7 @@ All items are mandatory before operator training.
 - [ ] Tenant-scoped roles reviewed.
 - [ ] Runtime PostgreSQL role passes least-privilege checks (no superuser/role/db/DDL creation privileges).
 - [ ] Migration/owner, application and backup credentials are separated.
-- [ ] Schema version is clean and at least 23.
+- [ ] Schema version is clean and at least 24.
 - [ ] Pre-pilot backup created with `scripts/postgres-backup-drill.sh`.
 - [ ] That backup restored into an isolated database and the generated evidence reports PASS.
 - [ ] Monitoring/alerts active for API availability, readiness, 5xx and latency.
