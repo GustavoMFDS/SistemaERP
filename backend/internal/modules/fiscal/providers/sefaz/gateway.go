@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 )
 
 const (
@@ -137,7 +139,7 @@ func (g *Gateway) Consult(
 }
 
 func validateExpectedAccessKey(accessKey string) error {
-	if err := validateAccessKey(accessKey); err != nil {
+	if err := fisc.ValidateNFCeAccessKey(accessKey); err != nil {
 		return fmt.Errorf("expected access key: %w", err)
 	}
 	return nil
