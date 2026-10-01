@@ -114,6 +114,8 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			if mods.Fiscal != nil {
 				pr.Route("/fiscal", func(rr chi.Router) {
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/readiness", h.Fiscal.NFCeReadiness)
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/products/{productID}/profile", h.Fiscal.GetProductFiscalProfile)
+					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Put("/nfce/products/{productID}/profile", h.Fiscal.PrepareProductFiscalProfile)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/issuer", h.Fiscal.GetNFCeIssuerProfile)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Put("/nfce/issuer", h.Fiscal.PrepareNFCeIssuerProfile)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/config", h.Fiscal.GetNFCeConfig)
