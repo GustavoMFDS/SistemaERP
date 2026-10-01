@@ -13,6 +13,7 @@ import (
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	fiscinfra "github.com/example/sistemaemgo/internal/modules/fiscal/infrastructure"
 	fiscmvp "github.com/example/sistemaemgo/internal/modules/fiscal/providers/mvp"
+	fiscsefaz "github.com/example/sistemaemgo/internal/modules/fiscal/providers/sefaz"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
 	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
@@ -101,6 +102,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		nfeProvider = fiscmvp.New()
 	}
 	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
+	fiscalSvc.SetNFCeDocumentBuilder(fiscsefaz.NewDocumentBuilder(cfg.AppVersion))
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
 	returnsSvc := retapp.NewService(uow, returnsRepo, inventoryRepo, productsRepo, auditSvc, v, logger)
