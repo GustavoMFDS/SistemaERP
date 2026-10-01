@@ -78,7 +78,7 @@ DROP TRIGGER IF EXISTS sale_item_fiscal_snapshots_immutable
   ON sale_item_fiscal_snapshots;
 
 CREATE TRIGGER sale_item_fiscal_snapshots_immutable
-BEFORE UPDATE OR DELETE ON sale_item_fiscal_snapshots
+BEFORE UPDATE ON sale_item_fiscal_snapshots
 FOR EACH ROW
 EXECUTE FUNCTION prevent_sale_item_fiscal_snapshot_mutation();
 
