@@ -41,6 +41,20 @@ type PrepareNFCeConfigRequest struct {
 	CertificateSecretRef string `json:"certificate_secret_ref" validate:"required,max=500"`
 }
 
+type PrepareProductFiscalProfileRequest struct {
+	CFOP                  string  `json:"cfop" validate:"required,numeric,len=4"`
+	ICMSOrigin            string  `json:"icms_origin" validate:"required,numeric,len=1"`
+	ICMSRegime            string  `json:"icms_regime" validate:"required,oneof=cst csosn"`
+	ICMSCode              string  `json:"icms_code" validate:"required,numeric"`
+	PISCST                 string  `json:"pis_cst" validate:"required,numeric,len=2"`
+	COFINSCST              string  `json:"cofins_cst" validate:"required,numeric,len=2"`
+	IBSCBSCST              *string `json:"ibs_cbs_cst" validate:"omitempty,numeric,len=3"`
+	IBSCBSClassification   *string `json:"ibs_cbs_classification" validate:"omitempty,numeric,len=6"`
+	ISCST                  *string `json:"is_cst" validate:"omitempty,numeric,len=3"`
+	ISClassification       *string `json:"is_classification" validate:"omitempty,numeric,len=6"`
+	ReferenceVersion       string  `json:"reference_version" validate:"required,min=2,max=120"`
+}
+
 type PrepareNFCeIssuerRequest struct {
 	IE                  string  `json:"ie" validate:"required,min=2,max=30"`
 	CRT                 string  `json:"crt" validate:"required,oneof=1 2 3 4"`
@@ -565,6 +579,148 @@ func (s *FiscalService) ApplyNFCeAuthorizationResult(
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *FiscalService) GetProductFiscalProfile(
+	ctx context.Context,
+	tenantID, productID string,
+) (fisc.ProductFiscalProfile, error) {
+	productID = strings.TrimSpace(productID)
+	if s.validate.Var(productID, "required,uuid") != nil {
+		return fisc.ProductFiscalProfile{}, common.ErrValidation
+	}
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.ProductFiscalProfile{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	profiles, err := s.fiscal.GetProductFiscalProfiles(ctx, tx, tenantID, []string{productID})
+	if err != nil {
+		return fisc.ProductFiscalProfile{}, err
+	}
+	profile, ok := profiles[productID]
+	if !ok {
+		return fisc.ProductFiscalProfile{}, common.ErrNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.ProductFiscalProfile{}, err
+	}
+	return profile, nil
+}
+
+func (s *FiscalService) PrepareProductFiscalProfile(
+	ctx context.Context,
+	tenantID, actorUserID, productID string,
+	req PrepareProductFiscalProfileRequest,
+) (fisc.ProductFiscalProfile, error) {
+	productID = strings.TrimSpace(productID)
+	req.CFOP = strings.TrimSpace(req.CFOP)
+	req.ICMSOrigin = strings.TrimSpace(req.ICMSOrigin)
+	req.ICMSRegime = strings.ToLower(strings.TrimSpace(req.ICMSRegime))
+	req.ICMSCode = strings.TrimSpace(req.ICMSCode)
+	req.PISCST = strings.TrimSpace(req.PISCST)
+	req.COFINSCST = strings.TrimSpace(req.COFINSCST)
+	req.ReferenceVersion = strings.TrimSpace(req.ReferenceVersion)
+	req.IBSCBSCST = normalizedOptionalString(req.IBSCBSCST)
+	req.IBSCBSClassification = normalizedOptionalString(req.IBSCBSClassification)
+	req.ISCST = normalizedOptionalString(req.ISCST)
+	req.ISClassification = normalizedOptionalString(req.ISClassification)
+
+	if s.validate.Var(productID, "required,uuid") != nil || s.validate.Struct(req) != nil {
+		return fisc.ProductFiscalProfile{}, common.ErrValidation
+	}
+	if req.ICMSOrigin < "0" || req.ICMSOrigin > "8" {
+		return fisc.ProductFiscalProfile{}, common.ErrValidation
+	}
+	switch req.ICMSRegime {
+	case "cst":
+		if len(req.ICMSCode) != 2 {
+			return fisc.ProductFiscalProfile{}, common.ErrValidation
+		}
+	case "csosn":
+		if len(req.ICMSCode) != 3 {
+			return fisc.ProductFiscalProfile{}, common.ErrValidation
+		}
+	default:
+		return fisc.ProductFiscalProfile{}, common.ErrValidation
+	}
+	if !pairedFiscalCodes(req.IBSCBSCST, req.IBSCBSClassification, true) ||
+		!pairedFiscalCodes(req.ISCST, req.ISClassification, false) {
+		return fisc.ProductFiscalProfile{}, common.ErrValidation
+	}
+
+	profile := fisc.ProductFiscalProfile{
+		TenantID: tenantID,
+		ProductID: productID,
+		CFOP: req.CFOP,
+		ICMSOrigin: req.ICMSOrigin,
+		ICMSRegime: req.ICMSRegime,
+		ICMSCode: req.ICMSCode,
+		PISCST: req.PISCST,
+		COFINSCST: req.COFINSCST,
+		IBSCBSCST: req.IBSCBSCST,
+		IBSCBSClassification: req.IBSCBSClassification,
+		ISCST: req.ISCST,
+		ISClassification: req.ISClassification,
+		ReferenceVersion: req.ReferenceVersion,
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.ProductFiscalProfile{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.fiscal.UpsertProductFiscalProfile(ctx, tx, tenantID, actorUserID, profile); err != nil {
+		return fisc.ProductFiscalProfile{}, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID,
+		ActorUserID: actorUserID,
+		Action: "fiscal.product_profile.prepare",
+		ResourceType: "product",
+		ResourceID: productID,
+		Outcome: "success",
+		Metadata: map[string]any{
+			"cfop": profile.CFOP,
+			"icms_regime": profile.ICMSRegime,
+			"icms_code": profile.ICMSCode,
+			"pis_cst": profile.PISCST,
+			"cofins_cst": profile.COFINSCST,
+			"reference_version": profile.ReferenceVersion,
+		},
+	}); err != nil {
+		return fisc.ProductFiscalProfile{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.ProductFiscalProfile{}, err
+	}
+	return profile, nil
+}
+
+func normalizedOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	normalized := strings.TrimSpace(*value)
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
+}
+
+func pairedFiscalCodes(cst, classification *string, requirePrefix bool) bool {
+	if cst == nil && classification == nil {
+		return true
+	}
+	if cst == nil || classification == nil {
+		return false
+	}
+	if requirePrefix && !strings.HasPrefix(*classification, *cst) {
+		return false
+	}
+	return true
 }
 
 func (s *FiscalService) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
