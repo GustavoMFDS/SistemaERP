@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -302,6 +303,55 @@ func (r *FiscalRepo) GetNFCeReservationContextForUpdate(
 			out.Config.CSCSecretRef != nil && strings.TrimSpace(*out.Config.CSCSecretRef) != ""
 	out.Config.CertificateReferenceConfigured =
 		out.Config.CertificateSecretRef != nil && strings.TrimSpace(*out.Config.CertificateSecretRef) != ""
+	return out, nil
+}
+
+func (r *FiscalRepo) GetNFCeReservationByInvoiceForUpdate(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, invoiceID string,
+) (fisc.NFCeReservation, error) {
+	var out fisc.NFCeReservation
+	err := tx.QueryRow(ctx, `
+		SELECT
+			id::text,
+			sale_id::text,
+			status,
+			model,
+			series,
+			document_number,
+			environment,
+			access_key,
+			emission_type,
+			numeric_code,
+			access_key_check_digit,
+			issued_at
+		FROM invoices
+		WHERE tenant_id=$1
+		  AND id=$2
+		  AND model=65
+		  AND document_number IS NOT NULL
+		FOR UPDATE
+	`, tenantID, invoiceID).Scan(
+		&out.InvoiceID,
+		&out.SaleID,
+		&out.Status,
+		&out.Model,
+		&out.Series,
+		&out.DocumentNumber,
+		&out.Environment,
+		&out.AccessKey,
+		&out.EmissionType,
+		&out.NumericCode,
+		&out.CheckDigit,
+		&out.IssuedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeReservation{}, common.ErrNotFound
+		}
+		return fisc.NFCeReservation{}, err
+	}
 	return out, nil
 }
 
@@ -903,6 +953,109 @@ func (r *FiscalRepo) GetSaleItemFiscalSnapshots(
 			return nil, err
 		}
 		out = append(out, snapshot)
+	}
+	return out, rows.Err()
+}
+
+
+func (r *FiscalRepo) InsertInvoiceItemTaxCalculation(
+	ctx context.Context,
+	tx db.DBTX,
+	calculation fisc.InvoiceItemTaxCalculation,
+) error {
+	legacyJSON, err := json.Marshal(calculation.LegacyTax)
+	if err != nil {
+		return err
+	}
+	rtcJSON, err := json.Marshal(calculation.RTCTax)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO invoice_item_tax_calculations(
+			tenant_id,
+			invoice_id,
+			sale_id,
+			sale_item_id,
+			calculation_version,
+			legacy_tax,
+			rtc_tax,
+			calculation_sha256
+		)
+		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)
+	`,
+		calculation.TenantID,
+		calculation.InvoiceID,
+		calculation.SaleID,
+		calculation.SaleItemID,
+		calculation.CalculationVersion,
+		string(legacyJSON),
+		string(rtcJSON),
+		calculation.CalculationSHA256,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return common.ErrConflict
+			case "23503":
+				return common.ErrNotFound
+			case "23514":
+				return common.ErrValidation
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *FiscalRepo) GetInvoiceItemTaxCalculations(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, invoiceID string,
+) ([]fisc.InvoiceItemTaxCalculation, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT
+			invoice_id::text,
+			sale_id::text,
+			sale_item_id::text,
+			calculation_version,
+			legacy_tax::text,
+			rtc_tax::text,
+			calculation_sha256
+		FROM invoice_item_tax_calculations
+		WHERE tenant_id=$1 AND invoice_id=$2
+		ORDER BY sale_item_id
+	`, tenantID, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]fisc.InvoiceItemTaxCalculation, 0)
+	for rows.Next() {
+		var calculation fisc.InvoiceItemTaxCalculation
+		var legacyJSON, rtcJSON string
+		calculation.TenantID = tenantID
+		if err := rows.Scan(
+			&calculation.InvoiceID,
+			&calculation.SaleID,
+			&calculation.SaleItemID,
+			&calculation.CalculationVersion,
+			&legacyJSON,
+			&rtcJSON,
+			&calculation.CalculationSHA256,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(legacyJSON), &calculation.LegacyTax); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(rtcJSON), &calculation.RTCTax); err != nil {
+			return nil, err
+		}
+		out = append(out, calculation)
 	}
 	return out, rows.Err()
 }
