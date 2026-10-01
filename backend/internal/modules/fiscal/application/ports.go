@@ -38,6 +38,10 @@ type FiscalRepository interface {
 	StoreSignedNFCeXML(ctx context.Context, tx db.DBTX, tenantID, invoiceID, accessKey, fileName string, content []byte, sha256 string) (string, error)
 	MarkNFCeSubmitted(ctx context.Context, tx db.DBTX, tenantID, invoiceID, accessKey string) error
 	ApplyNFCeAuthorizationResult(ctx context.Context, tx db.DBTX, tenantID, invoiceID string, result fisc.NFCeAuthorizationResult) error
+	GetProductFiscalProfiles(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) (map[string]fisc.ProductFiscalProfile, error)
+	UpsertProductFiscalProfile(ctx context.Context, tx db.DBTX, tenantID, actorUserID string, profile fisc.ProductFiscalProfile) error
+	CreateSaleItemFiscalSnapshots(ctx context.Context, tx db.DBTX, tenantID string, snapshots []fisc.SaleItemFiscalSnapshot) error
+	GetSaleItemFiscalSnapshots(ctx context.Context, tx db.DBTX, tenantID, saleID string) ([]fisc.SaleItemFiscalSnapshot, error)
 }
 
 type SalesRepository interface {
