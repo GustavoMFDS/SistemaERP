@@ -99,7 +99,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v25 migration upgrade and rollback
+      - name: Verify v12 to v27 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -853,6 +853,57 @@ jobs:
               RAISE EXCEPTION 'rollback 0026 left snapshot immutability trigger behind';
             END IF;
           END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0026 -> 0027 and verify cancellation-event persistence.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='invoice_fiscal_events';" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('cancellation_protocol','cancelled_at','cancellation_reason') ORDER BY column_name;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('invoices_cancellation_fields_check','invoice_fiscal_events_tenant_event_unique','invoice_fiscal_events_invoice_type_sequence_unique') ORDER BY conname;"
+
+          EVENT_DELETE_TRIGGER_OK="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='invoice_fiscal_events_no_delete' AND NOT tgisinternal AND (tgtype::int & 2) <> 0 AND (tgtype::int & 8) <> 0;")"
+          if [ "$EVENT_DELETE_TRIGGER_OK" != "1" ]; then
+            echo "migration 0027 does not protect fiscal events from DELETE"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.invoice_fiscal_events') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0027 left invoice_fiscal_events behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_name='invoices'
+                AND column_name IN ('cancellation_protocol','cancelled_at','cancellation_reason')
+            ) THEN
+              RAISE EXCEPTION 'rollback 0027 left cancellation metadata behind';
+            END IF;
+          END
+          $do$;
           SQL
 
           docker run --rm --network host \
