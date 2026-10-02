@@ -61,3 +61,19 @@ func (b *DocumentBuilder) BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDr
 		ConsultationURL: catalog.ConsultationURL,
 	})
 }
+
+
+func (b *DocumentBuilder) BuildUnsignedCancellationEvent(
+	draft fisc.NFCeCancellationDraft,
+) ([]byte, string, error) {
+	return BuildUnsignedCancellationEvent(CancellationEventInput{
+		Environment:           Environment(strings.TrimSpace(draft.Environment)),
+		IssuerUF:              draft.IssuerUF,
+		IssuerCNPJ:            draft.IssuerCNPJ,
+		AccessKey:             draft.AccessKey,
+		AuthorizationProtocol: draft.AuthorizationProtocol,
+		EventTime:             draft.EventTime,
+		Sequence:              draft.Sequence,
+		Justification:         draft.Justification,
+	})
+}
