@@ -83,13 +83,13 @@ test('barcode lookup and PDV scanner add and increment the product', async ({ pa
 
   const row = page.locator('tbody tr').filter({ hasText: 'Coca-Cola 2L' })
   await expect(row).toHaveCount(1)
-  await expect(row).toContainText('1.00')
+  await expect(row.getByLabel(/Quantidade de/)).toHaveValue('1')
 
   await scanner.fill('7890000000000')
   await scanner.press('Enter')
 
   await expect(row).toHaveCount(1)
-  await expect(row).toContainText('2.00')
+  await expect(row.getByLabel(/Quantidade de/)).toHaveValue('2')
 })
 
 
