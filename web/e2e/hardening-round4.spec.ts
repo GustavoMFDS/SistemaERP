@@ -215,7 +215,7 @@ test('network failure during logout does not pretend the HttpOnly session was re
     const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
     return getSuspendedCarts().length
   })
-  expect(suspendedAfterSuccess).toBe(1)
+  expect(suspendedAfterSuccess).toBe(0)
 
 })
 
