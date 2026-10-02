@@ -44,7 +44,7 @@ Access tokens are short-lived, and protected requests recheck current user statu
 
 ### POST `/auth/refresh`
 
-Accepts the refresh token only from the `__Host-refresh_token` HttpOnly cookie. JSON body refresh tokens are no longer accepted.
+Accepts the refresh token only from the HttpOnly refresh cookie. Staging/production use the Secure `__Host-refresh_token` cookie; local HTTP development/tests use `sistemaemgo_refresh_token` because the reserved `__Host-` prefix requires HTTPS/Secure. JSON body refresh tokens are not accepted.
 
 Refresh tokens are rotated; a consumed token cannot be reused. A rejected/invalid refresh also expires the browser refresh cookie.
 
