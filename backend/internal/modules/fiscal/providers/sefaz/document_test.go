@@ -65,15 +65,15 @@ func unsignedLegacyFixture(t *testing.T) UnsignedNFCeInput {
 			DiscountValue: platform.NewMoneyCents(100),
 			Tax: fisc.InvoiceItemTaxCalculation{
 				LegacyTax: fisc.LegacyTaxCalculation{
-					ICMS: fisc.LegacyICMSTax{Origin: "0", Regime: "csosn", Code: "102"},
-					PIS: fisc.LegacyContributionTax{CST: "07"},
+					ICMS:   fisc.LegacyICMSTax{Origin: "0", Regime: "csosn", Code: "102"},
+					PIS:    fisc.LegacyContributionTax{CST: "07"},
 					COFINS: fisc.LegacyContributionTax{CST: "07"},
 				},
 			},
 		}},
-		Payments: []UnsignedNFCePayment{{Method: "cash", Amount: platform.NewMoneyCents(900)}},
-		ProcessVersion: "SistemaEmGo-2026.10",
-		QRCodeBaseURL: "https://nfce.example.test/qrcode",
+		Payments:        []UnsignedNFCePayment{{Method: "cash", Amount: platform.NewMoneyCents(900)}},
+		ProcessVersion:  "SistemaEmGo-2026.10",
+		QRCodeBaseURL:   "https://nfce.example.test/qrcode",
 		ConsultationURL: "https://nfce.example.test/consulta",
 	}
 }
@@ -86,7 +86,7 @@ func TestBuildUnsignedNFCeLegacyCandidate(t *testing.T) {
 	}
 	var root struct {
 		XMLName xml.Name `xml:"NFe"`
-		InfNFe struct {
+		InfNFe  struct {
 			ID  string `xml:"Id,attr"`
 			Ide struct {
 				Mod   string `xml:"mod"`
@@ -105,7 +105,9 @@ func TestBuildUnsignedNFCeLegacyCandidate(t *testing.T) {
 						} `xml:"ICMSSN102"`
 					} `xml:"ICMS"`
 					PIS struct {
-						NT struct{ CST string `xml:"CST"` } `xml:"PISNT"`
+						NT struct {
+							CST string `xml:"CST"`
+						} `xml:"PISNT"`
 					} `xml:"PIS"`
 				} `xml:"imposto"`
 			} `xml:"det"`
@@ -167,9 +169,9 @@ func TestBuildUnsignedNFCeLegacyCandidate(t *testing.T) {
 func TestBuildUnsignedNFCeLegacyCandidateRejectsRTC(t *testing.T) {
 	input := unsignedLegacyFixture(t)
 	input.Items[0].Tax.RTCTax.IBSCBS = &fisc.RegularIBSCBSResult{
-		CST: "000",
+		CST:            "000",
 		Classification: "000001",
-		Base: platform.NewMoneyCents(900),
+		Base:           platform.NewMoneyCents(900),
 	}
 	if _, err := BuildUnsignedNFCeLegacyCandidate(input); err == nil ||
 		!strings.Contains(err.Error(), "blocks RTC XML") {

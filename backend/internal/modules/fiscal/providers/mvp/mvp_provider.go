@@ -133,7 +133,7 @@ func build(in input) ([]byte, string, error) {
 		// rules are modeled. It must not be treated as SEFAZ-ready data.
 		cfop := "5102"
 		nfe.InfNFe.Det = append(nfe.InfNFe.Det, Det{
-			NItem: fmt.Sprintf("%d", i + 1),
+			NItem: fmt.Sprintf("%d", i+1),
 			Prod: Prod{
 				CProd:  p.SKU,
 				XProd:  p.Name,

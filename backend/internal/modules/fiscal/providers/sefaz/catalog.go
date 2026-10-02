@@ -6,12 +6,12 @@ import (
 )
 
 type CatalogEntry struct {
-	UF              string
-	Environment     Environment
-	Services        ServiceEndpoints
-	QRCodeBaseURL   string
-	ConsultationURL string
-	EventURL        string
+	UF               string
+	Environment      Environment
+	Services         ServiceEndpoints
+	QRCodeBaseURL    string
+	ConsultationURL  string
+	EventURL         string
 	InutilizationURL string
 }
 
@@ -79,7 +79,7 @@ func (e CatalogEntry) Validate() error {
 		return fmt.Errorf("consultation portal URL: %w", err)
 	}
 	for label, raw := range map[string]string{
-		"event": e.EventURL,
+		"event":         e.EventURL,
 		"inutilization": e.InutilizationURL,
 	} {
 		parsed := Endpoint{

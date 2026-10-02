@@ -2,9 +2,9 @@ package sefaz
 
 import (
 	"context"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/rsa"
 	"fmt"
 	"net/http"
 	"strings"

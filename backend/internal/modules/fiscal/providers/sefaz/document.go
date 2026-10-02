@@ -33,20 +33,20 @@ type UnsignedNFCePayment struct {
 }
 
 type UnsignedNFCeInput struct {
-	Reservation    fisc.NFCeReservation
-	Issuer         fisc.NFCeIssuerProfile
-	Items          []UnsignedNFCeItem
-	Payments       []UnsignedNFCePayment
-	ProcessVersion string
-	QRCodeBaseURL  string
+	Reservation     fisc.NFCeReservation
+	Issuer          fisc.NFCeIssuerProfile
+	Items           []UnsignedNFCeItem
+	Payments        []UnsignedNFCePayment
+	ProcessVersion  string
+	QRCodeBaseURL   string
 	ConsultationURL string
 }
 
 type nfeDocumentXML struct {
-	XMLName    xml.Name       `xml:"NFe"`
-	Xmlns      string         `xml:"xmlns,attr"`
-	InfNFe     infNFeXML      `xml:"infNFe"`
-	InfNFeSupl infNFeSuplXML  `xml:"infNFeSupl"`
+	XMLName    xml.Name      `xml:"NFe"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	InfNFe     infNFeXML     `xml:"infNFe"`
+	InfNFeSupl infNFeSuplXML `xml:"infNFeSupl"`
 }
 
 type infNFeXML struct {
@@ -61,34 +61,34 @@ type infNFeXML struct {
 }
 
 type ideXML struct {
-	CUF     string `xml:"cUF"`
-	CNF     string `xml:"cNF"`
-	NatOp   string `xml:"natOp"`
-	Mod     string `xml:"mod"`
-	Serie   int    `xml:"serie"`
-	NNF     int64  `xml:"nNF"`
-	DhEmi   string `xml:"dhEmi"`
-	TpNF    int    `xml:"tpNF"`
-	IdDest  int    `xml:"idDest"`
-	CMunFG  string `xml:"cMunFG"`
-	TpImp   int    `xml:"tpImp"`
-	TpEmis  int    `xml:"tpEmis"`
-	CDV     int    `xml:"cDV"`
-	TpAmb   string `xml:"tpAmb"`
-	FinNFe  int    `xml:"finNFe"`
-	IndFinal int   `xml:"indFinal"`
-	IndPres int    `xml:"indPres"`
-	ProcEmi int    `xml:"procEmi"`
-	VerProc string `xml:"verProc"`
+	CUF      string `xml:"cUF"`
+	CNF      string `xml:"cNF"`
+	NatOp    string `xml:"natOp"`
+	Mod      string `xml:"mod"`
+	Serie    int    `xml:"serie"`
+	NNF      int64  `xml:"nNF"`
+	DhEmi    string `xml:"dhEmi"`
+	TpNF     int    `xml:"tpNF"`
+	IdDest   int    `xml:"idDest"`
+	CMunFG   string `xml:"cMunFG"`
+	TpImp    int    `xml:"tpImp"`
+	TpEmis   int    `xml:"tpEmis"`
+	CDV      int    `xml:"cDV"`
+	TpAmb    string `xml:"tpAmb"`
+	FinNFe   int    `xml:"finNFe"`
+	IndFinal int    `xml:"indFinal"`
+	IndPres  int    `xml:"indPres"`
+	ProcEmi  int    `xml:"procEmi"`
+	VerProc  string `xml:"verProc"`
 }
 
 type emitXML struct {
-	CNPJ      string       `xml:"CNPJ"`
-	XNome     string       `xml:"xNome"`
-	XFant     *string      `xml:"xFant,omitempty"`
+	CNPJ      string         `xml:"CNPJ"`
+	XNome     string         `xml:"xNome"`
+	XFant     *string        `xml:"xFant,omitempty"`
 	EnderEmit emitAddressXML `xml:"enderEmit"`
-	IE        string       `xml:"IE"`
-	CRT       string       `xml:"CRT"`
+	IE        string         `xml:"IE"`
+	CRT       string         `xml:"CRT"`
 }
 
 type emitAddressXML struct {
@@ -111,22 +111,22 @@ type detXML struct {
 }
 
 type productXML struct {
-	CProd     string  `xml:"cProd"`
-	CEAN      string  `xml:"cEAN"`
-	XProd     string  `xml:"xProd"`
-	NCM       string  `xml:"NCM"`
-	CEST      *string `xml:"CEST,omitempty"`
-	CFOP      string  `xml:"CFOP"`
-	UCom      string  `xml:"uCom"`
-	QCom      string  `xml:"qCom"`
-	VUnCom    string  `xml:"vUnCom"`
-	VProd     string  `xml:"vProd"`
-	CEANTrib  string  `xml:"cEANTrib"`
-	UTrib     string  `xml:"uTrib"`
-	QTrib     string  `xml:"qTrib"`
-	VUnTrib   string  `xml:"vUnTrib"`
-	VDesc     *string `xml:"vDesc,omitempty"`
-	IndTot    int     `xml:"indTot"`
+	CProd    string  `xml:"cProd"`
+	CEAN     string  `xml:"cEAN"`
+	XProd    string  `xml:"xProd"`
+	NCM      string  `xml:"NCM"`
+	CEST     *string `xml:"CEST,omitempty"`
+	CFOP     string  `xml:"CFOP"`
+	UCom     string  `xml:"uCom"`
+	QCom     string  `xml:"qCom"`
+	VUnCom   string  `xml:"vUnCom"`
+	VProd    string  `xml:"vProd"`
+	CEANTrib string  `xml:"cEANTrib"`
+	UTrib    string  `xml:"uTrib"`
+	QTrib    string  `xml:"qTrib"`
+	VUnTrib  string  `xml:"vUnTrib"`
+	VDesc    *string `xml:"vDesc,omitempty"`
+	IndTot   int     `xml:"indTot"`
 }
 
 type taxXML struct {
@@ -266,22 +266,22 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 		items = append(items, detXML{
 			NItem: item.Number,
 			Prod: productXML{
-				CProd: strings.TrimSpace(item.Code),
-				CEAN: "SEM GTIN",
-				XProd: description,
-				NCM: strings.TrimSpace(item.NCM),
-				CEST: normalizedOptional(item.CEST),
-				CFOP: strings.TrimSpace(item.CFOP),
-				UCom: strings.ToUpper(strings.TrimSpace(item.Unit)),
-				QCom: item.Quantity.DBString(),
-				VUnCom: item.UnitPrice.DBString(),
-				VProd: item.GrossValue.DBString(),
+				CProd:    strings.TrimSpace(item.Code),
+				CEAN:     "SEM GTIN",
+				XProd:    description,
+				NCM:      strings.TrimSpace(item.NCM),
+				CEST:     normalizedOptional(item.CEST),
+				CFOP:     strings.TrimSpace(item.CFOP),
+				UCom:     strings.ToUpper(strings.TrimSpace(item.Unit)),
+				QCom:     item.Quantity.DBString(),
+				VUnCom:   item.UnitPrice.DBString(),
+				VProd:    item.GrossValue.DBString(),
 				CEANTrib: "SEM GTIN",
-				UTrib: strings.ToUpper(strings.TrimSpace(item.Unit)),
-				QTrib: item.Quantity.DBString(),
-				VUnTrib: item.UnitPrice.DBString(),
-				VDesc: discount,
-				IndTot: 1,
+				UTrib:    strings.ToUpper(strings.TrimSpace(item.Unit)),
+				QTrib:    item.Quantity.DBString(),
+				VUnTrib:  item.UnitPrice.DBString(),
+				VDesc:    discount,
+				IndTot:   1,
 			},
 			Imposto: tax,
 		})
@@ -311,46 +311,46 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 	doc := nfeDocumentXML{
 		Xmlns: NFeNamespace,
 		InfNFe: infNFeXML{
-			ID: "NFe" + input.Reservation.AccessKey,
+			ID:      "NFe" + input.Reservation.AccessKey,
 			Version: Version400,
 			Ide: ideXML{
-				CUF: cUF,
-				CNF: input.Reservation.NumericCode,
-				NatOp: "VENDA",
-				Mod: "65",
-				Serie: input.Reservation.Series,
-				NNF: input.Reservation.DocumentNumber,
-				DhEmi: input.Reservation.IssuedAt.Format("2006-01-02T15:04:05-07:00"),
-				TpNF: 1,
-				IdDest: 1,
-				CMunFG: input.Issuer.AddressCityCode,
-				TpImp: 4,
-				TpEmis: input.Reservation.EmissionType,
-				CDV: input.Reservation.CheckDigit,
-				TpAmb: ambient,
-				FinNFe: 1,
+				CUF:      cUF,
+				CNF:      input.Reservation.NumericCode,
+				NatOp:    "VENDA",
+				Mod:      "65",
+				Serie:    input.Reservation.Series,
+				NNF:      input.Reservation.DocumentNumber,
+				DhEmi:    input.Reservation.IssuedAt.Format("2006-01-02T15:04:05-07:00"),
+				TpNF:     1,
+				IdDest:   1,
+				CMunFG:   input.Issuer.AddressCityCode,
+				TpImp:    4,
+				TpEmis:   input.Reservation.EmissionType,
+				CDV:      input.Reservation.CheckDigit,
+				TpAmb:    ambient,
+				FinNFe:   1,
 				IndFinal: 1,
-				IndPres: 1,
-				ProcEmi: 0,
-				VerProc: strings.TrimSpace(input.ProcessVersion),
+				IndPres:  1,
+				ProcEmi:  0,
+				VerProc:  strings.TrimSpace(input.ProcessVersion),
 			},
 			Emit: emitXML{
-				CNPJ: normalizedCNPJ(input.Issuer.CNPJ),
+				CNPJ:  normalizedCNPJ(input.Issuer.CNPJ),
 				XNome: strings.TrimSpace(input.Issuer.LegalName),
 				XFant: normalizedOptional(input.Issuer.TradeName),
 				EnderEmit: emitAddressXML{
-					XLgr: strings.TrimSpace(input.Issuer.AddressStreet),
-					Nro: strings.TrimSpace(input.Issuer.AddressNumber),
-					XCpl: normalizedOptional(input.Issuer.AddressComplement),
+					XLgr:    strings.TrimSpace(input.Issuer.AddressStreet),
+					Nro:     strings.TrimSpace(input.Issuer.AddressNumber),
+					XCpl:    normalizedOptional(input.Issuer.AddressComplement),
 					XBairro: strings.TrimSpace(input.Issuer.AddressNeighborhood),
-					CMun: input.Issuer.AddressCityCode,
-					XMun: strings.TrimSpace(input.Issuer.AddressCity),
-					UF: strings.ToUpper(strings.TrimSpace(input.Issuer.AddressState)),
-					CEP: strings.TrimSpace(input.Issuer.AddressZIP),
-					CPais: "1058",
-					XPais: "BRASIL",
+					CMun:    input.Issuer.AddressCityCode,
+					XMun:    strings.TrimSpace(input.Issuer.AddressCity),
+					UF:      strings.ToUpper(strings.TrimSpace(input.Issuer.AddressState)),
+					CEP:     strings.TrimSpace(input.Issuer.AddressZIP),
+					CPais:   "1058",
+					XPais:   "BRASIL",
 				},
-				IE: strings.TrimSpace(input.Issuer.IE),
+				IE:  strings.TrimSpace(input.Issuer.IE),
 				CRT: strings.TrimSpace(input.Issuer.CRT),
 			},
 			Det: items,
@@ -363,7 +363,7 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 				VNF: netTotal.DBString(),
 			}},
 			Transp: transportXML{ModFrete: 9},
-			Pag: paymentGroupXML{Details: payments},
+			Pag:    paymentGroupXML{Details: payments},
 		},
 		InfNFeSupl: infNFeSuplXML{QRCode: qrCode, URLChave: consultationURL},
 	}
@@ -454,8 +454,8 @@ func buildLegacyTaxXML(calculation fisc.InvoiceItemTaxCalculation) (taxXML, erro
 		return taxXML{}, fmt.Errorf("COFINS CST %s requires tax fields not modeled yet", legacy.COFINS.CST)
 	}
 	return taxXML{
-		ICMS: icms,
-		PIS: pisXML{PISNT: &contributionNTXML{CST: legacy.PIS.CST}},
+		ICMS:   icms,
+		PIS:    pisXML{PISNT: &contributionNTXML{CST: legacy.PIS.CST}},
 		COFINS: cofinsXML{COFINSNT: &contributionNTXML{CST: legacy.COFINS.CST}},
 	}, nil
 }
