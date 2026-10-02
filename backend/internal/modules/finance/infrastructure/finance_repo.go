@@ -518,6 +518,23 @@ func (r *FinanceRepo) CreateReturnRefund(ctx context.Context, tx db.DBTX, tenant
 }
 
 func (r *FinanceRepo) GetOpenCashAvailable(ctx context.Context, tx db.DBTX, tenantID, cashSessionID string) (platform.Money, error) {
+	// Serialize all drawer-consuming operations on the cash-session row first.
+	// The balance query is intentionally a second statement: under PostgreSQL
+	// READ COMMITTED it gets a fresh snapshot after a concurrent transaction
+	// releases this lock, so newly committed withdrawals are visible.
+	var lockedID string
+	if err := tx.QueryRow(ctx, `
+		SELECT id::text
+		FROM cash_sessions
+		WHERE tenant_id=$1 AND id=$2 AND status='open'
+		FOR UPDATE
+	`, tenantID, cashSessionID).Scan(&lockedID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, common.ErrCashSessionClosed
+		}
+		return 0, err
+	}
+
 	var openingRaw, cashSalesRaw, supplyRaw, withdrawalRaw string
 	err := tx.QueryRow(ctx, `
 		SELECT cs.opening_amount::text,
@@ -538,7 +555,6 @@ func (r *FinanceRepo) GetOpenCashAvailable(ctx context.Context, tx db.DBTX, tena
 		       ),0)::text
 		FROM cash_sessions cs
 		WHERE cs.tenant_id=$1 AND cs.id=$2 AND cs.status='open'
-		FOR UPDATE
 	`, tenantID, cashSessionID).Scan(&openingRaw, &cashSalesRaw, &supplyRaw, &withdrawalRaw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
