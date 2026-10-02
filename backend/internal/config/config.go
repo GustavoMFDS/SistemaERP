@@ -50,6 +50,7 @@ type Config struct {
 	NFCeCertificateSecretDir     string
 	NFCeSchemaDir                string
 	NFCeSchemaEntrypoint         string
+	NFCeEventSchemaEntrypoint    string
 	NFCeSEFAZHomologationEnabled bool
 	DisableRedis                 bool
 	PrivacyContactEmail          string
@@ -243,6 +244,10 @@ func (c Config) Validate() error {
 		errs = append(errs, "NFCE_SCHEMA_DIR and NFCE_SCHEMA_ENTRYPOINT must be configured together")
 	}
 
+	if c.NFCeEventSchemaEntrypoint != "" && c.NFCeSchemaDir == "" {
+		errs = append(errs, "NFCE_SCHEMA_DIR is required when NFCE_EVENT_SCHEMA_ENTRYPOINT is configured")
+	}
+
 	if c.NFCeSEFAZHomologationEnabled {
 		if e == "prod" || e == "production" {
 			errs = append(errs, "NFCE_SEFAZ_HOMOLOGATION_ENABLED must not be enabled in production")
@@ -252,6 +257,9 @@ func (c Config) Validate() error {
 		}
 		if c.NFCeSchemaDir == "" || c.NFCeSchemaEntrypoint == "" {
 			errs = append(errs, "NFCE schema bundle is required when SEFAZ homologation is enabled")
+		}
+		if c.NFCeEventSchemaEntrypoint == "" {
+			errs = append(errs, "NFCE_EVENT_SCHEMA_ENTRYPOINT is required when SEFAZ homologation is enabled")
 		}
 	}
 
