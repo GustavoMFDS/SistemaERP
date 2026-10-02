@@ -48,6 +48,46 @@ func (f *fakeRemoteAuthorizer) Consult(
 	return f.consultOut, nil
 }
 
+type fakeCancellationBuilder struct{}
+
+func (fakeCancellationBuilder) BuildUnsignedCancellationEvent(
+	draft fisc.NFCeCancellationDraft,
+) ([]byte, string, error) {
+	eventID := "ID" + fisc.NFCeCancellationEventType + draft.AccessKey + "01"
+	return []byte("<evento><infEvento Id=\"" + eventID + "\"/></evento>"), eventID, nil
+}
+
+type fakeCancellationSigner struct{}
+
+func (fakeCancellationSigner) SignCancellation(
+	_ context.Context,
+	_ string,
+	_ string,
+	unsignedXML []byte,
+) ([]byte, error) {
+	return append([]byte(nil), unsignedXML...), nil
+}
+
+type fakeCancellationValidator struct{}
+
+func (fakeCancellationValidator) Validate(context.Context, []byte) error { return nil }
+
+type fakeCancellationClient struct {
+	calls int
+	out   fisc.NFCeCancellationRemoteResult
+}
+
+func (f *fakeCancellationClient) Cancel(
+	_ context.Context,
+	_, _, _, _, _ string,
+	_ int64,
+	_ int,
+	_ []byte,
+) (fisc.NFCeCancellationRemoteResult, error) {
+	f.calls++
+	return f.out, nil
+}
+
 func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -438,5 +478,88 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	)
 	if !errors.Is(err, common.ErrConflict) {
 		t.Fatalf("final authorization replay error=%v, want ErrConflict", err)
+	}
+
+	cancelledAt := authorizedAt.Add(time.Minute)
+	cancelClient := &fakeCancellationClient{out: fisc.NFCeCancellationRemoteResult{
+		AccessKey:    reservation.AccessKey,
+		EventID:      "ID" + fisc.NFCeCancellationEventType + reservation.AccessKey + "01",
+		Sequence:     1,
+		StatusCode:   135,
+		Reason:       "Evento registrado e vinculado a NF-e",
+		FinalStatus:  fisc.NFCeEventStatusRegistered,
+		Protocol:     "131260000000002",
+		RegisteredAt: cancelledAt,
+		ResponseXML:  []byte("<retEnvEvento><cStat>128</cStat></retEnvEvento>"),
+	}}
+	service.SetNFCeCancellationBuilder(fakeCancellationBuilder{})
+	service.SetNFCeCancellationSigner(fakeCancellationSigner{})
+	service.SetNFCeEventSchemaValidator(fakeCancellationValidator{})
+	service.SetNFCeRemoteCancellationClient(cancelClient)
+
+	cancelOutcome, err := service.CancelNFCeHomologation(
+		ctx,
+		tenantID,
+		actorUserID,
+		reservation.InvoiceID,
+		fiscapp.CancelNFCeRequest{
+			Justification: "Cancelamento de homologacao por erro operacional.",
+		},
+	)
+	if err != nil {
+		t.Fatalf("CancelNFCeHomologation: %v", err)
+	}
+	if !cancelOutcome.Registered() || cancelClient.calls != 1 {
+		t.Fatalf("unexpected cancellation result/calls: outcome=%+v calls=%d", cancelOutcome, cancelClient.calls)
+	}
+
+	var invoiceStatus, cancellationProtocol, cancellationReason string
+	var storedCancelledAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT status, cancellation_protocol, cancelled_at, cancellation_reason
+		FROM invoices
+		WHERE tenant_id=$1 AND id=$2
+	`, tenantID, reservation.InvoiceID).Scan(
+		&invoiceStatus,
+		&cancellationProtocol,
+		&storedCancelledAt,
+		&cancellationReason,
+	); err != nil {
+		t.Fatalf("read cancelled invoice: %v", err)
+	}
+	if invoiceStatus != fisc.NFCeStatusCancelled ||
+		cancellationProtocol != cancelOutcome.Protocol ||
+		!storedCancelledAt.Equal(cancelledAt) ||
+		cancellationReason == "" {
+		t.Fatalf(
+			"unexpected cancelled invoice: status=%s protocol=%s at=%s reason=%q",
+			invoiceStatus,
+			cancellationProtocol,
+			storedCancelledAt,
+			cancellationReason,
+		)
+	}
+
+	var saleStatus string
+	if err := pool.QueryRow(ctx,
+		"SELECT status FROM sales WHERE tenant_id=$1 AND id=$2",
+		tenantID, reservation.SaleID,
+	).Scan(&saleStatus); err != nil {
+		t.Fatalf("read sale after fiscal cancellation: %v", err)
+	}
+	if saleStatus != "finalized" {
+		t.Fatalf("sale status=%s, want finalized after fiscal-only cancellation", saleStatus)
+	}
+
+	var eventStatus, eventProtocol string
+	if err := pool.QueryRow(ctx, `
+		SELECT status, protocol
+		FROM invoice_fiscal_events
+		WHERE tenant_id=$1 AND invoice_id=$2 AND event_type='110111'
+	`, tenantID, reservation.InvoiceID).Scan(&eventStatus, &eventProtocol); err != nil {
+		t.Fatalf("read cancellation event: %v", err)
+	}
+	if eventStatus != fisc.NFCeEventStatusRegistered || eventProtocol != cancelOutcome.Protocol {
+		t.Fatalf("unexpected cancellation event: status=%s protocol=%s", eventStatus, eventProtocol)
 	}
 }
