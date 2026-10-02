@@ -27,11 +27,11 @@ type CancellationEventInput struct {
 }
 
 type eventEnvelopeXML struct {
-	XMLName xml.Name   `xml:"envEvento"`
-	Xmlns   string     `xml:"xmlns,attr"`
-	Version string     `xml:"versao,attr"`
-	IDLot   string     `xml:"idLote"`
-	Event   eventXML   `xml:"evento"`
+	XMLName xml.Name `xml:"envEvento"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Version string   `xml:"versao,attr"`
+	IDLot   string   `xml:"idLote"`
+	Event   eventXML `xml:"evento"`
 }
 
 type eventXML struct {
@@ -42,16 +42,16 @@ type eventXML struct {
 }
 
 type infEventoXML struct {
-	ID         string         `xml:"Id,attr"`
-	COrgao     string         `xml:"cOrgao"`
-	TpAmb      string         `xml:"tpAmb"`
-	CNPJ       string         `xml:"CNPJ"`
-	ChNFe      string         `xml:"chNFe"`
-	DhEvento   string         `xml:"dhEvento"`
-	TpEvento   string         `xml:"tpEvento"`
-	NSeqEvento int            `xml:"nSeqEvento"`
-	VerEvento  string         `xml:"verEvento"`
-	DetEvento  detEventoXML   `xml:"detEvento"`
+	ID         string       `xml:"Id,attr"`
+	COrgao     string       `xml:"cOrgao"`
+	TpAmb      string       `xml:"tpAmb"`
+	CNPJ       string       `xml:"CNPJ"`
+	ChNFe      string       `xml:"chNFe"`
+	DhEvento   string       `xml:"dhEvento"`
+	TpEvento   string       `xml:"tpEvento"`
+	NSeqEvento int          `xml:"nSeqEvento"`
+	VerEvento  string       `xml:"verEvento"`
+	DetEvento  detEventoXML `xml:"detEvento"`
 }
 
 type detEventoXML struct {
@@ -99,7 +99,7 @@ func BuildUnsignedCancellationEvent(input CancellationEventInput) ([]byte, strin
 		input.Sequence,
 	)
 	event := eventXML{
-		Xmlns: NFeNamespace,
+		Xmlns:   NFeNamespace,
 		Version: CancellationEventVersion,
 		InfEvento: infEventoXML{
 			ID:         eventID,
@@ -144,10 +144,10 @@ func BuildCancellationEventBatch(idLot string, signedEvent []byte) ([]byte, erro
 		Event   []byte   `xml:",innerxml"`
 	}
 	return marshalDocument(batch{
-		Xmlns: NFeNamespace,
+		Xmlns:   NFeNamespace,
 		Version: CancellationEventVersion,
-		IDLot: idLot,
-		Event: signedEvent,
+		IDLot:   idLot,
+		Event:   signedEvent,
 	})
 }
 
@@ -171,12 +171,12 @@ func (r EventResponse) CancellationRegistered() bool {
 }
 
 type retEnvEventoXML struct {
-	TpAmb   string `xml:"tpAmb"`
-	CStat   string `xml:"cStat"`
-	XMotivo string `xml:"xMotivo"`
+	TpAmb     string `xml:"tpAmb"`
+	CStat     string `xml:"cStat"`
+	XMotivo   string `xml:"xMotivo"`
 	RetEvento *struct {
 		InfEvento struct {
-			TpAmb      string `xml:"tpAmb"`
+			TpAmb       string `xml:"tpAmb"`
 			VerAplic    string `xml:"verAplic"`
 			COrgao      string `xml:"cOrgao"`
 			CStat       string `xml:"cStat"`
@@ -202,8 +202,8 @@ func ParseEventResponse(content []byte) (EventResponse, error) {
 	}
 	out := EventResponse{
 		BatchStatusCode: batchCode,
-		BatchReason: strings.TrimSpace(raw.XMotivo),
-		Environment: strings.TrimSpace(raw.TpAmb),
+		BatchReason:     strings.TrimSpace(raw.XMotivo),
+		Environment:     strings.TrimSpace(raw.TpAmb),
 	}
 	if raw.RetEvento == nil {
 		return out, nil

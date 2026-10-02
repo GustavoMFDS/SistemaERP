@@ -13,7 +13,7 @@ import (
 
 const (
 	NFeNamespace = "http://www.portalfiscal.inf.br/nfe"
-	Version400    = "4.00"
+	Version400   = "4.00"
 )
 
 type Environment string
@@ -191,9 +191,9 @@ func ParseAuthorizationResponse(content []byte) (AuthorizationResponse, error) {
 		}
 		out.Protocol = &Protocol{
 			AccessKey: accessKey, ReceivedAt: strings.TrimSpace(raw.ProtNFe.InfProt.DhRecbto),
-			Protocol: strings.TrimSpace(raw.ProtNFe.InfProt.NProt),
+			Protocol:    strings.TrimSpace(raw.ProtNFe.InfProt.NProt),
 			DigestValue: strings.TrimSpace(raw.ProtNFe.InfProt.DigVal),
-			StatusCode: protoCode, Reason: strings.TrimSpace(raw.ProtNFe.InfProt.XMotivo),
+			StatusCode:  protoCode, Reason: strings.TrimSpace(raw.ProtNFe.InfProt.XMotivo),
 		}
 	}
 	return out, nil
@@ -297,11 +297,11 @@ func ParseConsultationResponse(content []byte) (ConsultationResponse, error) {
 			return ConsultationResponse{}, err
 		}
 		out.Protocol = &Protocol{
-			AccessKey: strings.TrimSpace(raw.ProtNFe.InfProt.ChNFe),
-			ReceivedAt: strings.TrimSpace(raw.ProtNFe.InfProt.DhRecbto),
-			Protocol: strings.TrimSpace(raw.ProtNFe.InfProt.NProt),
+			AccessKey:   strings.TrimSpace(raw.ProtNFe.InfProt.ChNFe),
+			ReceivedAt:  strings.TrimSpace(raw.ProtNFe.InfProt.DhRecbto),
+			Protocol:    strings.TrimSpace(raw.ProtNFe.InfProt.NProt),
 			DigestValue: strings.TrimSpace(raw.ProtNFe.InfProt.DigVal),
-			StatusCode: protoCode, Reason: strings.TrimSpace(raw.ProtNFe.InfProt.XMotivo),
+			StatusCode:  protoCode, Reason: strings.TrimSpace(raw.ProtNFe.InfProt.XMotivo),
 		}
 	}
 	return out, nil

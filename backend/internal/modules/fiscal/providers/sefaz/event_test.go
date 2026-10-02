@@ -31,7 +31,7 @@ func TestBuildUnsignedCancellationEvent(t *testing.T) {
 
 	var event struct {
 		Version string `xml:"versao,attr"`
-		Inf struct {
+		Inf     struct {
 			ID         string `xml:"Id,attr"`
 			COrgao     string `xml:"cOrgao"`
 			TpAmb      string `xml:"tpAmb"`
@@ -40,7 +40,7 @@ func TestBuildUnsignedCancellationEvent(t *testing.T) {
 			TpEvento   string `xml:"tpEvento"`
 			NSeqEvento int    `xml:"nSeqEvento"`
 			VerEvento  string `xml:"verEvento"`
-			Det struct {
+			Det        struct {
 				Version    string `xml:"versao,attr"`
 				DescEvento string `xml:"descEvento"`
 				NProt      string `xml:"nProt"`
@@ -113,7 +113,6 @@ func TestParseEventResponseCancellationRegistered(t *testing.T) {
 		t.Fatalf("unexpected event response: %+v", got)
 	}
 }
-
 
 func TestSignCancellationEventXMLTargetsInfEvento(t *testing.T) {
 	now := time.Date(2026, 10, 1, 0, 45, 0, 0, time.FixedZone("BRT", -3*60*60))

@@ -31,9 +31,9 @@ func TestGatewayStatusAuthorizeConsult(t *testing.T) {
 	defer server.Close()
 
 	endpoints := ServiceEndpoints{
-		Status: Endpoint{URL: server.URL, WSDLNamespace: WSDLStatusService},
+		Status:        Endpoint{URL: server.URL, WSDLNamespace: WSDLStatusService},
 		Authorization: Endpoint{URL: server.URL, WSDLNamespace: WSDLAuthorizationService},
-		Consultation: Endpoint{URL: server.URL, WSDLNamespace: WSDLConsultationService},
+		Consultation:  Endpoint{URL: server.URL, WSDLNamespace: WSDLConsultationService},
 	}
 	gateway, err := NewGateway(NewSOAPClient(nil, 2*time.Second), endpoints)
 	if err != nil {
@@ -68,12 +68,12 @@ func TestGatewayStatusAuthorizeConsult(t *testing.T) {
 
 func TestGatewayRejectsMismatchedProtocolAccessKey(t *testing.T) {
 	otherKey, err := fisc.BuildNFCeAccessKey(fisc.NFCeAccessKeyInput{
-		UF: "MG",
-		IssuedAt: time.Date(2026, time.September, 30, 23, 0, 0, 0, time.FixedZone("BRT", -3*60*60)),
-		CNPJ: "12.ABC.345/01DE-35",
-		Series: 1,
-		Number: 43,
-		NumericCode: "87654321",
+		UF:           "MG",
+		IssuedAt:     time.Date(2026, time.September, 30, 23, 0, 0, 0, time.FixedZone("BRT", -3*60*60)),
+		CNPJ:         "12.ABC.345/01DE-35",
+		Series:       1,
+		Number:       43,
+		NumericCode:  "87654321",
 		EmissionType: fisc.NFCeNormalEmissionType,
 	})
 	if err != nil {
@@ -85,9 +85,9 @@ func TestGatewayRejectsMismatchedProtocolAccessKey(t *testing.T) {
 	defer server.Close()
 
 	gateway, err := NewGateway(NewSOAPClient(nil, 2*time.Second), ServiceEndpoints{
-		Status: Endpoint{URL: server.URL, WSDLNamespace: WSDLStatusService},
+		Status:        Endpoint{URL: server.URL, WSDLNamespace: WSDLStatusService},
 		Authorization: Endpoint{URL: server.URL, WSDLNamespace: WSDLAuthorizationService},
-		Consultation: Endpoint{URL: server.URL, WSDLNamespace: WSDLConsultationService},
+		Consultation:  Endpoint{URL: server.URL, WSDLNamespace: WSDLConsultationService},
 	})
 	if err != nil {
 		t.Fatal(err)
