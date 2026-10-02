@@ -26,10 +26,14 @@ type FiscalService struct {
 	sales          SalesRepository
 	products       ProductsRepository
 	nfe            NFeProvider
-	nfceDoc        NFCeDocumentBuilder
-	nfceSigner     NFCeXMLSigner
-	nfceValidator  NFCeSchemaValidator
-	nfceAuthorizer NFCeRemoteAuthorizer
+	nfceDoc              NFCeDocumentBuilder
+	nfceSigner           NFCeXMLSigner
+	nfceValidator        NFCeSchemaValidator
+	nfceAuthorizer       NFCeRemoteAuthorizer
+	nfceCancelBuilder    NFCeCancellationEventBuilder
+	nfceCancelSigner     NFCeCancellationEventSigner
+	nfceEventValidator   NFCeSchemaValidator
+	nfceCancelClient     NFCeRemoteCancellationClient
 	audit          *audit.Service
 	validate       *validator.Validate
 	logger         *slog.Logger
@@ -71,6 +75,10 @@ type PrepareRegularIBSCBSCalculationInput struct {
 	CBS                fisc.RegularTaxComponentInput `json:"cbs"`
 }
 
+type CancelNFCeRequest struct {
+	Justification string `json:"justification" validate:"required,min=15,max=255"`
+}
+
 type PrepareNFCeIssuerRequest struct {
 	IE                  string  `json:"ie" validate:"required,min=2,max=30"`
 	CRT                 string  `json:"crt" validate:"required,oneof=1 2 3 4"`
@@ -102,6 +110,22 @@ func (s *FiscalService) SetNFCeSchemaValidator(schemaValidator NFCeSchemaValidat
 
 func (s *FiscalService) SetNFCeRemoteAuthorizer(authorizer NFCeRemoteAuthorizer) {
 	s.nfceAuthorizer = authorizer
+}
+
+func (s *FiscalService) SetNFCeCancellationBuilder(builder NFCeCancellationEventBuilder) {
+	s.nfceCancelBuilder = builder
+}
+
+func (s *FiscalService) SetNFCeCancellationSigner(signer NFCeCancellationEventSigner) {
+	s.nfceCancelSigner = signer
+}
+
+func (s *FiscalService) SetNFCeEventSchemaValidator(schemaValidator NFCeSchemaValidator) {
+	s.nfceEventValidator = schemaValidator
+}
+
+func (s *FiscalService) SetNFCeRemoteCancellationClient(client NFCeRemoteCancellationClient) {
+	s.nfceCancelClient = client
 }
 
 func NewFiscalServiceWithProvider(
