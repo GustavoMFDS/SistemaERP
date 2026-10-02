@@ -300,6 +300,41 @@ func (h *FiscalHandler) PrepareRegularIBSCBSCalculation(w http.ResponseWriter, r
 	writeJSON(w, http.StatusCreated, calculation)
 }
 
+func (h *FiscalHandler) CancelNFCeHomologation(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	invoiceID := chi.URLParam(r, "invoiceID")
+	var req fiscapp.CancelNFCeRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	outcome, err := h.svc.CancelNFCeHomologation(
+		r.Context(), au.TenantID, au.UserID, invoiceID, req,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict, common.ErrFiscalNotReady:
+			status = http.StatusConflict
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	status := http.StatusOK
+	if outcome.Pending() {
+		status = http.StatusAccepted
+	}
+	writeJSON(w, status, outcome)
+}
+
 func (h *FiscalHandler) AuthorizeNFCeHomologation(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
