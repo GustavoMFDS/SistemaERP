@@ -326,7 +326,7 @@ Result: `12/d tenant_scoped_roles` and `12/u tenant_scoped_roles` succeeded; mig
 | Production config rejects insecure Redis URL/passwordless Redis | PASS | `REDIS_URL` validation requires `redis`/`rediss` and a non-placeholder password in prod-like environments. |
 | Production config rejects missing CORS allowed origins | PASS | Config validation requires explicit origins in staging/prod. |
 | Production config rejects unprotected metrics | PASS | Config validation requires bearer token or basic auth credentials in staging/prod. |
-| Refresh token is cookie-only | PASS | Public auth response omits refresh token; refresh reads `__Host-refresh_token` cookie. |
+| Refresh token is cookie-only | PASS | Public auth response omits refresh token; staging/production use Secure `__Host-refresh_token`, while local HTTP uses a non-prefixed HttpOnly/SameSite=Strict cookie so browsers can actually retain it. |
 | Access token is not stored in localStorage/sessionStorage | PASS | `web/src/lib/auth.ts` keeps access token in memory and removes legacy `auth_token` storage keys. |
 | Audit sanitizer redacts secrets | PASS | Unit tests cover password, tokens, cookie, authorization, API key, structs, typed maps, arrays, and oversized metadata. |
 | Rate limit keys do not expose raw emails | PASS | Login identifier keys use SHA-256 normalized identifier hashes. |
