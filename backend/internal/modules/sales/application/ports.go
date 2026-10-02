@@ -51,4 +51,7 @@ type ProductsRepository interface {
 
 type FinanceRepository interface {
 	InsertLedgerEntry(ctx context.Context, tx db.DBTX, tenantID string, e fin.LedgerEntry, createdByUserID *string) (string, error)
+	LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error
+	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (resourceID, resultStatus, requestHash string, resultAmount *platform.Money, ok bool, err error)
+	SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, requestHash, resourceID, resultStatus string, resultAmount *platform.Money) error
 }

@@ -82,19 +82,30 @@ func (h *CashHandler) RecordMovement(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	id, err := h.svc.RecordMovement(r.Context(), au.TenantID, au.UserID, sessionID, req)
+	id, created, err := h.svc.RecordMovement(
+		r.Context(),
+		au.TenantID,
+		au.UserID,
+		sessionID,
+		r.Header.Get("Idempotency-Key"),
+		req,
+	)
 	if err != nil {
-		status := http.StatusBadRequest
+		status := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, common.ErrValidation):
 			status = http.StatusUnprocessableEntity
-		case errors.Is(err, common.ErrCashSessionClosed), errors.Is(err, common.ErrInsufficientCash):
+		case errors.Is(err, common.ErrCashSessionClosed), errors.Is(err, common.ErrInsufficientCash), errors.Is(err, common.ErrConflict):
 			status = http.StatusConflict
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "recorded"})
+	status := http.StatusCreated
+	if !created {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, map[string]any{"id": id, "status": "recorded", "replayed": !created})
 }
 
 func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {

@@ -22,21 +22,25 @@ func NewCashRepo(dbpool *pgxpool.Pool) *CashRepo {
 }
 
 func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tenantID string) (string, error) {
+	// Keep first-use registration safe when two terminals open the PDV at the
+	// same time. The insert and select are separate statements so a waiter that
+	// loses the unique-key race gets a fresh READ COMMITTED snapshot and can see
+	// the register committed by the winner.
+	if _, err := r.db.Exec(ctx, `
+		INSERT INTO cash_registers(tenant_id, name, active)
+		SELECT $1::uuid, 'Caixa Principal', true
+		WHERE NOT EXISTS (SELECT 1 FROM cash_registers WHERE tenant_id=$1)
+		ON CONFLICT (tenant_id, name) DO NOTHING
+	`, tenantID); err != nil {
+		return "", err
+	}
+
 	var id string
 	err := r.db.QueryRow(ctx, `
-		WITH ins AS (
-			INSERT INTO cash_registers(tenant_id, name, active)
-			SELECT $1::uuid, 'Caixa Principal', true
-			WHERE NOT EXISTS (SELECT 1 FROM cash_registers WHERE tenant_id=$1)
-			RETURNING id, created_at
-		)
 		SELECT id::text
-		FROM (
-			SELECT id, created_at FROM ins
-			UNION ALL
-			SELECT id, created_at FROM cash_registers WHERE tenant_id=$1
-		) registers
-		ORDER BY created_at
+		FROM cash_registers
+		WHERE tenant_id=$1
+		ORDER BY created_at, id
 		LIMIT 1
 	`, tenantID).Scan(&id)
 	return id, err

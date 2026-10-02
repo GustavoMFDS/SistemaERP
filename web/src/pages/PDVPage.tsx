@@ -48,6 +48,14 @@ type MeResponse = {
 type ProductsListResponse = { items: Product[]; total: number }
 type ProductCache = { savedAt: number; items: Product[] }
 
+type CashMovementAttempt = {
+  sessionId: string
+  movementType: 'supply' | 'withdrawal'
+  amount: number
+  fingerprint: string
+  key: string
+}
+
 type CashOpenResponse = { id: string }
 type CurrentCashSessionResponse = {
   id: string
@@ -92,6 +100,7 @@ type ReceiptSnapshot = {
   }>
 }
 
+const CASH_MOVEMENT_ATTEMPT_NAMESPACE = 'sistemaemgo:cashMovementAttempt:v1'
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 const PRODUCTS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const CLOSE_METHODS = [
@@ -109,6 +118,42 @@ const PAYMENT_LABELS: Record<string, string> = {
   credit: 'Crédito',
   transfer: 'Transferência',
   voucher: 'Voucher',
+}
+
+function loadCashMovementAttempt(): CashMovementAttempt | null {
+  const key = scopedStorageKey(CASH_MOVEMENT_ATTEMPT_NAMESPACE)
+  if (!key) return null
+  const raw = localStorage.getItem(key)
+  if (!raw) return null
+  try {
+    const value = JSON.parse(raw) as CashMovementAttempt
+    if (
+      !value ||
+      typeof value.sessionId !== 'string' ||
+      (value.movementType !== 'supply' && value.movementType !== 'withdrawal') ||
+      !Number.isFinite(value.amount) ||
+      value.amount <= 0 ||
+      typeof value.fingerprint !== 'string' ||
+      typeof value.key !== 'string' ||
+      value.key.trim() === ''
+    ) {
+      return null
+    }
+    return value
+  } catch {
+    return null
+  }
+}
+
+function persistCashMovementAttempt(attempt: CashMovementAttempt): void {
+  const key = scopedStorageKey(CASH_MOVEMENT_ATTEMPT_NAMESPACE)
+  if (!key) throw new Error('authenticated tenant/user scope is required')
+  localStorage.setItem(key, JSON.stringify(attempt))
+}
+
+function clearPersistedCashMovementAttempt(): void {
+  const key = scopedStorageKey(CASH_MOVEMENT_ATTEMPT_NAMESPACE)
+  if (key) localStorage.removeItem(key)
 }
 
 function productSalePrice(product: Product): number {
@@ -159,6 +204,7 @@ export default function PDVPage() {
   const [receipt, setReceipt] = useState<ReceiptSnapshot | null>(null)
   const [finalizing, setFinalizing] = useState(false)
   const finalizeInFlight = useRef(false)
+  const cashMovementAttempt = useRef<CashMovementAttempt | null>(loadCashMovementAttempt())
 
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
@@ -351,17 +397,50 @@ export default function PDVPage() {
   async function recordCashMovement(movementType: 'supply' | 'withdrawal') {
     if (!cashSessionId || movementAmount <= 0) return
     setError('')
+
+    const amount = Number(movementAmount) || 0
+    const fingerprint = `${cashSessionId}|${movementType}|${amount.toFixed(2)}`
+    let attempt = cashMovementAttempt.current ?? loadCashMovementAttempt()
+
+    if (attempt && attempt.fingerprint !== fingerprint) {
+      setError(
+        `Existe uma movimentação anterior com resposta pendente: ${attempt.movementType === 'supply' ? 'suprimento' : 'sangria'} de R$ ${attempt.amount.toFixed(2)}. Repita essa operação primeiro para reconciliar o resultado.`,
+      )
+      return
+    }
+
+    if (!attempt) {
+      attempt = {
+        sessionId: cashSessionId,
+        movementType,
+        amount,
+        fingerprint,
+        key: crypto.randomUUID(),
+      }
+      try {
+        persistCashMovementAttempt(attempt)
+      } catch (e: unknown) {
+        setError(`Não foi possível preservar a tentativa de caixa antes do envio: ${errorMessage(e)}`)
+        return
+      }
+      cashMovementAttempt.current = attempt
+    }
+
     try {
       await apiJson(`/api/v1/cash/sessions/${cashSessionId}/movements`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': attempt.key },
         body: {
           movement_type: movementType,
-          amount: Number(movementAmount) || 0,
+          amount,
           notes: null,
         },
       })
+      cashMovementAttempt.current = null
+      clearPersistedCashMovementAttempt()
       setMovementAmount(0)
     } catch (e: unknown) {
+      cashMovementAttempt.current = attempt
       setError(errorMessage(e))
     }
   }
@@ -369,6 +448,24 @@ export default function PDVPage() {
   async function closeCash() {
     if (!cashSessionId) return
     setError('')
+
+    const legacyPending = getLegacyQueueCount()
+    if (legacyPending > 0) {
+      setLegacyQueueCount(legacyPending)
+      setError(
+        `Não é possível fechar o caixa: existem ${legacyPending} item(ns) na fila offline legada ainda não revisada. Importe a fila para atenção ou descarte-a explicitamente antes do fechamento.`,
+      )
+      return
+    }
+
+    const unresolvedMovement = cashMovementAttempt.current ?? loadCashMovementAttempt()
+    if (unresolvedMovement?.sessionId === cashSessionId) {
+      cashMovementAttempt.current = unresolvedMovement
+      setError(
+        'Não é possível fechar o caixa enquanto uma sangria/suprimento tiver resposta pendente. Repita a mesma movimentação para reconciliar o resultado.',
+      )
+      return
+    }
 
     const queuedForCash = getQueueSummaryForCashSession(cashSessionId)
     if (queuedForCash.total > 0) {
@@ -392,6 +489,8 @@ export default function PDVPage() {
         },
       )
       setCashCloseSummary(result)
+      cashMovementAttempt.current = null
+      clearPersistedCashMovementAttempt()
       clearCashSessionId()
       setCashSessionIdState('')
       setClosingAmount(0)
