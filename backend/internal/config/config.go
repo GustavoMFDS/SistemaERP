@@ -118,6 +118,7 @@ func LoadFromEnv() (Config, error) {
 		NFCeCertificateSecretDir:     strings.TrimSpace(os.Getenv("NFCE_CERTIFICATE_SECRET_DIR")),
 		NFCeSchemaDir:                strings.TrimSpace(os.Getenv("NFCE_SCHEMA_DIR")),
 		NFCeSchemaEntrypoint:         strings.TrimSpace(os.Getenv("NFCE_SCHEMA_ENTRYPOINT")),
+		NFCeEventSchemaEntrypoint:    strings.TrimSpace(os.Getenv("NFCE_EVENT_SCHEMA_ENTRYPOINT")),
 		NFCeSEFAZHomologationEnabled: getEnvBool("NFCE_SEFAZ_HOMOLOGATION_ENABLED", false),
 		DisableRedis:                 getEnvBool("DISABLE_REDIS", false),
 		PrivacyContactEmail:          strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
