@@ -35,6 +35,8 @@ type eventEnvelopeXML struct {
 }
 
 type eventXML struct {
+	XMLName   xml.Name     `xml:"evento"`
+	Xmlns     string       `xml:"xmlns,attr"`
 	Version   string       `xml:"versao,attr"`
 	InfEvento infEventoXML `xml:"infEvento"`
 }
@@ -97,6 +99,7 @@ func BuildUnsignedCancellationEvent(input CancellationEventInput) ([]byte, strin
 		input.Sequence,
 	)
 	event := eventXML{
+		Xmlns: NFeNamespace,
 		Version: CancellationEventVersion,
 		InfEvento: infEventoXML{
 			ID:         eventID,
