@@ -119,6 +119,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/xml-candidate", h.Fiscal.PreviewNFCeXMLCandidate)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/sign", h.Fiscal.SignNFCeReserved)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/authorize-homologation", h.Fiscal.AuthorizeNFCeHomologation)
+					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/cancel-homologation", h.Fiscal.CancelNFCeHomologation)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/items/{saleItemID}/tax/legacy", h.Fiscal.PrepareLegacyOnlyTaxCalculation)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/items/{saleItemID}/tax/ibs-cbs", h.Fiscal.PrepareRegularIBSCBSCalculation)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/products/{productID}/profile", h.Fiscal.GetProductFiscalProfile)
