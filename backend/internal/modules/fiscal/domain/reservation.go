@@ -14,7 +14,9 @@ type NFCeReservation struct {
 	EmissionType   int       `json:"emission_type"`
 	NumericCode    string    `json:"numeric_code"`
 	CheckDigit     int       `json:"access_key_check_digit"`
-	IssuedAt       time.Time `json:"issued_at"`
+	IssuedAt              time.Time  `json:"issued_at"`
+	AuthorizationProtocol *string    `json:"authorization_protocol,omitempty"`
+	AuthorizedAt          *time.Time `json:"authorized_at,omitempty"`
 }
 
 type NFCeReservationContext struct {
