@@ -103,7 +103,10 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		nfeProvider = fiscmvp.New()
 	}
 	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
-	fiscalSvc.SetNFCeDocumentBuilder(fiscsefaz.NewDocumentBuilder(cfg.AppVersion))
+	documentBuilder := fiscsefaz.NewDocumentBuilder(cfg.AppVersion)
+	fiscalSvc.SetNFCeDocumentBuilder(documentBuilder)
+	fiscalSvc.SetNFCeCancellationBuilder(documentBuilder)
+
 	var certificateResolver fiscsefaz.CertificateResolver
 	if cfg.NFCeCertificateSecretDir != "" {
 		resolver, err := fiscsefaz.NewPEMDirectoryCertificateResolver(cfg.NFCeCertificateSecretDir)
@@ -111,7 +114,9 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 			logger.Error("nfce_certificate_secret_resolver_disabled", slog.Any("error", err))
 		} else {
 			certificateResolver = resolver
-			fiscalSvc.SetNFCeXMLSigner(fiscsefaz.NewXMLSigningService(resolver))
+			signingService := fiscsefaz.NewXMLSigningService(resolver)
+			fiscalSvc.SetNFCeXMLSigner(signingService)
+			fiscalSvc.SetNFCeCancellationSigner(signingService)
 		}
 	}
 	if cfg.NFCeSchemaDir != "" && cfg.NFCeSchemaEntrypoint != "" {
@@ -125,10 +130,21 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 			fiscalSvc.SetNFCeSchemaValidator(schemaValidator)
 		}
 	}
-	if cfg.NFCeSEFAZHomologationEnabled && certificateResolver != nil {
-		fiscalSvc.SetNFCeRemoteAuthorizer(
-			fiscsefaz.NewHomologationAuthorizer(certificateResolver, 30*time.Second),
+	if cfg.NFCeSchemaDir != "" && cfg.NFCeEventSchemaEntrypoint != "" {
+		eventSchemaValidator, err := fiscsefaz.NewXMLLintSchemaValidator(
+			cfg.NFCeSchemaDir,
+			cfg.NFCeEventSchemaEntrypoint,
 		)
+		if err != nil {
+			logger.Error("nfce_event_schema_validator_disabled", slog.Any("error", err))
+		} else {
+			fiscalSvc.SetNFCeEventSchemaValidator(eventSchemaValidator)
+		}
+	}
+	if cfg.NFCeSEFAZHomologationEnabled && certificateResolver != nil {
+		authorizer := fiscsefaz.NewHomologationAuthorizer(certificateResolver, 30*time.Second)
+		fiscalSvc.SetNFCeRemoteAuthorizer(authorizer)
+		fiscalSvc.SetNFCeRemoteCancellationClient(authorizer)
 	}
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
