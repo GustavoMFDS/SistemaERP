@@ -1038,11 +1038,13 @@ jobs:
           sudo cp /tmp/tls/ca.crt /usr/local/share/ca-certificates/sistemaemgo-ci-ca.crt
           sudo update-ca-certificates
 
+          docker rm -f pg-staging redis-staging caddy-staging >/dev/null 2>&1 || true
+
           docker run -d --name pg-staging \
             -e POSTGRES_DB=sistemaemgo \
             -e POSTGRES_USER=sistemaemgo \
             -e POSTGRES_PASSWORD=ci-staging-db-password \
-            -p 55432:5432 \
+            -p 127.0.0.1::5432 \
             -v /tmp/tls:/tls:ro \
             postgres:16 \
             -c ssl=on \
@@ -1050,7 +1052,7 @@ jobs:
             -c ssl_key_file=/tls/server.key
 
           docker run -d --name redis-staging \
-            -p 56379:6379 \
+            -p 127.0.0.1::6379 \
             -v /tmp/tls:/tls:ro \
             redis:7.4-alpine \
             redis-server \
@@ -1070,6 +1072,13 @@ jobs:
           done
           docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo
           docker exec redis-staging redis-cli --tls --cacert /tls/ca.crt -a ci-staging-redis-password ping
+
+          PG_STAGING_PORT="$(docker port pg-staging 5432/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)"
+          REDIS_STAGING_PORT="$(docker port redis-staging 6379/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)"
+          test -n "$PG_STAGING_PORT"
+          test -n "$REDIS_STAGING_PORT"
+          echo "PG_STAGING_PORT=$PG_STAGING_PORT" >> "$GITHUB_ENV"
+          echo "REDIS_STAGING_PORT=$REDIS_STAGING_PORT" >> "$GITHUB_ENV"
       - name: Migrate and seed over PostgreSQL TLS
         run: |
           docker run --rm --network host \
@@ -1077,14 +1086,14 @@ jobs:
             -v /tmp/tls:/tls:ro \
             migrate/migrate:v4.17.1 \
             -path=/migrations \
-            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
+            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
             up
 
           docker run --rm --network host \
             -v "$PWD/backend/seed:/seed:ro" \
             -v /tmp/tls:/tls:ro \
             postgres:16 \
-            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
+            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
             -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
       - name: Configure staging hostname
         run: echo "127.0.0.1 staging.example.test" | sudo tee -a /etc/hosts
@@ -1094,8 +1103,6 @@ jobs:
         env:
           APP_ENV: staging
           FISCAL_PROVIDER: disabled
-          DATABASE_URL: "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tmp/tls/ca.crt"
-          REDIS_URL: "rediss://:ci-staging-redis-password@127.0.0.1:56379/0"
           JWT_SECRET: ci-staging-jwt-secret-longer-than-32-characters
           HTTP_ADDR: :18081
           OTEL_ENABLED: "false"
@@ -1110,6 +1117,8 @@ jobs:
           RATE_LIMIT_SALES_PER_MINUTE: "1000"
           RATE_LIMIT_FISCAL_PER_MINUTE: "1000"
         run: |
+          export DATABASE_URL="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tmp/tls/ca.crt"
+          export REDIS_URL="rediss://:ci-staging-redis-password@127.0.0.1:${REDIS_STAGING_PORT}/0"
           go build -o /tmp/sistemaemgo-staging-api ./cmd/api
           /tmp/sistemaemgo-staging-api > /tmp/staging-api.log 2>&1 &
           for i in {1..30}; do
