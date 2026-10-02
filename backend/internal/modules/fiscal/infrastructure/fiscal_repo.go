@@ -725,7 +725,6 @@ func (r *FiscalRepo) GetNFCeReadiness(ctx context.Context, tenantID string) (fis
 	return out, nil
 }
 
-
 func (r *FiscalRepo) GetProductFiscalProfiles(
 	ctx context.Context,
 	tx db.DBTX,
@@ -992,7 +991,6 @@ func (r *FiscalRepo) GetSaleItemFiscalSnapshots(
 	}
 	return out, rows.Err()
 }
-
 
 func (r *FiscalRepo) InsertInvoiceItemTaxCalculation(
 	ctx context.Context,

@@ -13,9 +13,9 @@ type LegacyContributionTax struct {
 }
 
 type LegacyTaxCalculation struct {
-	ICMS    LegacyICMSTax        `json:"icms"`
-	PIS     LegacyContributionTax `json:"pis"`
-	COFINS  LegacyContributionTax `json:"cofins"`
+	ICMS   LegacyICMSTax         `json:"icms"`
+	PIS    LegacyContributionTax `json:"pis"`
+	COFINS LegacyContributionTax `json:"cofins"`
 }
 
 type SelectiveTaxCalculation struct {
@@ -32,12 +32,12 @@ type RTCTaxCalculation struct {
 }
 
 type InvoiceItemTaxCalculation struct {
-	TenantID          string               `json:"tenant_id"`
-	InvoiceID         string               `json:"invoice_id"`
-	SaleID            string               `json:"sale_id"`
-	SaleItemID        string               `json:"sale_item_id"`
-	CalculationVersion string              `json:"calculation_version"`
-	LegacyTax         LegacyTaxCalculation `json:"legacy_tax"`
-	RTCTax            RTCTaxCalculation    `json:"rtc_tax"`
-	CalculationSHA256 string               `json:"calculation_sha256"`
+	TenantID           string               `json:"tenant_id"`
+	InvoiceID          string               `json:"invoice_id"`
+	SaleID             string               `json:"sale_id"`
+	SaleItemID         string               `json:"sale_item_id"`
+	CalculationVersion string               `json:"calculation_version"`
+	LegacyTax          LegacyTaxCalculation `json:"legacy_tax"`
+	RTCTax             RTCTaxCalculation    `json:"rtc_tax"`
+	CalculationSHA256  string               `json:"calculation_sha256"`
 }

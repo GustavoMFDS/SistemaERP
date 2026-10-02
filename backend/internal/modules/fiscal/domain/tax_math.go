@@ -14,9 +14,9 @@ import (
 type TaxRate int64
 
 const (
-	taxRateScale       int64 = 10_000
-	taxPercentDenom    int64 = 100 * taxRateScale
-	MaxTaxRate               = TaxRate(taxPercentDenom) // 100.0000%
+	taxRateScale    int64 = 10_000
+	taxPercentDenom int64 = 100 * taxRateScale
+	MaxTaxRate            = TaxRate(taxPercentDenom) // 100.0000%
 )
 
 func ParseTaxRate(raw string) (TaxRate, error) {
@@ -122,9 +122,9 @@ type RegularTaxComponentInput struct {
 }
 
 type RegularTaxComponentResult struct {
-	Rate           TaxRate       `json:"rate"`
-	Reduction      TaxRate       `json:"reduction"`
-	EffectiveRate  TaxRate       `json:"effective_rate"`
+	Rate           TaxRate        `json:"rate"`
+	Reduction      TaxRate        `json:"reduction"`
+	EffectiveRate  TaxRate        `json:"effective_rate"`
 	OperationValue platform.Money `json:"operation_value"`
 	Value          platform.Money `json:"value"`
 }
@@ -179,13 +179,13 @@ func CalculateRegularIBSCBS(input RegularIBSCBSInput) (RegularIBSCBSResult, erro
 		return RegularIBSCBSResult{}, err
 	}
 	return RegularIBSCBSResult{
-		CST: input.CST,
+		CST:            input.CST,
 		Classification: input.Classification,
-		Base: input.Base,
-		IBSUF: uf,
-		IBSMunicipal: municipal,
-		IBSTotal: ibsTotal,
-		CBS: cbs,
+		Base:           input.Base,
+		IBSUF:          uf,
+		IBSMunicipal:   municipal,
+		IBSTotal:       ibsTotal,
+		CBS:            cbs,
 	}, nil
 }
 
@@ -206,11 +206,11 @@ func calculateRegularComponent(
 		return RegularTaxComponentResult{}, err
 	}
 	return RegularTaxComponentResult{
-		Rate: input.Rate,
-		Reduction: input.Reduction,
-		EffectiveRate: effective,
+		Rate:           input.Rate,
+		Reduction:      input.Reduction,
+		EffectiveRate:  effective,
 		OperationValue: operationValue,
-		Value: value,
+		Value:          value,
 	}, nil
 }
 
