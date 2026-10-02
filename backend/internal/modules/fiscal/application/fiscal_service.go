@@ -301,14 +301,6 @@ func (s *FiscalService) ReserveNFCeDraft(
 		return fisc.NFCeReservation{}, false, common.ErrInvoiceAlreadyExists
 	}
 
-	readiness, err := s.NFCeReadiness(ctx, tenantID)
-	if err != nil {
-		return fisc.NFCeReservation{}, false, err
-	}
-	if !readiness.ReadyForHomologationData || readiness.Environment != "homologation" {
-		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
-	}
-
 	reservationContext, err := s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
 	if err != nil {
 		return fisc.NFCeReservation{}, false, err
