@@ -149,7 +149,6 @@ func TestBuildNFCeAccessKeyRejectsUnsupportedInputs(t *testing.T) {
 	}
 }
 
-
 func TestGenerateNFCeNumericCode(t *testing.T) {
 	for i := 0; i < 32; i++ {
 		code, err := GenerateNFCeNumericCode()

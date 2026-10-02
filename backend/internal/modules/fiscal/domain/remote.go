@@ -3,12 +3,12 @@ package domain
 import "time"
 
 type NFCeRemoteOutcome struct {
-	AccessKey  string    `json:"access_key"`
-	StatusCode int       `json:"status_code"`
-	Reason     string    `json:"reason"`
-	FinalStatus string   `json:"final_status,omitempty"`
-	Protocol   string    `json:"protocol,omitempty"`
-	ReceivedAt time.Time `json:"received_at,omitempty"`
+	AccessKey   string    `json:"access_key"`
+	StatusCode  int       `json:"status_code"`
+	Reason      string    `json:"reason"`
+	FinalStatus string    `json:"final_status,omitempty"`
+	Protocol    string    `json:"protocol,omitempty"`
+	ReceivedAt  time.Time `json:"received_at,omitempty"`
 }
 
 func (o NFCeRemoteOutcome) Authorized() bool {

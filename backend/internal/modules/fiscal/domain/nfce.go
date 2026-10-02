@@ -27,14 +27,14 @@ type NFCeReadiness struct {
 // JSON responses. CSC fields are legacy/optional for QR Code v2 compatibility;
 // the current QR Code v3 flow does not require CSC.
 type NFCeConfig struct {
-	TenantID                        string  `json:"tenant_id"`
-	Enabled                         bool    `json:"enabled"`
-	Environment                     string  `json:"environment"`
-	Series                          int     `json:"series"`
-	CSCID                           *string `json:"csc_id,omitempty"`
-	CSCSecretRef                    *string `json:"-"`
-	CertificateSecretRef            *string `json:"-"`
-	CSCReferenceConfigured          bool    `json:"csc_reference_configured"`
+	TenantID                       string  `json:"tenant_id"`
+	Enabled                        bool    `json:"enabled"`
+	Environment                    string  `json:"environment"`
+	Series                         int     `json:"series"`
+	CSCID                          *string `json:"csc_id,omitempty"`
+	CSCSecretRef                   *string `json:"-"`
+	CertificateSecretRef           *string `json:"-"`
+	CSCReferenceConfigured         bool    `json:"csc_reference_configured"`
 	CertificateReferenceConfigured bool    `json:"certificate_reference_configured"`
 }
 

@@ -21,18 +21,18 @@ import (
 )
 
 type FiscalService struct {
-	uow      db.UnitOfWork
-	fiscal   FiscalRepository
-	sales    SalesRepository
-	products ProductsRepository
-	nfe      NFeProvider
-	nfceDoc       NFCeDocumentBuilder
-	nfceSigner    NFCeXMLSigner
+	uow            db.UnitOfWork
+	fiscal         FiscalRepository
+	sales          SalesRepository
+	products       ProductsRepository
+	nfe            NFeProvider
+	nfceDoc        NFCeDocumentBuilder
+	nfceSigner     NFCeXMLSigner
 	nfceValidator  NFCeSchemaValidator
 	nfceAuthorizer NFCeRemoteAuthorizer
-	audit      *audit.Service
-	validate *validator.Validate
-	logger   *slog.Logger
+	audit          *audit.Service
+	validate       *validator.Validate
+	logger         *slog.Logger
 }
 
 type GenerateXMLRequest struct {
@@ -48,27 +48,27 @@ type PrepareNFCeConfigRequest struct {
 }
 
 type PrepareProductFiscalProfileRequest struct {
-	CFOP                  string  `json:"cfop" validate:"required,numeric,len=4"`
-	ICMSOrigin            string  `json:"icms_origin" validate:"required,numeric,len=1"`
-	ICMSRegime            string  `json:"icms_regime" validate:"required,oneof=cst csosn"`
-	ICMSCode              string  `json:"icms_code" validate:"required,numeric"`
-	PISCST                 string  `json:"pis_cst" validate:"required,numeric,len=2"`
-	COFINSCST              string  `json:"cofins_cst" validate:"required,numeric,len=2"`
-	IBSCBSCST              *string `json:"ibs_cbs_cst" validate:"omitempty,numeric,len=3"`
-	IBSCBSClassification   *string `json:"ibs_cbs_classification" validate:"omitempty,numeric,len=6"`
-	ISCST                  *string `json:"is_cst" validate:"omitempty,numeric,len=3"`
-	ISClassification       *string `json:"is_classification" validate:"omitempty,numeric,len=6"`
-	ReferenceVersion       string  `json:"reference_version" validate:"required,min=2,max=120"`
+	CFOP                 string  `json:"cfop" validate:"required,numeric,len=4"`
+	ICMSOrigin           string  `json:"icms_origin" validate:"required,numeric,len=1"`
+	ICMSRegime           string  `json:"icms_regime" validate:"required,oneof=cst csosn"`
+	ICMSCode             string  `json:"icms_code" validate:"required,numeric"`
+	PISCST               string  `json:"pis_cst" validate:"required,numeric,len=2"`
+	COFINSCST            string  `json:"cofins_cst" validate:"required,numeric,len=2"`
+	IBSCBSCST            *string `json:"ibs_cbs_cst" validate:"omitempty,numeric,len=3"`
+	IBSCBSClassification *string `json:"ibs_cbs_classification" validate:"omitempty,numeric,len=6"`
+	ISCST                *string `json:"is_cst" validate:"omitempty,numeric,len=3"`
+	ISClassification     *string `json:"is_classification" validate:"omitempty,numeric,len=6"`
+	ReferenceVersion     string  `json:"reference_version" validate:"required,min=2,max=120"`
 }
 
 type PrepareRegularIBSCBSCalculationInput struct {
-	InvoiceID          string                         `json:"invoice_id"`
-	SaleItemID         string                         `json:"sale_item_id"`
-	CalculationVersion string                         `json:"calculation_version"`
-	Base               platform.Money                 `json:"base"`
-	IBSUF              fisc.RegularTaxComponentInput  `json:"ibs_uf"`
-	IBSMunicipal       fisc.RegularTaxComponentInput  `json:"ibs_municipal"`
-	CBS                fisc.RegularTaxComponentInput  `json:"cbs"`
+	InvoiceID          string                        `json:"invoice_id"`
+	SaleItemID         string                        `json:"sale_item_id"`
+	CalculationVersion string                        `json:"calculation_version"`
+	Base               platform.Money                `json:"base"`
+	IBSUF              fisc.RegularTaxComponentInput `json:"ibs_uf"`
+	IBSMunicipal       fisc.RegularTaxComponentInput `json:"ibs_municipal"`
+	CBS                fisc.RegularTaxComponentInput `json:"cbs"`
 }
 
 type PrepareNFCeIssuerRequest struct {
@@ -289,16 +289,16 @@ func (s *FiscalService) ReserveNFCeDraft(
 		return fisc.NFCeReservation{}, false, err
 	}
 	issuerReq := PrepareNFCeIssuerRequest{
-		IE: reservationContext.Issuer.IE,
-		CRT: reservationContext.Issuer.CRT,
-		AddressStreet: reservationContext.Issuer.AddressStreet,
-		AddressNumber: reservationContext.Issuer.AddressNumber,
-		AddressComplement: reservationContext.Issuer.AddressComplement,
+		IE:                  reservationContext.Issuer.IE,
+		CRT:                 reservationContext.Issuer.CRT,
+		AddressStreet:       reservationContext.Issuer.AddressStreet,
+		AddressNumber:       reservationContext.Issuer.AddressNumber,
+		AddressComplement:   reservationContext.Issuer.AddressComplement,
 		AddressNeighborhood: reservationContext.Issuer.AddressNeighborhood,
-		AddressCity: reservationContext.Issuer.AddressCity,
-		AddressCityCode: reservationContext.Issuer.AddressCityCode,
-		AddressState: reservationContext.Issuer.AddressState,
-		AddressZIP: reservationContext.Issuer.AddressZIP,
+		AddressCity:         reservationContext.Issuer.AddressCity,
+		AddressCityCode:     reservationContext.Issuer.AddressCityCode,
+		AddressState:        reservationContext.Issuer.AddressState,
+		AddressZIP:          reservationContext.Issuer.AddressZIP,
 	}
 	if s.validate.Struct(issuerReq) != nil || fisc.ValidateCNPJ(reservationContext.Issuer.CNPJ) != nil {
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
@@ -330,12 +330,12 @@ func (s *FiscalService) ReserveNFCeDraft(
 	}
 
 	accessKey, err := fisc.BuildNFCeAccessKey(fisc.NFCeAccessKeyInput{
-		UF: reservationContext.Issuer.AddressState,
-		IssuedAt: issuedAt,
-		CNPJ: reservationContext.Issuer.CNPJ,
-		Series: reservationContext.Config.Series,
-		Number: number,
-		NumericCode: numericCode,
+		UF:           reservationContext.Issuer.AddressState,
+		IssuedAt:     issuedAt,
+		CNPJ:         reservationContext.Issuer.CNPJ,
+		Series:       reservationContext.Config.Series,
+		Number:       number,
+		NumericCode:  numericCode,
 		EmissionType: fisc.NFCeNormalEmissionType,
 	})
 	if err != nil {
@@ -343,17 +343,17 @@ func (s *FiscalService) ReserveNFCeDraft(
 	}
 
 	reservation := fisc.NFCeReservation{
-		SaleID: saleID,
-		Status: "reserved",
-		Model: fisc.NFCeModel,
-		Series: reservationContext.Config.Series,
+		SaleID:         saleID,
+		Status:         "reserved",
+		Model:          fisc.NFCeModel,
+		Series:         reservationContext.Config.Series,
 		DocumentNumber: number,
-		Environment: reservationContext.Config.Environment,
-		AccessKey: accessKey,
-		EmissionType: fisc.NFCeNormalEmissionType,
-		NumericCode: numericCode,
-		CheckDigit: int(accessKey[len(accessKey)-1] - '0'),
-		IssuedAt: issuedAt,
+		Environment:    reservationContext.Config.Environment,
+		AccessKey:      accessKey,
+		EmissionType:   fisc.NFCeNormalEmissionType,
+		NumericCode:    numericCode,
+		CheckDigit:     int(accessKey[len(accessKey)-1] - '0'),
+		IssuedAt:       issuedAt,
 	}
 	invoiceID, err := s.fiscal.CreateNFCeReservation(
 		ctx, tx, tenantID, actorUserID, reservation,
@@ -367,12 +367,12 @@ func (s *FiscalService) ReserveNFCeDraft(
 		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce.reserve",
 		ResourceType: "invoice", ResourceID: invoiceID, Outcome: "success",
 		Metadata: map[string]any{
-			"sale_id": saleID,
-			"model": reservation.Model,
-			"series": reservation.Series,
-			"document_number": reservation.DocumentNumber,
-			"environment": reservation.Environment,
-			"emission_type": reservation.EmissionType,
+			"sale_id":               saleID,
+			"model":                 reservation.Model,
+			"series":                reservation.Series,
+			"document_number":       reservation.DocumentNumber,
+			"environment":           reservation.Environment,
+			"emission_type":         reservation.EmissionType,
 			"fiscal_snapshot_items": len(snapshots),
 		},
 	}); err != nil {
@@ -438,26 +438,26 @@ func (s *FiscalService) buildSaleItemFiscalSnapshots(
 		}
 
 		snapshot := fisc.SaleItemFiscalSnapshot{
-			TenantID: tenantID,
-			SaleItemID: item.ID,
-			SaleID: saleID,
-			ProductID: item.ProductID,
-			ProductCode: strings.TrimSpace(product.SKU),
-			ProductDescription: strings.TrimSpace(product.Name),
-			Unit: strings.ToUpper(strings.TrimSpace(product.Unit)),
-			NCM: ncm,
-			CEST: cest,
-			CFOP: profile.CFOP,
-			ICMSOrigin: profile.ICMSOrigin,
-			ICMSRegime: profile.ICMSRegime,
-			ICMSCode: profile.ICMSCode,
-			PISCST: profile.PISCST,
-			COFINSCST: profile.COFINSCST,
-			IBSCBSCST: profile.IBSCBSCST,
+			TenantID:             tenantID,
+			SaleItemID:           item.ID,
+			SaleID:               saleID,
+			ProductID:            item.ProductID,
+			ProductCode:          strings.TrimSpace(product.SKU),
+			ProductDescription:   strings.TrimSpace(product.Name),
+			Unit:                 strings.ToUpper(strings.TrimSpace(product.Unit)),
+			NCM:                  ncm,
+			CEST:                 cest,
+			CFOP:                 profile.CFOP,
+			ICMSOrigin:           profile.ICMSOrigin,
+			ICMSRegime:           profile.ICMSRegime,
+			ICMSCode:             profile.ICMSCode,
+			PISCST:               profile.PISCST,
+			COFINSCST:            profile.COFINSCST,
+			IBSCBSCST:            profile.IBSCBSCST,
 			IBSCBSClassification: profile.IBSCBSClassification,
-			ISCST: profile.ISCST,
-			ISClassification: profile.ISClassification,
-			ReferenceVersion: profile.ReferenceVersion,
+			ISCST:                profile.ISCST,
+			ISClassification:     profile.ISClassification,
+			ReferenceVersion:     profile.ReferenceVersion,
 		}
 		hash, err := fiscalSnapshotHash(snapshot)
 		if err != nil {
@@ -492,24 +492,24 @@ func fiscalSnapshotHash(snapshot fisc.SaleItemFiscalSnapshot) (string, error) {
 		ReferenceVersion     string  `json:"reference_version"`
 		SnapshotSHA256       string  `json:"snapshot_sha256"`
 	}{
-		TenantID: snapshot.TenantID,
-		SaleItemID: snapshot.SaleItemID,
-		SaleID: snapshot.SaleID,
-		ProductID: snapshot.ProductID,
-		NCM: snapshot.NCM,
-		CEST: snapshot.CEST,
-		CFOP: snapshot.CFOP,
-		ICMSOrigin: snapshot.ICMSOrigin,
-		ICMSRegime: snapshot.ICMSRegime,
-		ICMSCode: snapshot.ICMSCode,
-		PISCST: snapshot.PISCST,
-		COFINSCST: snapshot.COFINSCST,
-		IBSCBSCST: snapshot.IBSCBSCST,
+		TenantID:             snapshot.TenantID,
+		SaleItemID:           snapshot.SaleItemID,
+		SaleID:               snapshot.SaleID,
+		ProductID:            snapshot.ProductID,
+		NCM:                  snapshot.NCM,
+		CEST:                 snapshot.CEST,
+		CFOP:                 snapshot.CFOP,
+		ICMSOrigin:           snapshot.ICMSOrigin,
+		ICMSRegime:           snapshot.ICMSRegime,
+		ICMSCode:             snapshot.ICMSCode,
+		PISCST:               snapshot.PISCST,
+		COFINSCST:            snapshot.COFINSCST,
+		IBSCBSCST:            snapshot.IBSCBSCST,
 		IBSCBSClassification: snapshot.IBSCBSClassification,
-		ISCST: snapshot.ISCST,
-		ISClassification: snapshot.ISClassification,
-		ReferenceVersion: snapshot.ReferenceVersion,
-		SnapshotSHA256: "",
+		ISCST:                snapshot.ISCST,
+		ISClassification:     snapshot.ISClassification,
+		ReferenceVersion:     snapshot.ReferenceVersion,
+		SnapshotSHA256:       "",
 	}
 	content, err := json.Marshal(payload)
 	if err != nil {
@@ -593,13 +593,13 @@ func (s *FiscalService) PrepareLegacyOnlyTaxCalculation(
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
 		TenantID: tenantID, ActorUserID: actorUserID,
-		Action: "fiscal.nfce.tax_calculation.prepare",
+		Action:       "fiscal.nfce.tax_calculation.prepare",
 		ResourceType: "invoice", ResourceID: reservation.InvoiceID, Outcome: "success",
 		Metadata: map[string]any{
-			"sale_item_id": snapshot.SaleItemID,
+			"sale_item_id":        snapshot.SaleItemID,
 			"calculation_version": calculation.CalculationVersion,
-			"calculation_sha256": calculation.CalculationSHA256,
-			"rtc": false,
+			"calculation_sha256":  calculation.CalculationSHA256,
+			"rtc":                 false,
 		},
 	}); err != nil {
 		return fisc.InvoiceItemTaxCalculation{}, err
@@ -1196,9 +1196,9 @@ func (s *FiscalService) StoreSignedNFCeXML(
 		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce.sign",
 		ResourceType: "invoice", ResourceID: invoiceID, Outcome: "success",
 		Metadata: map[string]any{
-			"access_key": accessKey,
+			"access_key":  accessKey,
 			"xml_file_id": xmlID,
-			"sha256": shaHex,
+			"sha256":      shaHex,
 		},
 	}); err != nil {
 		return "", err
@@ -1276,7 +1276,7 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 
 	secretRef := strings.TrimSpace(*reservationContext.Config.CertificateSecretRef)
 	var (
-		signedXML []byte
+		signedXML   []byte
 		doAuthorize bool
 	)
 	switch reservation.Status {
@@ -1293,15 +1293,15 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 			return fisc.NFCeRemoteOutcome{}, err
 		}
 		if err := s.audit.RecordTx(ctx, tx, audit.Event{
-			TenantID: tenantID,
-			ActorUserID: actorUserID,
-			Action: "fiscal.nfce.submit",
+			TenantID:     tenantID,
+			ActorUserID:  actorUserID,
+			Action:       "fiscal.nfce.submit",
 			ResourceType: "invoice",
-			ResourceID: reservation.InvoiceID,
-			Outcome: "success",
+			ResourceID:   reservation.InvoiceID,
+			Outcome:      "success",
 			Metadata: map[string]any{
 				"access_key": reservation.AccessKey,
-				"mode": "authorize",
+				"mode":       "authorize",
 			},
 		}); err != nil {
 			return fisc.NFCeRemoteOutcome{}, err
@@ -1408,13 +1408,13 @@ func (s *FiscalService) ApplyNFCeAuthorizationResult(
 	}
 	action := "fiscal.nfce.rejected"
 	metadata := map[string]any{
-		"access_key": result.AccessKey,
+		"access_key":     result.AccessKey,
 		"rejection_code": result.RejectionCode,
 	}
 	if result.IsAuthorized() {
 		action = "fiscal.nfce.authorized"
 		metadata = map[string]any{
-			"access_key": result.AccessKey,
+			"access_key":             result.AccessKey,
 			"authorization_protocol": result.Protocol,
 		}
 	}
@@ -1498,19 +1498,19 @@ func (s *FiscalService) PrepareProductFiscalProfile(
 	}
 
 	profile := fisc.ProductFiscalProfile{
-		TenantID: tenantID,
-		ProductID: productID,
-		CFOP: req.CFOP,
-		ICMSOrigin: req.ICMSOrigin,
-		ICMSRegime: req.ICMSRegime,
-		ICMSCode: req.ICMSCode,
-		PISCST: req.PISCST,
-		COFINSCST: req.COFINSCST,
-		IBSCBSCST: req.IBSCBSCST,
+		TenantID:             tenantID,
+		ProductID:            productID,
+		CFOP:                 req.CFOP,
+		ICMSOrigin:           req.ICMSOrigin,
+		ICMSRegime:           req.ICMSRegime,
+		ICMSCode:             req.ICMSCode,
+		PISCST:               req.PISCST,
+		COFINSCST:            req.COFINSCST,
+		IBSCBSCST:            req.IBSCBSCST,
 		IBSCBSClassification: req.IBSCBSClassification,
-		ISCST: req.ISCST,
-		ISClassification: req.ISClassification,
-		ReferenceVersion: req.ReferenceVersion,
+		ISCST:                req.ISCST,
+		ISClassification:     req.ISClassification,
+		ReferenceVersion:     req.ReferenceVersion,
 	}
 
 	tx, err := s.uow.Begin(ctx)
@@ -1523,18 +1523,18 @@ func (s *FiscalService) PrepareProductFiscalProfile(
 		return fisc.ProductFiscalProfile{}, err
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
-		TenantID: tenantID,
-		ActorUserID: actorUserID,
-		Action: "fiscal.product_profile.prepare",
+		TenantID:     tenantID,
+		ActorUserID:  actorUserID,
+		Action:       "fiscal.product_profile.prepare",
 		ResourceType: "product",
-		ResourceID: productID,
-		Outcome: "success",
+		ResourceID:   productID,
+		Outcome:      "success",
 		Metadata: map[string]any{
-			"cfop": profile.CFOP,
-			"icms_regime": profile.ICMSRegime,
-			"icms_code": profile.ICMSCode,
-			"pis_cst": profile.PISCST,
-			"cofins_cst": profile.COFINSCST,
+			"cfop":              profile.CFOP,
+			"icms_regime":       profile.ICMSRegime,
+			"icms_code":         profile.ICMSCode,
+			"pis_cst":           profile.PISCST,
+			"cofins_cst":        profile.COFINSCST,
 			"reference_version": profile.ReferenceVersion,
 		},
 	}); err != nil {
@@ -1635,8 +1635,8 @@ func (s *FiscalService) PrepareNFCeIssuerProfile(
 		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce_issuer.prepare",
 		ResourceType: "company", ResourceID: tenantID, Outcome: "success",
 		Metadata: map[string]any{
-			"crt": profile.CRT,
-			"state": profile.AddressState,
+			"crt":       profile.CRT,
+			"state":     profile.AddressState,
 			"city_code": profile.AddressCityCode,
 		},
 	}); err != nil {
@@ -1700,8 +1700,8 @@ func (s *FiscalService) PrepareNFCeConfig(
 		ResourceType: "nfce_config", ResourceID: tenantID, Outcome: "success",
 		Metadata: map[string]any{
 			"environment": cfg.Environment,
-			"series": cfg.Series,
-			"enabled": false,
+			"series":      cfg.Series,
+			"enabled":     false,
 		},
 	}); err != nil {
 		return fisc.NFCeConfig{}, err

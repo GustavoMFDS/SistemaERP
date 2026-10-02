@@ -30,10 +30,10 @@ type NFCeDocumentPayment struct {
 }
 
 type NFCeDocumentDraft struct {
-	Reservation     NFCeReservation    `json:"reservation"`
-	Issuer          NFCeIssuerProfile  `json:"issuer"`
-	CustomerID      *string            `json:"customer_id,omitempty"`
-	CommercialTotal platform.Money     `json:"commercial_total"`
-	Items           []NFCeDocumentItem `json:"items"`
+	Reservation     NFCeReservation       `json:"reservation"`
+	Issuer          NFCeIssuerProfile     `json:"issuer"`
+	CustomerID      *string               `json:"customer_id,omitempty"`
+	CommercialTotal platform.Money        `json:"commercial_total"`
+	Items           []NFCeDocumentItem    `json:"items"`
 	Payments        []NFCeDocumentPayment `json:"payments"`
 }
