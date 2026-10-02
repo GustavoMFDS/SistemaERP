@@ -159,7 +159,6 @@ func TestCashCloseWaitsForInFlightSaleAndIncludesIt(t *testing.T) {
 	}
 }
 
-
 func TestEnsureDefaultRegisterConcurrentFirstUse(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -233,7 +232,7 @@ func TestEnsureDefaultRegisterConcurrentFirstUse(t *testing.T) {
 		SELECT count(*)
 		FROM cash_registers
 		WHERE tenant_id=$1
-	`).Scan(&count); err != nil {
+	`, tenantID).Scan(&count); err != nil {
 		t.Fatalf("count registers: %v", err)
 	}
 	if count != 1 {
