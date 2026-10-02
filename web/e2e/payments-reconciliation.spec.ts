@@ -455,6 +455,7 @@ test('reconciles digital payments and settles return refunds without double-coun
     )
 
     return {
+      saleId: sale.id,
       saleTotal: sale.total,
       paymentProvider: payment.provider,
       paymentReference: payment.transaction_ref,
@@ -566,7 +567,7 @@ test('reconciles digital payments and settles return refunds without double-coun
   await expect(page).toHaveURL(/\/finance$/)
   await expect(page.getByText('Financeiro e conciliação')).toBeVisible()
 
-  const paymentRow = page.locator('tbody tr').filter({ hasText: sale.id }).first()
+  const paymentRow = page.locator('tbody tr').filter({ hasText: result.saleId }).first()
   await expect(paymentRow).toBeVisible()
   await paymentRow.getByRole('button', { name: 'Histórico' }).click()
   await expect(page.getByText('Histórico da conciliação')).toBeVisible()
