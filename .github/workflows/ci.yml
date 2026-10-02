@@ -815,23 +815,17 @@ jobs:
             -c "SELECT conname FROM pg_constraint WHERE conname IN ('sale_item_fiscal_snapshots_product_code_check','sale_item_fiscal_snapshots_product_description_check','sale_item_fiscal_snapshots_unit_check') ORDER BY conname;" \
             -c "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgname='sale_item_fiscal_snapshots_immutable';"
 
-          SNAPSHOT_TRIGGER_DEF="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname='sale_item_fiscal_snapshots_immutable' AND NOT tgisinternal;" | tr '[:upper:]' '[:lower:]')"
-          case "$SNAPSHOT_TRIGGER_DEF" in
-            *"before update or delete"*) ;;
-            *)
-              echo "migration 0026 snapshot trigger does not block both UPDATE and DELETE"
-              exit 1
-              ;;
-          esac
+          SNAPSHOT_TRIGGER_OK="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='sale_item_fiscal_snapshots_immutable' AND NOT tgisinternal AND (tgtype::int & 2) <> 0 AND (tgtype::int & 8) <> 0 AND (tgtype::int & 16) <> 0;")"
+          if [ "$SNAPSHOT_TRIGGER_OK" != "1" ]; then
+            echo "migration 0026 snapshot trigger does not block both UPDATE and DELETE"
+            exit 1
+          fi
 
-          TAX_CALC_TRIGGER_DEF="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname='invoice_item_tax_calculations_immutable' AND NOT tgisinternal;" | tr '[:upper:]' '[:lower:]')"
-          case "$TAX_CALC_TRIGGER_DEF" in
-            *"before update or delete"*) ;;
-            *)
-              echo "migration 0026 weakened invoice tax calculation immutability"
-              exit 1
-              ;;
-          esac
+          TAX_CALC_TRIGGER_OK="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='invoice_item_tax_calculations_immutable' AND NOT tgisinternal AND (tgtype::int & 2) <> 0 AND (tgtype::int & 8) <> 0 AND (tgtype::int & 16) <> 0;")"
+          if [ "$TAX_CALC_TRIGGER_OK" != "1" ]; then
+            echo "migration 0026 weakened invoice tax calculation immutability"
+            exit 1
+          fi
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
