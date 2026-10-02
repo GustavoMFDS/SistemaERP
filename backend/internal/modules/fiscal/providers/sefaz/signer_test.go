@@ -106,7 +106,7 @@ func TestSignNFCeXMLProducesVerifiableOfficialProfile(t *testing.T) {
 
 	doc := etree.NewDocument()
 	doc.ReadSettings.ValidateInput = true
-	if _, err := doc.ReadFromBytes(signed); err != nil {
+	if err := doc.ReadFromBytes(signed); err != nil {
 		t.Fatalf("read signed XML: %v", err)
 	}
 	root := doc.Root()
