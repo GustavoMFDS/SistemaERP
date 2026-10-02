@@ -48,6 +48,33 @@ type NFCeDocumentBuilder interface {
 	BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDraft) ([]byte, error)
 }
 
+type NFCeCancellationEventBuilder interface {
+	BuildUnsignedCancellationEvent(draft fisc.NFCeCancellationDraft) ([]byte, string, error)
+}
+
+type NFCeCancellationEventSigner interface {
+	SignCancellation(
+		ctx context.Context,
+		secretRef string,
+		expectedEventID string,
+		unsignedXML []byte,
+	) ([]byte, error)
+}
+
+type NFCeRemoteCancellationClient interface {
+	Cancel(
+		ctx context.Context,
+		certificateSecretRef string,
+		issuerUF string,
+		environment string,
+		accessKey string,
+		documentNumber int64,
+		eventID string,
+		sequence int,
+		signedEventXML []byte,
+	) (fisc.NFCeCancellationRemoteResult, error)
+}
+
 type NFeProvider interface {
 	GenerateNFeXML(ctx context.Context, sale sales.Sale, items []sales.SaleItem, products map[string]inv.Product) (content []byte, fileName string, err error)
 }
@@ -77,6 +104,10 @@ type FiscalRepository interface {
 	InsertInvoiceItemTaxCalculation(ctx context.Context, tx db.DBTX, calculation fisc.InvoiceItemTaxCalculation) error
 	GetInvoiceItemTaxCalculations(ctx context.Context, tx db.DBTX, tenantID, invoiceID string) ([]fisc.InvoiceItemTaxCalculation, error)
 	GetLatestNFCeXMLContent(ctx context.Context, tx db.DBTX, tenantID, invoiceID string) (fileName string, content []byte, err error)
+	GetNFCeCancellationEventForUpdate(ctx context.Context, tx db.DBTX, tenantID, invoiceID string) (fisc.NFCeCancellationEvent, []byte, error)
+	InsertSignedNFCeCancellationEvent(ctx context.Context, tx db.DBTX, event fisc.NFCeCancellationEvent, actorUserID string, signedXML []byte, sha256 string) (string, error)
+	MarkNFCeCancellationSubmitted(ctx context.Context, tx db.DBTX, tenantID, eventID string) error
+	ApplyNFCeCancellationResult(ctx context.Context, tx db.DBTX, tenantID, invoiceID, eventID string, result fisc.NFCeCancellationRemoteResult, responseSHA256 string) error
 }
 
 type SalesRepository interface {
