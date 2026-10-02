@@ -858,7 +858,8 @@ test('finance UI retries lost responses with the original idempotency key', asyn
   expect(refundKeys).toHaveLength(2)
   expect(refundKeys[0]).not.toBe('')
   expect(refundKeys[1]).toBe(refundKeys[0])
-  await expect(refundRow.getByText('0.00')).toBeVisible()
+  await expect(refundRow.getByText('settled')).toBeVisible()
+  await expect(refundRow.getByRole('button', { name: 'Liquidar' })).toHaveCount(0)
 })
 
 
