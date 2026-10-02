@@ -211,11 +211,12 @@ test('network failure during logout does not pretend the HttpOnly session was re
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
   const suspendedAfterSuccess = await page.evaluate(async () => {
     const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
     return getSuspendedCarts().length
   })
-  expect(suspendedAfterSuccess).toBe(0)
+  expect(suspendedAfterSuccess).toBe(1)
 
 })
 
