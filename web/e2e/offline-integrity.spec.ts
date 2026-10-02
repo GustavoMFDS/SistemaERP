@@ -78,7 +78,11 @@ test('offline browser state is isolated by tenant and user', async ({ page }) =>
     const auth = await import('/src/lib/auth.ts')
 
     function token(sub: string, tenant: string): string {
-      const payload = btoa(JSON.stringify({ sub, tenant_id: tenant }))
+      const payload = btoa(JSON.stringify({
+        sub,
+        tenant_id: tenant,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }))
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '')
@@ -134,7 +138,11 @@ test('permanent queue conflict does not block later sales and expired items are 
     const auth = await import('/src/lib/auth.ts')
     const queue = await import('/src/lib/offlineQueue.ts')
 
-    const payload = btoa(JSON.stringify({ sub: 'user-1', tenant_id: 'tenant-1' }))
+    const payload = btoa(JSON.stringify({
+      sub: 'user-1',
+      tenant_id: 'tenant-1',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '')
