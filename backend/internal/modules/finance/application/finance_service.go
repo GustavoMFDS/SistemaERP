@@ -238,10 +238,10 @@ func (s *FinanceService) ReconcilePayment(ctx context.Context, tenantID, actorUs
 		ResourceType: "payment", ResourceID: paymentID, Outcome: "success",
 		Metadata: map[string]any{
 			"reconciliation_id": reconciliationID,
-			"expected_amount": payment.Amount.String(),
-			"received_amount": req.ReceivedAmount.String(),
-			"fee_amount": req.FeeAmount.String(),
-			"status": status,
+			"expected_amount":   payment.Amount.String(),
+			"received_amount":   req.ReceivedAmount.String(),
+			"fee_amount":        req.FeeAmount.String(),
+			"status":            status,
 		},
 	}); err != nil {
 		return "", "", false, err
@@ -378,7 +378,7 @@ func (s *FinanceService) AdjustPaymentReconciliation(ctx context.Context, tenant
 		TenantID: tenantID, ActorUserID: actorUserID, Action: "payment.reconcile.adjust",
 		ResourceType: "payment", ResourceID: paymentID, Outcome: "success",
 		Metadata: map[string]any{
-			"adjustment_id":             adjustmentID,
+			"adjustment_id":            adjustmentID,
 			"previous_received_amount": previousReceived.String(),
 			"previous_fee_amount":      previousFee.String(),
 			"new_received_amount":      req.ReceivedAmount.String(),

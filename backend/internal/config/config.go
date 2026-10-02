@@ -14,46 +14,46 @@ import (
 )
 
 type Config struct {
-	Env                 string
-	ServiceName         string
-	AppVersion          string
-	HTTPAddr            string
-	DatabaseURL         string
-	RedisURL            string
-	RedisAddr           string
-	RedisPassword       string
-	RedisDB             int
-	JWTSecret           string
-	JWTIssuer           string
-	AccessTokenTTL      time.Duration
-	RefreshTokenTTL     time.Duration
-	OTelEnabled         bool
-	OTelExporter        string
-	OTelOTLPEndpoint    string
-	LogLevel            string
-	AllowNegativeStock  bool
-	CORSAllowedOrigins  []string
-	CORSAllowedMethods  []string
-	CORSAllowedHeaders  []string
-	TrustedProxyCIDRs   []string
-	MetricsBearerToken  string
-	MetricsBasicUser    string
-	MetricsBasicPass    string
-	RateLimitLogin      int
-	RateLimitLoginID    int
-	RateLimitLoginIPID  int
-	RateLimitRefresh    int
-	RateLimitLogout     int
-	RateLimitSales      int
-	RateLimitFiscal     int
-	FiscalProvider      string
-	NFCeCertificateSecretDir string
-	NFCeSchemaDir            string
-	NFCeSchemaEntrypoint     string
+	Env                          string
+	ServiceName                  string
+	AppVersion                   string
+	HTTPAddr                     string
+	DatabaseURL                  string
+	RedisURL                     string
+	RedisAddr                    string
+	RedisPassword                string
+	RedisDB                      int
+	JWTSecret                    string
+	JWTIssuer                    string
+	AccessTokenTTL               time.Duration
+	RefreshTokenTTL              time.Duration
+	OTelEnabled                  bool
+	OTelExporter                 string
+	OTelOTLPEndpoint             string
+	LogLevel                     string
+	AllowNegativeStock           bool
+	CORSAllowedOrigins           []string
+	CORSAllowedMethods           []string
+	CORSAllowedHeaders           []string
+	TrustedProxyCIDRs            []string
+	MetricsBearerToken           string
+	MetricsBasicUser             string
+	MetricsBasicPass             string
+	RateLimitLogin               int
+	RateLimitLoginID             int
+	RateLimitLoginIPID           int
+	RateLimitRefresh             int
+	RateLimitLogout              int
+	RateLimitSales               int
+	RateLimitFiscal              int
+	FiscalProvider               string
+	NFCeCertificateSecretDir     string
+	NFCeSchemaDir                string
+	NFCeSchemaEntrypoint         string
 	NFCeSEFAZHomologationEnabled bool
-	DisableRedis        bool
-	PrivacyContactEmail string
-	AppPublicURL        string
+	DisableRedis                 bool
+	PrivacyContactEmail          string
+	AppPublicURL                 string
 }
 
 // LoadFromEnv reads configuration only from process env.
@@ -81,46 +81,46 @@ func LoadFromEnv() (Config, error) {
 	}
 
 	cfg := Config{
-		Env:                 env,
-		ServiceName:         getEnv("SERVICE_NAME", "sistemaemgo-api"),
-		AppVersion:          getEnv("APP_VERSION", "dev"),
-		HTTPAddr:            getEnv("HTTP_ADDR", ":8080"),
-		DatabaseURL:         dbURL,
-		RedisURL:            strings.TrimSpace(os.Getenv("REDIS_URL")),
-		RedisAddr:           getEnv("REDIS_ADDR", "localhost:6379"),
-		RedisPassword:       redisPassword,
-		RedisDB:             getEnvInt("REDIS_DB", 0),
-		JWTSecret:           jwtSecret,
-		JWTIssuer:           getEnv("JWT_ISSUER", "sistemaemgo"),
-		AccessTokenTTL:      time.Duration(getEnvInt("ACCESS_TOKEN_TTL_MINUTES", 15)) * time.Minute,
-		RefreshTokenTTL:     time.Duration(getEnvInt("REFRESH_TOKEN_TTL_MINUTES", 43200)) * time.Minute,
-		OTelEnabled:         getEnvBool("OTEL_ENABLED", !strings.EqualFold(env, "prod") && !strings.EqualFold(env, "production")),
-		OTelExporter:        strings.ToLower(strings.TrimSpace(getEnv("OTEL_EXPORTER", "stdout"))),
-		OTelOTLPEndpoint:    strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
-		LogLevel:            getEnv("LOG_LEVEL", "info"),
-		AllowNegativeStock:  getEnvBool("ALLOW_NEGATIVE_STOCK", false),
-		CORSAllowedOrigins:  getEnvList("CORS_ALLOWED_ORIGINS", defaultCORSOrigins(env)),
-		CORSAllowedMethods:  getEnvList("CORS_ALLOWED_METHODS", []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
-		CORSAllowedHeaders:  getEnvList("CORS_ALLOWED_HEADERS", []string{"Authorization", "Content-Type", "Accept", "Idempotency-Key"}),
-		TrustedProxyCIDRs:   getEnvList("TRUSTED_PROXY_CIDRS", nil),
-		MetricsBearerToken:  strings.TrimSpace(os.Getenv("METRICS_BEARER_TOKEN")),
-		MetricsBasicUser:    strings.TrimSpace(os.Getenv("METRICS_BASIC_USER")),
-		MetricsBasicPass:    strings.TrimSpace(os.Getenv("METRICS_BASIC_PASS")),
-		RateLimitLogin:      getEnvInt("RATE_LIMIT_LOGIN_PER_MINUTE", 10),
-		RateLimitLoginID:    getEnvInt("RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE", 5),
-		RateLimitLoginIPID:  getEnvInt("RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE", 5),
-		RateLimitRefresh:    getEnvInt("RATE_LIMIT_REFRESH_PER_MINUTE", 30),
-		RateLimitLogout:     getEnvInt("RATE_LIMIT_LOGOUT_PER_MINUTE", 30),
-		RateLimitSales:      getEnvInt("RATE_LIMIT_SALES_PER_MINUTE", 60),
-		RateLimitFiscal:     getEnvInt("RATE_LIMIT_FISCAL_PER_MINUTE", 20),
-		FiscalProvider:      strings.ToLower(strings.TrimSpace(getEnv("FISCAL_PROVIDER", "mvp"))),
-		NFCeCertificateSecretDir: strings.TrimSpace(os.Getenv("NFCE_CERTIFICATE_SECRET_DIR")),
-		NFCeSchemaDir:            strings.TrimSpace(os.Getenv("NFCE_SCHEMA_DIR")),
-		NFCeSchemaEntrypoint:     strings.TrimSpace(os.Getenv("NFCE_SCHEMA_ENTRYPOINT")),
+		Env:                          env,
+		ServiceName:                  getEnv("SERVICE_NAME", "sistemaemgo-api"),
+		AppVersion:                   getEnv("APP_VERSION", "dev"),
+		HTTPAddr:                     getEnv("HTTP_ADDR", ":8080"),
+		DatabaseURL:                  dbURL,
+		RedisURL:                     strings.TrimSpace(os.Getenv("REDIS_URL")),
+		RedisAddr:                    getEnv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:                redisPassword,
+		RedisDB:                      getEnvInt("REDIS_DB", 0),
+		JWTSecret:                    jwtSecret,
+		JWTIssuer:                    getEnv("JWT_ISSUER", "sistemaemgo"),
+		AccessTokenTTL:               time.Duration(getEnvInt("ACCESS_TOKEN_TTL_MINUTES", 15)) * time.Minute,
+		RefreshTokenTTL:              time.Duration(getEnvInt("REFRESH_TOKEN_TTL_MINUTES", 43200)) * time.Minute,
+		OTelEnabled:                  getEnvBool("OTEL_ENABLED", !strings.EqualFold(env, "prod") && !strings.EqualFold(env, "production")),
+		OTelExporter:                 strings.ToLower(strings.TrimSpace(getEnv("OTEL_EXPORTER", "stdout"))),
+		OTelOTLPEndpoint:             strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+		LogLevel:                     getEnv("LOG_LEVEL", "info"),
+		AllowNegativeStock:           getEnvBool("ALLOW_NEGATIVE_STOCK", false),
+		CORSAllowedOrigins:           getEnvList("CORS_ALLOWED_ORIGINS", defaultCORSOrigins(env)),
+		CORSAllowedMethods:           getEnvList("CORS_ALLOWED_METHODS", []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
+		CORSAllowedHeaders:           getEnvList("CORS_ALLOWED_HEADERS", []string{"Authorization", "Content-Type", "Accept", "Idempotency-Key"}),
+		TrustedProxyCIDRs:            getEnvList("TRUSTED_PROXY_CIDRS", nil),
+		MetricsBearerToken:           strings.TrimSpace(os.Getenv("METRICS_BEARER_TOKEN")),
+		MetricsBasicUser:             strings.TrimSpace(os.Getenv("METRICS_BASIC_USER")),
+		MetricsBasicPass:             strings.TrimSpace(os.Getenv("METRICS_BASIC_PASS")),
+		RateLimitLogin:               getEnvInt("RATE_LIMIT_LOGIN_PER_MINUTE", 10),
+		RateLimitLoginID:             getEnvInt("RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE", 5),
+		RateLimitLoginIPID:           getEnvInt("RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE", 5),
+		RateLimitRefresh:             getEnvInt("RATE_LIMIT_REFRESH_PER_MINUTE", 30),
+		RateLimitLogout:              getEnvInt("RATE_LIMIT_LOGOUT_PER_MINUTE", 30),
+		RateLimitSales:               getEnvInt("RATE_LIMIT_SALES_PER_MINUTE", 60),
+		RateLimitFiscal:              getEnvInt("RATE_LIMIT_FISCAL_PER_MINUTE", 20),
+		FiscalProvider:               strings.ToLower(strings.TrimSpace(getEnv("FISCAL_PROVIDER", "mvp"))),
+		NFCeCertificateSecretDir:     strings.TrimSpace(os.Getenv("NFCE_CERTIFICATE_SECRET_DIR")),
+		NFCeSchemaDir:                strings.TrimSpace(os.Getenv("NFCE_SCHEMA_DIR")),
+		NFCeSchemaEntrypoint:         strings.TrimSpace(os.Getenv("NFCE_SCHEMA_ENTRYPOINT")),
 		NFCeSEFAZHomologationEnabled: getEnvBool("NFCE_SEFAZ_HOMOLOGATION_ENABLED", false),
-		DisableRedis:        getEnvBool("DISABLE_REDIS", false),
-		PrivacyContactEmail: strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
-		AppPublicURL:        strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
+		DisableRedis:                 getEnvBool("DISABLE_REDIS", false),
+		PrivacyContactEmail:          strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
+		AppPublicURL:                 strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

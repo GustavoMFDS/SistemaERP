@@ -92,9 +92,9 @@ func (h *ReturnsHandler) CreateForSale(w http.ResponseWriter, r *http.Request) {
 		code = http.StatusOK
 	}
 	writeJSON(w, code, map[string]any{
-		"id": id,
-		"refund_due": refundDue,
+		"id":            id,
+		"refund_due":    refundDue,
 		"refund_status": "pending",
-		"replayed": !created,
+		"replayed":      !created,
 	})
 }

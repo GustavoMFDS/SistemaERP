@@ -134,7 +134,7 @@ func (h *FinanceHandler) GetPaymentReconciliationHistory(w http.ResponseWriter, 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"initial": initial,
+		"initial":     initial,
 		"adjustments": adjustments,
 	})
 }

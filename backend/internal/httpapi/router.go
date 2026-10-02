@@ -165,7 +165,7 @@ func liveHealth(w http.ResponseWriter, _ *http.Request) {
 
 func readinessHealth(mods *modules.Modules) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2 * time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
 		if mods.DB == nil || mods.DB.Ping(ctx) != nil {
