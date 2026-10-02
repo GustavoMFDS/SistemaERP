@@ -22,22 +22,22 @@ import (
 )
 
 type FiscalService struct {
-	uow            db.UnitOfWork
-	fiscal         FiscalRepository
-	sales          SalesRepository
-	products       ProductsRepository
-	nfe            NFeProvider
-	nfceDoc              NFCeDocumentBuilder
-	nfceSigner           NFCeXMLSigner
-	nfceValidator        NFCeSchemaValidator
-	nfceAuthorizer       NFCeRemoteAuthorizer
-	nfceCancelBuilder    NFCeCancellationEventBuilder
-	nfceCancelSigner     NFCeCancellationEventSigner
-	nfceEventValidator   NFCeSchemaValidator
-	nfceCancelClient     NFCeRemoteCancellationClient
-	audit          *audit.Service
-	validate       *validator.Validate
-	logger         *slog.Logger
+	uow                db.UnitOfWork
+	fiscal             FiscalRepository
+	sales              SalesRepository
+	products           ProductsRepository
+	nfe                NFeProvider
+	nfceDoc            NFCeDocumentBuilder
+	nfceSigner         NFCeXMLSigner
+	nfceValidator      NFCeSchemaValidator
+	nfceAuthorizer     NFCeRemoteAuthorizer
+	nfceCancelBuilder  NFCeCancellationEventBuilder
+	nfceCancelSigner   NFCeCancellationEventSigner
+	nfceEventValidator NFCeSchemaValidator
+	nfceCancelClient   NFCeRemoteCancellationClient
+	audit              *audit.Service
+	validate           *validator.Validate
+	logger             *slog.Logger
 }
 
 type GenerateXMLRequest struct {
@@ -1460,15 +1460,15 @@ func (s *FiscalService) CancelNFCeHomologation(
 			return fisc.NFCeCancellationRemoteResult{}, err
 		}
 		if err := s.audit.RecordTx(ctx, tx, audit.Event{
-			TenantID: tenantID,
-			ActorUserID: actorUserID,
-			Action: "fiscal.nfce.cancel.sign",
+			TenantID:     tenantID,
+			ActorUserID:  actorUserID,
+			Action:       "fiscal.nfce.cancel.sign",
 			ResourceType: "invoice_fiscal_event",
-			ResourceID: event.ID,
-			Outcome: "success",
+			ResourceID:   event.ID,
+			Outcome:      "success",
 			Metadata: map[string]any{
 				"invoice_id": invoiceID,
-				"event_id": event.EventID,
+				"event_id":   event.EventID,
 				"access_key": reservation.AccessKey,
 			},
 		}); err != nil {
@@ -1501,15 +1501,15 @@ func (s *FiscalService) CancelNFCeHomologation(
 		return fisc.NFCeCancellationRemoteResult{}, err
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
-		TenantID: tenantID,
-		ActorUserID: actorUserID,
-		Action: "fiscal.nfce.cancel.submit",
+		TenantID:     tenantID,
+		ActorUserID:  actorUserID,
+		Action:       "fiscal.nfce.cancel.submit",
 		ResourceType: "invoice_fiscal_event",
-		ResourceID: lockedEvent.ID,
-		Outcome: "success",
+		ResourceID:   lockedEvent.ID,
+		Outcome:      "success",
 		Metadata: map[string]any{
 			"invoice_id": invoiceID,
-			"event_id": event.EventID,
+			"event_id":   event.EventID,
 			"access_key": reservation.AccessKey,
 		},
 	}); err != nil {
@@ -1562,18 +1562,18 @@ func (s *FiscalService) CancelNFCeHomologation(
 		outcome = "registered"
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
-		TenantID: tenantID,
-		ActorUserID: actorUserID,
-		Action: "fiscal.nfce.cancel.result",
+		TenantID:     tenantID,
+		ActorUserID:  actorUserID,
+		Action:       "fiscal.nfce.cancel.result",
 		ResourceType: "invoice_fiscal_event",
-		ResourceID: event.ID,
-		Outcome: outcome,
+		ResourceID:   event.ID,
+		Outcome:      outcome,
 		Metadata: map[string]any{
-			"invoice_id": invoiceID,
-			"event_id": event.EventID,
-			"access_key": reservation.AccessKey,
+			"invoice_id":  invoiceID,
+			"event_id":    event.EventID,
+			"access_key":  reservation.AccessKey,
 			"status_code": result.StatusCode,
-			"reason": result.Reason,
+			"reason":      result.Reason,
 		},
 	}); err != nil {
 		return fisc.NFCeCancellationRemoteResult{}, err
