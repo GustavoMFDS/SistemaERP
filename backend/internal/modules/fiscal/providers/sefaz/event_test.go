@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/beevik/etree"
 )
 
 func TestBuildUnsignedCancellationEvent(t *testing.T) {
@@ -109,5 +111,48 @@ func TestParseEventResponseCancellationRegistered(t *testing.T) {
 	if got.BatchStatusCode != 128 || !got.CancellationRegistered() ||
 		got.AccessKey != testAccessKey || got.Protocol != "131260000000002" {
 		t.Fatalf("unexpected event response: %+v", got)
+	}
+}
+
+
+func TestSignCancellationEventXMLTargetsInfEvento(t *testing.T) {
+	now := time.Date(2026, 10, 1, 0, 45, 0, 0, time.FixedZone("BRT", -3*60*60))
+	unsigned, eventID, err := BuildUnsignedCancellationEvent(CancellationEventInput{
+		Environment:           EnvironmentHomologation,
+		IssuerUF:              "MG",
+		IssuerCNPJ:            "12.ABC.345/01DE-35",
+		AccessKey:             testAccessKey,
+		AuthorizationProtocol: "131260000000001",
+		EventTime:             now,
+		Sequence:              1,
+		Justification:         "Cancelamento solicitado por erro operacional.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := testRSACertificate(t, now)
+	signed, err := SignCancellationEventXML(unsigned, cert, eventID, now)
+	if err != nil {
+		t.Fatalf("SignCancellationEventXML: %v", err)
+	}
+
+	doc := etree.NewDocument()
+	doc.ReadSettings.ValidateInput = true
+	if err := doc.ReadFromBytes(signed); err != nil {
+		t.Fatalf("parse signed event: %v", err)
+	}
+	root := doc.Root()
+	infEvento := directChild(root, "infEvento")
+	signature := directChild(root, "Signature")
+	if infEvento == nil || signature == nil {
+		t.Fatalf("signed event structure incomplete: %s", signed)
+	}
+	if signature.Index() != infEvento.Index()+1 {
+		t.Fatal("Signature must immediately follow infEvento")
+	}
+	signedInfo := directChild(signature, "SignedInfo")
+	reference := directChild(signedInfo, "Reference")
+	if reference == nil || reference.SelectAttrValue("URI", "") != "#"+eventID {
+		t.Fatalf("unexpected event Reference URI")
 	}
 }
