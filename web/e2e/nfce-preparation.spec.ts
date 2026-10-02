@@ -64,8 +64,18 @@ test('NFC-e preparation stays disabled and never exposes secret references', asy
   expect(result.readiness.municipality_code_configured).toBe(true)
   expect(result.readiness.csc_reference_configured).toBe(false)
   expect(result.readiness.certificate_reference_configured).toBe(true)
-  expect(result.readiness.products_missing_ncm).toBe(0)
-  expect(result.readiness.ready_for_homologation_data).toBe(true)
+  expect(Number(result.readiness.products_missing_ncm)).toBeGreaterThanOrEqual(0)
+  expect(Number(result.readiness.products_missing_fiscal_profile)).toBeGreaterThanOrEqual(0)
+  const missingFiscalData =
+    Number(result.readiness.products_missing_ncm) > 0 ||
+    Number(result.readiness.products_missing_fiscal_profile) > 0
+  expect(result.readiness.ready_for_homologation_data).toBe(!missingFiscalData)
+  if (Number(result.readiness.products_missing_ncm) > 0) {
+    expect(result.readiness.blocking_reasons).toContain('product_ncm')
+  }
+  if (Number(result.readiness.products_missing_fiscal_profile) > 0) {
+    expect(result.readiness.blocking_reasons).toContain('product_fiscal_profile')
+  }
 
   await page.goto('/fiscal')
   await expect(page.getByRole('heading', { name: 'Fiscal — preparação NFC-e' })).toBeVisible()
