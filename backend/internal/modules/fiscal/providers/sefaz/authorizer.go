@@ -179,7 +179,6 @@ func parseProtocolTime(value string) (time.Time, error) {
 	return parsed, nil
 }
 
-
 func (a *HomologationAuthorizer) Cancel(
 	ctx context.Context,
 	certificateSecretRef string,
@@ -249,11 +248,11 @@ func (a *HomologationAuthorizer) Cancel(
 	}
 
 	out := fisc.NFCeCancellationRemoteResult{
-		AccessKey:  strings.TrimSpace(accessKey),
-		EventID:    wantEventID,
-		Sequence:   sequence,
-		StatusCode: response.BatchStatusCode,
-		Reason:     response.BatchReason,
+		AccessKey:   strings.TrimSpace(accessKey),
+		EventID:     wantEventID,
+		Sequence:    sequence,
+		StatusCode:  response.BatchStatusCode,
+		Reason:      response.BatchReason,
 		ResponseXML: append([]byte(nil), responseXML...),
 	}
 	if response.EventType == "" {

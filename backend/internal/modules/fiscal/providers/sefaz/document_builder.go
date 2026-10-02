@@ -62,7 +62,6 @@ func (b *DocumentBuilder) BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDr
 	})
 }
 
-
 func (b *DocumentBuilder) BuildUnsignedCancellationEvent(
 	draft fisc.NFCeCancellationDraft,
 ) ([]byte, string, error) {

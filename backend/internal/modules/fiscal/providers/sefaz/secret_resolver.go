@@ -140,7 +140,6 @@ func (s *XMLSigningService) Sign(
 	return SignNFCeXML(unsignedXML, cert, expectedAccessKey, now)
 }
 
-
 func (s *XMLSigningService) SignCancellation(
 	ctx context.Context,
 	secretRef string,
