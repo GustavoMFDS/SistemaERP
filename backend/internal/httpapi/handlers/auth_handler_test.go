@@ -39,7 +39,6 @@ func TestPublicTokenResponseDoesNotExposeRefreshToken(t *testing.T) {
 	}
 }
 
-
 func TestRefreshCookieUsesHostPrefixOnlyForProdLikeHTTPS(t *testing.T) {
 	localCfg := config.Config{Env: "test"}
 	localRec := httptest.NewRecorder()
