@@ -12,6 +12,17 @@ const (
 	NFCeEventStatusRejected  = "rejected"
 )
 
+type NFCeCancellationDraft struct {
+	Environment           string    `json:"environment"`
+	IssuerUF              string    `json:"issuer_uf"`
+	IssuerCNPJ            string    `json:"issuer_cnpj"`
+	AccessKey             string    `json:"access_key"`
+	AuthorizationProtocol string    `json:"authorization_protocol"`
+	EventTime             time.Time `json:"event_time"`
+	Sequence              int       `json:"sequence"`
+	Justification         string    `json:"justification"`
+}
+
 type NFCeCancellationEvent struct {
 	ID            string     `json:"id"`
 	TenantID      string     `json:"tenant_id"`
