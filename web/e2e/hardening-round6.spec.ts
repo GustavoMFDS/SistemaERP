@@ -53,6 +53,7 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
       `/api/v1/cash/sessions/${cash.id}/movements`,
       {
         method: 'POST',
+        headers: { 'Idempotency-Key': `round6-supply-${crypto.randomUUID()}` },
         body: { movement_type: 'supply', amount: 20, notes: 'round6 supply' },
       },
     )
@@ -92,6 +93,7 @@ test('cash movements and per-method reconciliation stay consistent and closed sa
       `/api/v1/cash/sessions/${cash.id}/movements`,
       {
         method: 'POST',
+        headers: { 'Idempotency-Key': `round6-withdrawal-${crypto.randomUUID()}` },
         body: { movement_type: 'withdrawal', amount: 10, notes: 'round6 withdrawal' },
       },
     )
@@ -214,6 +216,7 @@ test('cashier cannot perform cash supply or withdrawal without cash:move permiss
     try {
       await apiJson(`/api/v1/cash/sessions/${cash.id}/movements`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': `round6-rbac-${crypto.randomUUID()}` },
         body: { movement_type: 'supply', amount: 10, notes: 'must be forbidden' },
       })
       movementStatus = 201
