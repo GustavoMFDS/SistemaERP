@@ -178,3 +178,105 @@ func parseProtocolTime(value string) (time.Time, error) {
 	}
 	return parsed, nil
 }
+
+
+func (a *HomologationAuthorizer) Cancel(
+	ctx context.Context,
+	certificateSecretRef string,
+	issuerUF string,
+	environment string,
+	accessKey string,
+	documentNumber int64,
+	eventID string,
+	sequence int,
+	signedEventXML []byte,
+) (fisc.NFCeCancellationRemoteResult, error) {
+	if strings.TrimSpace(environment) != string(EnvironmentHomologation) {
+		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("SEFAZ cancellation is restricted to homologation")
+	}
+	if err := validateExpectedAccessKey(strings.TrimSpace(accessKey)); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if documentNumber < 1 || documentNumber > 999999999 {
+		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("invalid NFC-e document number")
+	}
+	if sequence < 1 || sequence > 99 {
+		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("invalid cancellation event sequence")
+	}
+	wantEventID := fmt.Sprintf("ID%s%s%02d", CancellationEventType, strings.TrimSpace(accessKey), sequence)
+	if strings.TrimSpace(eventID) != wantEventID {
+		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("cancellation event Id mismatch")
+	}
+
+	if a == nil || a.resolver == nil {
+		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("homologation authorizer is not configured")
+	}
+	cert, err := ResolveAndValidateCertificate(
+		ctx,
+		a.resolver,
+		certificateSecretRef,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	transport, err := NewMTLSRoundTripper(cert, time.Now().UTC())
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	entry, err := ResolveCatalogEntry(issuerUF, EnvironmentHomologation)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	payload, err := BuildCancellationEventBatch(
+		strconv.FormatInt(documentNumber, 10),
+		signedEventXML,
+	)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	endpoint := Endpoint{
+		URL:           entry.EventURL,
+		WSDLNamespace: SEFAZWSDLNamespacePrefix + "NFeRecepcaoEvento4",
+	}
+	responseXML, err := NewSOAPClient(transport, a.timeout).Post(ctx, endpoint, payload)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	response, err := ParseEventResponse(responseXML)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+
+	out := fisc.NFCeCancellationRemoteResult{
+		AccessKey:  strings.TrimSpace(accessKey),
+		EventID:    wantEventID,
+		Sequence:   sequence,
+		StatusCode: response.BatchStatusCode,
+		Reason:     response.BatchReason,
+		ResponseXML: append([]byte(nil), responseXML...),
+	}
+	if response.EventType == "" {
+		return out, nil
+	}
+	if response.AccessKey != accessKey {
+		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("cancellation response access key mismatch")
+	}
+	if response.EventType != CancellationEventType || response.Sequence != sequence {
+		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("cancellation response event identity mismatch")
+	}
+	out.StatusCode = response.StatusCode
+	out.Reason = response.Reason
+	out.Protocol = response.Protocol
+	if response.CancellationRegistered() {
+		registeredAt, err := parseProtocolTime(response.RegisteredAt)
+		if err != nil {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+		out.FinalStatus = fisc.NFCeEventStatusRegistered
+		out.RegisteredAt = registeredAt
+		return out, nil
+	}
+	out.FinalStatus = fisc.NFCeEventStatusRejected
+	return out, nil
+}
