@@ -49,11 +49,21 @@ type NFCeCancellationRemoteResult struct {
 	Sequence    int       `json:"sequence"`
 	StatusCode  int       `json:"status_code"`
 	Reason      string    `json:"reason"`
+	FinalStatus string    `json:"final_status,omitempty"`
 	Protocol    string    `json:"protocol,omitempty"`
 	RegisteredAt time.Time `json:"registered_at,omitempty"`
 	ResponseXML []byte    `json:"-"`
 }
 
 func (r NFCeCancellationRemoteResult) Registered() bool {
-	return r.StatusCode == 135 && r.Protocol != "" && !r.RegisteredAt.IsZero()
+	return r.FinalStatus == NFCeEventStatusRegistered &&
+		r.StatusCode == 135 && r.Protocol != "" && !r.RegisteredAt.IsZero()
+}
+
+func (r NFCeCancellationRemoteResult) Rejected() bool {
+	return r.FinalStatus == NFCeEventStatusRejected
+}
+
+func (r NFCeCancellationRemoteResult) Pending() bool {
+	return r.FinalStatus == ""
 }
