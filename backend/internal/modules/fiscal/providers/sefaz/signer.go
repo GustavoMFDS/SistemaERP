@@ -111,7 +111,6 @@ func SignNFCeXML(
 	return signed, nil
 }
 
-
 func SignCancellationEventXML(
 	unsignedEventXML []byte,
 	cert tls.Certificate,

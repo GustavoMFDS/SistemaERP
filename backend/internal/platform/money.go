@@ -226,10 +226,10 @@ func parseScaled(raw string, scale int) (int64, error) {
 		}
 	}
 	factor := uint64(pow10(scale))
-	if whole > (uint64(math.MaxInt64) - fraction) / factor {
+	if whole > (uint64(math.MaxInt64)-fraction)/factor {
 		return 0, fmt.Errorf("decimal %q exceeds int64 range", raw)
 	}
-	value := int64(whole * factor + fraction)
+	value := int64(whole*factor + fraction)
 	if neg {
 		value = -value
 	}
@@ -245,7 +245,7 @@ func formatScaled(v int64, scale int) string {
 		magnitude = uint64(v)
 	}
 	div := uint64(pow10(scale))
-	out := fmt.Sprintf("%d.%0*d", magnitude / div, scale, magnitude % div)
+	out := fmt.Sprintf("%d.%0*d", magnitude/div, scale, magnitude%div)
 	if neg {
 		return "-" + out
 	}

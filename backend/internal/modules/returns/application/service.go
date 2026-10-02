@@ -226,7 +226,7 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 	}
 	if allFullyReturned && refundDue != remainingRefund && len(resultItems) > 0 {
 		delta := remainingRefund.Sub(refundDue)
-		resultItems[len(resultItems) - 1].RefundValue = resultItems[len(resultItems) - 1].RefundValue.Add(delta)
+		resultItems[len(resultItems)-1].RefundValue = resultItems[len(resultItems)-1].RefundValue.Add(delta)
 		refundDue = remainingRefund
 	}
 

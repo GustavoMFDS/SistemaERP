@@ -54,11 +54,11 @@ type PurchaseItem struct {
 }
 
 type Receipt struct {
-	ID           string  `json:"id"`
-	PurchaseID   string  `json:"purchase_id"`
-	ReceivedBy   string  `json:"received_by_user_id"`
-	Notes        *string `json:"notes"`
-	ReceivedAt   string  `json:"received_at"`
+	ID         string  `json:"id"`
+	PurchaseID string  `json:"purchase_id"`
+	ReceivedBy string  `json:"received_by_user_id"`
+	Notes      *string `json:"notes"`
+	ReceivedAt string  `json:"received_at"`
 }
 
 type ReceiptItem struct {
