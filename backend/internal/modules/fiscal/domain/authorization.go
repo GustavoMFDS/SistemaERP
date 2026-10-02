@@ -8,6 +8,7 @@ const (
 	NFCeStatusSubmitted  = "submitted"
 	NFCeStatusAuthorized = "authorized"
 	NFCeStatusRejected   = "rejected"
+	NFCeStatusCancelled  = "cancelled"
 )
 
 type NFCeAuthorizationResult struct {
