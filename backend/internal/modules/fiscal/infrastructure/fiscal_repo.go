@@ -594,6 +594,249 @@ func (r *FiscalRepo) ApplyNFCeAuthorizationResult(
 	return nil
 }
 
+func (r *FiscalRepo) GetNFCeCancellationEventForUpdate(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, invoiceID string,
+) (fisc.NFCeCancellationEvent, []byte, error) {
+	var out fisc.NFCeCancellationEvent
+	var signedXML []byte
+	err := tx.QueryRow(ctx, `
+		SELECT
+			id::text,
+			tenant_id::text,
+			invoice_id::text,
+			event_type,
+			sequence,
+			event_id,
+			environment,
+			status,
+			justification,
+			signed_sha256,
+			response_sha256,
+			status_code,
+			reason,
+			protocol,
+			registered_at,
+			created_at,
+			updated_at,
+			signed_xml
+		FROM invoice_fiscal_events
+		WHERE tenant_id=$1
+		  AND invoice_id=$2
+		  AND event_type='110111'
+		ORDER BY sequence DESC
+		LIMIT 1
+		FOR UPDATE
+	`, tenantID, invoiceID).Scan(
+		&out.ID,
+		&out.TenantID,
+		&out.InvoiceID,
+		&out.EventType,
+		&out.Sequence,
+		&out.EventID,
+		&out.Environment,
+		&out.Status,
+		&out.Justification,
+		&out.SignedSHA256,
+		&out.ResponseSHA256,
+		&out.StatusCode,
+		&out.Reason,
+		&out.Protocol,
+		&out.RegisteredAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+		&signedXML,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeCancellationEvent{}, nil, common.ErrNotFound
+		}
+		return fisc.NFCeCancellationEvent{}, nil, err
+	}
+	return out, signedXML, nil
+}
+
+func (r *FiscalRepo) InsertSignedNFCeCancellationEvent(
+	ctx context.Context,
+	tx db.DBTX,
+	event fisc.NFCeCancellationEvent,
+	actorUserID string,
+	signedXML []byte,
+	sha256 string,
+) (string, error) {
+	var id string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO invoice_fiscal_events(
+			tenant_id,
+			invoice_id,
+			event_type,
+			sequence,
+			event_id,
+			environment,
+			status,
+			justification,
+			signed_xml,
+			signed_sha256,
+			created_by_user_id
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,'signed',$7,$8,$9,$10)
+		RETURNING id::text
+	`,
+		event.TenantID,
+		event.InvoiceID,
+		event.EventType,
+		event.Sequence,
+		event.EventID,
+		event.Environment,
+		event.Justification,
+		signedXML,
+		sha256,
+		actorUserID,
+	).Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", common.ErrConflict
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func (r *FiscalRepo) MarkNFCeCancellationSubmitted(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, eventID string,
+) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE invoice_fiscal_events
+		SET status='submitted', updated_at=now()
+		WHERE tenant_id=$1
+		  AND event_id=$2
+		  AND status='signed'
+	`, tenantID, eventID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return common.ErrConflict
+	}
+	return nil
+}
+
+func (r *FiscalRepo) ApplyNFCeCancellationResult(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, invoiceID, eventID string,
+	result fisc.NFCeCancellationRemoteResult,
+	responseSHA256 string,
+) error {
+	if result.Pending() || len(result.ResponseXML) == 0 {
+		return common.ErrValidation
+	}
+
+	if result.Registered() {
+		tag, err := tx.Exec(ctx, `
+			UPDATE invoice_fiscal_events
+			SET status='registered',
+			    response_xml=$4,
+			    response_sha256=$5,
+			    status_code=$6,
+			    reason=$7,
+			    protocol=$8,
+			    registered_at=$9,
+			    updated_at=now()
+			WHERE tenant_id=$1
+			  AND invoice_id=$2
+			  AND event_id=$3
+			  AND status='submitted'
+		`,
+			tenantID,
+			invoiceID,
+			eventID,
+			result.ResponseXML,
+			responseSHA256,
+			result.StatusCode,
+			result.Reason,
+			result.Protocol,
+			result.RegisteredAt,
+		)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return common.ErrConflict
+		}
+
+		tag, err = tx.Exec(ctx, `
+			UPDATE invoices i
+			SET status='cancelled',
+			    cancellation_protocol=$4,
+			    cancelled_at=$5,
+			    cancellation_reason=e.justification,
+			    updated_at=now()
+			FROM invoice_fiscal_events e
+			WHERE i.tenant_id=$1
+			  AND i.id=$2
+			  AND i.access_key=$3
+			  AND i.status='authorized'
+			  AND e.tenant_id=i.tenant_id
+			  AND e.invoice_id=i.id
+			  AND e.event_id=$6
+			  AND e.status='registered'
+		`,
+			tenantID,
+			invoiceID,
+			result.AccessKey,
+			result.Protocol,
+			result.RegisteredAt,
+			eventID,
+		)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return common.ErrConflict
+		}
+		return nil
+	}
+
+	if result.Rejected() {
+		tag, err := tx.Exec(ctx, `
+			UPDATE invoice_fiscal_events
+			SET status='rejected',
+			    response_xml=$4,
+			    response_sha256=$5,
+			    status_code=$6,
+			    reason=$7,
+			    protocol=NULL,
+			    registered_at=NULL,
+			    updated_at=now()
+			WHERE tenant_id=$1
+			  AND invoice_id=$2
+			  AND event_id=$3
+			  AND status='submitted'
+		`,
+			tenantID,
+			invoiceID,
+			eventID,
+			result.ResponseXML,
+			responseSHA256,
+			result.StatusCode,
+			result.Reason,
+		)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return common.ErrConflict
+		}
+		return nil
+	}
+	return common.ErrValidation
+}
+
 func (r *FiscalRepo) ReserveNextNFCeNumber(
 	ctx context.Context,
 	tx db.DBTX,
