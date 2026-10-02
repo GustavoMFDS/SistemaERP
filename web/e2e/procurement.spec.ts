@@ -380,7 +380,7 @@ test('supplier maintenance edits status and blocks inactive purchasing', async (
   await expect(row).toBeVisible()
   await row.getByRole('button', { name: 'Editar' }).click()
   await page.getByLabel(`Editar nome de ${originalName}`).fill(editedName)
-  await row.getByRole('button', { name: 'Salvar edição' }).click()
+  await page.getByRole('button', { name: 'Salvar edição' }).click()
 
   row = page.locator('table tbody tr').filter({ hasText: editedName }).first()
   await expect(row).toBeVisible()
