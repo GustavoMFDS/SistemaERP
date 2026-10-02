@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -1261,6 +1262,326 @@ func (s *FiscalService) MarkNFCeSubmitted(
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *FiscalService) CancelNFCeHomologation(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID string,
+	req CancelNFCeRequest,
+) (fisc.NFCeCancellationRemoteResult, error) {
+	req.Justification = strings.TrimSpace(req.Justification)
+	invoiceID = strings.TrimSpace(invoiceID)
+	if s.validate.Var(invoiceID, "required,uuid") != nil ||
+		s.validate.Struct(req) != nil {
+		return fisc.NFCeCancellationRemoteResult{}, common.ErrValidation
+	}
+	if s.nfceCancelBuilder == nil ||
+		s.nfceCancelSigner == nil ||
+		s.nfceEventValidator == nil ||
+		s.nfceCancelClient == nil {
+		return fisc.NFCeCancellationRemoteResult{}, common.ErrFiscalNotReady
+	}
+
+	var (
+		reservation fisc.NFCeReservation
+		contextData fisc.NFCeReservationContext
+		event       fisc.NFCeCancellationEvent
+		signedXML   []byte
+		secretRef   string
+	)
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	reservation, err = s.fiscal.GetNFCeReservationByInvoiceForUpdate(
+		ctx, tx, tenantID, invoiceID,
+	)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if reservation.Status != fisc.NFCeStatusAuthorized ||
+		reservation.AuthorizationProtocol == nil ||
+		strings.TrimSpace(*reservation.AuthorizationProtocol) == "" {
+		_ = tx.Rollback(ctx)
+		return fisc.NFCeCancellationRemoteResult{}, common.ErrConflict
+	}
+	contextData, err = s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if reservation.Environment != "homologation" ||
+		contextData.Config.Environment != "homologation" ||
+		contextData.Config.CertificateSecretRef == nil ||
+		strings.TrimSpace(*contextData.Config.CertificateSecretRef) == "" {
+		_ = tx.Rollback(ctx)
+		return fisc.NFCeCancellationRemoteResult{}, common.ErrFiscalNotReady
+	}
+	secretRef = strings.TrimSpace(*contextData.Config.CertificateSecretRef)
+
+	existing, existingXML, existingErr := s.fiscal.GetNFCeCancellationEventForUpdate(
+		ctx, tx, tenantID, invoiceID,
+	)
+	switch {
+	case existingErr == nil:
+		event = existing
+		signedXML = existingXML
+		switch event.Status {
+		case fisc.NFCeEventStatusRegistered:
+			_ = tx.Rollback(ctx)
+			out := fisc.NFCeCancellationRemoteResult{
+				AccessKey:   reservation.AccessKey,
+				EventID:     event.EventID,
+				Sequence:    event.Sequence,
+				FinalStatus: fisc.NFCeEventStatusRegistered,
+			}
+			if event.StatusCode != nil {
+				out.StatusCode = *event.StatusCode
+			}
+			if event.Reason != nil {
+				out.Reason = *event.Reason
+			}
+			if event.Protocol != nil {
+				out.Protocol = *event.Protocol
+			}
+			if event.RegisteredAt != nil {
+				out.RegisteredAt = *event.RegisteredAt
+			}
+			return out, nil
+		case fisc.NFCeEventStatusRejected:
+			_ = tx.Rollback(ctx)
+			out := fisc.NFCeCancellationRemoteResult{
+				AccessKey:   reservation.AccessKey,
+				EventID:     event.EventID,
+				Sequence:    event.Sequence,
+				FinalStatus: fisc.NFCeEventStatusRejected,
+			}
+			if event.StatusCode != nil {
+				out.StatusCode = *event.StatusCode
+			}
+			if event.Reason != nil {
+				out.Reason = *event.Reason
+			}
+			return out, nil
+		case fisc.NFCeEventStatusSubmitted:
+			_ = tx.Rollback(ctx)
+			return fisc.NFCeCancellationRemoteResult{
+				AccessKey: reservation.AccessKey,
+				EventID:   event.EventID,
+				Sequence:  event.Sequence,
+			}, nil
+		case fisc.NFCeEventStatusSigned:
+			if len(signedXML) == 0 {
+				_ = tx.Rollback(ctx)
+				return fisc.NFCeCancellationRemoteResult{}, common.ErrFiscalNotReady
+			}
+		default:
+			_ = tx.Rollback(ctx)
+			return fisc.NFCeCancellationRemoteResult{}, common.ErrConflict
+		}
+	case errors.Is(existingErr, common.ErrNotFound):
+		// First cancellation attempt. Build/sign after releasing the DB lock.
+	default:
+		_ = tx.Rollback(ctx)
+		return fisc.NFCeCancellationRemoteResult{}, existingErr
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+
+	if existingErr != nil {
+		draft := fisc.NFCeCancellationDraft{
+			Environment:           reservation.Environment,
+			IssuerUF:              contextData.Issuer.AddressState,
+			IssuerCNPJ:            contextData.Issuer.CNPJ,
+			AccessKey:             reservation.AccessKey,
+			AuthorizationProtocol: strings.TrimSpace(*reservation.AuthorizationProtocol),
+			EventTime:             time.Now(),
+			Sequence:              1,
+			Justification:         req.Justification,
+		}
+		unsignedXML, eventID, err := s.nfceCancelBuilder.BuildUnsignedCancellationEvent(draft)
+		if err != nil {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+		signedXML, err = s.nfceCancelSigner.SignCancellation(
+			ctx, secretRef, eventID, unsignedXML,
+		)
+		if err != nil {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+		if err := s.nfceEventValidator.Validate(ctx, signedXML); err != nil {
+			return fisc.NFCeCancellationRemoteResult{},
+				fmt.Errorf("validate NFC-e cancellation event against pinned XSD: %w", err)
+		}
+		signedHash := sha256.Sum256(signedXML)
+		signedSHA := hex.EncodeToString(signedHash[:])
+
+		tx, err = s.uow.Begin(ctx)
+		if err != nil {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		current, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(
+			ctx, tx, tenantID, invoiceID,
+		)
+		if err != nil {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+		if current.Status != fisc.NFCeStatusAuthorized ||
+			current.AccessKey != reservation.AccessKey {
+			return fisc.NFCeCancellationRemoteResult{}, common.ErrConflict
+		}
+		if _, _, err := s.fiscal.GetNFCeCancellationEventForUpdate(
+			ctx, tx, tenantID, invoiceID,
+		); err == nil {
+			return fisc.NFCeCancellationRemoteResult{}, common.ErrConflict
+		} else if !errors.Is(err, common.ErrNotFound) {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+
+		event = fisc.NFCeCancellationEvent{
+			TenantID:      tenantID,
+			InvoiceID:     invoiceID,
+			EventType:     fisc.NFCeCancellationEventType,
+			Sequence:      1,
+			EventID:       eventID,
+			Environment:   reservation.Environment,
+			Status:        fisc.NFCeEventStatusSigned,
+			Justification: req.Justification,
+		}
+		event.ID, err = s.fiscal.InsertSignedNFCeCancellationEvent(
+			ctx, tx, event, actorUserID, signedXML, signedSHA,
+		)
+		if err != nil {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+		if err := s.audit.RecordTx(ctx, tx, audit.Event{
+			TenantID: tenantID,
+			ActorUserID: actorUserID,
+			Action: "fiscal.nfce.cancel.sign",
+			ResourceType: "invoice_fiscal_event",
+			ResourceID: event.ID,
+			Outcome: "success",
+			Metadata: map[string]any{
+				"invoice_id": invoiceID,
+				"event_id": event.EventID,
+				"access_key": reservation.AccessKey,
+			},
+		}); err != nil {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fisc.NFCeCancellationRemoteResult{}, err
+		}
+	}
+
+	tx, err = s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	lockedEvent, lockedXML, err := s.fiscal.GetNFCeCancellationEventForUpdate(
+		ctx, tx, tenantID, invoiceID,
+	)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if lockedEvent.EventID != event.EventID ||
+		lockedEvent.Status != fisc.NFCeEventStatusSigned ||
+		len(lockedXML) == 0 {
+		return fisc.NFCeCancellationRemoteResult{}, common.ErrConflict
+	}
+	if err := s.fiscal.MarkNFCeCancellationSubmitted(
+		ctx, tx, tenantID, event.EventID,
+	); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID,
+		ActorUserID: actorUserID,
+		Action: "fiscal.nfce.cancel.submit",
+		ResourceType: "invoice_fiscal_event",
+		ResourceID: lockedEvent.ID,
+		Outcome: "success",
+		Metadata: map[string]any{
+			"invoice_id": invoiceID,
+			"event_id": event.EventID,
+			"access_key": reservation.AccessKey,
+		},
+	}); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	signedXML = lockedXML
+
+	result, err := s.nfceCancelClient.Cancel(
+		ctx,
+		secretRef,
+		contextData.Issuer.AddressState,
+		reservation.Environment,
+		reservation.AccessKey,
+		reservation.DocumentNumber,
+		event.EventID,
+		event.Sequence,
+		signedXML,
+	)
+	if err != nil {
+		// Keep status=submitted. Never retransmit blindly after an ambiguous call.
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if result.Pending() {
+		return result, nil
+	}
+
+	responseHash := sha256.Sum256(result.ResponseXML)
+	responseSHA := hex.EncodeToString(responseHash[:])
+
+	tx, err = s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(
+		ctx, tx, tenantID, invoiceID,
+	); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if err := s.fiscal.ApplyNFCeCancellationResult(
+		ctx, tx, tenantID, invoiceID, event.EventID, result, responseSHA,
+	); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	outcome := "rejected"
+	if result.Registered() {
+		outcome = "registered"
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID,
+		ActorUserID: actorUserID,
+		Action: "fiscal.nfce.cancel.result",
+		ResourceType: "invoice_fiscal_event",
+		ResourceID: event.ID,
+		Outcome: outcome,
+		Metadata: map[string]any{
+			"invoice_id": invoiceID,
+			"event_id": event.EventID,
+			"access_key": reservation.AccessKey,
+			"status_code": result.StatusCode,
+			"reason": result.Reason,
+		},
+	}); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
+	}
+	return result, nil
 }
 
 func (s *FiscalService) AuthorizeNFCeHomologation(
