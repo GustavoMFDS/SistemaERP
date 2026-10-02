@@ -79,8 +79,9 @@ type fakeCancellationClient struct {
 
 func (f *fakeCancellationClient) Cancel(
 	_ context.Context,
-	_, _, _, _, _ string,
+	_, _, _, _ string,
 	_ int64,
+	_ string,
 	_ int,
 	_ []byte,
 ) (fisc.NFCeCancellationRemoteResult, error) {
