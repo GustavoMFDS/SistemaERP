@@ -246,7 +246,7 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin exhausted sequence tx: %v", err)
 	}
-	_, reserveErr := repo.ReserveNextNFCeNumber(ctx, tx, tenantB, 888)
+	_, reserveErr = repo.ReserveNextNFCeNumber(ctx, tx, tenantB, 888)
 	_ = tx.Rollback(ctx)
 	if !errors.Is(reserveErr, common.ErrFiscalSequenceExhausted) {
 		t.Fatalf("exhausted sequence error=%v, want ErrFiscalSequenceExhausted", reserveErr)
