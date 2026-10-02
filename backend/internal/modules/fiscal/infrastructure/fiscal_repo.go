@@ -325,7 +325,9 @@ func (r *FiscalRepo) GetNFCeReservationByInvoiceForUpdate(
 			emission_type,
 			numeric_code,
 			access_key_check_digit,
-			issued_at
+			issued_at,
+			authorization_protocol,
+			authorized_at
 		FROM invoices
 		WHERE tenant_id=$1
 		  AND id=$2
@@ -345,6 +347,8 @@ func (r *FiscalRepo) GetNFCeReservationByInvoiceForUpdate(
 		&out.NumericCode,
 		&out.CheckDigit,
 		&out.IssuedAt,
+		&out.AuthorizationProtocol,
+		&out.AuthorizedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -374,7 +378,9 @@ func (r *FiscalRepo) GetNFCeReservationBySale(
 			emission_type,
 			numeric_code,
 			access_key_check_digit,
-			issued_at
+			issued_at,
+			authorization_protocol,
+			authorized_at
 		FROM invoices
 		WHERE tenant_id=$1
 		  AND sale_id=$2
@@ -393,6 +399,8 @@ func (r *FiscalRepo) GetNFCeReservationBySale(
 		&out.NumericCode,
 		&out.CheckDigit,
 		&out.IssuedAt,
+		&out.AuthorizationProtocol,
+		&out.AuthorizedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
