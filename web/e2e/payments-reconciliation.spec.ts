@@ -801,7 +801,12 @@ test('finance UI retries lost responses with the original idempotency key', asyn
       },
     )
 
-    return { saleId: sale.id, paymentId: payment.id, returnId: saleReturn.id }
+    return {
+      cashId: cash.id,
+      saleId: sale.id,
+      paymentId: payment.id,
+      returnId: saleReturn.id,
+    }
   }, suffix)
 
   await page.getByRole('link', { name: 'Financeiro' }).click()
@@ -860,6 +865,14 @@ test('finance UI retries lost responses with the original idempotency key', asyn
   expect(refundKeys[1]).toBe(refundKeys[0])
   await expect(refundRow.getByText('settled')).toBeVisible()
   await expect(refundRow.getByRole('button', { name: 'Liquidar' })).toHaveCount(0)
+
+  await page.evaluate(async (cashId) => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    await apiJson(`/api/v1/cash/sessions/${cashId}/close`, {
+      method: 'POST',
+      body: { closing_amount: 0, notes: 'finance UI retry E2E cleanup' },
+    })
+  }, setup.cashId)
 })
 
 
