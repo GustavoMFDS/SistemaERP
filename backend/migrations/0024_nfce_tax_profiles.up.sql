@@ -2,12 +2,6 @@
 
 BEGIN;
 
-CREATE UNIQUE INDEX IF NOT EXISTS products_tenant_id_id_unique
-  ON products(tenant_id, id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS sale_items_tenant_id_id_unique
-  ON sale_items(tenant_id, id);
-
 CREATE UNIQUE INDEX IF NOT EXISTS sale_items_tenant_id_id_sale_id_unique
   ON sale_items(tenant_id, id, sale_id);
 
