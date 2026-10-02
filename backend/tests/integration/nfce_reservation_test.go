@@ -122,9 +122,9 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("begin config tx: %v", err)
 	}
 	if err := fiscalRepo.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, fisc.NFCeConfig{
-		TenantID: tenantID,
-		Environment: "homologation",
-		Series: 321,
+		TenantID:             tenantID,
+		Environment:          "homologation",
+		Series:               321,
 		CertificateSecretRef: &certRef,
 	}); err != nil {
 		_ = tx.Rollback(ctx)
@@ -139,14 +139,14 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("begin fiscal profile tx: %v", err)
 	}
 	if err := fiscalRepo.UpsertProductFiscalProfile(ctx, tx, tenantID, actorUserID, fisc.ProductFiscalProfile{
-		TenantID: tenantID,
-		ProductID: productID,
-		CFOP: "5102",
-		ICMSOrigin: "0",
-		ICMSRegime: "csosn",
-		ICMSCode: "102",
-		PISCST: "49",
-		COFINSCST: "49",
+		TenantID:         tenantID,
+		ProductID:        productID,
+		CFOP:             "5102",
+		ICMSOrigin:       "0",
+		ICMSRegime:       "csosn",
+		ICMSCode:         "102",
+		PISCST:           "49",
+		COFINSCST:        "49",
 		ReferenceVersion: "nfe-010e-v1.02|rtc-2026",
 	}); err != nil {
 		_ = tx.Rollback(ctx)
@@ -240,10 +240,10 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	}
 
 	var (
-		snapshotNCM string
-		snapshotCFOP string
+		snapshotNCM   string
+		snapshotCFOP  string
 		snapshotCSOSN string
-		snapshotHash string
+		snapshotHash  string
 	)
 	if err := pool.QueryRow(ctx, `
 		SELECT ncm, cfop, icms_code, snapshot_sha256
@@ -263,11 +263,11 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("begin post-reservation config tx: %v", err)
 	}
 	if err := fiscalRepo.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, fisc.NFCeConfig{
-		TenantID: tenantID,
-		Environment: "production",
-		Series: 322,
-		CSCID: &cscID,
-		CSCSecretRef: &cscRef,
+		TenantID:             tenantID,
+		Environment:          "production",
+		Series:               322,
+		CSCID:                &cscID,
+		CSCSecretRef:         &cscRef,
 		CertificateSecretRef: &certRef,
 	}); err != nil {
 		_ = tx.Rollback(ctx)
@@ -359,9 +359,9 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("begin homologation config tx: %v", err)
 	}
 	if err := fiscalRepo.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, fisc.NFCeConfig{
-		TenantID: tenantID,
-		Environment: "homologation",
-		Series: 321,
+		TenantID:             tenantID,
+		Environment:          "homologation",
+		Series:               321,
 		CertificateSecretRef: &certRef,
 	}); err != nil {
 		_ = tx.Rollback(ctx)
@@ -374,17 +374,17 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	authorizedAt := time.Date(2026, time.September, 30, 10, 31, 0, 0, time.FixedZone("BRT", -3*60*60))
 	remote := &fakeRemoteAuthorizer{
 		authorizeOut: fisc.NFCeRemoteOutcome{
-			AccessKey: reservation.AccessKey,
+			AccessKey:  reservation.AccessKey,
 			StatusCode: 103,
-			Reason: "Lote recebido com sucesso",
+			Reason:     "Lote recebido com sucesso",
 		},
 		consultOut: fisc.NFCeRemoteOutcome{
-			AccessKey: reservation.AccessKey,
-			StatusCode: 100,
-			Reason: "Autorizado o uso da NF-e",
+			AccessKey:   reservation.AccessKey,
+			StatusCode:  100,
+			Reason:      "Autorizado o uso da NF-e",
 			FinalStatus: fisc.NFCeStatusAuthorized,
-			Protocol: "131260000000001",
-			ReceivedAt: authorizedAt,
+			Protocol:    "131260000000001",
+			ReceivedAt:  authorizedAt,
 		},
 	}
 	service.SetNFCeRemoteAuthorizer(remote)
