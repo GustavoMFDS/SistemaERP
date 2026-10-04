@@ -24,6 +24,8 @@ type NFCeInutilization struct {
 	ID             string     `json:"id"`
 	TenantID       string     `json:"tenant_id"`
 	Environment    string     `json:"environment"`
+	IssuerUF       string     `json:"issuer_uf"`
+	IssuerCNPJ     string     `json:"issuer_cnpj"`
 	Year           int        `json:"year"`
 	Model          int        `json:"model"`
 	Series         int        `json:"series"`
