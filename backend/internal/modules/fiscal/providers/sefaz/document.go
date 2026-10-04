@@ -164,7 +164,7 @@ type contributionNTXML struct {
 }
 
 type totalXML struct {
-	ICMSTot  icmsTotalXML   `xml:"ICMSTot"`
+	ICMSTot   icmsTotalXML    `xml:"ICMSTot"`
 	IBSCBSTot *ibsCBSTotalXML `xml:"IBSCBSTot,omitempty"`
 }
 
