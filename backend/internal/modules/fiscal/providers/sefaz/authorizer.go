@@ -10,19 +10,42 @@ import (
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 )
 
-type HomologationAuthorizer struct {
-	resolver CertificateResolver
-	timeout  time.Duration
+type SEFAZAuthorizer struct {
+	resolver    CertificateResolver
+	timeout     time.Duration
+	environment Environment
 }
 
-func NewHomologationAuthorizer(resolver CertificateResolver, timeout time.Duration) *HomologationAuthorizer {
+func NewHomologationAuthorizer(resolver CertificateResolver, timeout time.Duration) *SEFAZAuthorizer {
+	return newSEFAZAuthorizer(resolver, timeout, EnvironmentHomologation)
+}
+
+func NewProductionAuthorizer(resolver CertificateResolver, timeout time.Duration) *SEFAZAuthorizer {
+	return newSEFAZAuthorizer(resolver, timeout, EnvironmentProduction)
+}
+
+func newSEFAZAuthorizer(
+	resolver CertificateResolver,
+	timeout time.Duration,
+	environment Environment,
+) *SEFAZAuthorizer {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	return &HomologationAuthorizer{resolver: resolver, timeout: timeout}
+	return &SEFAZAuthorizer{resolver: resolver, timeout: timeout, environment: environment}
 }
 
-func (a *HomologationAuthorizer) Authorize(
+func (a *SEFAZAuthorizer) validateEnvironment(environment string) error {
+	if a == nil {
+		return fmt.Errorf("SEFAZ authorizer is not configured")
+	}
+	if Environment(strings.TrimSpace(environment)) != a.environment {
+		return fmt.Errorf("SEFAZ authorizer is restricted to %s", a.environment)
+	}
+	return nil
+}
+
+func (a *SEFAZAuthorizer) Authorize(
 	ctx context.Context,
 	certificateSecretRef string,
 	issuerUF string,
@@ -31,8 +54,8 @@ func (a *HomologationAuthorizer) Authorize(
 	documentNumber int64,
 	signedXML []byte,
 ) (fisc.NFCeRemoteOutcome, error) {
-	if strings.TrimSpace(environment) != string(EnvironmentHomologation) {
-		return fisc.NFCeRemoteOutcome{}, fmt.Errorf("SEFAZ authorizer is restricted to homologation")
+	if err := a.validateEnvironment(environment); err != nil {
+		return fisc.NFCeRemoteOutcome{}, err
 	}
 	if documentNumber < 1 || documentNumber > 999999999 {
 		return fisc.NFCeRemoteOutcome{}, fmt.Errorf("invalid NFC-e document number")
@@ -53,34 +76,34 @@ func (a *HomologationAuthorizer) Authorize(
 	return authorizationOutcome(accessKey, response)
 }
 
-func (a *HomologationAuthorizer) Consult(
+func (a *SEFAZAuthorizer) Consult(
 	ctx context.Context,
 	certificateSecretRef string,
 	issuerUF string,
 	environment string,
 	accessKey string,
 ) (fisc.NFCeRemoteOutcome, error) {
-	if strings.TrimSpace(environment) != string(EnvironmentHomologation) {
-		return fisc.NFCeRemoteOutcome{}, fmt.Errorf("SEFAZ authorizer is restricted to homologation")
+	if err := a.validateEnvironment(environment); err != nil {
+		return fisc.NFCeRemoteOutcome{}, err
 	}
 	gateway, err := a.gateway(ctx, certificateSecretRef, issuerUF)
 	if err != nil {
 		return fisc.NFCeRemoteOutcome{}, err
 	}
-	response, err := gateway.Consult(ctx, EnvironmentHomologation, accessKey)
+	response, err := gateway.Consult(ctx, a.environment, accessKey)
 	if err != nil {
 		return fisc.NFCeRemoteOutcome{}, err
 	}
 	return consultationOutcome(accessKey, response)
 }
 
-func (a *HomologationAuthorizer) gateway(
+func (a *SEFAZAuthorizer) gateway(
 	ctx context.Context,
 	certificateSecretRef string,
 	issuerUF string,
 ) (*Gateway, error) {
 	if a == nil || a.resolver == nil {
-		return nil, fmt.Errorf("homologation authorizer is not configured")
+		return nil, fmt.Errorf("SEFAZ authorizer is not configured")
 	}
 	cert, err := ResolveAndValidateCertificate(
 		ctx,
@@ -95,7 +118,7 @@ func (a *HomologationAuthorizer) gateway(
 	if err != nil {
 		return nil, err
 	}
-	entry, err := ResolveCatalogEntry(issuerUF, EnvironmentHomologation)
+	entry, err := ResolveCatalogEntry(issuerUF, a.environment)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +202,7 @@ func parseProtocolTime(value string) (time.Time, error) {
 	return parsed, nil
 }
 
-func (a *HomologationAuthorizer) Cancel(
+func (a *SEFAZAuthorizer) Cancel(
 	ctx context.Context,
 	certificateSecretRef string,
 	issuerUF string,
@@ -190,8 +213,8 @@ func (a *HomologationAuthorizer) Cancel(
 	sequence int,
 	signedEventXML []byte,
 ) (fisc.NFCeCancellationRemoteResult, error) {
-	if strings.TrimSpace(environment) != string(EnvironmentHomologation) {
-		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("SEFAZ cancellation is restricted to homologation")
+	if err := a.validateEnvironment(environment); err != nil {
+		return fisc.NFCeCancellationRemoteResult{}, err
 	}
 	if err := validateExpectedAccessKey(strings.TrimSpace(accessKey)); err != nil {
 		return fisc.NFCeCancellationRemoteResult{}, err
@@ -223,7 +246,7 @@ func (a *HomologationAuthorizer) Cancel(
 	if err != nil {
 		return fisc.NFCeCancellationRemoteResult{}, err
 	}
-	entry, err := ResolveCatalogEntry(issuerUF, EnvironmentHomologation)
+	entry, err := ResolveCatalogEntry(issuerUF, a.environment)
 	if err != nil {
 		return fisc.NFCeCancellationRemoteResult{}, err
 	}
