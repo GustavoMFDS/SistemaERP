@@ -8,17 +8,17 @@ import (
 )
 
 type ibscbsXML struct {
-	CST            string       `xml:"CST"`
-	Classification string       `xml:"cClassTrib"`
-	Group          gIBSCBSXML   `xml:"gIBSCBS"`
+	CST            string     `xml:"CST"`
+	Classification string     `xml:"cClassTrib"`
+	Group          gIBSCBSXML `xml:"gIBSCBS"`
 }
 
 type gIBSCBSXML struct {
-	Base         string         `xml:"vBC"`
-	IBSUF        ibsUFItemXML   `xml:"gIBSUF"`
-	IBSMunicipal ibsMunItemXML  `xml:"gIBSMun"`
-	IBSTotal     string         `xml:"vIBS"`
-	CBS          cbsItemXML     `xml:"gCBS"`
+	Base         string        `xml:"vBC"`
+	IBSUF        ibsUFItemXML  `xml:"gIBSUF"`
+	IBSMunicipal ibsMunItemXML `xml:"gIBSMun"`
+	IBSTotal     string        `xml:"vIBS"`
+	CBS          cbsItemXML    `xml:"gCBS"`
 }
 
 type ibsUFItemXML struct {
@@ -45,9 +45,9 @@ type rtcReductionXML struct {
 }
 
 type ibsCBSTotalXML struct {
-	Base string          `xml:"vBCIBSCBS"`
-	IBS  ibsTotalXML     `xml:"gIBS"`
-	CBS  cbsTotalXML     `xml:"gCBS"`
+	Base string      `xml:"vBCIBSCBS"`
+	IBS  ibsTotalXML `xml:"gIBS"`
+	CBS  cbsTotalXML `xml:"gCBS"`
 }
 
 type ibsTotalXML struct {
@@ -59,9 +59,9 @@ type ibsTotalXML struct {
 }
 
 type ibsUFTotalXML struct {
-	Deferred  string `xml:"vDif"`
-	Returned  string `xml:"vDevTrib"`
-	Value     string `xml:"vIBSUF"`
+	Deferred string `xml:"vDif"`
+	Returned string `xml:"vDevTrib"`
+	Value    string `xml:"vIBSUF"`
 }
 
 type ibsMunTotalXML struct {
