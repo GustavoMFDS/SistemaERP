@@ -79,6 +79,29 @@ type NFCeRemoteCancellationClient interface {
 	) (fisc.NFCeCancellationRemoteResult, error)
 }
 
+type NFCeInutilizationBuilder interface {
+	BuildUnsignedInutilization(draft fisc.NFCeInutilizationDraft) ([]byte, string, error)
+}
+
+type NFCeInutilizationSigner interface {
+	SignInutilization(
+		ctx context.Context,
+		secretRef string,
+		expectedRequestID string,
+		unsignedXML []byte,
+	) ([]byte, error)
+}
+
+type NFCeRemoteInutilizationClient interface {
+	Inutilize(
+		ctx context.Context,
+		certificateSecretRef string,
+		draft fisc.NFCeInutilizationDraft,
+		requestID string,
+		signedXML []byte,
+	) (fisc.NFCeInutilizationRemoteResult, error)
+}
+
 type NFeProvider interface {
 	GenerateNFeXML(ctx context.Context, sale sales.Sale, items []sales.SaleItem, products map[string]inv.Product) (content []byte, fileName string, err error)
 }
@@ -113,6 +136,12 @@ type FiscalRepository interface {
 	InsertSignedNFCeCancellationEvent(ctx context.Context, tx db.DBTX, event fisc.NFCeCancellationEvent, actorUserID string, signedXML []byte, sha256 string) (string, error)
 	MarkNFCeCancellationSubmitted(ctx context.Context, tx db.DBTX, tenantID, eventID string) error
 	ApplyNFCeCancellationResult(ctx context.Context, tx db.DBTX, tenantID, invoiceID, eventID string, result fisc.NFCeCancellationRemoteResult, responseSHA256 string) error
+	LockNFCeInutilizationRange(ctx context.Context, tx db.DBTX, tenantID string, year, series int) error
+	NFCeNumberRangeIsAvailable(ctx context.Context, tx db.DBTX, tenantID, environment string, year, series int, startNumber, endNumber int64) (bool, error)
+	GetNFCeInutilizationByRequestForUpdate(ctx context.Context, tx db.DBTX, tenantID, requestID string) (fisc.NFCeInutilization, []byte, error)
+	InsertSignedNFCeInutilization(ctx context.Context, tx db.DBTX, record fisc.NFCeInutilization, actorUserID string, signedXML []byte, sha256 string) (string, error)
+	MarkNFCeInutilizationSubmitted(ctx context.Context, tx db.DBTX, tenantID, requestID string) error
+	ApplyNFCeInutilizationResult(ctx context.Context, tx db.DBTX, tenantID, requestID string, result fisc.NFCeInutilizationRemoteResult, responseSHA256 string) error
 }
 
 type SalesRepository interface {
