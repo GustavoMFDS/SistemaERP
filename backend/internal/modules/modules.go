@@ -106,6 +106,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	documentBuilder := fiscsefaz.NewDocumentBuilder(cfg.AppVersion)
 	fiscalSvc.SetNFCeDocumentBuilder(documentBuilder)
 	fiscalSvc.SetNFCeCancellationBuilder(documentBuilder)
+	fiscalSvc.SetNFCeDANFERenderer(fiscsefaz.NewDANFERenderer())
 
 	var certificateResolver fiscsefaz.CertificateResolver
 	if cfg.NFCeCertificateSecretDir != "" {
