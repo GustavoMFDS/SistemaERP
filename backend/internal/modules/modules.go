@@ -141,10 +141,18 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 			fiscalSvc.SetNFCeEventSchemaValidator(eventSchemaValidator)
 		}
 	}
-	if cfg.NFCeSEFAZHomologationEnabled && certificateResolver != nil {
-		authorizer := fiscsefaz.NewHomologationAuthorizer(certificateResolver, 30*time.Second)
-		fiscalSvc.SetNFCeRemoteAuthorizer(authorizer)
-		fiscalSvc.SetNFCeRemoteCancellationClient(authorizer)
+	if certificateResolver != nil {
+		var authorizer *fiscsefaz.SEFAZAuthorizer
+		switch {
+		case cfg.NFCeSEFAZHomologationEnabled:
+			authorizer = fiscsefaz.NewHomologationAuthorizer(certificateResolver, 30*time.Second)
+		case cfg.NFCeSEFAZProductionEnabled:
+			authorizer = fiscsefaz.NewProductionAuthorizer(certificateResolver, 30*time.Second)
+		}
+		if authorizer != nil {
+			fiscalSvc.SetNFCeRemoteAuthorizer(authorizer)
+			fiscalSvc.SetNFCeRemoteCancellationClient(authorizer)
+		}
 	}
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
