@@ -37,6 +37,22 @@ Homologation uses `FISCAL_PROVIDER=sefaz` with
 `FISCAL_PROVIDER=sefaz` and `NFCE_SEFAZ_PRODUCTION_ENABLED=true`; those flags
 are mutually exclusive and configuration validation fails closed on invalid combinations.
 
+There is also a tenant-scoped database kill switch. Preparing/changing the NFC-e
+configuration always resets `enabled=false`. After the deployment-level production
+gate is enabled and the complete SEFAZ stack is wired, an authorized operator must
+explicitly enable that tenant through:
+
+```http
+POST /api/v1/fiscal/nfce/config/transmission
+{"enabled": true}
+```
+
+The action is audited as `fiscal.nfce_config.transmission`. Setting `enabled=false`
+stops new production reservations/signing/submission immediately. Consultation of an
+already submitted document and cancellation of an already authorized NFC-e remain
+available so an emergency kill switch does not strand an ambiguous fiscal state or
+prevent a required cancellation.
+
 The preparation API never enables transmission by itself.
 
 ## Current official baseline checked on 2026-09-30
