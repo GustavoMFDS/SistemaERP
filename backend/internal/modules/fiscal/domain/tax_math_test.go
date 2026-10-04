@@ -117,3 +117,31 @@ func TestCalculateRegularIBSCBSRejectsClassificationMismatch(t *testing.T) {
 		t.Fatal("expected cClassTrib/CST mismatch")
 	}
 }
+
+func TestValidateNFCeReferenceRates2026(t *testing.T) {
+	result, err := CalculateRegularIBSCBS(RegularIBSCBSInput{
+		CST:            "000",
+		Classification: "000001",
+		Base:           platform.NewMoneyCents(100_00),
+		IBSUF: RegularTaxComponentInput{
+			Rate: mustTaxRate(t, "0.1000"),
+		},
+		IBSMunicipal: RegularTaxComponentInput{
+			Rate: mustTaxRate(t, "0.0000"),
+		},
+		CBS: RegularTaxComponentInput{
+			Rate: mustTaxRate(t, "0.9000"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateNFCeReferenceRates2026(result); err != nil {
+		t.Fatalf("official 2026 reference rates rejected: %v", err)
+	}
+
+	result.CBS.Rate = mustTaxRate(t, "1.0000")
+	if err := ValidateNFCeReferenceRates2026(result); err == nil {
+		t.Fatal("expected non-reference 2026 CBS rate to be rejected")
+	}
+}
