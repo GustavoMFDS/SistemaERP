@@ -76,3 +76,19 @@ func (b *DocumentBuilder) BuildUnsignedCancellationEvent(
 		Justification:         draft.Justification,
 	})
 }
+
+func (b *DocumentBuilder) BuildUnsignedInutilization(
+	draft fisc.NFCeInutilizationDraft,
+) ([]byte, string, error) {
+	return BuildUnsignedNFCeInutilization(InutilizationInput{
+		Environment:   Environment(strings.TrimSpace(draft.Environment)),
+		IssuerUF:      draft.IssuerUF,
+		IssuerCNPJ:    draft.IssuerCNPJ,
+		Year:          draft.Year,
+		Series:        draft.Series,
+		StartNumber:   draft.StartNumber,
+		EndNumber:     draft.EndNumber,
+		Justification: draft.Justification,
+	})
+}
+
