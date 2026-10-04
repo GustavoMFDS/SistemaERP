@@ -78,8 +78,8 @@ type danfeDestAddressXML struct {
 }
 
 type danfeDetXML struct {
-	NItem int              `xml:"nItem,attr"`
-	Prod  danfeProductXML  `xml:"prod"`
+	NItem int             `xml:"nItem,attr"`
+	Prod  danfeProductXML `xml:"prod"`
 }
 
 type danfeProductXML struct {
@@ -97,12 +97,12 @@ type danfeTotalXML struct {
 }
 
 type danfeICMSTotalXML struct {
-	VProd string `xml:"vProd"`
+	VProd  string `xml:"vProd"`
 	VFrete string `xml:"vFrete"`
-	VSeg  string `xml:"vSeg"`
-	VDesc string `xml:"vDesc"`
+	VSeg   string `xml:"vSeg"`
+	VDesc  string `xml:"vDesc"`
 	VOutro string `xml:"vOutro"`
-	VNF   string `xml:"vNF"`
+	VNF    string `xml:"vNF"`
 }
 
 type danfePaymentGroup struct {
