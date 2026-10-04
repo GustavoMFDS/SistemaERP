@@ -205,3 +205,94 @@ func SignCancellationEventXML(
 	}
 	return signed, nil
 }
+
+func SignInutilizationXML(
+	unsignedXML []byte,
+	cert tls.Certificate,
+	expectedRequestID string,
+	now time.Time,
+) ([]byte, error) {
+	if err := ValidateClientCertificate(cert, now); err != nil {
+		return nil, err
+	}
+	expectedRequestID = strings.TrimSpace(expectedRequestID)
+	if len(expectedRequestID) != 43 || !strings.HasPrefix(expectedRequestID, "ID") {
+		return nil, fmt.Errorf("invalid inutilization request Id")
+	}
+
+	privateKey, ok := cert.PrivateKey.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("NF-e/NFC-e XMLDSig requires an RSA private key")
+	}
+	leaf := cert.Leaf
+	if leaf == nil {
+		parsed, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			return nil, fmt.Errorf("parse client certificate: %w", err)
+		}
+		leaf = parsed
+	}
+	publicKey, ok := leaf.PublicKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("NF-e/NFC-e certificate must contain an RSA public key")
+	}
+	if privateKey.PublicKey.N.Cmp(publicKey.N) != 0 || privateKey.PublicKey.E != publicKey.E {
+		return nil, fmt.Errorf("certificate public key does not match private key")
+	}
+
+	doc := etree.NewDocument()
+	doc.ReadSettings.ValidateInput = true
+	if err := doc.ReadFromBytes(bytes.TrimSpace(unsignedXML)); err != nil {
+		return nil, fmt.Errorf("parse unsigned inutilization XML: %w", err)
+	}
+	root := doc.Root()
+	if root == nil || root.Tag != "inutNFe" {
+		return nil, fmt.Errorf("unsigned inutilization root must be inutNFe")
+	}
+
+	var infInut *etree.Element
+	for _, child := range root.ChildElements() {
+		switch child.Tag {
+		case "infInut":
+			if infInut != nil {
+				return nil, fmt.Errorf("inutNFe contains multiple infInut elements")
+			}
+			infInut = child
+		case "Signature":
+			return nil, fmt.Errorf("inutNFe already contains a Signature")
+		}
+	}
+	if infInut == nil {
+		return nil, fmt.Errorf("infInut is missing")
+	}
+	if got := infInut.SelectAttrValue("Id", ""); got != expectedRequestID {
+		return nil, fmt.Errorf("infInut Id=%q, want %q", got, expectedRequestID)
+	}
+
+	signingContext, err := dsig.NewSigningContext(
+		privateKey,
+		[][]byte{cert.Certificate[0]},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create XMLDSig context: %w", err)
+	}
+	signingContext.IdAttribute = "Id"
+	signingContext.Prefix = ""
+	signingContext.Canonicalizer = dsig.MakeC14N10RecCanonicalizer()
+	if err := signingContext.SetSignatureMethod(rsaSHA1SignatureMethod); err != nil {
+		return nil, fmt.Errorf("configure NF-e signature method: %w", err)
+	}
+
+	signature, err := signingContext.ConstructSignature(infInut, true)
+	if err != nil {
+		return nil, fmt.Errorf("construct inutilization XMLDSig: %w", err)
+	}
+	root.InsertChildAt(infInut.Index()+1, signature)
+
+	signed, err := doc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("serialize signed inutilization XML: %w", err)
+	}
+	return signed, nil
+}
+
