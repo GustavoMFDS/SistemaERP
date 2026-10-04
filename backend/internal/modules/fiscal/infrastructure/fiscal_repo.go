@@ -181,6 +181,28 @@ func (r *FiscalRepo) UpdateNFCeIssuerProfile(
 	return nil
 }
 
+func (r *FiscalRepo) SetNFCeTransmissionEnabled(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, actorUserID string,
+	enabled bool,
+) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE nfce_configs
+		SET enabled=$3,
+		    updated_by_user_id=$2,
+		    updated_at=now()
+		WHERE tenant_id=$1
+	`, tenantID, actorUserID, enabled)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return common.ErrNotFound
+	}
+	return nil
+}
+
 func (r *FiscalRepo) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
 	var cfg fisc.NFCeConfig
 	cfg.TenantID = tenantID
