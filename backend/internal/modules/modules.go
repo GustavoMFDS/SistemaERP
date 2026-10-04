@@ -106,6 +106,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	documentBuilder := fiscsefaz.NewDocumentBuilder(cfg.AppVersion)
 	fiscalSvc.SetNFCeDocumentBuilder(documentBuilder)
 	fiscalSvc.SetNFCeCancellationBuilder(documentBuilder)
+	fiscalSvc.SetNFCeInutilizationBuilder(documentBuilder)
 	fiscalSvc.SetNFCeDANFERenderer(fiscsefaz.NewDANFERenderer())
 
 	var certificateResolver fiscsefaz.CertificateResolver
@@ -118,6 +119,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 			signingService := fiscsefaz.NewXMLSigningService(resolver)
 			fiscalSvc.SetNFCeXMLSigner(signingService)
 			fiscalSvc.SetNFCeCancellationSigner(signingService)
+			fiscalSvc.SetNFCeInutilizationSigner(signingService)
 		}
 	}
 	if cfg.NFCeSchemaDir != "" && cfg.NFCeSchemaEntrypoint != "" {
@@ -142,6 +144,17 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 			fiscalSvc.SetNFCeEventSchemaValidator(eventSchemaValidator)
 		}
 	}
+	if cfg.NFCeSchemaDir != "" && cfg.NFCeInutilizationSchemaEntrypoint != "" {
+		inutilizationSchemaValidator, err := fiscsefaz.NewXMLLintSchemaValidator(
+			cfg.NFCeSchemaDir,
+			cfg.NFCeInutilizationSchemaEntrypoint,
+		)
+		if err != nil {
+			logger.Error("nfce_inutilization_schema_validator_disabled", slog.Any("error", err))
+		} else {
+			fiscalSvc.SetNFCeInutilizationSchemaValidator(inutilizationSchemaValidator)
+		}
+	}
 	if certificateResolver != nil {
 		var authorizer *fiscsefaz.SEFAZAuthorizer
 		switch {
@@ -153,6 +166,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		if authorizer != nil {
 			fiscalSvc.SetNFCeRemoteAuthorizer(authorizer)
 			fiscalSvc.SetNFCeRemoteCancellationClient(authorizer)
+			fiscalSvc.SetNFCeRemoteInutilizationClient(authorizer)
 		}
 	}
 	privacySvc := privacyapp.NewService(privacyRepo)
