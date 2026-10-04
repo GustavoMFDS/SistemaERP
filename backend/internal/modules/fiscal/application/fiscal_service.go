@@ -320,8 +320,16 @@ func (s *FiscalService) ReserveNFCeDraft(
 	if s.validate.Struct(issuerReq) != nil || fisc.ValidateCNPJ(reservationContext.Issuer.CNPJ) != nil {
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
 	}
-	if reservationContext.Config.Environment != "homologation" ||
-		!reservationContext.Config.CertificateReferenceConfigured {
+	if !reservationContext.Config.CertificateReferenceConfigured {
+		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
+	}
+	switch reservationContext.Config.Environment {
+	case "homologation":
+	case "production":
+		if !reservationContext.Config.Enabled || !s.productionTransmissionStackReady() {
+			return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
+		}
+	default:
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
 	}
 
@@ -1116,6 +1124,10 @@ func (s *FiscalService) SignNFCeReserved(
 	if cfg.CertificateSecretRef == nil || strings.TrimSpace(*cfg.CertificateSecretRef) == "" {
 		return "", "", common.ErrFiscalNotReady
 	}
+	if draft.Reservation.Environment == "production" &&
+		(!cfg.Enabled || !s.productionTransmissionStackReady()) {
+		return "", "", common.ErrFiscalNotReady
+	}
 	signed, err := s.nfceSigner.Sign(
 		ctx,
 		strings.TrimSpace(*cfg.CertificateSecretRef),
@@ -1638,6 +1650,9 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 	)
 	switch reservation.Status {
 	case fisc.NFCeStatusSigned:
+		if reservation.Environment == "production" && !reservationContext.Config.Enabled {
+			return fisc.NFCeRemoteOutcome{}, common.ErrFiscalNotReady
+		}
 		_, signedXML, err = s.fiscal.GetLatestNFCeXMLContent(
 			ctx, tx, tenantID, reservation.InvoiceID,
 		)
@@ -1925,6 +1940,65 @@ func pairedFiscalCodes(cst, classification *string, requirePrefix bool) bool {
 		return false
 	}
 	return true
+}
+
+func (s *FiscalService) productionTransmissionStackReady() bool {
+	return s.nfceDoc != nil &&
+		s.nfceSigner != nil &&
+		s.nfceValidator != nil &&
+		s.nfceAuthorizer != nil &&
+		s.nfceCancelBuilder != nil &&
+		s.nfceCancelSigner != nil &&
+		s.nfceEventValidator != nil &&
+		s.nfceCancelClient != nil
+}
+
+func (s *FiscalService) SetNFCeProductionTransmission(
+	ctx context.Context,
+	tenantID, actorUserID string,
+	enabled bool,
+) (fisc.NFCeConfig, error) {
+	cfg, err := s.fiscal.GetNFCeConfig(ctx, tenantID)
+	if err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	if enabled {
+		if cfg.Environment != "production" ||
+			!cfg.CertificateReferenceConfigured ||
+			!s.productionTransmissionStackReady() {
+			return fisc.NFCeConfig{}, common.ErrFiscalNotReady
+		}
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.fiscal.SetNFCeTransmissionEnabled(
+		ctx, tx, tenantID, actorUserID, enabled,
+	); err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID:     tenantID,
+		ActorUserID:  actorUserID,
+		Action:       "fiscal.nfce_config.transmission",
+		ResourceType: "nfce_config",
+		ResourceID:   tenantID,
+		Outcome:      "success",
+		Metadata: map[string]any{
+			"environment": cfg.Environment,
+			"enabled":     enabled,
+		},
+	}); err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	return s.fiscal.GetNFCeConfig(ctx, tenantID)
 }
 
 func (s *FiscalService) GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error) {
