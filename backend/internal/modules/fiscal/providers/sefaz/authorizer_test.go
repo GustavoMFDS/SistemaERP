@@ -22,6 +22,22 @@ func TestHomologationAuthorizerRejectsProductionBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestProductionAuthorizerRejectsHomologationBeforeNetwork(t *testing.T) {
+	authorizer := NewProductionAuthorizer(nil, 0)
+	_, err := authorizer.Authorize(
+		context.Background(),
+		"secret://cert",
+		"MG",
+		"homologation",
+		testAccessKey,
+		1,
+		[]byte("<NFe/>"),
+	)
+	if err == nil || !strings.Contains(err.Error(), "restricted to production") {
+		t.Fatalf("expected homologation rejection, got %v", err)
+	}
+}
+
 func TestAuthorizationOutcomeMapsPendingAuthorizedAndRejected(t *testing.T) {
 	pending, err := authorizationOutcome(testAccessKey, AuthorizationResponse{
 		StatusCode: 103,
