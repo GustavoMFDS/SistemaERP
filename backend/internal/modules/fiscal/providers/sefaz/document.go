@@ -130,9 +130,10 @@ type productXML struct {
 }
 
 type taxXML struct {
-	ICMS   icmsXML   `xml:"ICMS"`
-	PIS    pisXML    `xml:"PIS"`
-	COFINS cofinsXML `xml:"COFINS"`
+	ICMS   icmsXML    `xml:"ICMS"`
+	PIS    pisXML     `xml:"PIS"`
+	COFINS cofinsXML  `xml:"COFINS"`
+	IBSCBS *ibscbsXML `xml:"IBSCBS,omitempty"`
 }
 
 type icmsXML struct {
@@ -163,7 +164,8 @@ type contributionNTXML struct {
 }
 
 type totalXML struct {
-	ICMSTot icmsTotalXML `xml:"ICMSTot"`
+	ICMSTot  icmsTotalXML   `xml:"ICMSTot"`
+	IBSCBSTot *ibsCBSTotalXML `xml:"IBSCBSTot,omitempty"`
 }
 
 type icmsTotalXML struct {
@@ -228,6 +230,7 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 
 	items := make([]detXML, 0, len(input.Items))
 	var productTotal, discountTotal, netTotal platform.Money
+	var rtcTotals rtcTotalsAccumulator
 	for index, item := range input.Items {
 		gross, err := item.UnitPrice.MulQtyChecked(item.Quantity)
 		if err != nil || gross != item.GrossValue {
@@ -253,6 +256,14 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 		tax, err := buildLegacyTaxXML(item.Tax)
 		if err != nil {
 			return nil, fmt.Errorf("item %d tax: %w", item.Number, err)
+		}
+		rtcTax, err := buildIBSCBSXML(item.Tax, net)
+		if err != nil {
+			return nil, fmt.Errorf("item %d RTC tax: %w", item.Number, err)
+		}
+		tax.IBSCBS = rtcTax
+		if err := rtcTotals.Add(item.Tax); err != nil {
+			return nil, fmt.Errorf("item %d RTC total: %w", item.Number, err)
 		}
 		description := strings.TrimSpace(item.Description)
 		if index == 0 && input.Reservation.Environment == string(EnvironmentHomologation) {
@@ -354,14 +365,17 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 				CRT: strings.TrimSpace(input.Issuer.CRT),
 			},
 			Det: items,
-			Total: totalXML{ICMSTot: icmsTotalXML{
-				VBC: "0.00", VICMS: "0.00", VICMSDeson: "0.00", VFCP: "0.00",
-				VBCST: "0.00", VST: "0.00", VFCPST: "0.00", VFCPSTRet: "0.00",
-				VProd: productTotal.DBString(), VFrete: "0.00", VSeg: "0.00",
-				VDesc: discountTotal.DBString(), VII: "0.00", VIPI: "0.00",
-				VIPIDevol: "0.00", VPIS: "0.00", VCOFINS: "0.00", VOutro: "0.00",
-				VNF: netTotal.DBString(),
-			}},
+			Total: totalXML{
+				ICMSTot: icmsTotalXML{
+					VBC: "0.00", VICMS: "0.00", VICMSDeson: "0.00", VFCP: "0.00",
+					VBCST: "0.00", VST: "0.00", VFCPST: "0.00", VFCPSTRet: "0.00",
+					VProd: productTotal.DBString(), VFrete: "0.00", VSeg: "0.00",
+					VDesc: discountTotal.DBString(), VII: "0.00", VIPI: "0.00",
+					VIPIDevol: "0.00", VPIS: "0.00", VCOFINS: "0.00", VOutro: "0.00",
+					VNF: netTotal.DBString(),
+				},
+				IBSCBSTot: rtcTotals.XML(),
+			},
 			Transp: transportXML{ModFrete: 9},
 			Pag:    paymentGroupXML{Details: payments},
 		},
@@ -418,8 +432,8 @@ func validateUnsignedNFCeInput(input UnsignedNFCeInput) error {
 			item.GrossValue <= 0 || item.DiscountValue < 0 {
 			return fmt.Errorf("item %d has invalid commercial values", item.Number)
 		}
-		if item.Tax.RTCTax.IBSCBS != nil || item.Tax.RTCTax.IS != nil {
-			return fmt.Errorf("item %d contains RTC taxes; current legacy candidate builder intentionally blocks RTC XML", item.Number)
+		if item.Tax.RTCTax.IS != nil {
+			return fmt.Errorf("item %d contains selective tax; IS XML is not enabled for the 2026 NFC-e profile", item.Number)
 		}
 	}
 	return nil
