@@ -788,6 +788,11 @@ func (s *FiscalService) PrepareRegularIBSCBSCalculation(
 	if err != nil {
 		return fisc.InvoiceItemTaxCalculation{}, common.ErrValidation
 	}
+	if reservation.IssuedAt.Year() == 2026 {
+		if err := fisc.ValidateNFCeReferenceRates2026(rtc); err != nil {
+			return fisc.InvoiceItemTaxCalculation{}, common.ErrFiscalNotReady
+		}
+	}
 
 	calculation := fisc.InvoiceItemTaxCalculation{
 		TenantID:           tenantID,
