@@ -28,6 +28,7 @@ type FiscalService struct {
 	products           ProductsRepository
 	nfe                NFeProvider
 	nfceDoc            NFCeDocumentBuilder
+	nfceDANFE          NFCeDANFERenderer
 	nfceSigner         NFCeXMLSigner
 	nfceValidator      NFCeSchemaValidator
 	nfceAuthorizer     NFCeRemoteAuthorizer
@@ -99,6 +100,10 @@ func NewFiscalService(uow db.UnitOfWork, fiscal FiscalRepository, salesRepo Sale
 
 func (s *FiscalService) SetNFCeDocumentBuilder(builder NFCeDocumentBuilder) {
 	s.nfceDoc = builder
+}
+
+func (s *FiscalService) SetNFCeDANFERenderer(renderer NFCeDANFERenderer) {
+	s.nfceDANFE = renderer
 }
 
 func (s *FiscalService) SetNFCeXMLSigner(signer NFCeXMLSigner) {
@@ -1151,6 +1156,55 @@ func (s *FiscalService) SignNFCeReserved(
 		return "", "", err
 	}
 	return xmlID, fileName, nil
+}
+
+func (s *FiscalService) RenderNFCeDANFE(
+	ctx context.Context,
+	tenantID, invoiceID string,
+) (string, []byte, error) {
+	invoiceID = strings.TrimSpace(invoiceID)
+	if s.nfceDANFE == nil ||
+		s.validate.Var(invoiceID, "required,uuid") != nil {
+		return "", nil, common.ErrFiscalNotReady
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := s.fiscal.GetNFCeReservationByInvoiceForUpdate(
+		ctx, tx, tenantID, invoiceID,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	if reservation.Status != fisc.NFCeStatusAuthorized &&
+		reservation.Status != fisc.NFCeStatusCancelled {
+		return "", nil, common.ErrConflict
+	}
+	if reservation.AuthorizationProtocol == nil ||
+		strings.TrimSpace(*reservation.AuthorizationProtocol) == "" ||
+		reservation.AuthorizedAt == nil ||
+		reservation.AuthorizedAt.IsZero() {
+		return "", nil, common.ErrFiscalNotReady
+	}
+	_, signedXML, err := s.fiscal.GetLatestNFCeXMLContent(
+		ctx, tx, tenantID, invoiceID,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", nil, err
+	}
+
+	content, err := s.nfceDANFE.Render(reservation, signedXML)
+	if err != nil {
+		return "", nil, err
+	}
+	return "DANFE-NFCe-" + reservation.AccessKey + ".html", content, nil
 }
 
 func (s *FiscalService) GetInvoiceTaxCalculations(
