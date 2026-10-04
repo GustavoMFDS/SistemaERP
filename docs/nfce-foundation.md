@@ -101,7 +101,7 @@ Never store in PostgreSQL, Git, logs, audit metadata, frontend state persistence
 
 The database contains only opaque references such as a secret-manager path/identifier.
 
-A future provider must resolve those references server-side at runtime using the deployment identity and must not expose the resolved secret to handlers or the browser.
+The SEFAZ provider resolves those references server-side at runtime using the deployment identity and does not expose the resolved secret to handlers or the browser.
 
 ## SEFAZ provider coverage
 
@@ -126,13 +126,15 @@ Implemented for the normal online MG flow:
 - rejected-document state;
 - timeout/ambiguous-response recovery using access-key consultation;
 - cancellation event;
+- DANFE-NFC-e completo gerado server-side a partir do XML fiscal autorizado, com dados do emitente, itens, totais, pagamentos, chave, protocolo e QR Code embutido para impressão térmica/A4;
+- acesso ao DANFE protegido por `invoice:read` e auditado em cada abertura;
 - immutable audit events without secret leakage.
 
 Still required before a store may enable production transmission:
 
 - contingency procedure/implementation appropriate to the store and current NFC-e rules;
 - inutilization workflow where legally applicable;
-- DANFE-NFC-e generation/printing validated against the current manual;
+- validação operacional do DANFE-NFC-e em impressora real contra o manual vigente;
 - external SEFAZ homologation evidence for the exact release SHA.
 
 ## Number allocation
@@ -180,7 +182,7 @@ Do not enable production transmission until there is evidence for the exact rele
 - accountant/fiscal reviewer approves the configured tax rules;
 - the store/UF requirements are reviewed.
 
-Only after that gate should a future migration/configuration path allow `enabled=true`.
+Only after that deployment gate should an operator enable the tenant-scoped production switch (`enabled=true`). Preparing or changing NFC-e configuration resets the switch to `false`.
 
 ## Development preview
 
