@@ -1366,3 +1366,186 @@ func (r *FiscalRepo) GetInvoiceItemTaxCalculations(
 	}
 	return out, rows.Err()
 }
+
+func (r *FiscalRepo) LockNFCeInutilizationRange(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	year, series int,
+) error {
+	key := fmt.Sprintf("%s:nfce-inutilization:%d:%d", tenantID, year, series)
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, key)
+	return err
+}
+
+func (r *FiscalRepo) NFCeNumberRangeIsAvailable(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, environment string,
+	year, series int,
+	startNumber, endNumber int64,
+) (bool, error) {
+	var available bool
+	err := tx.QueryRow(ctx, `
+		SELECT
+		  NOT EXISTS (
+		    SELECT 1
+		    FROM invoices i
+		    WHERE i.tenant_id=$1
+		      AND i.model=65
+		      AND i.series=$4
+		      AND EXTRACT(YEAR FROM i.issued_at)::int=$3
+		      AND i.document_number BETWEEN $5 AND $6
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1
+		    FROM nfce_number_inutilizations n
+		    WHERE n.tenant_id=$1
+		      AND n.environment=$2
+		      AND n.year=$3
+		      AND n.model=65
+		      AND n.series=$4
+		      AND n.status IN ('signed','submitted','registered')
+		      AND int8range(n.start_number, n.end_number, '[]')
+		          && int8range($5, $6, '[]')
+		  )
+	`, tenantID, environment, year, series, startNumber, endNumber).Scan(&available)
+	return available, err
+}
+
+func (r *FiscalRepo) GetNFCeInutilizationByRequestForUpdate(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, requestID string,
+) (fisc.NFCeInutilization, []byte, error) {
+	var out fisc.NFCeInutilization
+	var signedXML []byte
+	err := tx.QueryRow(ctx, `
+		SELECT
+		  id::text, tenant_id::text, environment, year, model, series,
+		  start_number, end_number, request_id, status, justification,
+		  signed_sha256, response_sha256, status_code, reason, protocol,
+		  registered_at, created_at, updated_at, signed_xml
+		FROM nfce_number_inutilizations
+		WHERE tenant_id=$1 AND request_id=$2
+		FOR UPDATE
+	`, tenantID, requestID).Scan(
+		&out.ID, &out.TenantID, &out.Environment, &out.Year, &out.Model,
+		&out.Series, &out.StartNumber, &out.EndNumber, &out.RequestID,
+		&out.Status, &out.Justification, &out.SignedSHA256,
+		&out.ResponseSHA256, &out.StatusCode, &out.Reason, &out.Protocol,
+		&out.RegisteredAt, &out.CreatedAt, &out.UpdatedAt, &signedXML,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fisc.NFCeInutilization{}, nil, common.ErrNotFound
+		}
+		return fisc.NFCeInutilization{}, nil, err
+	}
+	return out, signedXML, nil
+}
+
+func (r *FiscalRepo) InsertSignedNFCeInutilization(
+	ctx context.Context,
+	tx db.DBTX,
+	record fisc.NFCeInutilization,
+	actorUserID string,
+	signedXML []byte,
+	sha256 string,
+) (string, error) {
+	var id string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO nfce_number_inutilizations(
+		  tenant_id, environment, issuer_uf, issuer_cnpj, year, model, series,
+		  start_number, end_number, request_id, status, justification,
+		  signed_xml, signed_sha256, created_by_user_id
+		)
+		VALUES ($1,$2,$3,$4,$5,65,$6,$7,$8,$9,'signed',$10,$11,$12,$13)
+		RETURNING id::text
+	`,
+		record.TenantID, record.Environment,
+		strings.ToUpper(strings.TrimSpace(record.IssuerUF)),
+		strings.ToUpper(strings.TrimSpace(record.IssuerCNPJ)),
+		record.Year, record.Series, record.StartNumber, record.EndNumber,
+		record.RequestID, record.Justification, signedXML, sha256, actorUserID,
+	).Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", common.ErrConflict
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func (r *FiscalRepo) MarkNFCeInutilizationSubmitted(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, requestID string,
+) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE nfce_number_inutilizations
+		SET status='submitted', updated_at=now()
+		WHERE tenant_id=$1 AND request_id=$2 AND status='signed'
+	`, tenantID, requestID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return common.ErrConflict
+	}
+	return nil
+}
+
+func (r *FiscalRepo) ApplyNFCeInutilizationResult(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, requestID string,
+	result fisc.NFCeInutilizationRemoteResult,
+	responseSHA256 string,
+) error {
+	if result.Pending() || len(result.ResponseXML) == 0 {
+		return common.ErrValidation
+	}
+	if result.Registered() {
+		tag, err := tx.Exec(ctx, `
+			UPDATE nfce_number_inutilizations
+			SET status='registered', response_xml=$3, response_sha256=$4,
+			    status_code=$5, reason=$6, protocol=$7, registered_at=$8,
+			    updated_at=now()
+			WHERE tenant_id=$1 AND request_id=$2 AND status='submitted'
+		`,
+			tenantID, requestID, result.ResponseXML, responseSHA256,
+			result.StatusCode, result.Reason, result.Protocol, result.RegisteredAt,
+		)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return common.ErrConflict
+		}
+		return nil
+	}
+	if result.Rejected() {
+		tag, err := tx.Exec(ctx, `
+			UPDATE nfce_number_inutilizations
+			SET status='rejected', response_xml=$3, response_sha256=$4,
+			    status_code=$5, reason=$6, protocol=NULL, registered_at=NULL,
+			    updated_at=now()
+			WHERE tenant_id=$1 AND request_id=$2 AND status='submitted'
+		`,
+			tenantID, requestID, result.ResponseXML, responseSHA256,
+			result.StatusCode, result.Reason,
+		)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return common.ErrConflict
+		}
+		return nil
+	}
+	return common.ErrValidation
+}
+
