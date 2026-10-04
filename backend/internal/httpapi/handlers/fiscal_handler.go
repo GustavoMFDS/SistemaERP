@@ -552,6 +552,36 @@ func (h *FiscalHandler) ListXML(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
 }
 
+func (h *FiscalHandler) InutilizeNFCeNumbers(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	var req fiscapp.InutilizeNFCeNumbersRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	result, err := h.svc.InutilizeNFCeNumbers(
+		r.Context(), au.TenantID, au.UserID, req,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrConflict, common.ErrFiscalNotReady:
+			status = http.StatusConflict
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *FiscalHandler) DownloadNFCeDANFE(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
