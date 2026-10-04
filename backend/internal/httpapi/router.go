@@ -115,6 +115,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				pr.Route("/fiscal", func(rr chi.Router) {
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/readiness", h.Fiscal.NFCeReadiness)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/reservations", h.Fiscal.ReserveNFCeDraft)
+					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/inutilizations", h.Fiscal.InutilizeNFCeNumbers)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/invoices/{invoiceID}/tax-calculations", h.Fiscal.ListInvoiceTaxCalculations)
 					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/danfe", h.Fiscal.DownloadNFCeDANFE)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/xml-candidate", h.Fiscal.PreviewNFCeXMLCandidate)
