@@ -85,6 +85,14 @@ type CancelNFCeRequest struct {
 	Justification string `json:"justification" validate:"required,min=15,max=255"`
 }
 
+type InutilizeNFCeNumbersRequest struct {
+	Year          int    `json:"year"`
+	Series        int    `json:"series"`
+	StartNumber   int64  `json:"start_number"`
+	EndNumber     int64  `json:"end_number"`
+	Justification string `json:"justification" validate:"required,min=15,max=255"`
+}
+
 type PrepareNFCeIssuerRequest struct {
 	IE                  string  `json:"ie" validate:"required,min=2,max=30"`
 	CRT                 string  `json:"crt" validate:"required,oneof=1 2 3 4"`
@@ -1345,6 +1353,306 @@ func (s *FiscalService) MarkNFCeSubmitted(
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *FiscalService) InutilizeNFCeNumbers(
+	ctx context.Context,
+	tenantID, actorUserID string,
+	req InutilizeNFCeNumbersRequest,
+) (fisc.NFCeInutilizationRemoteResult, error) {
+	req.Justification = strings.TrimSpace(req.Justification)
+	if req.Year < 2006 || req.Year > 2099 ||
+		req.Series < 0 || req.Series > 889 ||
+		req.StartNumber < 1 || req.EndNumber > 999999999 ||
+		req.StartNumber > req.EndNumber ||
+		req.EndNumber-req.StartNumber+1 > 10000 ||
+		s.validate.Struct(req) != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, common.ErrValidation
+	}
+	if s.nfceInutBuilder == nil ||
+		s.nfceInutSigner == nil ||
+		s.nfceInutValidator == nil ||
+		s.nfceInutClient == nil {
+		return fisc.NFCeInutilizationRemoteResult{}, common.ErrFiscalNotReady
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	contextData, err := s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	if !contextData.Config.CertificateReferenceConfigured ||
+		contextData.Config.CertificateSecretRef == nil {
+		return fisc.NFCeInutilizationRemoteResult{}, common.ErrFiscalNotReady
+	}
+	switch contextData.Config.Environment {
+	case "homologation":
+	case "production":
+		if !contextData.Config.Enabled || !s.productionTransmissionStackReady() {
+			return fisc.NFCeInutilizationRemoteResult{}, common.ErrFiscalNotReady
+		}
+	default:
+		return fisc.NFCeInutilizationRemoteResult{}, common.ErrFiscalNotReady
+	}
+
+	draft := fisc.NFCeInutilizationDraft{
+		Environment:   contextData.Config.Environment,
+		IssuerUF:      contextData.Issuer.AddressState,
+		IssuerCNPJ:    contextData.Issuer.CNPJ,
+		Year:          req.Year,
+		Series:        req.Series,
+		StartNumber:   req.StartNumber,
+		EndNumber:     req.EndNumber,
+		Justification: req.Justification,
+	}
+	unsignedXML, requestID, err := s.nfceInutBuilder.BuildUnsignedInutilization(draft)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, common.ErrValidation
+	}
+	if err := s.fiscal.LockNFCeInutilizationRange(
+		ctx, tx, tenantID, req.Year, req.Series,
+	); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+
+	existing, signedXML, existingErr := s.fiscal.GetNFCeInutilizationByRequestForUpdate(
+		ctx, tx, tenantID, requestID,
+	)
+	switch {
+	case existingErr == nil:
+		if existing.Environment != draft.Environment ||
+			existing.Year != draft.Year ||
+			existing.Series != draft.Series ||
+			existing.StartNumber != draft.StartNumber ||
+			existing.EndNumber != draft.EndNumber ||
+			existing.Justification != draft.Justification {
+			return fisc.NFCeInutilizationRemoteResult{}, common.ErrConflict
+		}
+		switch existing.Status {
+		case fisc.NFCeInutilizationStatusRegistered,
+			fisc.NFCeInutilizationStatusRejected,
+			fisc.NFCeInutilizationStatusSubmitted:
+			if err := tx.Commit(ctx); err != nil {
+				return fisc.NFCeInutilizationRemoteResult{}, err
+			}
+			return inutilizationResultFromRecord(existing), nil
+		case fisc.NFCeInutilizationStatusSigned:
+			if len(signedXML) == 0 {
+				return fisc.NFCeInutilizationRemoteResult{}, common.ErrFiscalNotReady
+			}
+		default:
+			return fisc.NFCeInutilizationRemoteResult{}, common.ErrConflict
+		}
+	case errors.Is(existingErr, common.ErrNotFound):
+		available, err := s.fiscal.NFCeNumberRangeIsAvailable(
+			ctx, tx, tenantID, draft.Environment, draft.Year, draft.Series,
+			draft.StartNumber, draft.EndNumber,
+		)
+		if err != nil {
+			return fisc.NFCeInutilizationRemoteResult{}, err
+		}
+		if !available {
+			return fisc.NFCeInutilizationRemoteResult{}, common.ErrConflict
+		}
+
+		signedXML, err = s.nfceInutSigner.SignInutilization(
+			ctx,
+			strings.TrimSpace(*contextData.Config.CertificateSecretRef),
+			requestID,
+			unsignedXML,
+		)
+		if err != nil {
+			return fisc.NFCeInutilizationRemoteResult{}, err
+		}
+		if err := s.nfceInutValidator.Validate(ctx, signedXML); err != nil {
+			return fisc.NFCeInutilizationRemoteResult{},
+				fmt.Errorf("validate NFC-e inutilization against pinned XSD: %w", err)
+		}
+		signedHash := sha256.Sum256(signedXML)
+		signedSHA := hex.EncodeToString(signedHash[:])
+		record := fisc.NFCeInutilization{
+			TenantID:      tenantID,
+			Environment:   draft.Environment,
+			IssuerUF:      strings.ToUpper(strings.TrimSpace(draft.IssuerUF)),
+			IssuerCNPJ:    normalizedFiscalCNPJ(draft.IssuerCNPJ),
+			Year:          draft.Year,
+			Model:         fisc.NFCeModel,
+			Series:        draft.Series,
+			StartNumber:   draft.StartNumber,
+			EndNumber:     draft.EndNumber,
+			RequestID:     requestID,
+			Status:        fisc.NFCeInutilizationStatusSigned,
+			Justification: draft.Justification,
+		}
+		record.ID, err = s.fiscal.InsertSignedNFCeInutilization(
+			ctx, tx, record, actorUserID, signedXML, signedSHA,
+		)
+		if err != nil {
+			return fisc.NFCeInutilizationRemoteResult{}, err
+		}
+		if err := s.audit.RecordTx(ctx, tx, audit.Event{
+			TenantID:     tenantID,
+			ActorUserID:  actorUserID,
+			Action:       "fiscal.nfce.inutilization.sign",
+			ResourceType: "nfce_number_inutilization",
+			ResourceID:   record.ID,
+			Outcome:      "success",
+			Metadata: map[string]any{
+				"request_id":   requestID,
+				"environment":  draft.Environment,
+				"year":         draft.Year,
+				"series":       draft.Series,
+				"start_number": draft.StartNumber,
+				"end_number":   draft.EndNumber,
+			},
+		}); err != nil {
+			return fisc.NFCeInutilizationRemoteResult{}, err
+		}
+	default:
+		return fisc.NFCeInutilizationRemoteResult{}, existingErr
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+
+	tx, err = s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	locked, lockedXML, err := s.fiscal.GetNFCeInutilizationByRequestForUpdate(
+		ctx, tx, tenantID, requestID,
+	)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	if locked.Status != fisc.NFCeInutilizationStatusSigned || len(lockedXML) == 0 {
+		return fisc.NFCeInutilizationRemoteResult{}, common.ErrConflict
+	}
+	if err := s.fiscal.MarkNFCeInutilizationSubmitted(
+		ctx, tx, tenantID, requestID,
+	); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID:     tenantID,
+		ActorUserID:  actorUserID,
+		Action:       "fiscal.nfce.inutilization.submit",
+		ResourceType: "nfce_number_inutilization",
+		ResourceID:   locked.ID,
+		Outcome:      "success",
+		Metadata: map[string]any{
+			"request_id": requestID,
+		},
+	}); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	signedXML = lockedXML
+
+	result, err := s.nfceInutClient.Inutilize(
+		ctx,
+		strings.TrimSpace(*contextData.Config.CertificateSecretRef),
+		draft,
+		requestID,
+		signedXML,
+	)
+	if err != nil {
+		// Keep status=submitted. A replay returns the pending record and never
+		// retransmits the same range blindly after an ambiguous network result.
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	if result.Pending() {
+		return result, nil
+	}
+
+	responseHash := sha256.Sum256(result.ResponseXML)
+	responseSHA := hex.EncodeToString(responseHash[:])
+
+	tx, err = s.uow.Begin(ctx)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, _, err := s.fiscal.GetNFCeInutilizationByRequestForUpdate(
+		ctx, tx, tenantID, requestID,
+	)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	if current.Status != fisc.NFCeInutilizationStatusSubmitted {
+		return fisc.NFCeInutilizationRemoteResult{}, common.ErrConflict
+	}
+	if err := s.fiscal.ApplyNFCeInutilizationResult(
+		ctx, tx, tenantID, requestID, result, responseSHA,
+	); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	outcome := "rejected"
+	if result.Registered() {
+		outcome = "registered"
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID:     tenantID,
+		ActorUserID:  actorUserID,
+		Action:       "fiscal.nfce.inutilization.result",
+		ResourceType: "nfce_number_inutilization",
+		ResourceID:   current.ID,
+		Outcome:      outcome,
+		Metadata: map[string]any{
+			"request_id":  requestID,
+			"status_code": result.StatusCode,
+			"reason":      result.Reason,
+		},
+	}); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	return result, nil
+}
+
+func inutilizationResultFromRecord(
+	record fisc.NFCeInutilization,
+) fisc.NFCeInutilizationRemoteResult {
+	out := fisc.NFCeInutilizationRemoteResult{RequestID: record.RequestID}
+	if record.StatusCode != nil {
+		out.StatusCode = *record.StatusCode
+	}
+	if record.Reason != nil {
+		out.Reason = *record.Reason
+	}
+	if record.Protocol != nil {
+		out.Protocol = *record.Protocol
+	}
+	if record.RegisteredAt != nil {
+		out.RegisteredAt = *record.RegisteredAt
+	}
+	switch record.Status {
+	case fisc.NFCeInutilizationStatusRegistered:
+		out.FinalStatus = fisc.NFCeInutilizationStatusRegistered
+	case fisc.NFCeInutilizationStatusRejected:
+		out.FinalStatus = fisc.NFCeInutilizationStatusRejected
+	}
+	return out
+}
+
+func normalizedFiscalCNPJ(value string) string {
+	var out strings.Builder
+	for _, r := range strings.ToUpper(strings.TrimSpace(value)) {
+		if (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }
 
 func (s *FiscalService) CancelNFCe(
