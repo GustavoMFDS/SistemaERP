@@ -1261,6 +1261,14 @@ func (s *FiscalService) MarkNFCeSubmitted(
 	return tx.Commit(ctx)
 }
 
+func (s *FiscalService) CancelNFCe(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID string,
+	req CancelNFCeRequest,
+) (fisc.NFCeCancellationRemoteResult, error) {
+	return s.CancelNFCeHomologation(ctx, tenantID, actorUserID, invoiceID, req)
+}
+
 func (s *FiscalService) CancelNFCeHomologation(
 	ctx context.Context,
 	tenantID, actorUserID, invoiceID string,
@@ -1309,8 +1317,8 @@ func (s *FiscalService) CancelNFCeHomologation(
 		_ = tx.Rollback(ctx)
 		return fisc.NFCeCancellationRemoteResult{}, err
 	}
-	if reservation.Environment != "homologation" ||
-		contextData.Config.Environment != "homologation" ||
+	if reservation.Environment != contextData.Config.Environment ||
+		(reservation.Environment != "homologation" && reservation.Environment != "production") ||
 		contextData.Config.CertificateSecretRef == nil ||
 		strings.TrimSpace(*contextData.Config.CertificateSecretRef) == "" {
 		_ = tx.Rollback(ctx)
@@ -1581,6 +1589,13 @@ func (s *FiscalService) CancelNFCeHomologation(
 	return result, nil
 }
 
+func (s *FiscalService) AuthorizeNFCe(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID string,
+) (fisc.NFCeRemoteOutcome, error) {
+	return s.AuthorizeNFCeHomologation(ctx, tenantID, actorUserID, invoiceID)
+}
+
 func (s *FiscalService) AuthorizeNFCeHomologation(
 	ctx context.Context,
 	tenantID, actorUserID, invoiceID string,
@@ -1609,8 +1624,8 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 	if err != nil {
 		return fisc.NFCeRemoteOutcome{}, err
 	}
-	if reservation.Environment != "homologation" ||
-		reservationContext.Config.Environment != "homologation" ||
+	if reservation.Environment != reservationContext.Config.Environment ||
+		(reservation.Environment != "homologation" && reservation.Environment != "production") ||
 		reservationContext.Config.CertificateSecretRef == nil ||
 		strings.TrimSpace(*reservationContext.Config.CertificateSecretRef) == "" {
 		return fisc.NFCeRemoteOutcome{}, common.ErrFiscalNotReady
