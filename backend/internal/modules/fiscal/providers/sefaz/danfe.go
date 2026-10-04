@@ -280,6 +280,7 @@ var danfeTemplate = template.Must(template.New("danfe-nfce").Parse(`<!doctype ht
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
 <title>DANFE NFC-e {{.Number}}</title>
 <style>
 @page { margin: 2mm; }
