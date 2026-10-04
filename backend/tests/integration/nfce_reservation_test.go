@@ -363,6 +363,57 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("unexpected enabled production config: %+v", productionCfg)
 	}
 
+	var productionSaleID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO sales(
+			tenant_id, cash_session_id, status, subtotal, discount_value, total,
+			profit_estimated, created_by_user_id
+		)
+		VALUES ($1,$2,'finalized',10,0,10,5,$3)
+		RETURNING id::text
+	`, tenantID, cashSessionID, actorUserID).Scan(&productionSaleID); err != nil {
+		t.Fatalf("create production-gate sale: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO sale_items(
+			tenant_id, sale_id, product_id, qty, unit_price, discount_value,
+			subtotal, cost_unit
+		)
+		VALUES ($1,$2,$3,1,10,0,10,5)
+	`, tenantID, productionSaleID, productID); err != nil {
+		t.Fatalf("create production-gate sale item: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM audit_logs WHERE tenant_id=$1 AND resource_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`,
+			tenantID, productionSaleID,
+		)
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM invoices WHERE tenant_id=$1 AND sale_id=$2`,
+			tenantID, productionSaleID,
+		)
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM sales WHERE tenant_id=$1 AND id=$2`,
+			tenantID, productionSaleID,
+		)
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=322`,
+			tenantID,
+		)
+	})
+
+	productionReservation, created, err := service.ReserveNFCeDraft(
+		ctx, tenantID, actorUserID, productionSaleID, issuedAt.Add(2*time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("reserve production NFC-e behind explicit gate: %v", err)
+	}
+	if !created ||
+		productionReservation.Environment != "production" ||
+		productionReservation.Series != 322 {
+		t.Fatalf("unexpected production reservation: %+v created=%t", productionReservation, created)
+	}
+
 	productionCfg, err = service.SetNFCeProductionTransmission(
 		ctx, tenantID, actorUserID, false,
 	)
