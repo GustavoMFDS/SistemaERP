@@ -206,3 +206,44 @@ func TestSignNFCeXMLRejectsECDSAAndDuplicateSignature(t *testing.T) {
 		t.Fatalf("expected duplicate Signature rejection, got %v", err)
 	}
 }
+
+func TestSignInutilizationXMLSignsInfInutByRequestID(t *testing.T) {
+	unsigned, requestID, err := BuildUnsignedNFCeInutilization(InutilizationInput{
+		Environment:   EnvironmentHomologation,
+		IssuerUF:      "MG",
+		IssuerCNPJ:    "12.ABC.345/01DE-35",
+		Year:          2026,
+		Series:        1,
+		StartNumber:   101,
+		EndNumber:     110,
+		Justification: "Falha operacional pulou esta faixa fiscal.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	cert := testRSACertificate(t, now)
+	signed, err := SignInutilizationXML(unsigned, cert, requestID, now)
+	if err != nil {
+		t.Fatalf("SignInutilizationXML: %v", err)
+	}
+	doc := etree.NewDocument()
+	doc.ReadSettings.ValidateInput = true
+	if err := doc.ReadFromBytes(signed); err != nil {
+		t.Fatal(err)
+	}
+	root := doc.Root()
+	info := directChild(root, "infInut")
+	signature := directChild(root, "Signature")
+	if info == nil || signature == nil {
+		t.Fatalf("signed inutilization structure incomplete: %s", signed)
+	}
+	if signature.Index() != info.Index()+1 {
+		t.Fatal("Signature must follow infInut")
+	}
+	reference := directChild(directChild(signature, "SignedInfo"), "Reference")
+	if reference == nil || reference.SelectAttrValue("URI", "") != "#"+requestID {
+		t.Fatalf("unexpected inutilization signature reference")
+	}
+}
+
