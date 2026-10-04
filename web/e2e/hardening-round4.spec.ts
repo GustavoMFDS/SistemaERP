@@ -270,11 +270,16 @@ test('legacy offline queue blocks cash close until explicitly reviewed', async (
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
 
-  const cashSessionId = await page.evaluate(async () => {
-    const { getCashSessionId } = await import('/src/lib/auth.ts')
-    return getCashSessionId()
-  })
-  expect(cashSessionId).not.toBe('')
+  let cashSessionId = ''
+  await expect
+    .poll(async () => {
+      cashSessionId = await page.evaluate(async () => {
+        const { getCashSessionId } = await import('/src/lib/auth.ts')
+        return getCashSessionId()
+      })
+      return cashSessionId
+    })
+    .not.toBe('')
 
   await page.evaluate((cashId) => {
     localStorage.setItem(
