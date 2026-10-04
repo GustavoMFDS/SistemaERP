@@ -21,6 +21,10 @@ type reserveNFCeRequest struct {
 	IssuedAt string `json:"issued_at"`
 }
 
+type setNFCeTransmissionRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
 type prepareLegacyTaxRequest struct {
 	CalculationVersion string `json:"calculation_version"`
 }
@@ -121,6 +125,34 @@ func (h *FiscalHandler) PrepareNFCeConfig(w http.ResponseWriter, r *http.Request
 		status := http.StatusInternalServerError
 		if err == common.ErrValidation {
 			status = http.StatusUnprocessableEntity
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (h *FiscalHandler) SetNFCeProductionTransmission(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	var req setNFCeTransmissionRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	cfg, err := h.svc.SetNFCeProductionTransmission(
+		r.Context(), au.TenantID, au.UserID, req.Enabled,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrFiscalNotReady, common.ErrConflict:
+			status = http.StatusConflict
+		case common.ErrNotFound:
+			status = http.StatusNotFound
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
