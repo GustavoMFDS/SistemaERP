@@ -231,7 +231,7 @@ func (a *SEFAZAuthorizer) Cancel(
 	}
 
 	if a == nil || a.resolver == nil {
-		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("homologation authorizer is not configured")
+		return fisc.NFCeCancellationRemoteResult{}, fmt.Errorf("SEFAZ authorizer is not configured")
 	}
 	cert, err := ResolveAndValidateCertificate(
 		ctx,
@@ -302,3 +302,75 @@ func (a *SEFAZAuthorizer) Cancel(
 	out.FinalStatus = fisc.NFCeEventStatusRejected
 	return out, nil
 }
+
+func (a *SEFAZAuthorizer) Inutilize(
+	ctx context.Context,
+	certificateSecretRef string,
+	draft fisc.NFCeInutilizationDraft,
+	requestID string,
+	signedXML []byte,
+) (fisc.NFCeInutilizationRemoteResult, error) {
+	if err := a.validateEnvironment(draft.Environment); err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	requestID = strings.TrimSpace(requestID)
+	if len(requestID) != 43 || !strings.HasPrefix(requestID, "ID") {
+		return fisc.NFCeInutilizationRemoteResult{}, fmt.Errorf("invalid inutilization request Id")
+	}
+	if a == nil || a.resolver == nil {
+		return fisc.NFCeInutilizationRemoteResult{}, fmt.Errorf("SEFAZ authorizer is not configured")
+	}
+	cert, err := ResolveAndValidateCertificate(
+		ctx,
+		a.resolver,
+		certificateSecretRef,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	transport, err := NewMTLSRoundTripper(cert, time.Now().UTC())
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	entry, err := ResolveCatalogEntry(draft.IssuerUF, a.environment)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	endpoint := Endpoint{
+		URL:           entry.InutilizationURL,
+		WSDLNamespace: SEFAZWSDLNamespacePrefix + "NFeInutilizacao4",
+	}
+	responseXML, err := NewSOAPClient(transport, a.timeout).Post(
+		ctx,
+		endpoint,
+		signedXML,
+	)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	response, err := ParseInutilizationResponse(responseXML)
+	if err != nil {
+		return fisc.NFCeInutilizationRemoteResult{}, err
+	}
+	ambient, _ := tpAmb(a.environment)
+	if response.Environment != "" && response.Environment != ambient {
+		return fisc.NFCeInutilizationRemoteResult{}, fmt.Errorf("inutilization response environment mismatch")
+	}
+	return inutilizationRemoteResult(
+		requestID,
+		InutilizationInput{
+			Environment:   a.environment,
+			IssuerUF:      draft.IssuerUF,
+			IssuerCNPJ:    draft.IssuerCNPJ,
+			Year:          draft.Year,
+			Series:        draft.Series,
+			StartNumber:   draft.StartNumber,
+			EndNumber:     draft.EndNumber,
+			Justification: draft.Justification,
+		},
+		response,
+		responseXML,
+	)
+}
+
