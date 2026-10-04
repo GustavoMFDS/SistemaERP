@@ -31,9 +31,24 @@ func (fakeNFCeDocumentBuilder) BuildUnsignedLegacyCandidate(
 	return []byte("<NFe><infNFe Id=\"NFe-test\"/></NFe>"), nil
 }
 
+func (fakeNFCeDocumentBuilder) BuildUnsignedInutilization(
+	_ fisc.NFCeInutilizationDraft,
+) ([]byte, string, error) {
+	return []byte("<inutNFe><infInut Id=\"ID-test\"/></inutNFe>"), "ID-test", nil
+}
+
 type fakeNFCeSigner struct{}
 
 func (fakeNFCeSigner) Sign(
+	_ context.Context,
+	_ string,
+	_ string,
+	unsignedXML []byte,
+) ([]byte, error) {
+	return append([]byte(nil), unsignedXML...), nil
+}
+
+func (fakeNFCeSigner) SignInutilization(
 	_ context.Context,
 	_ string,
 	_ string,
@@ -65,6 +80,16 @@ func (f *fakeRemoteAuthorizer) Consult(
 ) (fisc.NFCeRemoteOutcome, error) {
 	f.consultCalls++
 	return f.consultOut, nil
+}
+
+func (f *fakeRemoteAuthorizer) Inutilize(
+	_ context.Context,
+	_ string,
+	_ fisc.NFCeInutilizationDraft,
+	requestID string,
+	_ []byte,
+) (fisc.NFCeInutilizationRemoteResult, error) {
+	return fisc.NFCeInutilizationRemoteResult{RequestID: requestID}, nil
 }
 
 type fakeCancellationBuilder struct{}
@@ -347,11 +372,16 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	service.SetNFCeDocumentBuilder(fakeNFCeDocumentBuilder{})
 	service.SetNFCeXMLSigner(fakeNFCeSigner{})
 	service.SetNFCeSchemaValidator(fakeCancellationValidator{})
-	service.SetNFCeRemoteAuthorizer(&fakeRemoteAuthorizer{})
+	remoteStack := &fakeRemoteAuthorizer{}
+	service.SetNFCeRemoteAuthorizer(remoteStack)
 	service.SetNFCeCancellationBuilder(fakeCancellationBuilder{})
 	service.SetNFCeCancellationSigner(fakeCancellationSigner{})
 	service.SetNFCeEventSchemaValidator(fakeCancellationValidator{})
 	service.SetNFCeRemoteCancellationClient(&fakeCancellationClient{})
+	service.SetNFCeInutilizationBuilder(fakeNFCeDocumentBuilder{})
+	service.SetNFCeInutilizationSigner(fakeNFCeSigner{})
+	service.SetNFCeInutilizationSchemaValidator(fakeCancellationValidator{})
+	service.SetNFCeRemoteInutilizationClient(remoteStack)
 
 	productionCfg, err := service.SetNFCeProductionTransmission(
 		ctx, tenantID, actorUserID, true,
