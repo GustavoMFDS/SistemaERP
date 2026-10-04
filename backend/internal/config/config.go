@@ -52,6 +52,7 @@ type Config struct {
 	NFCeSchemaEntrypoint         string
 	NFCeEventSchemaEntrypoint    string
 	NFCeSEFAZHomologationEnabled bool
+	NFCeSEFAZProductionEnabled   bool
 	DisableRedis                 bool
 	PrivacyContactEmail          string
 	AppPublicURL                 string
@@ -120,6 +121,7 @@ func LoadFromEnv() (Config, error) {
 		NFCeSchemaEntrypoint:         strings.TrimSpace(os.Getenv("NFCE_SCHEMA_ENTRYPOINT")),
 		NFCeEventSchemaEntrypoint:    strings.TrimSpace(os.Getenv("NFCE_EVENT_SCHEMA_ENTRYPOINT")),
 		NFCeSEFAZHomologationEnabled: getEnvBool("NFCE_SEFAZ_HOMOLOGATION_ENABLED", false),
+		NFCeSEFAZProductionEnabled:   getEnvBool("NFCE_SEFAZ_PRODUCTION_ENABLED", false),
 		DisableRedis:                 getEnvBool("DISABLE_REDIS", false),
 		PrivacyContactEmail:          strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
 		AppPublicURL:                 strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
@@ -233,9 +235,9 @@ func (c Config) Validate() error {
 		fiscalProvider = "mvp"
 	}
 	switch fiscalProvider {
-	case "mvp", "disabled":
+	case "mvp", "disabled", "sefaz":
 	default:
-		errs = append(errs, "FISCAL_PROVIDER must be one of mvp|disabled")
+		errs = append(errs, "FISCAL_PROVIDER must be one of mvp|disabled|sefaz")
 	}
 	if c.IsProdLike() && fiscalProvider == "mvp" {
 		errs = append(errs, "FISCAL_PROVIDER=mvp is not allowed in staging/prod because it is not SEFAZ-ready; use disabled until a production fiscal provider is configured")
@@ -249,9 +251,15 @@ func (c Config) Validate() error {
 		errs = append(errs, "NFCE_SCHEMA_DIR is required when NFCE_EVENT_SCHEMA_ENTRYPOINT is configured")
 	}
 
+	if c.NFCeSEFAZHomologationEnabled && c.NFCeSEFAZProductionEnabled {
+		errs = append(errs, "SEFAZ homologation and production transmission flags are mutually exclusive")
+	}
 	if c.NFCeSEFAZHomologationEnabled {
 		if e == "prod" || e == "production" {
 			errs = append(errs, "NFCE_SEFAZ_HOMOLOGATION_ENABLED must not be enabled in production")
+		}
+		if fiscalProvider != "sefaz" {
+			errs = append(errs, "FISCAL_PROVIDER=sefaz is required when SEFAZ homologation is enabled")
 		}
 		if strings.TrimSpace(c.NFCeCertificateSecretDir) == "" {
 			errs = append(errs, "NFCE_CERTIFICATE_SECRET_DIR is required when SEFAZ homologation is enabled")
@@ -262,6 +270,28 @@ func (c Config) Validate() error {
 		if c.NFCeEventSchemaEntrypoint == "" {
 			errs = append(errs, "NFCE_EVENT_SCHEMA_ENTRYPOINT is required when SEFAZ homologation is enabled")
 		}
+	}
+	if c.NFCeSEFAZProductionEnabled {
+		if e != "prod" && e != "production" {
+			errs = append(errs, "NFCE_SEFAZ_PRODUCTION_ENABLED is only allowed in production")
+		}
+		if fiscalProvider != "sefaz" {
+			errs = append(errs, "FISCAL_PROVIDER=sefaz is required when SEFAZ production is enabled")
+		}
+		if strings.TrimSpace(c.NFCeCertificateSecretDir) == "" {
+			errs = append(errs, "NFCE_CERTIFICATE_SECRET_DIR is required when SEFAZ production is enabled")
+		}
+		if c.NFCeSchemaDir == "" || c.NFCeSchemaEntrypoint == "" {
+			errs = append(errs, "NFCE schema bundle is required when SEFAZ production is enabled")
+		}
+		if c.NFCeEventSchemaEntrypoint == "" {
+			errs = append(errs, "NFCE_EVENT_SCHEMA_ENTRYPOINT is required when SEFAZ production is enabled")
+		}
+	}
+	if fiscalProvider == "sefaz" &&
+		!c.NFCeSEFAZHomologationEnabled &&
+		!c.NFCeSEFAZProductionEnabled {
+		errs = append(errs, "FISCAL_PROVIDER=sefaz requires an explicit SEFAZ transmission environment flag")
 	}
 
 	if len(errs) > 0 {
