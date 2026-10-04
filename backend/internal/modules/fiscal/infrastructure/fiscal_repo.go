@@ -1422,16 +1422,16 @@ func (r *FiscalRepo) GetNFCeInutilizationByRequestForUpdate(
 	var signedXML []byte
 	err := tx.QueryRow(ctx, `
 		SELECT
-		  id::text, tenant_id::text, environment, year, model, series,
-		  start_number, end_number, request_id, status, justification,
+		  id::text, tenant_id::text, environment, issuer_uf, issuer_cnpj,
+		  year, model, series, start_number, end_number, request_id, status, justification,
 		  signed_sha256, response_sha256, status_code, reason, protocol,
 		  registered_at, created_at, updated_at, signed_xml
 		FROM nfce_number_inutilizations
 		WHERE tenant_id=$1 AND request_id=$2
 		FOR UPDATE
 	`, tenantID, requestID).Scan(
-		&out.ID, &out.TenantID, &out.Environment, &out.Year, &out.Model,
-		&out.Series, &out.StartNumber, &out.EndNumber, &out.RequestID,
+		&out.ID, &out.TenantID, &out.Environment, &out.IssuerUF, &out.IssuerCNPJ,
+		&out.Year, &out.Model, &out.Series, &out.StartNumber, &out.EndNumber, &out.RequestID,
 		&out.Status, &out.Justification, &out.SignedSHA256,
 		&out.ResponseSHA256, &out.StatusCode, &out.Reason, &out.Protocol,
 		&out.RegisteredAt, &out.CreatedAt, &out.UpdatedAt, &signedXML,
