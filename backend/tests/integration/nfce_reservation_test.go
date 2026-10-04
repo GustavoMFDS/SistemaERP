@@ -23,6 +23,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type fakeNFCeDocumentBuilder struct{}
+
+func (fakeNFCeDocumentBuilder) BuildUnsignedLegacyCandidate(
+	_ fisc.NFCeDocumentDraft,
+) ([]byte, error) {
+	return []byte("<NFe><infNFe Id=\"NFe-test\"/></NFe>"), nil
+}
+
+type fakeNFCeSigner struct{}
+
+func (fakeNFCeSigner) Sign(
+	_ context.Context,
+	_ string,
+	_ string,
+	unsignedXML []byte,
+) ([]byte, error) {
+	return append([]byte(nil), unsignedXML...), nil
+}
+
 type fakeRemoteAuthorizer struct {
 	authorizeCalls int
 	consultCalls   int
@@ -317,6 +336,41 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit post-reservation config: %v", err)
+	}
+
+	if _, err := service.SetNFCeProductionTransmission(
+		ctx, tenantID, actorUserID, true,
+	); !errors.Is(err, common.ErrFiscalNotReady) {
+		t.Fatalf("production transmission enabled without complete SEFAZ stack: %v", err)
+	}
+
+	service.SetNFCeDocumentBuilder(fakeNFCeDocumentBuilder{})
+	service.SetNFCeXMLSigner(fakeNFCeSigner{})
+	service.SetNFCeSchemaValidator(fakeCancellationValidator{})
+	service.SetNFCeRemoteAuthorizer(&fakeRemoteAuthorizer{})
+	service.SetNFCeCancellationBuilder(fakeCancellationBuilder{})
+	service.SetNFCeCancellationSigner(fakeCancellationSigner{})
+	service.SetNFCeEventSchemaValidator(fakeCancellationValidator{})
+	service.SetNFCeRemoteCancellationClient(&fakeCancellationClient{})
+
+	productionCfg, err := service.SetNFCeProductionTransmission(
+		ctx, tenantID, actorUserID, true,
+	)
+	if err != nil {
+		t.Fatalf("enable production transmission with complete stack: %v", err)
+	}
+	if !productionCfg.Enabled || productionCfg.Environment != "production" {
+		t.Fatalf("unexpected enabled production config: %+v", productionCfg)
+	}
+
+	productionCfg, err = service.SetNFCeProductionTransmission(
+		ctx, tenantID, actorUserID, false,
+	)
+	if err != nil {
+		t.Fatalf("disable production transmission: %v", err)
+	}
+	if productionCfg.Enabled {
+		t.Fatalf("production transmission kill switch remained enabled: %+v", productionCfg)
 	}
 
 	replay, created, err := service.ReserveNFCeDraft(
