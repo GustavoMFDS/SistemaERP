@@ -48,6 +48,10 @@ type NFCeDocumentBuilder interface {
 	BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDraft) ([]byte, error)
 }
 
+type NFCeDANFERenderer interface {
+	Render(reservation fisc.NFCeReservation, signedXML []byte) ([]byte, error)
+}
+
 type NFCeCancellationEventBuilder interface {
 	BuildUnsignedCancellationEvent(draft fisc.NFCeCancellationDraft) ([]byte, string, error)
 }
