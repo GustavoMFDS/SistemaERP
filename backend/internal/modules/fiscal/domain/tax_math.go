@@ -189,6 +189,33 @@ func CalculateRegularIBSCBS(input RegularIBSCBSInput) (RegularIBSCBSResult, erro
 	}, nil
 }
 
+var (
+	NFCe2026IBSUFRate        = mustReferenceTaxRate("0.1000")
+	NFCe2026IBSMunicipalRate = mustReferenceTaxRate("0.0000")
+	NFCe2026CBSRate          = mustReferenceTaxRate("0.9000")
+)
+
+func ValidateNFCeReferenceRates2026(result RegularIBSCBSResult) error {
+	if result.IBSUF.Rate != NFCe2026IBSUFRate {
+		return fmt.Errorf("2026 NFC-e IBS UF nominal rate must be %s", NFCe2026IBSUFRate.String())
+	}
+	if result.IBSMunicipal.Rate != NFCe2026IBSMunicipalRate {
+		return fmt.Errorf("2026 NFC-e IBS municipal nominal rate must be %s", NFCe2026IBSMunicipalRate.String())
+	}
+	if result.CBS.Rate != NFCe2026CBSRate {
+		return fmt.Errorf("2026 NFC-e CBS nominal rate must be %s", NFCe2026CBSRate.String())
+	}
+	return nil
+}
+
+func mustReferenceTaxRate(raw string) TaxRate {
+	rate, err := ParseTaxRate(raw)
+	if err != nil {
+		panic(err)
+	}
+	return rate
+}
+
 func calculateRegularComponent(
 	base platform.Money,
 	input RegularTaxComponentInput,
