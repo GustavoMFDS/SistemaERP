@@ -300,7 +300,7 @@ func (h *FiscalHandler) PrepareRegularIBSCBSCalculation(w http.ResponseWriter, r
 	writeJSON(w, http.StatusCreated, calculation)
 }
 
-func (h *FiscalHandler) CancelNFCeHomologation(w http.ResponseWriter, r *http.Request) {
+func (h *FiscalHandler) CancelNFCe(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
@@ -312,7 +312,7 @@ func (h *FiscalHandler) CancelNFCeHomologation(w http.ResponseWriter, r *http.Re
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	outcome, err := h.svc.CancelNFCeHomologation(
+	outcome, err := h.svc.CancelNFCe(
 		r.Context(), au.TenantID, au.UserID, invoiceID, req,
 	)
 	if err != nil {
@@ -335,14 +335,14 @@ func (h *FiscalHandler) CancelNFCeHomologation(w http.ResponseWriter, r *http.Re
 	writeJSON(w, status, outcome)
 }
 
-func (h *FiscalHandler) AuthorizeNFCeHomologation(w http.ResponseWriter, r *http.Request) {
+func (h *FiscalHandler) AuthorizeNFCe(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	invoiceID := chi.URLParam(r, "invoiceID")
-	outcome, err := h.svc.AuthorizeNFCeHomologation(
+	outcome, err := h.svc.AuthorizeNFCe(
 		r.Context(), au.TenantID, au.UserID, invoiceID,
 	)
 	if err != nil {
@@ -363,6 +363,14 @@ func (h *FiscalHandler) AuthorizeNFCeHomologation(w http.ResponseWriter, r *http
 		status = http.StatusAccepted
 	}
 	writeJSON(w, status, outcome)
+}
+
+func (h *FiscalHandler) AuthorizeNFCeHomologation(w http.ResponseWriter, r *http.Request) {
+	h.AuthorizeNFCe(w, r)
+}
+
+func (h *FiscalHandler) CancelNFCeHomologation(w http.ResponseWriter, r *http.Request) {
+	h.CancelNFCe(w, r)
 }
 
 func (h *FiscalHandler) SignNFCeReserved(w http.ResponseWriter, r *http.Request) {
