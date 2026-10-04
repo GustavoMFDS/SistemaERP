@@ -166,16 +166,51 @@ func TestBuildUnsignedNFCeLegacyCandidate(t *testing.T) {
 	}
 }
 
-func TestBuildUnsignedNFCeLegacyCandidateRejectsRTC(t *testing.T) {
+func TestBuildUnsignedNFCeLegacyCandidateIncludesRTC2026(t *testing.T) {
 	input := unsignedLegacyFixture(t)
-	input.Items[0].Tax.RTCTax.IBSCBS = &fisc.RegularIBSCBSResult{
+	ibsUF, err := fisc.ParseTaxRate("0.1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ibsMunicipal, err := fisc.ParseTaxRate("0.0000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cbs, err := fisc.ParseTaxRate("0.9000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rtc, err := fisc.CalculateRegularIBSCBS(fisc.RegularIBSCBSInput{
 		CST:            "000",
 		Classification: "000001",
 		Base:           platform.NewMoneyCents(900),
+		IBSUF:          fisc.RegularTaxComponentInput{Rate: ibsUF},
+		IBSMunicipal:   fisc.RegularTaxComponentInput{Rate: ibsMunicipal},
+		CBS:            fisc.RegularTaxComponentInput{Rate: cbs},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := BuildUnsignedNFCeLegacyCandidate(input); err == nil ||
-		!strings.Contains(err.Error(), "blocks RTC XML") {
-		t.Fatalf("expected RTC block, got %v", err)
+	input.Items[0].Tax.RTCTax.IBSCBS = &rtc
+
+	content, err := BuildUnsignedNFCeLegacyCandidate(input)
+	if err != nil {
+		t.Fatalf("BuildUnsignedNFCeLegacyCandidate RTC: %v", err)
+	}
+	xml := string(content)
+	for _, want := range []string{
+		"<IBSCBS><CST>000</CST><cClassTrib>000001</cClassTrib><gIBSCBS>",
+		"<vBC>9.00</vBC>",
+		"<vIBSUF>0.01</vIBSUF>",
+		"<vIBS>0.01</vIBS>",
+		"<vCBS>0.08</vCBS>",
+		"<IBSCBSTot><vBCIBSCBS>9.00</vBCIBSCBS>",
+		"<vNF>9.00</vNF>",
+		"<vPag>9.00</vPag>",
+	} {
+		if !strings.Contains(xml, want) {
+			t.Fatalf("RTC XML missing %q: %s", want, xml)
+		}
 	}
 }
 
