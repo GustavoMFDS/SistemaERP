@@ -127,6 +127,7 @@ func TestValidateAcceptsExplicitProductionSEFAZConfiguration(t *testing.T) {
 	cfg.NFCeSchemaDir = "/opt/nfce/schema"
 	cfg.NFCeSchemaEntrypoint = "leiauteNFe_v4.00.xsd"
 	cfg.NFCeEventSchemaEntrypoint = "envEventoCancNFe_v1.00.xsd"
+	cfg.NFCeInutilizationSchemaEntrypoint = "inutNFe_v4.00.xsd"
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected explicit production SEFAZ config to validate: %v", err)
@@ -142,6 +143,7 @@ func TestValidateRejectsProductionSEFAZGateOutsideProd(t *testing.T) {
 	cfg.NFCeSchemaDir = "/opt/nfce/schema"
 	cfg.NFCeSchemaEntrypoint = "leiauteNFe_v4.00.xsd"
 	cfg.NFCeEventSchemaEntrypoint = "envEventoCancNFe_v1.00.xsd"
+	cfg.NFCeInutilizationSchemaEntrypoint = "inutNFe_v4.00.xsd"
 
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "only allowed in production") {
