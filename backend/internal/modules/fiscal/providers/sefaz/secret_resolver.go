@@ -153,3 +153,18 @@ func (s *XMLSigningService) SignCancellation(
 	}
 	return SignCancellationEventXML(unsignedXML, cert, expectedEventID, now)
 }
+
+func (s *XMLSigningService) SignInutilization(
+	ctx context.Context,
+	secretRef string,
+	expectedRequestID string,
+	unsignedXML []byte,
+) ([]byte, error) {
+	now := time.Now().UTC()
+	cert, err := ResolveAndValidateCertificate(ctx, s.resolver, secretRef, now)
+	if err != nil {
+		return nil, err
+	}
+	return SignInutilizationXML(unsignedXML, cert, expectedRequestID, now)
+}
+
