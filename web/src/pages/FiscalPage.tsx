@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { APIError, apiDownload, apiJson, errorMessage } from '../lib/api'
+import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
 
 type XMLFile = {
   id: string
@@ -226,6 +226,15 @@ export default function FiscalPage() {
     }
   }
 
+  async function onDANFE(x: XMLFile) {
+    setError('')
+    try {
+      await apiOpenPrintable(`/api/v1/fiscal/nfce/invoices/${x.invoice_id}/danfe`)
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
   return (
     <div>
       <div className="flex items-start justify-between gap-3">
@@ -423,9 +432,16 @@ export default function FiscalPage() {
                   <td className="px-3 py-2 font-mono text-xs">{x.sha256}</td>
                   <td className="px-3 py-2 font-mono text-xs">{x.created_at}</td>
                   <td className="px-3 py-2">
-                    <button type="button" onClick={() => void onDownload(x)} className="text-xs text-blue-700 hover:underline">
-                      Download
-                    </button>
+                    <div className="flex gap-3">
+                      <button type="button" onClick={() => void onDownload(x)} className="text-xs text-blue-700 hover:underline">
+                        Download XML
+                      </button>
+                      {x.file_name.startsWith('NFCe-') ? (
+                        <button type="button" onClick={() => void onDANFE(x)} className="text-xs text-blue-700 hover:underline">
+                          Imprimir DANFE
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
