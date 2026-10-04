@@ -51,6 +51,7 @@ type Config struct {
 	NFCeSchemaDir                string
 	NFCeSchemaEntrypoint         string
 	NFCeEventSchemaEntrypoint    string
+	NFCeInutilizationSchemaEntrypoint string
 	NFCeSEFAZHomologationEnabled bool
 	NFCeSEFAZProductionEnabled   bool
 	DisableRedis                 bool
@@ -120,6 +121,7 @@ func LoadFromEnv() (Config, error) {
 		NFCeSchemaDir:                strings.TrimSpace(os.Getenv("NFCE_SCHEMA_DIR")),
 		NFCeSchemaEntrypoint:         strings.TrimSpace(os.Getenv("NFCE_SCHEMA_ENTRYPOINT")),
 		NFCeEventSchemaEntrypoint:    strings.TrimSpace(os.Getenv("NFCE_EVENT_SCHEMA_ENTRYPOINT")),
+		NFCeInutilizationSchemaEntrypoint: strings.TrimSpace(os.Getenv("NFCE_INUTILIZATION_SCHEMA_ENTRYPOINT")),
 		NFCeSEFAZHomologationEnabled: getEnvBool("NFCE_SEFAZ_HOMOLOGATION_ENABLED", false),
 		NFCeSEFAZProductionEnabled:   getEnvBool("NFCE_SEFAZ_PRODUCTION_ENABLED", false),
 		DisableRedis:                 getEnvBool("DISABLE_REDIS", false),
@@ -250,6 +252,9 @@ func (c Config) Validate() error {
 	if c.NFCeEventSchemaEntrypoint != "" && c.NFCeSchemaDir == "" {
 		errs = append(errs, "NFCE_SCHEMA_DIR is required when NFCE_EVENT_SCHEMA_ENTRYPOINT is configured")
 	}
+	if c.NFCeInutilizationSchemaEntrypoint != "" && c.NFCeSchemaDir == "" {
+		errs = append(errs, "NFCE_SCHEMA_DIR is required when NFCE_INUTILIZATION_SCHEMA_ENTRYPOINT is configured")
+	}
 
 	if c.NFCeSEFAZHomologationEnabled && c.NFCeSEFAZProductionEnabled {
 		errs = append(errs, "SEFAZ homologation and production transmission flags are mutually exclusive")
@@ -270,6 +275,9 @@ func (c Config) Validate() error {
 		if c.NFCeEventSchemaEntrypoint == "" {
 			errs = append(errs, "NFCE_EVENT_SCHEMA_ENTRYPOINT is required when SEFAZ homologation is enabled")
 		}
+		if c.NFCeInutilizationSchemaEntrypoint == "" {
+			errs = append(errs, "NFCE_INUTILIZATION_SCHEMA_ENTRYPOINT is required when SEFAZ homologation is enabled")
+		}
 	}
 	if c.NFCeSEFAZProductionEnabled {
 		if e != "prod" && e != "production" {
@@ -286,6 +294,9 @@ func (c Config) Validate() error {
 		}
 		if c.NFCeEventSchemaEntrypoint == "" {
 			errs = append(errs, "NFCE_EVENT_SCHEMA_ENTRYPOINT is required when SEFAZ production is enabled")
+		}
+		if c.NFCeInutilizationSchemaEntrypoint == "" {
+			errs = append(errs, "NFCE_INUTILIZATION_SCHEMA_ENTRYPOINT is required when SEFAZ production is enabled")
 		}
 	}
 	if fiscalProvider == "sefaz" &&
