@@ -1,10 +1,10 @@
 # NFC-e model 65 foundation and homologation gate
 
-This document describes the repository state after migration 0023 and the conditions that must be met before SistemaEmGo can authorize NFC-e documents.
+This document describes the NFC-e model 65 implementation through migration 0027 and the release gates for SEFAZ authorization.
 
 ## Current repository boundary
 
-The repository currently implements **preparation**, not fiscal authorization:
+The repository implements the **normal online NFC-e lifecycle for MG**, with transmission fail-closed by configuration:
 
 - tenant-scoped issuer profile (CNPJ/IE/CRT/address/IBGE municipality code);
 - product NCM and optional CEST;
@@ -14,16 +14,30 @@ The repository currently implements **preparation**, not fiscal authorization:
 - fiscal-document sequence storage for model 65;
 - invoice fields for number, access key, protocol, authorization/rejection metadata;
 - readiness API/UI;
-- development-only NFC-e model 65 preview;
+- immutable fiscal classification snapshots and per-item tax calculations;
+- NFC-e 4.00 XML candidate generation with 2026 IBS/CBS groups and totals;
+- XMLDSig using an A1 certificate resolved only on the server;
+- offline validation against a pinned official XSD bundle;
+- QR Code v3, access-key generation, MG endpoint catalog and mTLS/SOAP transport;
+- transactional lifecycle `reserved -> signed -> submitted -> authorized/rejected`;
+- ambiguous-response recovery by access-key consultation instead of blind retransmission;
+- cancellation event build/sign/schema validation/submission/persistence;
+- development-only NFC-e model 65 preview kept separate from the SEFAZ payload;
 - integration/E2E coverage for tenant isolation and safety.
 
-Production-like environments must keep:
+Default production configuration remains:
 
 ```text
 FISCAL_PROVIDER=disabled
+NFCE_SEFAZ_PRODUCTION_ENABLED=false
 ```
 
-The preparation API never sets `nfce_configs.enabled=true`.
+Homologation uses `FISCAL_PROVIDER=sefaz` with
+`NFCE_SEFAZ_HOMOLOGATION_ENABLED=true`. Production transmission requires both
+`FISCAL_PROVIDER=sefaz` and `NFCE_SEFAZ_PRODUCTION_ENABLED=true`; those flags
+are mutually exclusive and configuration validation fails closed on invalid combinations.
+
+The preparation API never enables transmission by itself.
 
 ## Current official baseline checked on 2026-09-30
 
@@ -73,11 +87,11 @@ The database contains only opaque references such as a secret-manager path/ident
 
 A future provider must resolve those references server-side at runtime using the deployment identity and must not expose the resolved secret to handlers or the browser.
 
-## Real provider requirements
+## SEFAZ provider coverage
 
-The real SEFAZ provider must be a separate adapter and must not reuse the MVP preview as an authorization payload.
+The SEFAZ adapter is separate from the MVP preview and the MVP XML is never used as an authorization payload.
 
-At minimum it needs:
+Implemented for the normal online MG flow:
 
 - official XML schema validation for the pinned current package;
 - correct NFC-e model 65 `ide` data;
@@ -95,19 +109,24 @@ At minimum it needs:
 - protocol persistence;
 - rejected-document state;
 - timeout/ambiguous-response recovery using access-key consultation;
-- contingency flow;
 - cancellation event;
-- inutilization where legally applicable;
-- DANFE-NFC-e generation/printing;
 - immutable audit events without secret leakage.
+
+Still required before a store may enable production transmission:
+
+- contingency procedure/implementation appropriate to the store and current NFC-e rules;
+- inutilization workflow where legally applicable;
+- DANFE-NFC-e generation/printing validated against the current manual;
+- external SEFAZ homologation evidence for the exact release SHA.
 
 ## Number allocation
 
-Migration 0023 provides `fiscal_document_sequences`, but the current application does not consume numbers for real fiscal documents.
+The application reserves tenant-scoped model 65 numbers transactionally and persists the
+access key before signing. Once a signed document transitions to `submitted`, retries
+consult by access key rather than reissuing the document, so an ambiguous response cannot
+silently reuse the fiscal number.
 
-Before provider activation, define and test the number-allocation state machine so that a number is not silently reused after an external transmission attempt. Allocation/commit behavior must account for timeouts and ambiguous SEFAZ responses.
-
-Do not call the development preview number/series values fiscal numbering.
+The development MVP preview remains separate and must not be treated as fiscal numbering.
 
 ## Authorization state
 
