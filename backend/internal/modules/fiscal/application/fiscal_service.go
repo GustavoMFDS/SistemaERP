@@ -36,6 +36,10 @@ type FiscalService struct {
 	nfceCancelSigner   NFCeCancellationEventSigner
 	nfceEventValidator NFCeSchemaValidator
 	nfceCancelClient   NFCeRemoteCancellationClient
+	nfceInutBuilder    NFCeInutilizationBuilder
+	nfceInutSigner     NFCeInutilizationSigner
+	nfceInutValidator  NFCeSchemaValidator
+	nfceInutClient     NFCeRemoteInutilizationClient
 	audit              *audit.Service
 	validate           *validator.Validate
 	logger             *slog.Logger
@@ -132,6 +136,22 @@ func (s *FiscalService) SetNFCeEventSchemaValidator(schemaValidator NFCeSchemaVa
 
 func (s *FiscalService) SetNFCeRemoteCancellationClient(client NFCeRemoteCancellationClient) {
 	s.nfceCancelClient = client
+}
+
+func (s *FiscalService) SetNFCeInutilizationBuilder(builder NFCeInutilizationBuilder) {
+	s.nfceInutBuilder = builder
+}
+
+func (s *FiscalService) SetNFCeInutilizationSigner(signer NFCeInutilizationSigner) {
+	s.nfceInutSigner = signer
+}
+
+func (s *FiscalService) SetNFCeInutilizationSchemaValidator(validator NFCeSchemaValidator) {
+	s.nfceInutValidator = validator
+}
+
+func (s *FiscalService) SetNFCeRemoteInutilizationClient(client NFCeRemoteInutilizationClient) {
+	s.nfceInutClient = client
 }
 
 func NewFiscalServiceWithProvider(
@@ -2004,7 +2024,11 @@ func (s *FiscalService) productionTransmissionStackReady() bool {
 		s.nfceCancelBuilder != nil &&
 		s.nfceCancelSigner != nil &&
 		s.nfceEventValidator != nil &&
-		s.nfceCancelClient != nil
+		s.nfceCancelClient != nil &&
+		s.nfceInutBuilder != nil &&
+		s.nfceInutSigner != nil &&
+		s.nfceInutValidator != nil &&
+		s.nfceInutClient != nil
 }
 
 func (s *FiscalService) SetNFCeProductionTransmission(
