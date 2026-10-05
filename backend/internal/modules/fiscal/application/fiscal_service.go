@@ -1114,6 +1114,49 @@ func (s *FiscalService) GetNFCeDocumentDraft(
 	}, nil
 }
 
+func (s *FiscalService) prepareOfflineQRCodeSignature(
+	ctx context.Context,
+	tenantID string,
+	draft fisc.NFCeDocumentDraft,
+) (fisc.NFCeDocumentDraft, error) {
+	if draft.Reservation.EmissionType != fisc.NFCeOfflineContingencyEmissionType {
+		return draft, nil
+	}
+	if s.nfceDoc == nil || s.nfceSigner == nil {
+		return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+	}
+	cfg, err := s.fiscal.GetNFCeConfig(ctx, tenantID)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	if cfg.CertificateSecretRef == nil ||
+		strings.TrimSpace(*cfg.CertificateSecretRef) == "" {
+		return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+	}
+	if draft.Reservation.Environment == "production" &&
+		(!cfg.Enabled || !s.productionTransmissionStackReady()) {
+		return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+	}
+	payload, err := s.nfceDoc.BuildOfflineQRCodeSigningPayload(draft)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	signature, err := s.nfceSigner.SignQRCode(
+		ctx,
+		strings.TrimSpace(*cfg.CertificateSecretRef),
+		payload,
+	)
+	if err != nil {
+		return fisc.NFCeDocumentDraft{}, err
+	}
+	signature = strings.TrimSpace(signature)
+	if signature == "" {
+		return fisc.NFCeDocumentDraft{}, common.ErrFiscalNotReady
+	}
+	draft.QRCodeSignature = &signature
+	return draft, nil
+}
+
 func (s *FiscalService) BuildNFCeUnsignedCandidate(
 	ctx context.Context,
 	tenantID, invoiceID string,
@@ -1122,6 +1165,10 @@ func (s *FiscalService) BuildNFCeUnsignedCandidate(
 		return nil, "", common.ErrFiscalNotReady
 	}
 	draft, err := s.GetNFCeDocumentDraft(ctx, tenantID, invoiceID)
+	if err != nil {
+		return nil, "", err
+	}
+	draft, err = s.prepareOfflineQRCodeSignature(ctx, tenantID, draft)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1140,6 +1187,10 @@ func (s *FiscalService) SignNFCeReserved(
 		return "", "", common.ErrFiscalNotReady
 	}
 	draft, err := s.GetNFCeDocumentDraft(ctx, tenantID, invoiceID)
+	if err != nil {
+		return "", "", err
+	}
+	draft, err = s.prepareOfflineQRCodeSignature(ctx, tenantID, draft)
 	if err != nil {
 		return "", "", err
 	}
