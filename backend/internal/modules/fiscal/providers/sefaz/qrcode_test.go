@@ -1,6 +1,7 @@
 package sefaz
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +104,29 @@ func TestBuildOfflineQRCodeV3ForUnidentifiedConsumer(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "p="+wantPayload+"|"+signature) {
 		t.Fatalf("unexpected offline QR URL: %s", got)
+	}
+}
+
+func TestBuildOfflineQRCodeV3EscapesBase64SignatureCharacters(t *testing.T) {
+	const payload = "31261012345678000195650070000001239876543210|3|2|05|9.00||"
+	const signature = "++//AA=="
+	got, err := BuildOfflineQRCodeV3URL(
+		"https://portal.example/nfce/qrcode",
+		payload,
+		signature,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "p="+payload+"|%2B%2B%2F%2FAA%3D%3D") {
+		t.Fatalf("offline QR signature was not safely escaped: %s", got)
+	}
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := parsed.Query().Get("p"); value != payload+"|"+signature {
+		t.Fatalf("decoded p=%q want=%q", value, payload+"|"+signature)
 	}
 }
 
