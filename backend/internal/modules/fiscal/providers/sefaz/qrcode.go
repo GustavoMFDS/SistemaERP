@@ -119,4 +119,3 @@ func BuildOfflineQRCodeV3URL(
 	}
 	return parsed.String(), nil
 }
-
