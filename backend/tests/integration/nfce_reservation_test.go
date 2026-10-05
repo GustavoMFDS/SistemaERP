@@ -31,6 +31,12 @@ func (fakeNFCeDocumentBuilder) BuildUnsignedLegacyCandidate(
 	return []byte("<NFe><infNFe Id=\"NFe-test\"/></NFe>"), nil
 }
 
+func (fakeNFCeDocumentBuilder) BuildOfflineQRCodeSigningPayload(
+	_ fisc.NFCeDocumentDraft,
+) (string, error) {
+	return "offline-qr-payload", nil
+}
+
 func (fakeNFCeDocumentBuilder) BuildUnsignedInutilization(
 	_ fisc.NFCeInutilizationDraft,
 ) ([]byte, string, error) {
@@ -46,6 +52,14 @@ func (fakeNFCeSigner) Sign(
 	unsignedXML []byte,
 ) ([]byte, error) {
 	return append([]byte(nil), unsignedXML...), nil
+}
+
+func (fakeNFCeSigner) SignQRCode(
+	_ context.Context,
+	_ string,
+	_ string,
+) (string, error) {
+	return "c2lnbmF0dXJl", nil
 }
 
 func (fakeNFCeSigner) SignInutilization(
