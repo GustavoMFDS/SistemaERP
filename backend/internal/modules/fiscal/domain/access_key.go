@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	NFCeModel                     = 65
-	NFCeNormalEmissionType        = 1
+	NFCeModel                          = 65
+	NFCeNormalEmissionType             = 1
 	NFCeOfflineContingencyEmissionType = 9
 )
 
