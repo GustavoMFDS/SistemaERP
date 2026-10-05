@@ -458,6 +458,99 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("unexpected production reservation: %+v created=%t", productionReservation, created)
 	}
 
+	var contingencySaleID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO sales(
+			tenant_id, cash_session_id, status, subtotal, discount_value, total,
+			profit_estimated, created_by_user_id
+		)
+		VALUES ($1,$2,'finalized',10,0,10,5,$3)
+		RETURNING id::text
+	`, tenantID, cashSessionID, actorUserID).Scan(&contingencySaleID); err != nil {
+		t.Fatalf("create contingency sale: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO sale_items(
+			tenant_id, sale_id, product_id, qty, unit_price, discount_value,
+			subtotal, cost_unit
+		)
+		VALUES ($1,$2,$3,1,10,0,10,5)
+	`, tenantID, contingencySaleID, productID); err != nil {
+		t.Fatalf("create contingency sale item: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM audit_logs WHERE tenant_id=$1 AND resource_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`,
+			tenantID, contingencySaleID,
+		)
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM invoices WHERE tenant_id=$1 AND sale_id=$2`,
+			tenantID, contingencySaleID,
+		)
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM sales WHERE tenant_id=$1 AND id=$2`,
+			tenantID, contingencySaleID,
+		)
+	})
+
+	contingencyIssuedAt := issuedAt.Add(3 * time.Hour)
+	contingencyStartedAt := contingencyIssuedAt.Add(-5 * time.Minute)
+	const contingencyReason = "Indisponibilidade de comunicacao com a SEFAZ durante a venda."
+	contingencyReservation, created, err := service.ReserveNFCeOfflineContingency(
+		ctx,
+		tenantID,
+		actorUserID,
+		contingencySaleID,
+		contingencyIssuedAt,
+		contingencyStartedAt,
+		contingencyReason,
+	)
+	if err != nil {
+		t.Fatalf("reserve production offline contingency: %v", err)
+	}
+	if !created ||
+		contingencyReservation.EmissionType != fisc.NFCeOfflineContingencyEmissionType ||
+		contingencyReservation.DocumentNumber != productionReservation.DocumentNumber+1 ||
+		contingencyReservation.AccessKey[34] != '9' ||
+		contingencyReservation.ContingencyStartedAt == nil ||
+		!contingencyReservation.ContingencyStartedAt.Equal(contingencyStartedAt) ||
+		contingencyReservation.ContingencyJustification == nil ||
+		*contingencyReservation.ContingencyJustification != contingencyReason {
+		t.Fatalf("unexpected contingency reservation: %+v", contingencyReservation)
+	}
+
+	var (
+		storedEmissionType int
+		storedStartedAt    time.Time
+		storedReason       string
+	)
+	if err := pool.QueryRow(ctx, `
+		SELECT emission_type, contingency_started_at, contingency_reason
+		FROM invoices
+		WHERE tenant_id=$1 AND id=$2
+	`, tenantID, contingencyReservation.InvoiceID).Scan(
+		&storedEmissionType,
+		&storedStartedAt,
+		&storedReason,
+	); err != nil {
+		t.Fatalf("read contingency metadata: %v", err)
+	}
+	if storedEmissionType != fisc.NFCeOfflineContingencyEmissionType ||
+		!storedStartedAt.Equal(contingencyStartedAt) ||
+		storedReason != contingencyReason {
+		t.Fatalf(
+			"unexpected stored contingency metadata: type=%d at=%s reason=%q",
+			storedEmissionType,
+			storedStartedAt,
+			storedReason,
+		)
+	}
+	if _, _, err := service.ReserveNFCeDraft(
+		ctx, tenantID, actorUserID, contingencySaleID, contingencyIssuedAt,
+	); !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("normal reservation must not replace contingency reservation: %v", err)
+	}
+
 	productionCfg, err = service.SetNFCeProductionTransmission(
 		ctx, tenantID, actorUserID, false,
 	)
