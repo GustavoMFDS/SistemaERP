@@ -124,37 +124,37 @@ type danfeInfNFeSuplXML struct {
 }
 
 type danfeView struct {
-	IssuerName       string
-	IssuerTradeName  string
-	IssuerCNPJ       string
-	IssuerIE         string
-	IssuerAddress    string
-	Homologation        bool
-	Cancelled           bool
-	OfflineContingency  bool
+	IssuerName           string
+	IssuerTradeName      string
+	IssuerCNPJ           string
+	IssuerIE             string
+	IssuerAddress        string
+	Homologation         bool
+	Cancelled            bool
+	OfflineContingency   bool
 	PendingAuthorization bool
 	ContingencyStartedAt string
 	ContingencyReason    string
-	Items               []danfeItemView
-	ItemCount        int
-	ProductTotal     string
-	Freight          string
-	Insurance        string
-	Other            string
-	Discount         string
-	AmountDue        string
-	Payments         []danfePaymentView
-	Change           string
-	Number           int64
-	Series           int
-	IssuedAt         string
-	AccessKey        string
-	AccessKeyGrouped string
-	ConsultationURL  string
-	Protocol         string
-	AuthorizedAt     string
-	Consumer         danfeConsumerView
-	QRCodeDataURL    template.URL
+	Items                []danfeItemView
+	ItemCount            int
+	ProductTotal         string
+	Freight              string
+	Insurance            string
+	Other                string
+	Discount             string
+	AmountDue            string
+	Payments             []danfePaymentView
+	Change               string
+	Number               int64
+	Series               int
+	IssuedAt             string
+	AccessKey            string
+	AccessKeyGrouped     string
+	ConsultationURL      string
+	Protocol             string
+	AuthorizedAt         string
+	Consumer             danfeConsumerView
+	QRCodeDataURL        template.URL
 }
 
 type danfeItemView struct {
@@ -274,37 +274,37 @@ func (r *DANFERenderer) Render(
 	}
 
 	view := danfeView{
-		IssuerName:       strings.TrimSpace(doc.InfNFe.Emit.XNome),
-		IssuerTradeName:  strings.TrimSpace(doc.InfNFe.Emit.XFant),
-		IssuerCNPJ:       formatCNPJ(doc.InfNFe.Emit.CNPJ),
-		IssuerIE:         strings.TrimSpace(doc.InfNFe.Emit.IE),
-		IssuerAddress:    formatIssuerAddress(doc.InfNFe.Emit.EnderEmit),
-		Homologation:        reservation.Environment == "homologation" || doc.InfNFe.Ide.TpAmb == "2",
-		Cancelled:           reservation.Status == fisc.NFCeStatusCancelled,
-		OfflineContingency: reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType,
+		IssuerName:           strings.TrimSpace(doc.InfNFe.Emit.XNome),
+		IssuerTradeName:      strings.TrimSpace(doc.InfNFe.Emit.XFant),
+		IssuerCNPJ:           formatCNPJ(doc.InfNFe.Emit.CNPJ),
+		IssuerIE:             strings.TrimSpace(doc.InfNFe.Emit.IE),
+		IssuerAddress:        formatIssuerAddress(doc.InfNFe.Emit.EnderEmit),
+		Homologation:         reservation.Environment == "homologation" || doc.InfNFe.Ide.TpAmb == "2",
+		Cancelled:            reservation.Status == fisc.NFCeStatusCancelled,
+		OfflineContingency:   reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType,
 		PendingAuthorization: offlinePending,
 		ContingencyStartedAt: contingencyStartedAt,
 		ContingencyReason:    contingencyReason,
-		Items:               items,
-		ItemCount:        len(items),
-		ProductTotal:     formatMoneyBR(doc.InfNFe.Total.ICMSTot.VProd),
-		Freight:          optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VFrete),
-		Insurance:        optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VSeg),
-		Other:            optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VOutro),
-		Discount:         optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VDesc),
-		AmountDue:        formatMoneyBR(doc.InfNFe.Total.ICMSTot.VNF),
-		Payments:         payments,
-		Change:           optionalMoneyBR(doc.InfNFe.Pag.Troco),
-		Number:           reservation.DocumentNumber,
-		Series:           reservation.Series,
-		IssuedAt:         formatFiscalTimestamp(doc.InfNFe.Ide.DhEmi),
-		AccessKey:        reservation.AccessKey,
-		AccessKeyGrouped: groupAccessKey(reservation.AccessKey),
-		ConsultationURL:  consultURL,
-		Protocol:         protocol,
-		AuthorizedAt:     authorizedAt,
-		Consumer:         danfeConsumer(doc.InfNFe.Dest),
-		QRCodeDataURL:    template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG)),
+		Items:                items,
+		ItemCount:            len(items),
+		ProductTotal:         formatMoneyBR(doc.InfNFe.Total.ICMSTot.VProd),
+		Freight:              optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VFrete),
+		Insurance:            optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VSeg),
+		Other:                optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VOutro),
+		Discount:             optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VDesc),
+		AmountDue:            formatMoneyBR(doc.InfNFe.Total.ICMSTot.VNF),
+		Payments:             payments,
+		Change:               optionalMoneyBR(doc.InfNFe.Pag.Troco),
+		Number:               reservation.DocumentNumber,
+		Series:               reservation.Series,
+		IssuedAt:             formatFiscalTimestamp(doc.InfNFe.Ide.DhEmi),
+		AccessKey:            reservation.AccessKey,
+		AccessKeyGrouped:     groupAccessKey(reservation.AccessKey),
+		ConsultationURL:      consultURL,
+		Protocol:             protocol,
+		AuthorizedAt:         authorizedAt,
+		Consumer:             danfeConsumer(doc.InfNFe.Dest),
+		QRCodeDataURL:        template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG)),
 	}
 
 	var out bytes.Buffer
