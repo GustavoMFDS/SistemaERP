@@ -1549,4 +1549,3 @@ func (r *FiscalRepo) ApplyNFCeInutilizationResult(
 	}
 	return common.ErrValidation
 }
-
