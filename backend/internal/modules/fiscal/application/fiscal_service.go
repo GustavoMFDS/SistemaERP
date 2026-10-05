@@ -2465,6 +2465,26 @@ func pairedFiscalCodes(cst, classification *string, requirePrefix bool) bool {
 	return true
 }
 
+func productionNFCeDataReady(readiness fisc.NFCeReadiness) bool {
+	if !readiness.ConfigExists ||
+		readiness.Environment != "production" ||
+		!readiness.IssuerIdentityConfigured ||
+		!readiness.IssuerAddressConfigured ||
+		!readiness.MunicipalityCodeConfigured ||
+		!readiness.CertificateReferenceConfigured ||
+		readiness.ActiveProducts < 1 ||
+		readiness.ProductsMissingNCM > 0 ||
+		readiness.ProductsMissingFiscalProfile > 0 {
+		return false
+	}
+	for _, reason := range readiness.BlockingReasons {
+		if reason != "homologation_environment" {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *FiscalService) productionTransmissionStackReady() bool {
 	return s.nfceDoc != nil &&
 		s.nfceSigner != nil &&
@@ -2493,6 +2513,13 @@ func (s *FiscalService) SetNFCeProductionTransmission(
 		if cfg.Environment != "production" ||
 			!cfg.CertificateReferenceConfigured ||
 			!s.productionTransmissionStackReady() {
+			return fisc.NFCeConfig{}, common.ErrFiscalNotReady
+		}
+		readiness, err := s.fiscal.GetNFCeReadiness(ctx, tenantID)
+		if err != nil {
+			return fisc.NFCeConfig{}, err
+		}
+		if !productionNFCeDataReady(readiness) {
 			return fisc.NFCeConfig{}, common.ErrFiscalNotReady
 		}
 	}
