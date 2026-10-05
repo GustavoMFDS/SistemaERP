@@ -36,10 +36,13 @@ type danfeInfNFeXML struct {
 }
 
 type danfeIdeXML struct {
-	Serie int    `xml:"serie"`
-	NNF   int64  `xml:"nNF"`
-	DhEmi string `xml:"dhEmi"`
-	TpAmb string `xml:"tpAmb"`
+	Serie  int    `xml:"serie"`
+	NNF    int64  `xml:"nNF"`
+	DhEmi  string `xml:"dhEmi"`
+	DhCont string `xml:"dhCont"`
+	XJust  string `xml:"xJust"`
+	TpEmis int    `xml:"tpEmis"`
+	TpAmb  string `xml:"tpAmb"`
 }
 
 type danfeEmitXML struct {
@@ -126,9 +129,13 @@ type danfeView struct {
 	IssuerCNPJ       string
 	IssuerIE         string
 	IssuerAddress    string
-	Homologation     bool
-	Cancelled        bool
-	Items            []danfeItemView
+	Homologation        bool
+	Cancelled           bool
+	OfflineContingency  bool
+	PendingAuthorization bool
+	ContingencyStartedAt string
+	ContingencyReason    string
+	Items               []danfeItemView
 	ItemCount        int
 	ProductTotal     string
 	Freight          string
@@ -179,11 +186,21 @@ func (r *DANFERenderer) Render(
 	if r == nil {
 		return nil, fmt.Errorf("DANFE renderer is not configured")
 	}
+	offlinePending := reservation.Status == fisc.NFCeStatusSigned &&
+		reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType
 	if reservation.Status != fisc.NFCeStatusAuthorized &&
-		reservation.Status != fisc.NFCeStatusCancelled {
-		return nil, fmt.Errorf("DANFE requires an authorized or cancelled NFC-e")
+		reservation.Status != fisc.NFCeStatusCancelled &&
+		!offlinePending {
+		return nil, fmt.Errorf("DANFE requires an authorized/cancelled NFC-e or a signed offline contingency")
 	}
-	if reservation.AuthorizationProtocol == nil ||
+	if offlinePending {
+		if reservation.ContingencyStartedAt == nil ||
+			reservation.ContingencyStartedAt.IsZero() ||
+			reservation.ContingencyJustification == nil ||
+			strings.TrimSpace(*reservation.ContingencyJustification) == "" {
+			return nil, fmt.Errorf("offline contingency metadata is incomplete")
+		}
+	} else if reservation.AuthorizationProtocol == nil ||
 		strings.TrimSpace(*reservation.AuthorizationProtocol) == "" ||
 		reservation.AuthorizedAt == nil ||
 		reservation.AuthorizedAt.IsZero() {
@@ -201,7 +218,8 @@ func (r *DANFERenderer) Render(
 		return nil, fmt.Errorf("DANFE XML access key does not match reservation")
 	}
 	if doc.InfNFe.Ide.NNF != reservation.DocumentNumber ||
-		doc.InfNFe.Ide.Serie != reservation.Series {
+		doc.InfNFe.Ide.Serie != reservation.Series ||
+		doc.InfNFe.Ide.TpEmis != reservation.EmissionType {
 		return nil, fmt.Errorf("DANFE XML document identity does not match reservation")
 	}
 	qrURL := strings.TrimSpace(doc.InfNFeSupl.QRCode)
@@ -238,15 +256,36 @@ func (r *DANFERenderer) Render(
 		})
 	}
 
+	protocol := ""
+	authorizedAt := ""
+	if reservation.AuthorizationProtocol != nil {
+		protocol = strings.TrimSpace(*reservation.AuthorizationProtocol)
+	}
+	if reservation.AuthorizedAt != nil && !reservation.AuthorizedAt.IsZero() {
+		authorizedAt = reservation.AuthorizedAt.Format("02/01/2006 15:04:05 -07:00")
+	}
+	contingencyStartedAt := ""
+	contingencyReason := ""
+	if reservation.ContingencyStartedAt != nil {
+		contingencyStartedAt = reservation.ContingencyStartedAt.Format("02/01/2006 15:04:05 -07:00")
+	}
+	if reservation.ContingencyJustification != nil {
+		contingencyReason = strings.TrimSpace(*reservation.ContingencyJustification)
+	}
+
 	view := danfeView{
 		IssuerName:       strings.TrimSpace(doc.InfNFe.Emit.XNome),
 		IssuerTradeName:  strings.TrimSpace(doc.InfNFe.Emit.XFant),
 		IssuerCNPJ:       formatCNPJ(doc.InfNFe.Emit.CNPJ),
 		IssuerIE:         strings.TrimSpace(doc.InfNFe.Emit.IE),
 		IssuerAddress:    formatIssuerAddress(doc.InfNFe.Emit.EnderEmit),
-		Homologation:     reservation.Environment == "homologation" || doc.InfNFe.Ide.TpAmb == "2",
-		Cancelled:        reservation.Status == fisc.NFCeStatusCancelled,
-		Items:            items,
+		Homologation:        reservation.Environment == "homologation" || doc.InfNFe.Ide.TpAmb == "2",
+		Cancelled:           reservation.Status == fisc.NFCeStatusCancelled,
+		OfflineContingency: reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType,
+		PendingAuthorization: offlinePending,
+		ContingencyStartedAt: contingencyStartedAt,
+		ContingencyReason:    contingencyReason,
+		Items:               items,
 		ItemCount:        len(items),
 		ProductTotal:     formatMoneyBR(doc.InfNFe.Total.ICMSTot.VProd),
 		Freight:          optionalMoneyBR(doc.InfNFe.Total.ICMSTot.VFrete),
@@ -262,8 +301,8 @@ func (r *DANFERenderer) Render(
 		AccessKey:        reservation.AccessKey,
 		AccessKeyGrouped: groupAccessKey(reservation.AccessKey),
 		ConsultationURL:  consultURL,
-		Protocol:         strings.TrimSpace(*reservation.AuthorizationProtocol),
-		AuthorizedAt:     reservation.AuthorizedAt.Format("02/01/2006 15:04:05 -07:00"),
+		Protocol:         protocol,
+		AuthorizedAt:     authorizedAt,
 		Consumer:         danfeConsumer(doc.InfNFe.Dest),
 		QRCodeDataURL:    template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG)),
 	}
@@ -317,6 +356,8 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 </header>
 
 {{if .Homologation}}<div class="banner">EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO — SEM VALOR FISCAL</div>{{end}}
+{{if .OfflineContingency}}<div class="banner">EMITIDA EM CONTINGÊNCIA</div>{{end}}
+{{if .PendingAuthorization}}<div class="banner">PENDENTE DE TRANSMISSÃO / AUTORIZAÇÃO SEFAZ</div>{{end}}
 {{if .Cancelled}}<div class="banner">NFC-e CANCELADA</div>{{end}}
 
 <section class="section">
@@ -354,8 +395,16 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 <div class="muted">Consulte pela chave de acesso em</div>
 <div>{{.ConsultationURL}}</div>
 <div class="key">{{.AccessKeyGrouped}}</div>
+{{if .OfflineContingency}}
+<div>Entrada em contingência: {{.ContingencyStartedAt}}</div>
+<div class="muted">Motivo: {{.ContingencyReason}}</div>
+{{end}}
+{{if .Protocol}}
 <div>Protocolo de Autorização: {{.Protocol}}</div>
 <div>{{.AuthorizedAt}}</div>
+{{else if .PendingAuthorization}}
+<div class="strong">Sem protocolo — transmissão pendente</div>
+{{end}}
 </section>
 
 <section class="section center">
