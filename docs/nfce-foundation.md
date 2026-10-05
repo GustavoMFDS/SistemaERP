@@ -78,7 +78,7 @@ Do not vendor an old XSD package and assume it remains current. Pin the exact of
 
 ## Preparation flow
 
-1. Apply migration 0023.
+1. Apply the full fiscal migration chain through migration 0029.
 2. Keep fiscal provider disabled.
 3. Complete the issuer through `GET/PUT /api/v1/fiscal/nfce/issuer`.
 4. Classify active products with NCM; add CEST where applicable.
@@ -107,7 +107,7 @@ The SEFAZ provider resolves those references server-side at runtime using the de
 
 The SEFAZ adapter is separate from the MVP preview and the MVP XML is never used as an authorization payload.
 
-Implemented for the normal online MG flow:
+Implemented for the normal online MG flow and the controlled offline-contingency path:
 
 - official XML schema validation for the pinned current package;
 - correct NFC-e model 65 `ide` data;
@@ -126,16 +126,18 @@ Implemented for the normal online MG flow:
 - rejected-document state;
 - timeout/ambiguous-response recovery using access-key consultation;
 - cancellation event;
-- DANFE-NFC-e completo gerado server-side a partir do XML fiscal autorizado, com dados do emitente, itens, totais, pagamentos, chave, protocolo e QR Code embutido para impressão térmica/A4;
-- acesso ao DANFE protegido por `invoice:read` e auditado em cada abertura;
+- number inutilization through `NFeInutilizacao4`, with signed `inutNFe`, pinned XSD validation, immutable persistence, unused-range checks, overlap locking and no blind retransmission after an ambiguous response;
+- offline contingency with `tpEmis=9`, fresh fiscal numbering, persisted `dhCont`/justification, QR Code v3 signed with RSA/SHA-1 by the same A1 key and later transmission through the normal authorization lifecycle;
+- DANFE-NFC-e generated server-side from the stored fiscal XML, including pre-authorization printing for a signed offline-contingency document and authorized/cancelled printing for the normal flow;
+- access to DANFE protected by `invoice:read` and audited on every open;
 - immutable audit events without secret leakage.
 
 Still required before a store may enable production transmission:
 
-- contingency procedure/implementation appropriate to the store and current NFC-e rules;
-- inutilization workflow where legally applicable;
-- validação operacional do DANFE-NFC-e em impressora real contra o manual vigente;
-- external SEFAZ homologation evidence for the exact release SHA.
+- external SEFAZ homologation evidence for the exact release SHA, including authorization, cancellation and inutilization;
+- an operational contingency drill in the target store, including reconnect/transmission within the applicable deadline;
+- operational DANFE-NFC-e validation on the real printer/media used by the store;
+- accountant/fiscal approval of the configured tax rules and the store-specific operating procedure.
 
 ## Number allocation
 
@@ -145,6 +147,57 @@ consult by access key rather than reissuing the document, so an ambiguous respon
 silently reuse the fiscal number.
 
 The development MVP preview remains separate and must not be treated as fiscal numbering.
+
+Offline contingency uses the same tenant/model/series sequence allocator and therefore
+always consumes a new fiscal number. Calling the normal reservation path for a sale that
+already owns an offline-contingency reservation fails with a conflict instead of replacing
+or reusing that document. The inutilization service also rejects any range containing a
+number already present in `invoices`, including a number issued with `tpEmis=9`.
+
+## Offline contingency flow
+
+Offline contingency is an explicit operator/recovery path; it is never selected merely
+because an HTTP request to SEFAZ timed out.
+
+1. Reserve a new contingency NFC-e:
+   `POST /api/v1/fiscal/nfce/reservations/offline-contingency` with
+   `sale_id`, `issued_at`, `contingency_started_at` and a 15–256 character
+   `justification`.
+2. Complete the same immutable item-tax calculations required by normal NFC-e.
+3. Sign through `POST /api/v1/fiscal/nfce/invoices/{invoiceID}/sign`.
+   The server signs both the NFC-e XML and the QR Code v3 payload with the A1 key.
+4. Print/open the signed contingency DANFE through
+   `GET /api/v1/fiscal/nfce/invoices/{invoiceID}/danfe`.
+   Before authorization it is explicitly marked as contingency and as pending
+   SEFAZ transmission; no authorization protocol is invented.
+5. When communication returns, call
+   `POST /api/v1/fiscal/nfce/invoices/{invoiceID}/authorize`.
+   The existing submitted/consult lifecycle prevents a blind duplicate transmission
+   after an ambiguous response.
+
+## Number inutilization flow
+
+Inutilization is restricted to unused model-65 numbers. The request is signed and
+persisted before the remote call, and a network error leaves the operation in
+`submitted`; replay returns the pending record rather than resending the range blindly.
+
+Use:
+
+```http
+POST /api/v1/fiscal/nfce/inutilizations
+Content-Type: application/json
+
+{
+  "year": 2026,
+  "series": 1,
+  "start_number": 101,
+  "end_number": 110,
+  "justification": "Falha operacional pulou esta faixa fiscal."
+}
+```
+
+The SEFAZ deployment configuration must pin an inutilization schema entrypoint through
+`NFCE_INUTILIZATION_SCHEMA_ENTRYPOINT` in addition to the NFC-e and event schemas.
 
 ## Authorization state
 
@@ -174,8 +227,9 @@ Do not enable production transmission until there is evidence for the exact rele
 - timeout after send is recovered by consultation rather than blind reissue;
 - rejection codes are persisted and surfaced safely;
 - cancellation is homologated;
-- contingency procedure is tested;
-- DANFE-NFC-e is validated;
+- offline contingency issuance, signed QR Code, DANFE and delayed authorization are tested;
+- number inutilization is homologated and the ambiguous-response procedure is tested;
+- DANFE-NFC-e is validated on the real target printer;
 - secret rotation is tested;
 - certificate expiry monitoring exists;
 - per-tenant isolation is proven;
