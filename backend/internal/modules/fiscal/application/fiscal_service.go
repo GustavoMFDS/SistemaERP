@@ -298,8 +298,72 @@ func (s *FiscalService) ReserveNFCeDraft(
 	tenantID, actorUserID, saleID string,
 	issuedAt time.Time,
 ) (fisc.NFCeReservation, bool, error) {
+	return s.reserveNFCeDraftWithMode(
+		ctx,
+		tenantID,
+		actorUserID,
+		saleID,
+		issuedAt,
+		fisc.NFCeNormalEmissionType,
+		nil,
+		nil,
+	)
+}
+
+func (s *FiscalService) ReserveNFCeOfflineContingency(
+	ctx context.Context,
+	tenantID, actorUserID, saleID string,
+	issuedAt, contingencyStartedAt time.Time,
+	justification string,
+) (fisc.NFCeReservation, bool, error) {
+	justification = strings.TrimSpace(justification)
+	if contingencyStartedAt.IsZero() ||
+		contingencyStartedAt.After(issuedAt) ||
+		len([]rune(justification)) < 15 ||
+		len([]rune(justification)) > 256 {
+		return fisc.NFCeReservation{}, false, common.ErrValidation
+	}
+	return s.reserveNFCeDraftWithMode(
+		ctx,
+		tenantID,
+		actorUserID,
+		saleID,
+		issuedAt,
+		fisc.NFCeOfflineContingencyEmissionType,
+		&contingencyStartedAt,
+		&justification,
+	)
+}
+
+func (s *FiscalService) reserveNFCeDraftWithMode(
+	ctx context.Context,
+	tenantID, actorUserID, saleID string,
+	issuedAt time.Time,
+	emissionType int,
+	contingencyStartedAt *time.Time,
+	contingencyJustification *string,
+) (fisc.NFCeReservation, bool, error) {
 	saleID = strings.TrimSpace(saleID)
 	if issuedAt.IsZero() || s.validate.Var(saleID, "required,uuid") != nil {
+		return fisc.NFCeReservation{}, false, common.ErrValidation
+	}
+	switch emissionType {
+	case fisc.NFCeNormalEmissionType:
+		if contingencyStartedAt != nil || contingencyJustification != nil {
+			return fisc.NFCeReservation{}, false, common.ErrValidation
+		}
+	case fisc.NFCeOfflineContingencyEmissionType:
+		if contingencyStartedAt == nil || contingencyStartedAt.IsZero() ||
+			contingencyStartedAt.After(issuedAt) ||
+			contingencyJustification == nil {
+			return fisc.NFCeReservation{}, false, common.ErrValidation
+		}
+		reason := strings.TrimSpace(*contingencyJustification)
+		if len([]rune(reason)) < 15 || len([]rune(reason)) > 256 {
+			return fisc.NFCeReservation{}, false, common.ErrValidation
+		}
+		contingencyJustification = &reason
+	default:
 		return fisc.NFCeReservation{}, false, common.ErrValidation
 	}
 
@@ -319,6 +383,20 @@ func (s *FiscalService) ReserveNFCeDraft(
 
 	existing, err := s.fiscal.GetNFCeReservationBySale(ctx, tx, tenantID, saleID)
 	if err == nil {
+		if existing.EmissionType != emissionType {
+			return fisc.NFCeReservation{}, false, common.ErrConflict
+		}
+		if emissionType == fisc.NFCeOfflineContingencyEmissionType {
+			if existing.ContingencyStartedAt == nil ||
+				contingencyStartedAt == nil ||
+				!existing.ContingencyStartedAt.Equal(*contingencyStartedAt) ||
+				existing.ContingencyJustification == nil ||
+				contingencyJustification == nil ||
+				strings.TrimSpace(*existing.ContingencyJustification) !=
+					strings.TrimSpace(*contingencyJustification) {
+				return fisc.NFCeReservation{}, false, common.ErrConflict
+			}
+		}
 		_ = tx.Rollback(ctx)
 		return existing, false, nil
 	}
@@ -394,7 +472,7 @@ func (s *FiscalService) ReserveNFCeDraft(
 		Series:       reservationContext.Config.Series,
 		Number:       number,
 		NumericCode:  numericCode,
-		EmissionType: fisc.NFCeNormalEmissionType,
+		EmissionType: emissionType,
 	})
 	if err != nil {
 		return fisc.NFCeReservation{}, false, common.ErrValidation
@@ -408,10 +486,12 @@ func (s *FiscalService) ReserveNFCeDraft(
 		DocumentNumber: number,
 		Environment:    reservationContext.Config.Environment,
 		AccessKey:      accessKey,
-		EmissionType:   fisc.NFCeNormalEmissionType,
-		NumericCode:    numericCode,
-		CheckDigit:     int(accessKey[len(accessKey)-1] - '0'),
-		IssuedAt:       issuedAt,
+		EmissionType:             emissionType,
+		NumericCode:              numericCode,
+		CheckDigit:               int(accessKey[len(accessKey)-1] - '0'),
+		IssuedAt:                 issuedAt,
+		ContingencyStartedAt:     contingencyStartedAt,
+		ContingencyJustification: contingencyJustification,
 	}
 	invoiceID, err := s.fiscal.CreateNFCeReservation(
 		ctx, tx, tenantID, actorUserID, reservation,
