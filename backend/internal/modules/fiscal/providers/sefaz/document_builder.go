@@ -110,4 +110,3 @@ func (b *DocumentBuilder) BuildOfflineQRCodeSigningPayload(
 		draft.CommercialTotal,
 	)
 }
-
