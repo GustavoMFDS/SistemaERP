@@ -36,4 +36,5 @@ type NFCeDocumentDraft struct {
 	CommercialTotal platform.Money        `json:"commercial_total"`
 	Items           []NFCeDocumentItem    `json:"items"`
 	Payments        []NFCeDocumentPayment `json:"payments"`
+	QRCodeSignature *string               `json:"-"`
 }
