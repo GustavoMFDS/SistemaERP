@@ -180,4 +180,3 @@ func (s *XMLSigningService) SignQRCode(
 	}
 	return SignOfflineQRCodeV3(payload, cert, now)
 }
-
