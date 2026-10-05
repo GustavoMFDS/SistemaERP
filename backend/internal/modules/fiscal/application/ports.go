@@ -47,6 +47,7 @@ type NFCeRemoteAuthorizer interface {
 
 type NFCeDocumentBuilder interface {
 	BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDraft) ([]byte, error)
+	BuildOfflineQRCodeSigningPayload(draft fisc.NFCeDocumentDraft) (string, error)
 }
 
 type NFCeDANFERenderer interface {
