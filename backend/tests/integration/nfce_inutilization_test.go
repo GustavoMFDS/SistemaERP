@@ -91,8 +91,6 @@ func TestNFCeInutilizationPersistsRangeAndNeverBlindlyRetransmits(t *testing.T) 
 			'Empresa Inutilizacao CI', 'Inutilizacao CI',
 			'12ABC34501DE35', '110042490114', '1', 'MG', now()
 		)
-		ON CONFLICT (cnpj) DO UPDATE
-		SET address_state='MG', ie='110042490114', crt='1'
 		RETURNING id::text
 	`).Scan(&tenantID); err != nil {
 		t.Fatalf("prepare isolated tenant: %v", err)
