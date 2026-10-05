@@ -246,3 +246,28 @@ func TestSignInutilizationXMLSignsInfInutByRequestID(t *testing.T) {
 		t.Fatalf("unexpected inutilization signature reference")
 	}
 }
+
+func TestSignOfflineQRCodeV3UsesRSASHA1(t *testing.T) {
+	now := time.Now()
+	cert := testRSACertificate(t, now)
+	const payload = "31261012345678000195650070000001239876543210|3|2|05|9.00||"
+
+	signature, err := SignOfflineQRCodeV3(payload, cert, now)
+	if err != nil {
+		t.Fatalf("SignOfflineQRCodeV3: %v", err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(signature)
+	if err != nil {
+		t.Fatalf("decode signature: %v", err)
+	}
+	digest := sha1.Sum([]byte(payload))
+	if err := rsa.VerifyPKCS1v15(
+		cert.Leaf.PublicKey.(*rsa.PublicKey),
+		crypto.SHA1,
+		digest[:],
+		raw,
+	); err != nil {
+		t.Fatalf("offline QR RSA/SHA-1 verification failed: %v", err)
+	}
+}
+
