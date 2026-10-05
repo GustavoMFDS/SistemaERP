@@ -2173,7 +2173,9 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 	)
 	switch reservation.Status {
 	case fisc.NFCeStatusSigned:
-		if reservation.Environment == "production" && !reservationContext.Config.Enabled {
+		if reservation.Environment == "production" &&
+			!reservationContext.Config.Enabled &&
+			reservation.EmissionType != fisc.NFCeOfflineContingencyEmissionType {
 			return fisc.NFCeRemoteOutcome{}, common.ErrFiscalNotReady
 		}
 		_, signedXML, err = s.fiscal.GetLatestNFCeXMLContent(
