@@ -346,6 +346,9 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 	if paid != netTotal {
 		return nil, fmt.Errorf("payment total %s does not match NFC-e total %s", paid.DBString(), netTotal.DBString())
 	}
+	if input.CommercialTotal != netTotal {
+		return nil, fmt.Errorf("commercial total %s does not match NFC-e total %s", input.CommercialTotal.DBString(), netTotal.DBString())
+	}
 
 	doc := nfeDocumentXML{
 		Xmlns: NFeNamespace,
