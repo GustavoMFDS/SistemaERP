@@ -23,8 +23,8 @@ type reserveNFCeRequest struct {
 
 type reserveNFCeContingencyRequest struct {
 	SaleID               string `json:"sale_id"`
-	IssuedAt              string `json:"issued_at"`
-	ContingencyStartedAt  string `json:"contingency_started_at"`
+	IssuedAt             string `json:"issued_at"`
+	ContingencyStartedAt string `json:"contingency_started_at"`
 	Justification        string `json:"justification"`
 }
 
