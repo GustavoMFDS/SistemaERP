@@ -111,7 +111,7 @@ func BuildOfflineQRCodeV3URL(
 	if parsed.Query().Has("p") {
 		return "", fmt.Errorf("QR Code base URL must not already contain parameter p")
 	}
-	value := payload + "|" + signature
+	value := payload + "|" + url.QueryEscape(signature)
 	if parsed.RawQuery == "" {
 		parsed.RawQuery = "p=" + value
 	} else {
