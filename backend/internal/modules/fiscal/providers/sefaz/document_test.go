@@ -277,4 +277,3 @@ func TestBuildUnsignedNFCeOfflineContingencyCandidate(t *testing.T) {
 		}
 	}
 }
-
