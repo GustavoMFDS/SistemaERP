@@ -236,3 +236,45 @@ func TestBuildUnsignedNFCeLegacyCandidateRejectsTaxedLegacyCodesWithoutRates(t *
 }
 
 func stringPtr(value string) *string { return &value }
+
+func TestBuildUnsignedNFCeOfflineContingencyCandidate(t *testing.T) {
+	input := unsignedLegacyFixture(t)
+	startedAt := input.Reservation.IssuedAt.Add(-5 * time.Minute)
+	reason := "Indisponibilidade de comunicacao com a SEFAZ."
+	key, err := fisc.BuildNFCeAccessKey(fisc.NFCeAccessKeyInput{
+		UF:           "MG",
+		IssuedAt:     input.Reservation.IssuedAt,
+		CNPJ:         input.Issuer.CNPJ,
+		Series:       input.Reservation.Series,
+		Number:       input.Reservation.DocumentNumber,
+		NumericCode:  input.Reservation.NumericCode,
+		EmissionType: fisc.NFCeOfflineContingencyEmissionType,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Reservation.AccessKey = key
+	input.Reservation.CheckDigit = int(key[len(key)-1] - '0')
+	input.Reservation.EmissionType = fisc.NFCeOfflineContingencyEmissionType
+	input.Reservation.ContingencyStartedAt = &startedAt
+	input.Reservation.ContingencyJustification = &reason
+	signature := "c2lnbmF0dXJl"
+	input.QRCodeSignature = &signature
+
+	content, err := BuildUnsignedNFCeLegacyCandidate(input)
+	if err != nil {
+		t.Fatalf("BuildUnsignedNFCeLegacyCandidate contingency: %v", err)
+	}
+	xml := string(content)
+	for _, want := range []string{
+		"<tpEmis>9</tpEmis>",
+		"<dhCont>" + startedAt.Format("2006-01-02T15:04:05-07:00") + "</dhCont>",
+		"<xJust>" + reason + "</xJust>",
+		"|3|2|01|9.00|||c2lnbmF0dXJl",
+	} {
+		if !strings.Contains(xml, want) {
+			t.Fatalf("contingency XML missing %q: %s", want, xml)
+		}
+	}
+}
+
