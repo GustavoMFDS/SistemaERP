@@ -270,4 +270,3 @@ func TestSignOfflineQRCodeV3UsesRSASHA1(t *testing.T) {
 		t.Fatalf("offline QR RSA/SHA-1 verification failed: %v", err)
 	}
 }
-
