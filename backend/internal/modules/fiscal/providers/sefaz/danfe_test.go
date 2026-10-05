@@ -18,13 +18,14 @@ func TestDANFERendererRendersAuthorizedNFCe(t *testing.T) {
 		DocumentNumber:        42,
 		Environment:           "homologation",
 		AccessKey:             accessKey,
+		EmissionType:          fisc.NFCeNormalEmissionType,
 		AuthorizationProtocol: &protocol,
 		AuthorizedAt:          &authorizedAt,
 	}
 	xml := []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
   <infNFe Id="NFe` + accessKey + `" versao="4.00">
-    <ide><serie>1</serie><nNF>42</nNF><dhEmi>2026-10-04T10:30:00-03:00</dhEmi><tpAmb>2</tpAmb></ide>
+    <ide><serie>1</serie><nNF>42</nNF><dhEmi>2026-10-04T10:30:00-03:00</dhEmi><tpEmis>1</tpEmis><tpAmb>2</tpAmb></ide>
     <emit>
       <CNPJ>12345678000195</CNPJ><xNome>Empresa Exemplo LTDA</xNome><xFant>Loja Exemplo</xFant>
       <enderEmit><xLgr>Av Fiscal</xLgr><nro>100</nro><xBairro>Centro</xBairro><xMun>Uberlandia</xMun><UF>MG</UF><CEP>38400000</CEP></enderEmit>
@@ -82,6 +83,7 @@ func TestDANFERendererRejectsNonAuthorizedOrMismatchedXML(t *testing.T) {
 		DocumentNumber:        42,
 		Environment:           "production",
 		AccessKey:             accessKey,
+		EmissionType:          fisc.NFCeNormalEmissionType,
 		AuthorizationProtocol: &protocol,
 		AuthorizedAt:          &authorizedAt,
 	}
@@ -96,3 +98,62 @@ func TestDANFERendererRejectsNonAuthorizedOrMismatchedXML(t *testing.T) {
 		t.Fatalf("expected access-key mismatch, got %v", err)
 	}
 }
+
+func TestDANFERendererRendersSignedOfflineContingencyBeforeAuthorization(t *testing.T) {
+	issuedAt := time.Date(2026, 10, 5, 1, 45, 0, 0, time.FixedZone("BRT", -3*60*60))
+	startedAt := issuedAt.Add(-5 * time.Minute)
+	key, err := fisc.BuildNFCeAccessKey(fisc.NFCeAccessKeyInput{
+		UF:           "MG",
+		IssuedAt:     issuedAt,
+		CNPJ:         "12.345.678/0001-95",
+		Series:       7,
+		Number:       123,
+		NumericCode:  "87654321",
+		EmissionType: fisc.NFCeOfflineContingencyEmissionType,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := "Indisponibilidade de comunicacao com a SEFAZ."
+	reservation := fisc.NFCeReservation{
+		Status:                   fisc.NFCeStatusSigned,
+		Series:                   7,
+		DocumentNumber:           123,
+		Environment:              "production",
+		AccessKey:                key,
+		EmissionType:             fisc.NFCeOfflineContingencyEmissionType,
+		IssuedAt:                 issuedAt,
+		ContingencyStartedAt:     &startedAt,
+		ContingencyJustification: &reason,
+	}
+	xml := []byte(`<NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+  <infNFe Id="NFe` + key + `" versao="4.00">
+    <ide><serie>7</serie><nNF>123</nNF><dhEmi>2026-10-05T01:45:00-03:00</dhEmi><dhCont>2026-10-05T01:40:00-03:00</dhCont><xJust>Indisponibilidade de comunicacao com a SEFAZ.</xJust><tpEmis>9</tpEmis><tpAmb>1</tpAmb></ide>
+    <emit><CNPJ>12345678000195</CNPJ><xNome>Empresa Exemplo LTDA</xNome><enderEmit><xLgr>Av Fiscal</xLgr><nro>100</nro><xBairro>Centro</xBairro><xMun>Uberlandia</xMun><UF>MG</UF><CEP>38400000</CEP></enderEmit><IE>110042490114</IE></emit>
+    <det nItem="1"><prod><cProd>SKU-1</cProd><xProd>Produto teste</xProd><uCom>UN</uCom><qCom>1.000</qCom><vUnCom>9.00</vUnCom><vProd>9.00</vProd></prod></det>
+    <total><ICMSTot><vProd>9.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>0.00</vDesc><vOutro>0.00</vOutro><vNF>9.00</vNF></ICMSTot></total>
+    <pag><detPag><tPag>01</tPag><vPag>9.00</vPag></detPag></pag>
+  </infNFe>
+  <infNFeSupl><qrCode>https://portal.example/nfce/qrcode?p=` + key + `|3|1|05|9.00|||c2lnbmF0dXJl</qrCode><urlChave>https://portal.example/nfce/consulta</urlChave></infNFeSupl>
+</NFe>`)
+	html, err := NewDANFERenderer().Render(reservation, xml)
+	if err != nil {
+		t.Fatalf("Render contingency DANFE: %v", err)
+	}
+	got := string(html)
+	for _, want := range []string{
+		"EMITIDA EM CONTINGÊNCIA",
+		"PENDENTE DE TRANSMISSÃO / AUTORIZAÇÃO SEFAZ",
+		"Entrada em contingência:",
+		"Indisponibilidade de comunicacao com a SEFAZ.",
+		"Sem protocolo — transmissão pendente",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("contingency DANFE missing %q", want)
+		}
+	}
+	if strings.Contains(got, "Protocolo de Autorização:") {
+		t.Fatal("pending contingency DANFE must not invent authorization protocol")
+	}
+}
+
