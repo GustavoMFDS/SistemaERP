@@ -35,11 +35,13 @@ type UnsignedNFCePayment struct {
 type UnsignedNFCeInput struct {
 	Reservation     fisc.NFCeReservation
 	Issuer          fisc.NFCeIssuerProfile
+	CommercialTotal platform.Money
 	Items           []UnsignedNFCeItem
 	Payments        []UnsignedNFCePayment
 	ProcessVersion  string
 	QRCodeBaseURL   string
 	ConsultationURL string
+	QRCodeSignature *string
 }
 
 type nfeDocumentXML struct {
@@ -67,8 +69,10 @@ type ideXML struct {
 	Mod      string `xml:"mod"`
 	Serie    int    `xml:"serie"`
 	NNF      int64  `xml:"nNF"`
-	DhEmi    string `xml:"dhEmi"`
-	TpNF     int    `xml:"tpNF"`
+	DhEmi    string  `xml:"dhEmi"`
+	DhCont   *string `xml:"dhCont,omitempty"`
+	XJust    *string `xml:"xJust,omitempty"`
+	TpNF     int     `xml:"tpNF"`
 	IdDest   int    `xml:"idDest"`
 	CMunFG   string `xml:"cMunFG"`
 	TpImp    int    `xml:"tpImp"`
@@ -215,13 +219,37 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 
 	cUF, _ := fisc.UFCode(input.Issuer.AddressState)
 	ambient, _ := tpAmb(Environment(input.Reservation.Environment))
-	qrCode, err := BuildOnlineQRCodeV3URL(
-		input.QRCodeBaseURL,
-		Environment(input.Reservation.Environment),
-		input.Reservation.AccessKey,
-	)
-	if err != nil {
-		return nil, err
+	var qrCode string
+	if input.Reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType {
+		if input.QRCodeSignature == nil || strings.TrimSpace(*input.QRCodeSignature) == "" {
+			return nil, fmt.Errorf("offline contingency QR Code signature is required")
+		}
+		payload, err := BuildOfflineQRCodeV3Payload(
+			Environment(input.Reservation.Environment),
+			input.Reservation.AccessKey,
+			input.Reservation.IssuedAt,
+			input.CommercialTotal,
+		)
+		if err != nil {
+			return nil, err
+		}
+		qrCode, err = BuildOfflineQRCodeV3URL(
+			input.QRCodeBaseURL,
+			payload,
+			strings.TrimSpace(*input.QRCodeSignature),
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		qrCode, err = BuildOnlineQRCodeV3URL(
+			input.QRCodeBaseURL,
+			Environment(input.Reservation.Environment),
+			input.Reservation.AccessKey,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 	consultationURL, err := validatePublicFiscalURL(input.ConsultationURL)
 	if err != nil {
@@ -332,6 +360,8 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 				Serie:    input.Reservation.Series,
 				NNF:      input.Reservation.DocumentNumber,
 				DhEmi:    input.Reservation.IssuedAt.Format("2006-01-02T15:04:05-07:00"),
+				DhCont:   contingencyTimeXML(input.Reservation),
+				XJust:    contingencyReasonXML(input.Reservation),
 				TpNF:     1,
 				IdDest:   1,
 				CMunFG:   input.Issuer.AddressCityCode,
@@ -392,8 +422,26 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 func validateUnsignedNFCeInput(input UnsignedNFCeInput) error {
 	r := input.Reservation
 	if r.Status != fisc.NFCeStatusReserved || r.Model != fisc.NFCeModel ||
-		r.EmissionType != fisc.NFCeNormalEmissionType || r.IssuedAt.IsZero() {
-		return fmt.Errorf("reservation is not a normal reserved NFC-e")
+		r.IssuedAt.IsZero() {
+		return fmt.Errorf("reservation is not a reserved NFC-e")
+	}
+	switch r.EmissionType {
+	case fisc.NFCeNormalEmissionType:
+		if r.ContingencyStartedAt != nil || r.ContingencyJustification != nil {
+			return fmt.Errorf("normal NFC-e must not contain contingency metadata")
+		}
+	case fisc.NFCeOfflineContingencyEmissionType:
+		if r.ContingencyStartedAt == nil || r.ContingencyStartedAt.IsZero() ||
+			r.ContingencyStartedAt.After(r.IssuedAt) ||
+			r.ContingencyJustification == nil {
+			return fmt.Errorf("offline contingency NFC-e metadata is incomplete")
+		}
+		reason := strings.TrimSpace(*r.ContingencyJustification)
+		if len([]rune(reason)) < 15 || len([]rune(reason)) > 256 {
+			return fmt.Errorf("offline contingency justification must contain 15 to 256 characters")
+		}
+	default:
+		return fmt.Errorf("unsupported NFC-e emission type %d", r.EmissionType)
 	}
 	if err := fisc.ValidateNFCeAccessKey(r.AccessKey); err != nil {
 		return fmt.Errorf("reservation access key: %w", err)
@@ -437,6 +485,24 @@ func validateUnsignedNFCeInput(input UnsignedNFCeInput) error {
 		}
 	}
 	return nil
+}
+
+func contingencyTimeXML(r fisc.NFCeReservation) *string {
+	if r.EmissionType != fisc.NFCeOfflineContingencyEmissionType ||
+		r.ContingencyStartedAt == nil {
+		return nil
+	}
+	value := r.ContingencyStartedAt.Format("2006-01-02T15:04:05-07:00")
+	return &value
+}
+
+func contingencyReasonXML(r fisc.NFCeReservation) *string {
+	if r.EmissionType != fisc.NFCeOfflineContingencyEmissionType ||
+		r.ContingencyJustification == nil {
+		return nil
+	}
+	value := strings.TrimSpace(*r.ContingencyJustification)
+	return &value
 }
 
 func buildLegacyTaxXML(calculation fisc.InvoiceItemTaxCalculation) (taxXML, error) {
