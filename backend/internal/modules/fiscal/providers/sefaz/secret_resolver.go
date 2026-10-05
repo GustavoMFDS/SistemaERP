@@ -167,4 +167,3 @@ func (s *XMLSigningService) SignInutilization(
 	}
 	return SignInutilizationXML(unsignedXML, cert, expectedRequestID, now)
 }
-
