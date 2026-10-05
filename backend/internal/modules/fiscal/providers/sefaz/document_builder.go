@@ -59,6 +59,7 @@ func (b *DocumentBuilder) BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDr
 		ProcessVersion:  b.processVersion,
 		QRCodeBaseURL:   catalog.QRCodeBaseURL,
 		ConsultationURL: catalog.ConsultationURL,
+		QRCodeSignature: draft.QRCodeSignature,
 	})
 }
 
