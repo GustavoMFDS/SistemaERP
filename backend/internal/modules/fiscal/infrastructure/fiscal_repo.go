@@ -349,6 +349,8 @@ func (r *FiscalRepo) GetNFCeReservationByInvoiceForUpdate(
 			numeric_code,
 			access_key_check_digit,
 			issued_at,
+			contingency_started_at,
+			contingency_reason,
 			authorization_protocol,
 			authorized_at
 		FROM invoices
@@ -370,6 +372,8 @@ func (r *FiscalRepo) GetNFCeReservationByInvoiceForUpdate(
 		&out.NumericCode,
 		&out.CheckDigit,
 		&out.IssuedAt,
+		&out.ContingencyStartedAt,
+		&out.ContingencyJustification,
 		&out.AuthorizationProtocol,
 		&out.AuthorizedAt,
 	)
@@ -402,6 +406,8 @@ func (r *FiscalRepo) GetNFCeReservationBySale(
 			numeric_code,
 			access_key_check_digit,
 			issued_at,
+			contingency_started_at,
+			contingency_reason,
 			authorization_protocol,
 			authorized_at
 		FROM invoices
@@ -422,6 +428,8 @@ func (r *FiscalRepo) GetNFCeReservationBySale(
 		&out.NumericCode,
 		&out.CheckDigit,
 		&out.IssuedAt,
+		&out.ContingencyStartedAt,
+		&out.ContingencyJustification,
 		&out.AuthorizationProtocol,
 		&out.AuthorizedAt,
 	)
@@ -457,10 +465,12 @@ func (r *FiscalRepo) CreateNFCeReservation(
 			numeric_code,
 			access_key_check_digit,
 			issued_at,
+			contingency_started_at,
+			contingency_reason,
 			updated_at
 		)
 		VALUES (
-			$1,$2,$1,'reserved',$3,65,$4,$5,$6,$7,$8,$9,$10,$11,now()
+			$1,$2,$1,'reserved',$3,65,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now()
 		)
 		RETURNING id::text
 	`,
@@ -475,6 +485,8 @@ func (r *FiscalRepo) CreateNFCeReservation(
 		reservation.NumericCode,
 		reservation.CheckDigit,
 		reservation.IssuedAt,
+		reservation.ContingencyStartedAt,
+		reservation.ContingencyJustification,
 	).Scan(&invoiceID)
 	if err != nil {
 		var pgErr *pgconn.PgError
