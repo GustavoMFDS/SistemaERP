@@ -103,7 +103,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v28 migration upgrade and rollback
+      - name: Verify v12 to v29 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -953,6 +953,52 @@ jobs:
               WHERE proname='prevent_nfce_number_inutilization_delete'
             ) THEN
               RAISE EXCEPTION 'rollback 0028 left inutilization delete guard behind';
+            END IF;
+          END
+          $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0028 -> 0029 and verify offline-contingency metadata.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('contingency_started_at','contingency_reason') ORDER BY column_name;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname='invoices_contingency_metadata_check';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name='invoices'
+                AND column_name IN ('contingency_started_at','contingency_reason')
+            ) THEN
+              RAISE EXCEPTION 'rollback 0029 left contingency columns behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='invoices_contingency_metadata_check'
+            ) THEN
+              RAISE EXCEPTION 'rollback 0029 left contingency constraint behind';
             END IF;
           END
           $do$;
