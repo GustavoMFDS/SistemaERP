@@ -63,27 +63,27 @@ type infNFeXML struct {
 }
 
 type ideXML struct {
-	CUF      string `xml:"cUF"`
-	CNF      string `xml:"cNF"`
-	NatOp    string `xml:"natOp"`
-	Mod      string `xml:"mod"`
-	Serie    int    `xml:"serie"`
-	NNF      int64  `xml:"nNF"`
+	CUF      string  `xml:"cUF"`
+	CNF      string  `xml:"cNF"`
+	NatOp    string  `xml:"natOp"`
+	Mod      string  `xml:"mod"`
+	Serie    int     `xml:"serie"`
+	NNF      int64   `xml:"nNF"`
 	DhEmi    string  `xml:"dhEmi"`
 	DhCont   *string `xml:"dhCont,omitempty"`
 	XJust    *string `xml:"xJust,omitempty"`
 	TpNF     int     `xml:"tpNF"`
-	IdDest   int    `xml:"idDest"`
-	CMunFG   string `xml:"cMunFG"`
-	TpImp    int    `xml:"tpImp"`
-	TpEmis   int    `xml:"tpEmis"`
-	CDV      int    `xml:"cDV"`
-	TpAmb    string `xml:"tpAmb"`
-	FinNFe   int    `xml:"finNFe"`
-	IndFinal int    `xml:"indFinal"`
-	IndPres  int    `xml:"indPres"`
-	ProcEmi  int    `xml:"procEmi"`
-	VerProc  string `xml:"verProc"`
+	IdDest   int     `xml:"idDest"`
+	CMunFG   string  `xml:"cMunFG"`
+	TpImp    int     `xml:"tpImp"`
+	TpEmis   int     `xml:"tpEmis"`
+	CDV      int     `xml:"cDV"`
+	TpAmb    string  `xml:"tpAmb"`
+	FinNFe   int     `xml:"finNFe"`
+	IndFinal int     `xml:"indFinal"`
+	IndPres  int     `xml:"indPres"`
+	ProcEmi  int     `xml:"procEmi"`
+	VerProc  string  `xml:"verProc"`
 }
 
 type emitXML struct {
