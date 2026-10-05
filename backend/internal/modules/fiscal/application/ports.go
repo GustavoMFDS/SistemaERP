@@ -114,6 +114,8 @@ type FiscalRepository interface {
 	ListXML(ctx context.Context, tenantID string, limit, offset int) ([]fisc.XMLFile, int, error)
 	GetXMLContent(ctx context.Context, tenantID string, id string) (fileName string, content []byte, err error)
 	GetNFCeReadiness(ctx context.Context, tenantID string) (fisc.NFCeReadiness, error)
+	LockNFCeTenantForUpdate(ctx context.Context, tx db.DBTX, tenantID string) error
+	HasOpenNFCeWork(ctx context.Context, tx db.DBTX, tenantID string) (bool, error)
 	GetNFCeConfig(ctx context.Context, tenantID string) (fisc.NFCeConfig, error)
 	UpsertNFCeConfig(ctx context.Context, tx db.DBTX, tenantID string, actorUserID string, cfg fisc.NFCeConfig) error
 	SetNFCeTransmissionEnabled(ctx context.Context, tx db.DBTX, tenantID, actorUserID string, enabled bool) error
