@@ -21,6 +21,13 @@ type reserveNFCeRequest struct {
 	IssuedAt string `json:"issued_at"`
 }
 
+type reserveNFCeContingencyRequest struct {
+	SaleID               string `json:"sale_id"`
+	IssuedAt              string `json:"issued_at"`
+	ContingencyStartedAt  string `json:"contingency_started_at"`
+	Justification        string `json:"justification"`
+}
+
 type setNFCeTransmissionRequest struct {
 	Enabled bool `json:"enabled"`
 }
@@ -231,6 +238,61 @@ func (h *FiscalHandler) ReserveNFCeDraft(w http.ResponseWriter, r *http.Request)
 	}
 	reservation, created, err := h.svc.ReserveNFCeDraft(
 		r.Context(), au.TenantID, au.UserID, req.SaleID, issuedAt,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict, common.ErrInvoiceAlreadyExists, common.ErrSaleNotFinalized, common.ErrFiscalNotReady:
+			status = http.StatusConflict
+		case common.ErrFiscalSequenceExhausted:
+			status = http.StatusServiceUnavailable
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, map[string]any{
+		"reservation": reservation,
+		"created":     created,
+	})
+}
+
+func (h *FiscalHandler) ReserveNFCeOfflineContingency(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	var req reserveNFCeContingencyRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	issuedAt, err := time.Parse(time.RFC3339, req.IssuedAt)
+	if err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "issued_at deve usar RFC3339 com fuso horario", nil)
+		return
+	}
+	startedAt, err := time.Parse(time.RFC3339, req.ContingencyStartedAt)
+	if err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "contingency_started_at deve usar RFC3339 com fuso horario", nil)
+		return
+	}
+	reservation, created, err := h.svc.ReserveNFCeOfflineContingency(
+		r.Context(),
+		au.TenantID,
+		au.UserID,
+		req.SaleID,
+		issuedAt,
+		startedAt,
+		req.Justification,
 	)
 	if err != nil {
 		status := http.StatusInternalServerError
