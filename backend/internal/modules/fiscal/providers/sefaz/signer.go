@@ -2,9 +2,13 @@ package sefaz
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -295,3 +299,28 @@ func SignInutilizationXML(
 	}
 	return signed, nil
 }
+
+func SignOfflineQRCodeV3(
+	payload string,
+	cert tls.Certificate,
+	now time.Time,
+) (string, error) {
+	if err := ValidateClientCertificate(cert, now); err != nil {
+		return "", err
+	}
+	payload = strings.TrimSpace(payload)
+	if payload == "" {
+		return "", fmt.Errorf("offline QR Code payload is required")
+	}
+	privateKey, ok := cert.PrivateKey.(*rsa.PrivateKey)
+	if !ok {
+		return "", fmt.Errorf("offline QR Code signing requires an RSA private key")
+	}
+	digest := sha1.Sum([]byte(payload))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA1, digest[:])
+	if err != nil {
+		return "", fmt.Errorf("sign offline QR Code: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(signature), nil
+}
+
