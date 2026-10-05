@@ -373,4 +373,3 @@ func (a *SEFAZAuthorizer) Inutilize(
 		responseXML,
 	)
 }
-
