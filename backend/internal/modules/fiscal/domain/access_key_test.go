@@ -94,6 +94,27 @@ func TestBuildNFCeAccessKeyAlphanumericCNPJ(t *testing.T) {
 	}
 }
 
+func TestBuildNFCeAccessKeyOfflineContingency(t *testing.T) {
+	key, err := BuildNFCeAccessKey(NFCeAccessKeyInput{
+		UF:           "MG",
+		IssuedAt:     time.Date(2026, time.October, 5, 1, 30, 0, 0, time.FixedZone("BRT", -3*60*60)),
+		CNPJ:         "12.345.678/0001-95",
+		Series:       7,
+		Number:       123,
+		NumericCode:  "87654321",
+		EmissionType: NFCeOfflineContingencyEmissionType,
+	})
+	if err != nil {
+		t.Fatalf("BuildNFCeAccessKey contingency: %v", err)
+	}
+	if len(key) != 44 || key[34] != '9' {
+		t.Fatalf("contingency key=%s, expected tpEmis=9 at position 35", key)
+	}
+	if err := ValidateNFCeAccessKey(key); err != nil {
+		t.Fatalf("ValidateNFCeAccessKey contingency: %v", err)
+	}
+}
+
 func TestValidateNFCeAccessKey(t *testing.T) {
 	const key = "31260912ABC34501DE35650010000000421123456788"
 	if err := ValidateNFCeAccessKey(key); err != nil {
@@ -135,7 +156,7 @@ func TestBuildNFCeAccessKeyRejectsUnsupportedInputs(t *testing.T) {
 		{"series above NFC-e range", func(v *NFCeAccessKeyInput) { v.Series = 890 }},
 		{"zero number", func(v *NFCeAccessKeyInput) { v.Number = 0 }},
 		{"invalid numeric code", func(v *NFCeAccessKeyInput) { v.NumericCode = "1234ABCD" }},
-		{"unsupported emission type", func(v *NFCeAccessKeyInput) { v.EmissionType = 9 }},
+		{"unsupported emission type", func(v *NFCeAccessKeyInput) { v.EmissionType = 2 }},
 	}
 
 	for _, tt := range tests {
