@@ -323,4 +323,3 @@ func SignOfflineQRCodeV3(
 	}
 	return base64.StdEncoding.EncodeToString(signature), nil
 }
-
