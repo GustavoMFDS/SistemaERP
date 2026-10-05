@@ -54,6 +54,7 @@ func (b *DocumentBuilder) BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDr
 	return BuildUnsignedNFCeLegacyCandidate(UnsignedNFCeInput{
 		Reservation:     draft.Reservation,
 		Issuer:          draft.Issuer,
+		CommercialTotal: draft.CommercialTotal,
 		Items:           items,
 		Payments:        payments,
 		ProcessVersion:  b.processVersion,
@@ -92,3 +93,21 @@ func (b *DocumentBuilder) BuildUnsignedInutilization(
 		Justification: draft.Justification,
 	})
 }
+
+func (b *DocumentBuilder) BuildOfflineQRCodeSigningPayload(
+	draft fisc.NFCeDocumentDraft,
+) (string, error) {
+	if draft.Reservation.EmissionType != fisc.NFCeOfflineContingencyEmissionType {
+		return "", fmt.Errorf("QR signing payload requires offline contingency NFC-e")
+	}
+	if draft.CustomerID != nil {
+		return "", fmt.Errorf("identified customer NFC-e is not modeled yet")
+	}
+	return BuildOfflineQRCodeV3Payload(
+		Environment(strings.TrimSpace(draft.Reservation.Environment)),
+		draft.Reservation.AccessKey,
+		draft.Reservation.IssuedAt,
+		draft.CommercialTotal,
+	)
+}
+
