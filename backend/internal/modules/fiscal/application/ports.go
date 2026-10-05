@@ -19,6 +19,7 @@ import (
 // without changing the service/API surface.
 type NFCeXMLSigner interface {
 	Sign(ctx context.Context, secretRef string, expectedAccessKey string, unsignedXML []byte) ([]byte, error)
+	SignQRCode(ctx context.Context, secretRef string, payload string) (string, error)
 }
 
 type NFCeSchemaValidator interface {
