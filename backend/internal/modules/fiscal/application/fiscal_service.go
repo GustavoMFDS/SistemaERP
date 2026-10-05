@@ -479,13 +479,13 @@ func (s *FiscalService) reserveNFCeDraftWithMode(
 	}
 
 	reservation := fisc.NFCeReservation{
-		SaleID:         saleID,
-		Status:         "reserved",
-		Model:          fisc.NFCeModel,
-		Series:         reservationContext.Config.Series,
-		DocumentNumber: number,
-		Environment:    reservationContext.Config.Environment,
-		AccessKey:      accessKey,
+		SaleID:                   saleID,
+		Status:                   "reserved",
+		Model:                    fisc.NFCeModel,
+		Series:                   reservationContext.Config.Series,
+		DocumentNumber:           number,
+		Environment:              reservationContext.Config.Environment,
+		AccessKey:                accessKey,
 		EmissionType:             emissionType,
 		NumericCode:              numericCode,
 		CheckDigit:               int(accessKey[len(accessKey)-1] - '0'),
