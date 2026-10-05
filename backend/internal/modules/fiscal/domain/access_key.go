@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	NFCeModel              = 65
-	NFCeNormalEmissionType = 1
+	NFCeModel                     = 65
+	NFCeNormalEmissionType        = 1
+	NFCeOfflineContingencyEmissionType = 9
 )
 
 var ufCodes = map[string]string{
@@ -89,8 +90,9 @@ func BuildNFCeAccessKey(in NFCeAccessKeyInput) (string, error) {
 	if in.Number < 1 || in.Number > 999999999 {
 		return "", fmt.Errorf("NFC-e number must be between 1 and 999999999")
 	}
-	if in.EmissionType != NFCeNormalEmissionType {
-		return "", fmt.Errorf("only normal NFC-e emission type 1 is supported by this foundation")
+	if in.EmissionType != NFCeNormalEmissionType &&
+		in.EmissionType != NFCeOfflineContingencyEmissionType {
+		return "", fmt.Errorf("NFC-e emission type must be 1 (normal) or 9 (offline contingency)")
 	}
 	if !isDigits(in.NumericCode, 8) {
 		return "", fmt.Errorf("numeric code must contain 8 digits")
