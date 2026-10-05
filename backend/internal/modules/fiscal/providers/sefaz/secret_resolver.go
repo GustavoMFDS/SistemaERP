@@ -167,3 +167,17 @@ func (s *XMLSigningService) SignInutilization(
 	}
 	return SignInutilizationXML(unsignedXML, cert, expectedRequestID, now)
 }
+
+func (s *XMLSigningService) SignQRCode(
+	ctx context.Context,
+	secretRef string,
+	payload string,
+) (string, error) {
+	now := time.Now().UTC()
+	cert, err := ResolveAndValidateCertificate(ctx, s.resolver, secretRef, now)
+	if err != nil {
+		return "", err
+	}
+	return SignOfflineQRCodeV3(payload, cert, now)
+}
+
