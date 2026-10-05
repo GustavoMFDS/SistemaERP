@@ -1339,11 +1339,21 @@ func (s *FiscalService) RenderNFCeDANFE(
 	if err != nil {
 		return "", nil, err
 	}
+	offlinePending := reservation.Status == fisc.NFCeStatusSigned &&
+		reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType
 	if reservation.Status != fisc.NFCeStatusAuthorized &&
-		reservation.Status != fisc.NFCeStatusCancelled {
+		reservation.Status != fisc.NFCeStatusCancelled &&
+		!offlinePending {
 		return "", nil, common.ErrConflict
 	}
-	if reservation.AuthorizationProtocol == nil ||
+	if offlinePending {
+		if reservation.ContingencyStartedAt == nil ||
+			reservation.ContingencyStartedAt.IsZero() ||
+			reservation.ContingencyJustification == nil ||
+			strings.TrimSpace(*reservation.ContingencyJustification) == "" {
+			return "", nil, common.ErrFiscalNotReady
+		}
+	} else if reservation.AuthorizationProtocol == nil ||
 		strings.TrimSpace(*reservation.AuthorizationProtocol) == "" ||
 		reservation.AuthorizedAt == nil ||
 		reservation.AuthorizedAt.IsZero() {
