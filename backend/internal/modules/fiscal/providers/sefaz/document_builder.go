@@ -91,4 +91,3 @@ func (b *DocumentBuilder) BuildUnsignedInutilization(
 		Justification: draft.Justification,
 	})
 }
-
