@@ -52,6 +52,7 @@ func unsignedLegacyFixture(t *testing.T) UnsignedNFCeInput {
 			AddressState:        "MG",
 			AddressZIP:          "38400000",
 		},
+		CommercialTotal: platform.NewMoneyCents(900),
 		Items: []UnsignedNFCeItem{{
 			Number:        1,
 			Code:          "SKU-1",
