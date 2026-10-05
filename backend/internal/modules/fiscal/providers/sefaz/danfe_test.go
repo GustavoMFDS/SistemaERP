@@ -156,4 +156,3 @@ func TestDANFERendererRendersSignedOfflineContingencyBeforeAuthorization(t *test
 		t.Fatal("pending contingency DANFE must not invent authorization protocol")
 	}
 }
-
