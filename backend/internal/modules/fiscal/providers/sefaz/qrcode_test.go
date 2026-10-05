@@ -116,4 +116,3 @@ func TestBuildOfflineQRCodeV3RejectsNormalAccessKey(t *testing.T) {
 		t.Fatalf("expected tpEmis=9 validation, got %v", err)
 	}
 }
-
