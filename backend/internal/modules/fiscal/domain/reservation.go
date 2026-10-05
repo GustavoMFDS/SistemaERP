@@ -14,8 +14,10 @@ type NFCeReservation struct {
 	EmissionType          int        `json:"emission_type"`
 	NumericCode           string     `json:"numeric_code"`
 	CheckDigit            int        `json:"access_key_check_digit"`
-	IssuedAt              time.Time  `json:"issued_at"`
-	AuthorizationProtocol *string    `json:"authorization_protocol,omitempty"`
+	IssuedAt                time.Time  `json:"issued_at"`
+	ContingencyStartedAt    *time.Time `json:"contingency_started_at,omitempty"`
+	ContingencyJustification *string    `json:"contingency_justification,omitempty"`
+	AuthorizationProtocol   *string    `json:"authorization_protocol,omitempty"`
 	AuthorizedAt          *time.Time `json:"authorized_at,omitempty"`
 }
 
