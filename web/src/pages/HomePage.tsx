@@ -36,6 +36,7 @@ function localDate(offsetDays = 0): string {
 }
 
 const quickLinks = [
+  { to: '/setup', label: 'Configurar minha loja', permission: 'product:write', detail: 'Passo a passo para quem está começando' },
   { to: '/pdv', label: 'Abrir o caixa', permission: 'sale:write', detail: 'Registrar vendas e receber pagamentos' },
   { to: '/products', label: 'Cadastrar produtos', permission: 'product:write', detail: 'Adicionar um produto ou importar uma planilha' },
   { to: '/inventory', label: 'Conferir estoque', permission: 'inventory:read', detail: 'Ver itens em falta e entradas ou ajustes' },
