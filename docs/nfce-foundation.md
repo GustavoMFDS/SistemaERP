@@ -154,6 +154,26 @@ already owns an offline-contingency reservation fails with a conflict instead of
 or reusing that document. The inutilization service also rejects any range containing a
 number already present in `invoices`, including a number issued with `tpEmis=9`.
 
+## Fiscal preparation during unresolved documents
+
+Tenant issuer identity and NFC-e environment/series cannot be changed through the
+preparation API while any model-65 invoice remains `reserved`, `signed` or
+`submitted`. The preparation transaction locks the tenant company row (the
+same row locked by fiscal reservation) before checking for unresolved work, so a
+concurrent reservation cannot be silently bypassed.
+
+While work is unresolved, the configuration API allows only updates that retain
+the existing environment and series, such as rotation of the A1 secret reference
+or legacy CSC reference. Each configuration preparation continues to reset the
+tenant transmission switch to `enabled=false`; the operator must explicitly
+re-enable it through the production gate where applicable. This does not prevent
+consultation of already submitted documents or regularization of an already
+signed offline-contingency document.
+
+Resolve or reconcile unresolved fiscal work before changing issuer identity,
+tax regime, environment or series. Do not delete or rewrite historical
+`invoices` to circumvent the gate.
+
 ## Offline contingency flow
 
 Offline contingency is an explicit operator/recovery path; it is never selected merely
