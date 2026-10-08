@@ -69,6 +69,22 @@ func (s *InventoryService) ListMovements(ctx context.Context, tenantID string, p
 	return s.inv.ListMovements(ctx, tenantID, productID, limit, offset)
 }
 
+// LookupOpeningStockBatch reports only a committed stock-opening batch.
+// A not-found result is not proof that a concurrent request is not running;
+// any retry must preserve the original key and identical payload.
+func (s *InventoryService) LookupOpeningStockBatch(
+	ctx context.Context, tenantID, key string,
+) (OpeningStockResult, bool, error) {
+	if len(key) < 8 || len(key) > 128 || strings.TrimSpace(key) != key {
+		return OpeningStockResult{}, false, common.ErrValidation
+	}
+	id, count, found, err := s.inv.LookupOpeningStockBatch(ctx, tenantID, key)
+	if err != nil || !found {
+		return OpeningStockResult{}, found, err
+	}
+	return OpeningStockResult{BatchID: id, ItemCount: count, Replayed: true}, true, nil
+}
+
 // ImportOpeningStock is all-or-nothing. The key and item fingerprint are
 // committed with inventory movements in one PostgreSQL transaction.
 func (s *InventoryService) ImportOpeningStock(
