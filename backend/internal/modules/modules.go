@@ -23,6 +23,7 @@ import (
 	procinfra "github.com/example/sistemaemgo/internal/modules/procurement/infrastructure"
 	retapp "github.com/example/sistemaemgo/internal/modules/returns/application"
 	retinfra "github.com/example/sistemaemgo/internal/modules/returns/infrastructure"
+	"github.com/example/sistemaemgo/internal/modules/setup"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
 	"github.com/example/sistemaemgo/internal/platform/db"
@@ -43,6 +44,7 @@ type Modules struct {
 	Privacy     *privacyapp.Service
 	Procurement *procapp.Service
 	Returns     *retapp.Service
+	Setup       *setup.Service
 	Events      *events.Bus
 	DB          *pgxpool.Pool
 	Redis       *redis.Client
@@ -172,6 +174,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	privacySvc := privacyapp.NewService(privacyRepo)
 	procurementSvc := procapp.NewService(uow, procurementRepo, productsRepo, inventoryRepo, auditSvc, v, logger)
 	returnsSvc := retapp.NewService(uow, returnsRepo, inventoryRepo, productsRepo, auditSvc, v, logger)
+	setupSvc := setup.New(pool, auditSvc)
 
 	return &Modules{
 		Auth:        authSvc,
@@ -184,6 +187,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		Privacy:     privacySvc,
 		Procurement: procurementSvc,
 		Returns:     returnsSvc,
+		Setup:       setupSvc,
 		Events:      bus,
 		DB:          pool,
 		Redis:       rdb,
