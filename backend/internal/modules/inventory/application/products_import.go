@@ -18,9 +18,9 @@ type ProductImportRequest struct {
 }
 
 type ProductImportResult struct {
-	BatchID  string `json:"batch_id"`
+	BatchID   string `json:"batch_id"`
 	ItemCount int    `json:"item_count"`
-	Replayed bool   `json:"replayed"`
+	Replayed  bool   `json:"replayed"`
 }
 
 // A committed receipt is returned without disclosing the CSV or product IDs.
@@ -109,19 +109,19 @@ func (s *ProductsService) ImportProducts(
 	createdIDs := make([]string, 0, len(items))
 	for _, item := range items {
 		p := inv.Product{
-			CategoryID: item.CategoryID,
-			SKU: item.SKU,
-			Barcode: item.Barcode,
-			NCM: item.NCM,
-			CEST: item.CEST,
-			Name: item.Name,
+			CategoryID:  item.CategoryID,
+			SKU:         item.SKU,
+			Barcode:     item.Barcode,
+			NCM:         item.NCM,
+			CEST:        item.CEST,
+			Name:        item.Name,
 			Description: item.Description,
-			Unit: item.Unit,
-			CostPrice: item.CostPrice,
-			PriceCash: item.PriceCash,
-			PromoPrice: item.PromoPrice,
-			MinStock: item.MinStock,
-			Active: item.Active,
+			Unit:        item.Unit,
+			CostPrice:   item.CostPrice,
+			PriceCash:   item.PriceCash,
+			PromoPrice:  item.PromoPrice,
+			MinStock:    item.MinStock,
+			Active:      item.Active,
 		}
 		id, err := s.repo.Create(ctx, tx, tenantID, p)
 		if err != nil {
