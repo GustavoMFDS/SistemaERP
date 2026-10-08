@@ -43,7 +43,7 @@ test('prévia segue limites de SKU, código de barras, unidade e escala do estoq
     'C;Produto com unidade longa;11;unidade-muito-longa;;0',
     'D;Produto com estoque fracionário;11;un;;1,1234',
     'E;X;11;un;;0',
-  ].join('\\n')
+  ].join('\n')
   const out = parseProductCSV(csv)
   expect(out.valid.map((row) => row.sku)).toEqual(['A'])
   expect(out.errors).toHaveLength(4)
