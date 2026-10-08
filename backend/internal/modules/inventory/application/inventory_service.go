@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"sort"
 	"strings"
-	"log/slog"
 	"time"
 
 	"github.com/example/sistemaemgo/internal/config"
