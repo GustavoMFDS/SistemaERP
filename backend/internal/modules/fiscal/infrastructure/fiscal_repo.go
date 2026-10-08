@@ -1575,6 +1575,36 @@ func (r *FiscalRepo) MarkNFCeInutilizationSubmitted(
 	return nil
 }
 
+func (r *FiscalRepo) RecordPendingNFCeInutilizationResponse(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID, requestID string,
+	result fisc.NFCeInutilizationRemoteResult,
+	responseSHA256 string,
+) error {
+	if !result.Pending() || result.StatusCode != 563 ||
+		len(result.ResponseXML) == 0 || len(responseSHA256) != 64 {
+		return common.ErrValidation
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE nfce_number_inutilizations
+		SET response_xml=$3, response_sha256=$4,
+		    status_code=$5, reason=$6, protocol=NULLIF($7,''),
+		    updated_at=now()
+		WHERE tenant_id=$1 AND request_id=$2 AND status='submitted'
+	`,
+		tenantID, requestID, result.ResponseXML, responseSHA256,
+		result.StatusCode, result.Reason, result.Protocol,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return common.ErrConflict
+	}
+	return nil
+}
+
 func (r *FiscalRepo) ApplyNFCeInutilizationResult(
 	ctx context.Context,
 	tx db.DBTX,
