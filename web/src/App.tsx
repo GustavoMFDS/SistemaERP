@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import FinancePage from './pages/FinancePage'
+import HomePage from './pages/HomePage'
 import FiscalPage from './pages/FiscalPage'
 import InventoryPage from './pages/InventoryPage'
 import LoginPage from './pages/LoginPage'
@@ -17,7 +18,8 @@ export default function App() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route index element={<Navigate to="/products" replace />} />
+          <Route index element={<Navigate to="/home" replace />} />
+          <Route path="/home" element={<HomePage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/purchases" element={<PurchasesPage />} />
