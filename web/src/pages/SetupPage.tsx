@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
@@ -100,8 +100,11 @@ export default function SetupPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [warnings, setWarnings] = useState<string[]>([])
+  const refreshVersion = useRef(0)
 
   const refresh = useCallback(async () => {
+    const version = ++refreshVersion.current
+    const isCurrent = () => version === refreshVersion.current
     setLoading(true)
     setError('')
     setWarnings([])
@@ -115,43 +118,47 @@ export default function SetupPage() {
     setFields(emptyFields)
     try {
       const user = await apiJson<Me>('/api/v1/auth/me')
+      if (!isCurrent()) return
       setMe(user)
       const permissions = new Set(user.permissions)
       const jobs: Promise<void>[] = []
       const problems: string[] = []
       if (permissions.has('product:read')) {
         jobs.push(apiJson<{ total: number }>('/api/v1/products?limit=1&offset=0')
-          .then((response) => setProductsTotal(response.total))
+          .then((response) => { if (isCurrent()) setProductsTotal(response.total) })
           .catch((err: unknown) => { problems.push('Produtos: ' + errorMessage(err)) }))
       }
       if (permissions.has('inventory:read')) {
         jobs.push(apiJson<{ total: number }>('/api/v1/inventory/movements?limit=1&offset=0')
-          .then((response) => setStockMovementsTotal(response.total))
+          .then((response) => { if (isCurrent()) setStockMovementsTotal(response.total) })
           .catch((err: unknown) => { problems.push('Estoque: ' + errorMessage(err)) }))
       }
       if (permissions.has('invoice:generate')) {
         jobs.push(apiJson<ReviewResponse>('/api/v1/setup/reviews')
-          .then((response) => setReviews(reviewDates(response)))
+          .then((response) => { if (isCurrent()) setReviews(reviewDates(response)) })
           .catch((err: unknown) => { problems.push('Revisões do assistente: ' + errorMessage(err)) }))
       }
       if (permissions.has('invoice:read')) {
         jobs.push(apiJson<FiscalReadinessData>('/api/v1/fiscal/nfce/readiness')
-          .then(setReadiness)
+          .then((response) => { if (isCurrent()) setReadiness(response) })
           .catch((err: unknown) => { problems.push('NFC-e: ' + errorMessage(err)) }))
         jobs.push(apiJson<Issuer>('/api/v1/fiscal/nfce/issuer')
-          .then((response) => { setIssuer(response); setFields(issuerFields(response)) })
+          .then((response) => { if (isCurrent()) { setIssuer(response); setFields(issuerFields(response)) } })
           .catch((err: unknown) => { problems.push('Dados da empresa: ' + errorMessage(err)) }))
       }
       await Promise.all(jobs)
-      setWarnings(problems)
+      if (isCurrent()) setWarnings(problems)
     } catch (err: unknown) {
-      setError('Não foi possível identificar a loja e suas permissões: ' + errorMessage(err))
+      if (isCurrent()) setError('Não foi possível identificar a loja e suas permissões: ' + errorMessage(err))
     } finally {
-      setLoading(false)
+      if (isCurrent()) setLoading(false)
     }
   }, [])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    void refresh()
+    return () => { refreshVersion.current += 1 }
+  }, [refresh])
 
   async function saveIssuer(event: FormEvent) {
     event.preventDefault()
