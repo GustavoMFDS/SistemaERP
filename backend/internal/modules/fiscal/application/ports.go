@@ -146,6 +146,7 @@ type FiscalRepository interface {
 	InsertSignedNFCeInutilization(ctx context.Context, tx db.DBTX, record fisc.NFCeInutilization, actorUserID string, signedXML []byte, sha256 string) (string, error)
 	MarkNFCeInutilizationSubmitted(ctx context.Context, tx db.DBTX, tenantID, requestID string) error
 	ApplyNFCeInutilizationResult(ctx context.Context, tx db.DBTX, tenantID, requestID string, result fisc.NFCeInutilizationRemoteResult, responseSHA256 string) error
+	RecordPendingNFCeInutilizationResponse(ctx context.Context, tx db.DBTX, tenantID, requestID string, result fisc.NFCeInutilizationRemoteResult, responseSHA256 string) error
 }
 
 type SalesRepository interface {
