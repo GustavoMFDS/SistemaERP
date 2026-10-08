@@ -106,6 +106,54 @@ This endpoint is intended for PDV scanner fallback when the product is not alrea
 
 Money values accept at most 2 decimal places. Quantity values accept at most 3 decimal places.
 
+### POST `/products/import-batches`
+
+Creates **1–500 products atomically** under the authenticated company.
+Requires `product:write`, trusted request origin, and
+`Idempotency-Key` (8–128 characters). Applies a tenant-scoped rate limit.
+
+```json
+{
+  "items": [
+    {
+      "sku": "ARROZ-5KG",
+      "name": "Arroz 5kg",
+      "unit": "un",
+      "price_cash": 24.90,
+      "min_stock": 5,
+      "barcode": null,
+      "ncm": null,
+      "cest": null,
+      "cost_price": 0,
+      "active": true
+    }
+  ]
+}
+```
+
+Responses: **201** `{"batch_id":"...","item_count":1,"replayed":false}`;
+**200** with `replayed:true` for an identical committed attempt,
+**409** when the key's previous payload differs or an existing SKU/barcode
+conflicts, **422** for invalid input, **403** without permission.
+
+Validation and normalization take place in the backend. Product records,
+their zero stock balances, the receipt and the audit event commit in
+one transaction; any failure rolls back the entire batch. This endpoint
+does **not** increase stock or authorize fiscal issuance. Without
+`finance:read`, server-side cost is forced to zero.
+
+### GET `/products/import-batches/{key}`
+
+Requires `product:write`. Checks the authenticated company's *committed*
+receipt without returning any CSV contents, prices, or product data.
+Returns **200** `{"batch_id":"...","item_count":1,"replayed":true}`,
+**404** when no committed receipt is visible, **403** for unauthorized,
+and **422** for an invalid key. Uses `Cache-Control: no-store`.
+
+After ambiguous POST failures, keep the *same key and same payload*.
+A 404 is not proof that a prior request has finished; never generate a
+new idempotency key automatically to retry.
+
 ## Inventory
 
 ### GET `/inventory/low-stock?limit=50`
