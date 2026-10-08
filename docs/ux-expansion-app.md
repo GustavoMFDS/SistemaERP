@@ -153,6 +153,14 @@ para usuários não técnicos:
    link à preparação fiscal. `ready_for_homologation_data` **não é sinônimo**
    de autorização da SEFAZ ou de transmissão liberada.
 
+A navegação agora inclui botões **Etapa anterior / Próxima etapa**, um resumo
+com as quantidades de etapas verificadas, a revisar e sem acesso, e um atalho
+para a próxima etapa acessível que precise de atenção. Etapas prontas são
+contadas apenas a partir de evidências verificadas pelo servidor. Estoque
+com movimentações, perfis de equipe e dados de homologação NFC-e continuam
+**para revisão**, e não são marcados como concluídos por clique no navegador.
+O resumo não equivale a uma porcentagem de prontidão de produção.
+
 O estado é calculado por leitura das APIs autenticadas e verificado novamente
 a pedido do operador; a tela não grava uma falsa conclusão local em
 `localStorage`. Consultas condicionadas às permissões evitam tentar obter
@@ -169,6 +177,8 @@ Testes adicionados:
   diferenciação entre preparação fiscal e emissão real;
 - `web/e2e/setup-wizard.spec.ts` para fluxo de navegação e ausência de
   requisições fiscais para o perfil de caixa.
+- regressões de contagem conservadora, próxima etapa acessível e botões
+  anterior/próxima no assistente.
 
 **Pendente de execução:** build, lint, testes de navegação, teste E2E
 do cadastro fiscal assistido, piloto real e validações da SEFAZ.
