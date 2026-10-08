@@ -111,12 +111,17 @@ export function parseProductCSV(source: string): ProductImportPreview {
     const minRaw = get(values, 'min_stock')
     const minStock = minRaw ? parseDecimal(minRaw) : 0
     const barcode = get(values, 'barcode') || null
+    const unit = get(values, 'unit') || 'un'
     const ncm = get(values, 'ncm') || null
     const cest = get(values, 'cest') || null
     let reason = ''
-    if (!sku || !name) reason = 'SKU ou nome vazio'
+    if (!sku || sku.length > 64) reason = 'SKU vazio ou acima de 64 caracteres'
+    else if (name.length < 2 || name.length > 200) reason = 'nome deve ter entre 2 e 200 caracteres'
+    else if (!unit || unit.length > 8) reason = 'unidade deve ter de 1 a 8 caracteres'
+    else if (barcode && (barcode.length < 8 || barcode.length > 32)) reason = 'código de barras deve ter de 8 a 32 caracteres'
     else if (!Number.isFinite(price) || price <= 0 || Math.abs(Math.round(price * 100) - price * 100) > 0.000001) reason = 'preço inválido (use até 2 casas decimais)'
-    else if (!Number.isFinite(minStock) || minStock < 0) reason = 'estoque mínimo inválido'
+    else if (!Number.isFinite(minStock) || minStock < 0 ||
+      Math.abs(Math.round(minStock * 1000) - minStock * 1000) > 0.000001) reason = 'estoque mínimo inválido (até 3 casas)'
     else if (ncm && !/^\d{8}$/.test(ncm)) reason = 'NCM deve ter 8 dígitos'
     else if (cest && !/^\d{7}$/.test(cest)) reason = 'CEST deve ter 7 dígitos'
     else if (skus.has(sku.toLowerCase())) reason = 'SKU repetido no arquivo'
@@ -128,7 +133,7 @@ export function parseProductCSV(source: string): ProductImportPreview {
     skus.add(sku.toLowerCase())
     if (barcode) barcodes.add(barcode)
     valid.push({
-      line, sku, name, unit: get(values, 'unit') || 'un', barcode, ncm, cest,
+      line, sku, name, unit, barcode, ncm, cest,
       price_cash: price, min_stock: minStock,
     })
   }
