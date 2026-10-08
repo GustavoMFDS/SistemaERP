@@ -24,11 +24,33 @@ brasileiro (`24,90`). Rejeita duplicados dentro do arquivo, NCM/CEST mal
 formatados, preços não positivos e linhas inválidas. Rejeita o **lote inteiro**
 no cliente se qualquer linha estiver incorreta; não grava automaticamente.
 
-Cada registro é criado pela API existente, que valida autenticação,
-`product:write`, tenant e unicidade. Não importa estoque inicial nem
-adivinha custo, tributos ou preços. **Não é uma transação única**: se algum
-registro falhar no servidor, os anteriores podem ter sido criados e a tela
-mostra o resultado parcial. Conferir as falhas antes de repetir o lote.
+A importação agora envia a planilha validada por **um único POST**
+`/api/v1/products/import-batches`, com chave de idempotência. O servidor
+valida novamente todas as linhas (até 500), SKU e código de barras únicos
+no lote, e grava produtos, saldos iniciais **zerados**, recibo e auditoria
+em uma única transação PostgreSQL. Se algum produto conflitar com outro
+já cadastrado ou a escrita falhar, **nenhuma linha é confirmada**.
+Não adivinha custo, tributos nem estoque inicial; o backend não depende da
+prévia do navegador como fonte de verdade.
+
+A chave e o hash local dos dados normalizados são preservados por
+`tenant_id` e usuário até 30 dias; **não** se guarda CSV, nome dos
+produtos, preço ou dados fiscais no armazenamento de recuperação.
+`GET /api/v1/products/import-batches/{key}` permite confirmar se o
+servidor já aplicou o lote. Respostas ambíguas exigem consulta e,
+se necessário, reenvio do **mesmo arquivo** com a mesma referência.
+Reenvio idêntico responde `replayed=true`, e reenvio com payload
+alterado sob a mesma chave retorna conflito. Um GET 404 não prova que
+nenhuma requisição esteja em andamento. Limpar a referência local não
+desfaz operações do servidor. Mudança de navegador/dispositivo ou
+limpeza do storage perde a referência, mas o catálogo continua protegido
+pela unicidade por empresa.
+
+A API exige `product:write`, limite de requisições, origem confiável no
+POST, e consulta apenas o CNPJ autenticado. Testes de integração cobrem
+replay, rollback por conflito, auditoria e isolamento de duas empresas;
+testes E2E cobrem resposta ambígua, recarga, CSV diferente, reconciliação
+e negativa de acesso ao caixa. Ainda precisam ser executados.
 
 O destaque *Estoque baixo* da tela Produtos considera os resultados
 **atualmente carregados**, não é um relatório global de todo o catálogo.
@@ -121,7 +143,7 @@ auditados normais, jamais por nova carga inicial.
 
 Nova tabela `opening_stock_batches` na migration **0030**, com chaves
 únicas por tenant e referência da movimentação. O estado piloto e
-backup/restore exigem agora schema 31 e conferem essa tabela e as revisões do assistente. O down da
+backup/restore exigem agora schema 32 e conferem as tabelas de lotes e revisões do assistente. O down da
 migration é **fail-closed** se houver lotes confirmados, para preservar
 a auditoria histórica.
 
@@ -232,17 +254,15 @@ Testes novos:
 - E2E de persistência entre recargas simulando a API, reversão de revisão
   e ausência de requests administrativos no perfil de caixa;
 - migração 0031 com upgrade, rollback sem dados e reapply;
-- ferramentas de piloto e backup passam a exigir schema >=31 e 43 tabelas.
+- ferramentas de piloto e backup passam a exigir schema >=32 e 44 tabelas.
 
 **Status:** casos de teste adicionados ao repositório, mas CI atual
 não executa os steps nos runners hospedados; não inferir testes aprovados.
 
 ## Próximas expansões
 
-- Criar lotes atômicos e recuperáveis para **cadastro de produtos por CSV**:
-  atualmente o endpoint de produtos grava linha a linha, e falhas podem
-  deixar uma importação parcial. Não reutilizar esse fluxo como se fosse
-  idempotente e não marcar lote parcial como concluído.
+- Exibir a auditoria de lotes em tela para o administrador e permitir
+  exportação segura de erros sem expor dados financeiros a perfis sem acesso.
 - Oferecer histórico administrativo no servidor para consultar lotes de
   importação sem depender da referência local (com auditoria e RBAC).
 - Paginação completa e exportação do relatório global de estoque; o total já
