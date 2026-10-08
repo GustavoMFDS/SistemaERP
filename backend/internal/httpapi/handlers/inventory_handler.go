@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"log/slog"
 
@@ -60,6 +61,45 @@ func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
+}
+
+// ImportOpeningStock applies one explicitly confirmed opening count only once.
+func (h *InventoryHandler) ImportOpeningStock(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if len(key) < 8 || len(key) > 128 {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error",
+			"Informe uma chave de idempotencia entre 8 e 128 caracteres.", nil)
+		return
+	}
+	var req invapp.OpeningStockRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	result, err := h.svc.ImportOpeningStock(r.Context(), au.TenantID, au.UserID, key, req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict:
+			status = http.StatusConflict
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	if result.Replayed {
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
 }
 
 func (h *InventoryHandler) Adjust(w http.ResponseWriter, r *http.Request) {
