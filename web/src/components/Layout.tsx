@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
 import { getLegacyQueueCount, getQueueCount } from '../lib/offlineQueue'
+import { useInstallApp } from '../lib/installApp'
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 
@@ -20,6 +21,7 @@ function classNames(...xs: Array<string | false | undefined>): string {
 
 export default function Layout() {
   const navigate = useNavigate()
+  const appInstall = useInstallApp()
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meError, setMeError] = useState<string>('')
   const [logoutError, setLogoutError] = useState('')
@@ -100,6 +102,12 @@ export default function Layout() {
             SistemaEmGo
           </Link>
           <div className="flex items-center gap-3">
+            {appInstall.available ? (
+              <button type="button" onClick={() => void appInstall.install()}
+                className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50">
+                Instalar aplicativo
+              </button>
+            ) : null}
             <div className="text-xs text-gray-600">
               {me?.email ? (
                 <span>
