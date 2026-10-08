@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import { apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson, errorMessage } from '../lib/api'
+import { getSessionScope } from '../lib/auth'
+import { clearPendingProductImport, fingerprintProducts, readPendingProductImport, savePendingProductImport, type PendingProductImport } from '../lib/productImportRecovery'
 import { parseProductCSV, PRODUCT_IMPORT_EXAMPLE, type ProductImportPreview } from '../lib/productImport'
 
 type Product = {
@@ -53,7 +55,9 @@ export default function ProductsPage() {
   const [importPreview, setImportPreview] = useState<ProductImportPreview | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
-  const [importFailures, setImportFailures] = useState<string[]>([])
+  const [importKey, setImportKey] = useState('')
+  const [importDigest, setImportDigest] = useState('')
+  const [pendingImport, setPendingImport] = useState<PendingProductImport | null>(null)
 
   const [sku, setSku] = useState('')
   const [barcode, setBarcode] = useState('')
@@ -92,7 +96,11 @@ export default function ProductsPage() {
   useEffect(() => {
     void load()
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
-      .then((me) => setCanWrite(me.permissions.includes('product:write')))
+      .then((me) => {
+        const writable = me.permissions.includes('product:write')
+        setCanWrite(writable)
+        setPendingImport(writable ? readPendingProductImport() : null)
+      })
       .catch((e: unknown) => setError(errorMessage(e)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -181,8 +189,9 @@ export default function ProductsPage() {
     const file = event.target.files?.[0]
     event.target.value = ''
     setImportPreview(null)
+    setImportKey('')
+    setImportDigest('')
     setImportResult('')
-    setImportFailures([])
     if (!file) return
     if (file.size > 1024 * 1024) {
       setError('Arquivo muito grande. Limite: 1 MB e 500 produtos por lote.')
@@ -190,7 +199,23 @@ export default function ProductsPage() {
     }
     try {
       const csv = await file.text()
-      setImportPreview(parseProductCSV(csv))
+      const preview = parseProductCSV(csv)
+      if (preview.errors.length || !preview.valid.length) {
+        setImportPreview(preview)
+        setError('')
+        return
+      }
+      const digest = await fingerprintProducts(preview.valid)
+      const pending = readPendingProductImport()
+      if (pending && pending.digest !== digest) {
+        setPendingImport(pending)
+        setError('Há uma importação pendente. Consulte o lote no servidor ou escolha o mesmo CSV para continuar com a chave original.')
+        return
+      }
+      setImportPreview(preview)
+      setImportKey(pending?.key ?? crypto.randomUUID())
+      setImportDigest(digest)
+      setPendingImport(pending)
       setError('')
     } catch (e: unknown) {
       setError(errorMessage(e))
@@ -208,40 +233,115 @@ export default function ProductsPage() {
   }
 
   async function importProducts() {
-    if (!canWrite || importing || !importPreview?.valid.length) return
-    if (!window.confirm(`Cadastrar ${importPreview.valid.length} produto(s) na loja atual? Os produtos já cadastrados podem gerar conflito, e o processo não é revertido automaticamente.`)) return
+    if (!canWrite || importing || !importPreview?.valid.length ||
+        importPreview.errors.length || !importKey || !importDigest) return
+    if (!window.confirm(`Cadastrar ${importPreview.valid.length} produto(s) nesta loja em um único lote? Se houver qualquer conflito, nenhum será cadastrado.`)) return
+
+    const scope = getSessionScope()
     setImporting(true)
     setError('')
-    setImportFailures([])
-    let created = 0
-    const failures: string[] = []
-    for (const row of importPreview.valid) {
-      const payload: ProductCreateRequest = {
-        sku: row.sku,
-        name: row.name,
-        unit: row.unit,
-        price_cash: row.price_cash,
-        min_stock: row.min_stock,
-        barcode: row.barcode,
-        ncm: row.ncm,
-        cest: row.cest,
-        cost_price: 0,
-        active: true,
+    setImportResult('')
+    try {
+      const prior = readPendingProductImport()
+      const record: PendingProductImport = {
+        key: importKey,
+        digest: importDigest,
+        createdAt: prior?.createdAt ?? Date.now(),
       }
-      try {
-        await apiJson<{ id: string }>('/api/v1/products', { method: 'POST', body: payload })
-        created += 1
-      } catch (e: unknown) {
-        failures.push(`Linha ${row.line} (SKU ${row.sku}): ${errorMessage(e)}`)
-        // Never keep sending after access is lost; avoid misleading partial import.
-        if (e instanceof Error && /não autenticad|unauthoriz|sessão expirada/i.test(e.message)) break
-      }
+      savePendingProductImport(record)
+      setPendingImport(record)
+    } catch (e: unknown) {
+      setError('Nenhuma importação foi enviada: não foi possível preservar a referência de recuperação. ' + errorMessage(e))
+      setImporting(false)
+      return
     }
-    setImportResult(`${created} produto(s) cadastrado(s); ${failures.length} falha(s). Confira os detalhes antes de repetir a importação.`)
-    setImportFailures(failures)
+    try {
+      const result = await apiJson<{ batch_id: string; item_count: number; replayed: boolean }>(
+        '/api/v1/products/import-batches',
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': importKey },
+          body: {
+            items: importPreview.valid.map((row): ProductCreateRequest => ({
+              sku: row.sku,
+              name: row.name,
+              unit: row.unit,
+              price_cash: row.price_cash,
+              min_stock: row.min_stock,
+              barcode: row.barcode,
+              ncm: row.ncm,
+              cest: row.cest,
+              cost_price: 0,
+              active: true,
+            })),
+          },
+        },
+      )
+      if (scope !== getSessionScope()) return
+      clearPendingProductImport(importKey)
+      setPendingImport(null)
+      setImportResult(result.replayed
+        ? `Lote ${result.batch_id} confirmado anteriormente. Nenhum produto foi duplicado.`
+        : `Todos os ${result.item_count} produto(s) foram cadastrados. Lote ${result.batch_id}.`)
+      setImportPreview(null)
+      setImportKey('')
+      setImportDigest('')
+      await load()
+    } catch (e: unknown) {
+      if (scope === getSessionScope()) {
+        setError(`Importação não confirmada: ${errorMessage(e)}. A chave original foi preservada. Consulte o lote no servidor; se precisar repetir, use o mesmo CSV sem alterações. Não inicie outra importação antes de reconciliar esta tentativa.`)
+      }
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  async function checkPendingProductImport() {
+    if (!canWrite || importing) return
+    const pending = readPendingProductImport()
+    if (!pending) {
+      setPendingImport(null)
+      setError('Nenhuma referência de importação válida foi encontrada nesta conta e loja.')
+      return
+    }
+    const scope = getSessionScope()
+    setImporting(true)
+    setError('')
+    setImportResult('')
+    try {
+      const result = await apiJson<{ batch_id: string; item_count: number; replayed: boolean }>(
+        `/api/v1/products/import-batches/${encodeURIComponent(pending.key)}`,
+      )
+      if (scope !== getSessionScope()) return
+      clearPendingProductImport(pending.key)
+      setPendingImport(null)
+      setImportPreview(null)
+      setImportKey('')
+      setImportDigest('')
+      setImportResult(`O servidor confirmou o lote ${result.batch_id} com ${result.item_count} produto(s). Nenhuma nova gravação é necessária.`)
+      await load()
+    } catch (e: unknown) {
+      if (scope !== getSessionScope()) return
+      setError(e instanceof APIError && e.status === 404
+        ? 'Este lote ainda não aparece como confirmado no servidor. Uma requisição anterior pode estar em andamento. Selecione o mesmo CSV para reutilizar a chave e tentar novamente.'
+        : `Falha ao consultar o lote: ${errorMessage(e)}. Preserve a referência até esclarecer a situação.`)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  function discardPendingProductImport() {
+    if (!canWrite || importing || !pendingImport) return
+    if (!window.confirm(
+      'Descartar a referência salva neste navegador? Isso não desfaz cadastros eventualmente confirmados no servidor. Confira os produtos antes de iniciar outro lote.',
+    )) return
+    clearPendingProductImport(pendingImport.key)
+    setPendingImport(null)
     setImportPreview(null)
-    setImporting(false)
-    await load()
+    setImportKey('')
+    setImportDigest('')
+    setImportResult('')
+    setError('Referência local descartada. Verifique o catálogo antes de iniciar uma nova importação.')
   }
 
   return (
@@ -394,8 +494,29 @@ export default function ProductsPage() {
           <h3 className="text-sm font-semibold">Importar produtos de uma planilha</h3>
           <p className="mt-1 text-xs text-gray-600">
             Baixe o modelo, preencha no Excel ou LibreOffice e salve como CSV. Os produtos serão
-            cadastrados somente na loja em que você está conectado. Não altera o estoque atual.
+            cadastrados somente na loja em que você está conectado, em uma única transação.
+            Se uma linha falhar, nenhuma será cadastrada. Não altera o estoque atual.
           </p>
+          {pendingImport ? (
+            <div role="region" aria-label="Importação de produtos pendente" className="mt-3 rounded-md border border-amber-300 p-3 text-sm">
+              <p className="font-semibold">Uma tentativa anterior precisa ser conferida.</p>
+              <p className="mt-1 text-xs">Referência: <code>{pendingImport.key}</code></p>
+              <p className="mt-1 text-xs text-gray-600">
+                A planilha não fica salva aqui. Consulte o servidor. Caso não tenha sido confirmada,
+                escolha novamente o mesmo arquivo para reutilizar a chave original.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" disabled={importing} onClick={() => void checkPendingProductImport()}
+                  className="rounded-md border border-blue-300 px-3 py-2 text-sm disabled:opacity-50">
+                  Conferir lote no servidor
+                </button>
+                <button type="button" disabled={importing} onClick={discardPendingProductImport}
+                  className="rounded-md border px-3 py-2 text-sm text-amber-900 disabled:opacity-50">
+                  Descartar referência local
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button type="button" onClick={downloadCSVExample} className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
               Baixar modelo CSV
@@ -417,16 +538,13 @@ export default function ProductsPage() {
               ) : null}
               <p className="text-xs text-gray-600">Prévia: {importPreview.valid.slice(0, 5).map((row) => `${row.sku} — ${row.name} (R$ ${row.price_cash.toFixed(2)})`).join(' · ')}</p>
               <p className="text-xs text-amber-800">Códigos NCM/CEST precisam ser conferidos com o contador. A importação não habilita emissão fiscal.</p>
-              <button type="button" onClick={() => void importProducts()} disabled={importing || importPreview.valid.length === 0 || importPreview.errors.length > 0}
+              <button type="button" onClick={() => void importProducts()} disabled={importing || importPreview.valid.length === 0 || importPreview.errors.length > 0 || !importKey}
                 className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
                 {importing ? 'Importando produtos…' : `Confirmar importação de ${importPreview.valid.length} produto(s)`}
               </button>
             </div>
           ) : null}
           {importResult ? <p role="status" className="mt-3 text-sm">{importResult}</p> : null}
-          {importFailures.length ? (
-            <ul className="mt-2 list-disc pl-5 text-xs text-red-700">{importFailures.slice(0, 30).map((err, i) => <li key={i}>{err}</li>)}</ul>
-          ) : null}
         </section>
       ) : null}
 
