@@ -918,6 +918,11 @@ func (r *FiscalRepo) ReserveNextNFCeNumber(
 	tenantID string,
 	series int,
 ) (int64, error) {
+	// Use the same transaction advisory lock as inutilization. Otherwise
+	// a range might be checked as unused just before a sale reserves it.
+	if err := r.lockNFCeNumberSeries(ctx, tx, tenantID, series); err != nil {
+		return 0, err
+	}
 	var number int64
 	err := tx.QueryRow(ctx, `
 		INSERT INTO fiscal_document_sequences(tenant_id, model, series, next_number)
@@ -1426,7 +1431,18 @@ func (r *FiscalRepo) LockNFCeInutilizationRange(
 	tenantID string,
 	year, series int,
 ) error {
-	key := fmt.Sprintf("%s:nfce-inutilization:%d:%d", tenantID, year, series)
+	// Year is retained for the public repository contract, but the number
+	// sequence is tenant/model/series-scoped across years.
+	return r.lockNFCeNumberSeries(ctx, tx, tenantID, series)
+}
+
+func (r *FiscalRepo) lockNFCeNumberSeries(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+	series int,
+) error {
+	key := fmt.Sprintf("%s:nfce:65:series:%d", tenantID, series)
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, key)
 	return err
 }
