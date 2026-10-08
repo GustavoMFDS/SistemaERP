@@ -22,7 +22,7 @@ test('CSV com aspas e separador por vírgulas', () => {
 })
 
 test('importação rejeita duplicados e classificação inválida antes da escrita', () => {
-  const result = parseProductCSV('sku;nome;preco;ncm;codigo_barras\nA;Produto 1;10,00;12345678;789\nA;Produto 2;12,00;12345678;790\nB;Produto 3;13,00;1234;790\n')
+  const result = parseProductCSV('sku;nome;preco;ncm;codigo_barras\nA;Produto 1;10,00;12345678;789000001\nA;Produto 2;12,00;12345678;790000000\nB;Produto 3;13,00;1234;790000000\n')
   expect(result.valid).toHaveLength(1)
   expect(result.errors).toHaveLength(2)
   expect(result.errors[0]).toContain('SKU repetido')
@@ -33,4 +33,22 @@ test('importação não aceita arquivo vazio, campos obrigatórios ausentes ou a
   expect(() => parseProductCSV('sku;nome;preco\n')).toThrow()
   expect(() => parseProductCSV('sku;nome\nA;Produto')).toThrow('Colunas obrigatórias')
   expect(() => parseProductCSV('sku;nome;preco\nA;\"Produto;10')).toThrow('aspas não fechadas')
+})
+
+test('prévia segue limites de SKU, código de barras, unidade e escala do estoque', () => {
+  const csv = [
+    'sku;nome;preco;unidade;codigo_barras;estoque_minimo',
+    'A;Produto válido;10,00;un;;1,250',
+    'B;Produto com barcode curto;11;un;123;0',
+    'C;Produto com unidade longa;11;unidade-muito-longa;;0',
+    'D;Produto com estoque fracionário;11;un;;1,1234',
+    'E;X;11;un;;0',
+  ].join('\\n')
+  const out = parseProductCSV(csv)
+  expect(out.valid.map((row) => row.sku)).toEqual(['A'])
+  expect(out.errors).toHaveLength(4)
+  expect(out.errors.join(' ')).toMatch(/código de barras/)
+  expect(out.errors.join(' ')).toMatch(/unidade/)
+  expect(out.errors.join(' ')).toMatch(/estoque mínimo/)
+  expect(out.errors.join(' ')).toMatch(/nome/)
 })
