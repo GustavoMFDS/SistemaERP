@@ -339,6 +339,48 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		t.Fatalf("numeric code=%q, want 8 digits", reservation.NumericCode)
 	}
 
+	// Issuer identity and fiscal numbering cannot change underneath an
+	// unresolved NFC-e. Certificate references may still be rotated with
+	// the environment and series unchanged for recovery.
+	if _, err := service.PrepareNFCeIssuerProfile(
+		ctx, tenantID, actorUserID, fiscapp.PrepareNFCeIssuerRequest{
+			IE: "110042490114", CRT: "4",
+			AddressStreet: "Avenida Fiscal", AddressNumber: "200",
+			AddressNeighborhood: "Centro", AddressCity: "Uberlandia",
+			AddressCityCode: "3170206", AddressState: "MG",
+			AddressZIP: "38400000",
+		},
+	); !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("issuer mutation with reserved NFC-e must fail closed: %v", err)
+	}
+	var issuerNumber string
+	if err := pool.QueryRow(ctx, `
+		SELECT address_number FROM companies WHERE id=$1
+	`, tenantID).Scan(&issuerNumber); err != nil || issuerNumber != "100" {
+		t.Fatalf("issuer unexpectedly changed during reserved NFC-e: number=%q err=%v", issuerNumber, err)
+	}
+	if _, err := service.PrepareNFCeConfig(
+		ctx, tenantID, actorUserID, fiscapp.PrepareNFCeConfigRequest{
+			Environment: "production", Series: 322,
+			CertificateSecretRef: certRef,
+		},
+	); !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("environment/series change with reserved NFC-e must fail closed: %v", err)
+	}
+	unchangedCfg, err := fiscalRepo.GetNFCeConfig(ctx, tenantID)
+	if err != nil || unchangedCfg.Environment != "homologation" || unchangedCfg.Series != 321 {
+		t.Fatalf("config unexpectedly changed under reserved NFC-e: %+v err=%v", unchangedCfg, err)
+	}
+	rotatedCfg, err := service.PrepareNFCeConfig(
+		ctx, tenantID, actorUserID, fiscapp.PrepareNFCeConfigRequest{
+			Environment: "homologation", Series: 321,
+			CertificateSecretRef: certRef,
+		},
+	)
+	if err != nil || rotatedCfg.Environment != "homologation" || rotatedCfg.Series != 321 {
+		t.Fatalf("same-series certificate maintenance should remain possible: %+v err=%v", rotatedCfg, err)
+	}
+
 	var (
 		snapshotNCM   string
 		snapshotCFOP  string
