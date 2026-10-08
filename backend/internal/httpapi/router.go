@@ -71,6 +71,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("inventory:read")).Get("/movements", h.Inventory.ListMovements)
 				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/adjust", h.Inventory.Adjust)
 				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/opening-stock", h.Inventory.ImportOpeningStock)
+				rr.With(middleware.RequirePermission("inventory:adjust")).Get("/opening-stock/batches/{key}", h.Inventory.OpeningStockBatch)
 			})
 
 			pr.Route("/suppliers", func(rr chi.Router) {
