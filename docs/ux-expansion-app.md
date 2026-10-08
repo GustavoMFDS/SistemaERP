@@ -71,14 +71,42 @@ baseada apenas em dados digitados. Exigem-se certificado válido,
 classificação tributária adequada, ambiente homologado, transmissão segura
 e autorização da SEFAZ; produção permanece bloqueada até esses gates.
 
+### 4. Início simplificado e visão do proprietário
+
+A tela **Início** (`/home`) pode ser aberta no menu por qualquer usuário,
+inclusive no aplicativo instalado. Os atalhos exibidos são filtrados pelas
+permissões recebidas de `/auth/me`; as APIs continuam a exigir suas permissões
+no servidor. O fluxo anterior de login ainda abre Produtos até migrarmos
+os testes E2E existentes que verificam essa navegação.
+
+Com `finance:read`, são oferecidos um resumo do livro financeiro por período
+e exportação CSV. Os valores são da loja autenticada, com lançamento por data
+e distinção entre vendas após cancelamento, reembolsos e margem bruta estimada.
+Não se trata de lucro líquido contábil nem de saldo bancário. O CSV sempre
+registra as datas do último período **efetivamente consultado**, mesmo que
+o usuário altere os campos sem buscar novamente.
+
+Com `inventory:read`, são exibidos o **total global** de itens ativos com
+estoque no mínimo ou abaixo e uma amostra dos mais críticos. A tela Estoque
+informa o total global mesmo quando a lista está limitada e oferece exibição
+ampliada para até 500 itens. Não há acesso financeiro ao caixa sem
+`finance:read`, incluindo na API.
+
+Testes adicionados:
+
+- integração PostgreSQL para agregação, contagem global e isolamento A/B;
+- E2E de proprietário, exportação e negativa de acesso financeiro pelo caixa.
+
+Os testes ainda exigem execução em ambiente com runner disponível.
+
 ## Próximas expansões
 
 - Importação de inventário inicial por contagem física com dupla conferência
   e idempotência, separada do cadastro de produtos.
-- Central global de estoque mínimo e relatórios gerenciais, com consultas
-  paginadas/agrupadas no backend, não somente filtro da lista visível.
-- Exportação financeira/gerencial com critérios de período, permissão e
-  confidencialidade.
+- Paginação completa e exportação do relatório global de estoque; o total já
+  é computado globalmente, mas a listagem está limitada a 500 itens.
+- Relatórios gerenciais mais profundos (venda por item, período e custo),
+  preservando a autorização de custo e margem.
 - Onboarding por empresa com estado persistente de etapas e verificações
   sem inserir segredos no banco ou no frontend.
 
