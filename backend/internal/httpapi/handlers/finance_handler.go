@@ -35,6 +35,28 @@ func writeFinanceError(w http.ResponseWriter, r *http.Request, err error) {
 	writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 }
 
+func (h *FinanceHandler) OwnerOverview(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+	today := time.Now().Format("2006-01-02")
+	if from == "" {
+		from = today
+	}
+	if to == "" {
+		to = today
+	}
+	result, err := h.svc.OwnerOverview(r.Context(), au.TenantID, from, to)
+	if err != nil {
+		writeFinanceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "overview": result})
+}
+
 func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
