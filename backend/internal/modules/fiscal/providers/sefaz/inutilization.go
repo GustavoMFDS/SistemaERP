@@ -201,20 +201,34 @@ func inutilizationRemoteResult(
 		Reason:      response.Reason,
 		ResponseXML: append([]byte(nil), responseXML...),
 	}
-	if response.StatusCode != 102 {
+	// cStat 563 reports a previously authorized request for the same range.
+	// It may follow a lost successful response, so it is NOT safe to mark
+	// the range rejected or to retransmit it blindly.
+	if response.StatusCode != 102 && response.StatusCode != 563 {
 		out.FinalStatus = fisc.NFCeInutilizationStatusRejected
 		return out, nil
 	}
-	if response.Protocol == "" || response.ReceivedAt == "" {
-		return fisc.NFCeInutilizationRemoteResult{}, fmt.Errorf("registered inutilization response is incomplete")
+	expectedUF, ok := fisc.UFCode(expected.IssuerUF)
+	if !ok {
+		return fisc.NFCeInutilizationRemoteResult{}, fmt.Errorf("invalid expected issuer UF")
 	}
-	if response.Model != "65" ||
+	if response.UFCode != expectedUF ||
+		response.Model != "65" ||
 		response.Series != expected.Series ||
 		response.StartNumber != expected.StartNumber ||
 		response.EndNumber != expected.EndNumber ||
 		response.Year != fmt.Sprintf("%02d", expected.Year%100) ||
 		normalizedCNPJ(response.CNPJ) != normalizedCNPJ(expected.IssuerCNPJ) {
 		return fisc.NFCeInutilizationRemoteResult{}, fmt.Errorf("inutilization response identity mismatch")
+	}
+	if response.StatusCode == 563 {
+		// Return the previous protocol as evidence, but leave the row in
+		// submitted until independently reconciled against SEFAZ records.
+		out.Protocol = response.Protocol
+		return out, nil
+	}
+	if response.Protocol == "" || response.ReceivedAt == "" {
+		return fisc.NFCeInutilizationRemoteResult{}, fmt.Errorf("registered inutilization response is incomplete")
 	}
 	registeredAt, err := time.Parse(time.RFC3339, response.ReceivedAt)
 	if err != nil {
