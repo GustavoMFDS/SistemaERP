@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 
@@ -42,7 +42,7 @@ export default function InventoryPage() {
     [productId, delta, reason],
   )
 
-  async function load() {
+  const load = useCallback(async () => {
     setError('')
     setLoading(true)
     try {
@@ -52,17 +52,17 @@ export default function InventoryPage() {
       ])
       setLow(lowRes.items ?? [])
       setLowTotal(lowRes.total)
-      setProducts(prodRes.items)
+      setProducts(prodRes.items ?? [])
     } catch (e: unknown) {
       setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
-  }
+  }, [lowLimit])
 
   useEffect(() => {
     void load()
-  }, [lowLimit])
+  }, [load])
 
   useEffect(() => {
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
