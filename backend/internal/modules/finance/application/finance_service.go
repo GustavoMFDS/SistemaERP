@@ -53,6 +53,13 @@ func NewFinanceService(uow db.UnitOfWork, repo FinanceRepository, auditSvc *audi
 	return &FinanceService{uow: uow, repo: repo, audit: auditSvc, validate: v, logger: logger}
 }
 
+func (s *FinanceService) OwnerOverview(ctx context.Context, tenantID, from, to string) (fin.OwnerOverview, error) {
+	if err := validateFinanceDateRange(from, to); err != nil {
+		return fin.OwnerOverview{}, err
+	}
+	return s.repo.OwnerOverview(ctx, tenantID, from, to)
+}
+
 func (s *FinanceService) Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]platform.Money, error) {
 	if err := validateFinanceDateRange(from, to); err != nil {
 		return nil, err
