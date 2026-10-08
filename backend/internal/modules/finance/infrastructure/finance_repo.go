@@ -43,6 +43,40 @@ func (r *FinanceRepo) InsertLedgerEntry(ctx context.Context, tx db.DBTX, tenantI
 	return id, err
 }
 
+// OwnerOverview aggregates all ledger rows for the selected tenant/period.
+// It intentionally does not pretend the estimated margin is accounting profit.
+func (r *FinanceRepo) OwnerOverview(ctx context.Context, tenantID, from, to string) (fin.OwnerOverview, error) {
+	var rawSales, rawProfit, rawRefunds string
+	var out fin.OwnerOverview
+	err := r.db.QueryRow(ctx, `
+		SELECT
+		  COALESCE(SUM(amount_net) FILTER (WHERE entry_type IN ('sale','sale_cancel')),0)::text,
+		  COALESCE(SUM(profit_estimated) FILTER (WHERE entry_type IN ('sale','sale_cancel')),0)::text,
+		  COALESCE(SUM(-amount_net) FILTER (WHERE entry_type='return_refund'),0)::text,
+		  COUNT(*) FILTER (WHERE entry_type='sale'),
+		  COUNT(*) FILTER (WHERE entry_type='sale_cancel')
+		FROM ledger_entries
+		WHERE tenant_id=$1
+		  AND created_at >= $2::date
+		  AND created_at < ($3::date + interval '1 day')
+	`, tenantID, from, to).Scan(
+		&rawSales, &rawProfit, &rawRefunds, &out.SalesCount, &out.CancelledCount,
+	)
+	if err != nil {
+		return fin.OwnerOverview{}, err
+	}
+	if out.SalesAfterCancellations, err = platform.ParseMoney(rawSales); err != nil {
+		return fin.OwnerOverview{}, err
+	}
+	if out.EstimatedGrossProfit, err = platform.ParseMoney(rawProfit); err != nil {
+		return fin.OwnerOverview{}, err
+	}
+	if out.RefundsRecorded, err = platform.ParseMoney(rawRefunds); err != nil {
+		return fin.OwnerOverview{}, err
+	}
+	return out, nil
+}
+
 func (r *FinanceRepo) Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]platform.Money, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT entry_type, COALESCE(SUM(amount_net),0)::text
