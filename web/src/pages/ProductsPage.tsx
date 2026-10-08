@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
+import { parseProductCSV, PRODUCT_IMPORT_EXAMPLE, type ProductImportPreview } from '../lib/productImport'
 
 type Product = {
   id: string
@@ -48,6 +49,10 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [canWrite, setCanWrite] = useState(false)
+  const [importPreview, setImportPreview] = useState<ProductImportPreview | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState('')
+  const [importFailures, setImportFailures] = useState<string[]>([])
 
   const [sku, setSku] = useState('')
   const [barcode, setBarcode] = useState('')
@@ -166,6 +171,73 @@ export default function ProductsPage() {
     } catch (e: unknown) {
       setError(errorMessage(e))
     }
+  }
+
+  async function chooseImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    setImportPreview(null)
+    setImportResult('')
+    setImportFailures([])
+    if (!file) return
+    if (file.size > 1024 * 1024) {
+      setError('Arquivo muito grande. Limite: 1 MB e 500 produtos por lote.')
+      return
+    }
+    try {
+      const csv = await file.text()
+      setImportPreview(parseProductCSV(csv))
+      setError('')
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
+  function downloadCSVExample() {
+    const blob = new Blob(['\uFEFF' + PRODUCT_IMPORT_EXAMPLE], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'modelo-produtos-sistemaemgo.csv'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function importProducts() {
+    if (!canWrite || importing || !importPreview?.valid.length) return
+    if (!window.confirm(`Cadastrar ${importPreview.valid.length} produto(s) na loja atual? Os produtos já cadastrados podem gerar conflito, e o processo não é revertido automaticamente.`)) return
+    setImporting(true)
+    setError('')
+    setImportFailures([])
+    let created = 0
+    const failures: string[] = []
+    for (const row of importPreview.valid) {
+      const payload: ProductCreateRequest = {
+        sku: row.sku,
+        name: row.name,
+        unit: row.unit,
+        price_cash: row.price_cash,
+        min_stock: row.min_stock,
+        barcode: row.barcode,
+        ncm: row.ncm,
+        cest: row.cest,
+        cost_price: 0,
+        active: true,
+      }
+      try {
+        await apiJson<{ id: string }>('/api/v1/products', { method: 'POST', body: payload })
+        created += 1
+      } catch (e: unknown) {
+        failures.push(`Linha ${row.line} (SKU ${row.sku}): ${errorMessage(e)}`)
+        // Never keep sending after access is lost; avoid misleading partial import.
+        if (e instanceof Error && /não autenticad|unauthoriz|sessão expirada/i.test(e.message)) break
+      }
+    }
+    setImportResult(`${created} produto(s) cadastrado(s); ${failures.length} falha(s). Confira os detalhes antes de repetir a importação.`)
+    setImportFailures(failures)
+    setImportPreview(null)
+    setImporting(false)
+    await load()
   }
 
   return (
@@ -292,6 +364,47 @@ export default function ProductsPage() {
           </tbody>
         </table>
       </div>
+
+      {canWrite ? (
+        <section className="mt-6 rounded-md border p-4">
+          <h3 className="text-sm font-semibold">Importar produtos de uma planilha</h3>
+          <p className="mt-1 text-xs text-gray-600">
+            Baixe o modelo, preencha no Excel ou LibreOffice e salve como CSV. Os produtos serão
+            cadastrados somente na loja em que você está conectado. Não altera o estoque atual.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={downloadCSVExample} className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
+              Baixar modelo CSV
+            </button>
+            <label className="text-sm">
+              <span className="mr-2">Escolher arquivo CSV</span>
+              <input type="file" accept=".csv,text/csv" onChange={(e) => void chooseImportFile(e)} disabled={importing} className="text-xs" />
+            </label>
+          </div>
+          {importPreview ? (
+            <div className="mt-3 space-y-2 text-sm">
+              <p>Arquivo: {importPreview.lines} linha(s) · {importPreview.valid.length} válida(s) · {importPreview.errors.length} problema(s).</p>
+              {importPreview.errors.length > 0 ? (
+                <div className="rounded-md border border-amber-200 p-2 text-xs text-amber-900">
+                  <p className="font-semibold">Corrija estas linhas antes de importar:</p>
+                  <ul className="mt-1 list-disc pl-5">{importPreview.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}</ul>
+                  {importPreview.errors.length > 20 ? <p>Mais {importPreview.errors.length - 20} erro(s).</p> : null}
+                </div>
+              ) : null}
+              <p className="text-xs text-gray-600">Prévia: {importPreview.valid.slice(0, 5).map((row) => `${row.sku} — ${row.name} (R$ ${row.price_cash.toFixed(2)})`).join(' · ')}</p>
+              <p className="text-xs text-amber-800">Códigos NCM/CEST precisam ser conferidos com o contador. A importação não habilita emissão fiscal.</p>
+              <button type="button" onClick={() => void importProducts()} disabled={importing || importPreview.valid.length === 0 || importPreview.errors.length > 0}
+                className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+                {importing ? 'Importando produtos…' : `Confirmar importação de ${importPreview.valid.length} produto(s)`}
+              </button>
+            </div>
+          ) : null}
+          {importResult ? <p role="status" className="mt-3 text-sm">{importResult}</p> : null}
+          {importFailures.length ? (
+            <ul className="mt-2 list-disc pl-5 text-xs text-red-700">{importFailures.slice(0, 30).map((err, i) => <li key={i}>{err}</li>)}</ul>
+          ) : null}
+        </section>
+      ) : null}
 
       {canWrite ? (
         <div className="mt-6">
