@@ -90,7 +90,7 @@ export default function HomePage() {
     }
     if (inventory) {
       tasks.push(apiJson<StockResponse>('/api/v1/inventory/low-stock?limit=8')
-        .then(setStock)
+        .then((data) => setStock({ ...data, items: data.items ?? [] }))
         .catch((e: unknown) => { setStock(null); setStockError(errorMessage(e)) }))
     } else {
       setStock(null)
@@ -124,16 +124,16 @@ export default function HomePage() {
       ['Relatório da loja', 'Valor'],
       ['Período inicial', from],
       ['Período final', to],
-      ['Vendas após cancelamentos (R$)', (overview.sales_after_cancellations / 100).toFixed(2).replace('.', ',')],
-      ['Lucro bruto estimado antes de devoluções e despesas (R$)', (overview.estimated_gross_profit / 100).toFixed(2).replace('.', ',')],
-      ['Reembolsos registrados (R$)', (overview.refunds_recorded / 100).toFixed(2).replace('.', ',')],
+      ['Vendas após cancelamentos (R$)', overview.sales_after_cancellations.toFixed(2).replace('.', ',')],
+      ['Lucro bruto estimado antes de devoluções e despesas (R$)', overview.estimated_gross_profit.toFixed(2).replace('.', ',')],
+      ['Reembolsos registrados (R$)', overview.refunds_recorded.toFixed(2).replace('.', ',')],
       ['Lançamentos de vendas', String(overview.sales_count)],
       ['Lançamentos de cancelamentos', String(overview.cancelled_count)],
       ['Observação', 'Valores por data de lançamento, não equivalem ao lucro contábil.'],
     ], `resumo-loja-${from}-a-${to}.csv`)
   }
 
-  // The API uses platform.Money serialized as decimal currency units.
+  // The API serializes platform.Money as decimal BRL units, not integer cents.
   const reports = overview ? [
     { title: 'Vendas após cancelamentos', value: money(overview.sales_after_cancellations), detail: 'Valores lançados no período; não desconta devoluções' },
     { title: 'Lucro bruto estimado', value: money(overview.estimated_gross_profit), detail: 'Antes de devoluções, taxas, impostos e despesas' },
