@@ -115,7 +115,7 @@ export function parseProductCSV(source: string): ProductImportPreview {
     const cest = get(values, 'cest') || null
     let reason = ''
     if (!sku || !name) reason = 'SKU ou nome vazio'
-    else if (!Number.isFinite(price) || price <= 0 || Math.round(price * 100) !== price * 100) reason = 'preço inválido (use até 2 casas decimais)'
+    else if (!Number.isFinite(price) || price <= 0 || Math.abs(Math.round(price * 100) - price * 100) > 0.000001) reason = 'preço inválido (use até 2 casas decimais)'
     else if (!Number.isFinite(minStock) || minStock < 0) reason = 'estoque mínimo inválido'
     else if (ncm && !/^\d{8}$/.test(ncm)) reason = 'NCM deve ter 8 dígitos'
     else if (cest && !/^\d{7}$/.test(cest)) reason = 'CEST deve ter 7 dígitos'
