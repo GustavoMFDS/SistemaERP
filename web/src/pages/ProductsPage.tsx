@@ -41,6 +41,7 @@ type ProductCreateRequest = {
 
 export default function ProductsPage() {
   const [query, setQuery] = useState('')
+  const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [items, setItems] = useState<Product[]>([])
   const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
   const [ncmDrafts, setNcmDrafts] = useState<Record<string, string>>({})
@@ -62,6 +63,9 @@ export default function ProductsPage() {
   const [unit, setUnit] = useState('un')
   const [priceCash, setPriceCash] = useState<number>(0)
   const [minStock, setMinStock] = useState<number>(0)
+
+  const lowStockItems = items.filter((p) => p.active && p.min_stock > 0 && p.qty_on_hand <= p.min_stock)
+  const visibleItems = onlyLowStock ? lowStockItems : items
 
   const canCreate = useMemo(() => sku.trim() && name.trim() && priceCash > 0, [
     sku,
@@ -277,6 +281,16 @@ export default function ProductsPage() {
         </div>
       ) : null}
 
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+        <span className={lowStockItems.length ? 'font-medium text-amber-800' : 'text-gray-600'}>
+          {lowStockItems.length} produto(s) com estoque no mínimo ou abaixo, entre os resultados carregados.
+        </span>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={onlyLowStock} onChange={(e) => setOnlyLowStock(e.target.checked)} />
+          Mostrar somente estoque baixo
+        </label>
+      </div>
+
       <div className="mt-4 overflow-auto rounded-md border">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
@@ -294,7 +308,7 @@ export default function ProductsPage() {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {items.map((p) => (
+            {visibleItems.map((p) => (
               <tr key={p.id}>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
                 <td className="px-3 py-2">
@@ -356,11 +370,21 @@ export default function ProductsPage() {
                 <td className="px-3 py-2">{p.name}</td>
                 <td className="px-3 py-2">{p.unit}</td>
                 <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
-                <td className="px-3 py-2">{p.qty_on_hand.toFixed(2)}</td>
+                <td className="px-3 py-2">
+                  {p.qty_on_hand.toFixed(2)}
+                  {p.active && p.min_stock > 0 && p.qty_on_hand <= p.min_stock ? (
+                    <span className="ml-2 rounded bg-amber-100 px-2 py-1 text-xs text-amber-900">Estoque baixo</span>
+                  ) : null}
+                </td>
                 <td className="px-3 py-2">{p.min_stock.toFixed(2)}</td>
                 <td className="px-3 py-2">{p.active ? 'Sim' : 'Não'}</td>
               </tr>
             ))}
+            {visibleItems.length === 0 ? (
+              <tr><td colSpan={10} className="px-3 py-6 text-center text-sm text-gray-500">
+                {onlyLowStock ? 'Nenhum produto abaixo do mínimo entre os resultados carregados.' : 'Nenhum produto encontrado.'}
+              </td></tr>
+            ) : null}
           </tbody>
         </table>
       </div>
