@@ -425,6 +425,35 @@ Requires `finance:reconcile` and `Idempotency-Key`.
 
 The sum of settlements can never exceed the return's `refund_due`. Cash refunds require an open cash session, sufficient physical cash, and create a real cash withdrawal. Cash refunds cannot carry provider/external-reference metadata. For digital refunds, provider and external reference remain optional, but when one is supplied the other is required. Digital refunds may optionally be associated with an open session so the method-level cash close reconciliation uses the net value. Every settlement also creates a negative `return_refund` ledger entry.
 
+## Store setup: manual review acknowledgements
+
+All paths below use the `/api/v1` prefix. The caller's authenticated
+`tenant_id` identifies the company; clients cannot choose another CNPJ.
+
+### GET `/setup/reviews`
+
+Requires `invoice:generate` (restricted to authorized setup managers).
+Returns a list of manual review acknowledgements only:
+
+```json
+{"items":[{"step":"stock","reviewed_at":"2026-10-08T20:00:00Z"}]}
+```
+
+The only accepted step values are `stock` and `team`. Missing steps
+remain unreviewed, and a record is **not** evidence of completed stock
+reconciliation, employee provisioning or SEFAZ readiness.
+
+### PUT `/setup/reviews/{step}`
+
+Requires `invoice:generate`, a valid session and a trusted request origin.
+Body `{"reviewed":true}` records/repeats a review; `{"reviewed":false}`
+reopens it. Both return the same `{"items":[...]}` shape as GET.
+
+Writes are scoped to the authenticated company and audit-logged
+transactionally. The endpoint never accepts a company identifier,
+a free-text note, credentials or fiscal certificates. Invalid steps return
+422 and malformed/omitted `reviewed` returns 400.
+
 ## Fiscal
 
 The repository currently implements **NFC-e model 65 preparation**, not real SEFAZ authorization. Production-like environments must keep `FISCAL_PROVIDER=disabled` until a SEFAZ-ready provider is implemented and homologated.
