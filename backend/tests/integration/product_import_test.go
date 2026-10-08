@@ -45,7 +45,7 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	var companies []string
 	for i := 0; i < 2; i++ {
 		var tenant string
-		cnpj := fmt.Sprintf("%014d", (now+int64(i))%100000000000000)
+		cnpj := fmt.Sprintf("%014d", (now + int64(i)) % 100000000000000)
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO companies(legal_name, cnpj) VALUES('Product Batch Test', $1)
 			RETURNING id::text
@@ -121,7 +121,7 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 
 	// Existing SKU collides on the second row after the first row was inserted.
 	// No new product, balance, receipt or audit may survive this transaction.
-	third := product(fmt.Sprintf("BATCH-%d-C", now))
+	third := product(fmt.Sprintf("BATCH-%d-0", now))
 	collision := invapp.ProductImportRequest{Items: []invapp.ProductCreateRequest{third, first}}
 	failedKey := key + "-rollback"
 	_, err = svc.ImportProducts(ctx, tenantA, actor, failedKey, collision)
