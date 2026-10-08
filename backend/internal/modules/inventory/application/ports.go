@@ -19,6 +19,12 @@ type ProductsRepository interface {
 
 type InventoryRepository interface {
 	EnsureBalanceRow(ctx context.Context, tx db.DBTX, tenantID string, productID string) error
+	EnsureBalanceRows(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) error
+	GetBalancesForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) (map[string]inv.InventoryBalance, error)
+	LockOpeningStockKey(ctx context.Context, tx db.DBTX, tenantID, key string) error
+	GetOpeningStockBatch(ctx context.Context, tx db.DBTX, tenantID, key string) (batchID, requestHash string, itemCount int, found bool, err error)
+	CreateOpeningStockBatch(ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int) (string, error)
+	HasAnyStockMovements(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) (bool, error)
 	GetBalanceForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productID string) (inv.InventoryBalance, error)
 	UpdateBalance(ctx context.Context, tx db.DBTX, tenantID string, productID string, qty platform.Quantity) error
 	InsertMovement(ctx context.Context, tx db.DBTX, tenantID string, m inv.InventoryMovement) error
