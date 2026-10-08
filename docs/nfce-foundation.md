@@ -219,6 +219,17 @@ Content-Type: application/json
 The SEFAZ deployment configuration must pin an inutilization schema entrypoint through
 `NFCE_INUTILIZATION_SCHEMA_ENTRYPOINT` in addition to the NFC-e and event schemas.
 
+Inutilization is only accepted for an unused gap **behind** the committed
+`fiscal_document_sequences.next_number` frontier in that tenant/series; a range
+that would consume future fiscal numbers is rejected before the remote request.
+
+A SEFAZ response `cStat=563` means a previous request for the *same range*
+may have been registered. The returned XML, status code and any previous
+protocol are persisted, but the local state deliberately stays `submitted`
+(pending reconciliation). Do not retry automatically and do not mark it
+`rejected`. Reconcile with the corresponding SEFAZ inutilization protocol
+and accounting evidence before deciding the final operational status.
+
 ## Authorization state
 
 The `invoices` table now has fields for:
