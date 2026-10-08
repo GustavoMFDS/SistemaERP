@@ -2615,6 +2615,20 @@ func (s *FiscalService) PrepareNFCeIssuerProfile(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// The issuer is part of the NFC-e identity. Never change it while a
+	// reserved, signed or submitted document could still need its XML built
+	// or its remote status reconciled.
+	if err := s.fiscal.LockNFCeTenantForUpdate(ctx, tx, tenantID); err != nil {
+		return fisc.NFCeIssuerProfile{}, err
+	}
+	hasOpenWork, err := s.fiscal.HasOpenNFCeWork(ctx, tx, tenantID)
+	if err != nil {
+		return fisc.NFCeIssuerProfile{}, err
+	}
+	if hasOpenWork {
+		return fisc.NFCeIssuerProfile{}, common.ErrConflict
+	}
+
 	if err := s.fiscal.UpdateNFCeIssuerProfile(ctx, tx, tenantID, profile); err != nil {
 		return fisc.NFCeIssuerProfile{}, err
 	}
@@ -2678,6 +2692,27 @@ func (s *FiscalService) PrepareNFCeConfig(
 		return fisc.NFCeConfig{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.fiscal.LockNFCeTenantForUpdate(ctx, tx, tenantID); err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	hasOpenWork, err := s.fiscal.HasOpenNFCeWork(ctx, tx, tenantID)
+	if err != nil {
+		return fisc.NFCeConfig{}, err
+	}
+	if hasOpenWork {
+		// Certificate/CSC references may be rotated to recover transport,
+		// but switching environment or series would strand in-flight
+		// access keys and make a follow-up consultation unsafe.
+		current, err := s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
+		if err != nil {
+			return fisc.NFCeConfig{}, err
+		}
+		if current.Config.Environment != cfg.Environment ||
+			current.Config.Series != cfg.Series {
+			return fisc.NFCeConfig{}, common.ErrConflict
+		}
+	}
 
 	if err := s.fiscal.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, cfg); err != nil {
 		return fisc.NFCeConfig{}, err
