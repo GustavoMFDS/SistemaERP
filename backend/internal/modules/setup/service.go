@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/example/sistemaemgo/internal/modules/audit"
-	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -83,7 +82,7 @@ func (s *Service) Set(ctx context.Context, tenantID, actorID, step string, revie
 	if err != nil {
 		return err
 	}
-	if err := s.audit.RecordTx(ctx, db.DBTX(tx), audit.Event{
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
 		TenantID:     tenantID,
 		ActorUserID:  actorID,
 		Action:       "setup.review.set",
