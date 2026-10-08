@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
@@ -88,7 +88,7 @@ export default function SetupPage() {
   const [message, setMessage] = useState('')
   const [warnings, setWarnings] = useState<string[]>([])
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
     setWarnings([])
@@ -130,9 +130,9 @@ export default function SetupPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => { void refresh() }, [refresh])
 
   async function saveIssuer(event: FormEvent) {
     event.preventDefault()
@@ -261,6 +261,8 @@ export default function SetupPage() {
                           disabled={!canSaveCompany} required={key !== 'address_complement'}
                           inputMode={key === 'address_city_code' || key === 'address_zip' ? 'numeric' : undefined}
                           maxLength={key === 'address_city_code' ? 7 : key === 'address_state' ? 2 : key === 'address_zip' ? 9 : undefined}
+                          pattern={key === 'address_city_code' ? '[0-9]{7}' : key === 'address_state' ? '[A-Z]{2}' : key === 'address_zip' ? '[0-9]{5}-?[0-9]{3}' : undefined}
+                          title={key === 'address_city_code' ? 'Informe os 7 dígitos do código IBGE' : key === 'address_state' ? 'Informe duas letras da UF' : key === 'address_zip' ? 'CEP com 8 dígitos' : undefined}
                           onChange={(e) => updateField(key, key === 'address_state' ? e.target.value.toUpperCase() : e.target.value)} />
                       </label>
                     ))}
