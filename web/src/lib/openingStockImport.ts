@@ -47,7 +47,7 @@ export function parseOpeningStockCSV(source: string): OpeningStockPreview {
     const decimal = raw.includes(',') ? raw.replace(',', '.') : raw
     const quantity = Number(decimal)
     let reason = ''
-    if (!sku || sku.length > 120) reason = 'SKU vazio ou muito longo'
+    if (!sku || sku.length > 64) reason = 'SKU vazio ou muito longo'
     else if (!/^\d+(\.\d{1,3})?$/.test(decimal) || !Number.isFinite(quantity) || quantity <= 0) {
       reason = 'quantidade inválida; use um número positivo com até 3 casas decimais'
     } else if (seen.has(sku)) reason = 'SKU repetido no arquivo'
