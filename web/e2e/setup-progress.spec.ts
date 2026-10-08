@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { buildSetupSteps, type SetupSnapshot } from '../src/lib/setupProgress'
+import { buildSetupSteps, nextSetupAttention, summarizeSetupSteps, type SetupSnapshot } from '../src/lib/setupProgress'
 
 const readyFiscal = {
   tenant_id: 'store-a',
@@ -65,4 +65,41 @@ test('uma loja sem produtos ou perfil fiscal fica pendente', () => {
   expect(steps.find((item) => item.key === 'products')?.status).toBe('pending')
   expect(steps.find((item) => item.key === 'stock')?.status).toBe('pending')
   expect(steps.find((item) => item.key === 'fiscal')?.status).toBe('pending')
+})
+
+test('resumo do assistente não trata revisão ou restrição como concluída', () => {
+  const steps = buildSetupSteps({
+    me: { permissions: ['invoice:read', 'product:read', 'inventory:read'], roles: ['manager'] },
+    productsTotal: 3,
+    stockMovementsTotal: 1,
+    fiscalReadiness: readyFiscal,
+  })
+  expect(summarizeSetupSteps(steps)).toEqual({ verified: 2, attention: 3, restricted: 0 })
+  const cashierSteps = buildSetupSteps({
+    me: { permissions: ['sale:write'], roles: ['cashier'] },
+    productsTotal: null,
+    stockMovementsTotal: null,
+    fiscalReadiness: null,
+  })
+  expect(summarizeSetupSteps(cashierSteps)).toEqual({ verified: 0, attention: 1, restricted: 4 })
+})
+
+test('avançar para atenção ignora prontas e inacessíveis e retorna após a última etapa', () => {
+  const steps = buildSetupSteps({
+    me: { permissions: ['invoice:read', 'product:read', 'inventory:read'], roles: ['manager'] },
+    productsTotal: 0,
+    stockMovementsTotal: 0,
+    fiscalReadiness: readyFiscal,
+  })
+  expect(nextSetupAttention(steps, 'company')).toBe('products')
+  expect(nextSetupAttention(steps, 'products')).toBe('stock')
+  expect(nextSetupAttention(steps, 'fiscal')).toBe('products')
+  expect(nextSetupAttention(steps.filter((step) => step.status === 'ready'), 'company')).toBeNull()
+  const cashierSteps = buildSetupSteps({
+    me: { permissions: ['sale:write'], roles: ['cashier'] },
+    productsTotal: null,
+    stockMovementsTotal: null,
+    fiscalReadiness: null,
+  })
+  expect(nextSetupAttention(cashierSteps, 'company')).toBe('team')
 })
