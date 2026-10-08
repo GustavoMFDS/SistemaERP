@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "SistemaEmGo — Gestão da Loja",
+  "short_name": "SistemaEmGo",
+  "description": "Caixa, produtos, estoque e gestão para a sua loja.",
+  "lang": "pt-BR",
+  "start_url": "/products",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
