@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import { apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson, errorMessage } from '../lib/api'
+import { getSessionScope } from '../lib/auth'
+import { clearPendingOpeningStock, fingerprintOpeningStock, readPendingOpeningStock, savePendingOpeningStock, type PendingOpeningStock } from '../lib/openingStockRecovery'
 import { OPENING_STOCK_EXAMPLE, parseOpeningStockCSV, type OpeningStockPreview } from '../lib/openingStockImport'
 
 type Product = {
@@ -29,6 +31,8 @@ export default function InventoryPage() {
   const [low, setLow] = useState<Product[]>([])
   const [openingPreview, setOpeningPreview] = useState<OpeningStockPreview | null>(null)
   const [openingKey, setOpeningKey] = useState('')
+  const [openingDigest, setOpeningDigest] = useState('')
+  const [pendingOpening, setPendingOpening] = useState<PendingOpeningStock | null>(null)
   const [openingConfirmed, setOpeningConfirmed] = useState(false)
   const [openingLoading, setOpeningLoading] = useState(false)
   const [openingMessage, setOpeningMessage] = useState('')
@@ -72,7 +76,11 @@ export default function InventoryPage() {
 
   useEffect(() => {
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
-      .then((me) => setCanAdjustPermission(me.permissions.includes('inventory:adjust')))
+      .then((me) => {
+        const authorized = me.permissions.includes('inventory:adjust')
+        setCanAdjustPermission(authorized)
+        setPendingOpening(authorized ? readPendingOpeningStock() : null)
+      })
       .catch((e: unknown) => setError(errorMessage(e)))
   }, [])
 
@@ -111,6 +119,7 @@ export default function InventoryPage() {
     event.target.value = ''
     setOpeningPreview(null)
     setOpeningKey('')
+    setOpeningDigest('')
     setOpeningConfirmed(false)
     setOpeningMessage('')
     if (!file) return
@@ -120,8 +129,22 @@ export default function InventoryPage() {
     }
     try {
       const preview = parseOpeningStockCSV(await file.text())
+      if (preview.errors.length || !preview.rows.length) {
+        setOpeningPreview(preview)
+        setError('')
+        return
+      }
+      const digest = await fingerprintOpeningStock(preview.rows)
+      const pending = readPendingOpeningStock()
+      if (pending && pending.digest !== digest) {
+        setPendingOpening(pending)
+        setError('Há uma importação anterior pendente. Confira a referência no servidor ou selecione exatamente o mesmo CSV; não inicie outro lote até reconciliar a tentativa anterior.')
+        return
+      }
       setOpeningPreview(preview)
-      setOpeningKey(crypto.randomUUID())
+      setOpeningDigest(digest)
+      setOpeningKey(pending?.key ?? crypto.randomUUID())
+      setPendingOpening(pending)
       setError('')
     } catch (e: unknown) {
       setError(errorMessage(e))
@@ -130,13 +153,32 @@ export default function InventoryPage() {
 
   async function submitOpeningStock() {
     if (!canAdjustPermission || openingLoading || !openingPreview ||
-        !openingConfirmed || openingPreview.errors.length || !openingPreview.rows.length || !openingKey) return
+        !openingConfirmed || openingPreview.errors.length || !openingPreview.rows.length ||
+        !openingKey || !openingDigest) return
     if (!window.confirm(
       `Confirmar saldo inicial de ${openingPreview.rows.length} produto(s)? O lote só funciona em produtos que nunca tiveram movimentação. A operação é atômica e auditada.`,
     )) return
+
+    const scope = getSessionScope()
     setOpeningLoading(true)
     setOpeningMessage('')
     setError('')
+    // Persist only the key and normalized content fingerprint. Without this,
+    // losing the HTTP response would also lose the only safe replay key.
+    try {
+      const previous = readPendingOpeningStock()
+      const record: PendingOpeningStock = {
+        key: openingKey,
+        digest: openingDigest,
+        createdAt: previous?.createdAt ?? Date.now(),
+      }
+      savePendingOpeningStock(record)
+      setPendingOpening(record)
+    } catch (e: unknown) {
+      setError('Importação não iniciada: não foi possível preservar a referência de recuperação. ' + errorMessage(e))
+      setOpeningLoading(false)
+      return
+    }
     try {
       const result = await apiJson<{ batch_id: string; item_count: number; replayed: boolean }>(
         '/api/v1/inventory/opening-stock',
@@ -146,6 +188,9 @@ export default function InventoryPage() {
           body: { items: openingPreview.rows.map(({ sku, quantity }) => ({ sku, quantity })) },
         },
       )
+      if (scope !== getSessionScope()) return
+      clearPendingOpeningStock(openingKey)
+      setPendingOpening(null)
       setOpeningMessage(
         result.replayed
           ? `Lote ${result.batch_id} já havia sido aplicado. Nenhum estoque foi lançado novamente.`
@@ -153,13 +198,66 @@ export default function InventoryPage() {
       )
       setOpeningPreview(null)
       setOpeningKey('')
+      setOpeningDigest('')
       setOpeningConfirmed(false)
       await load()
     } catch (e: unknown) {
-      setError(`Não foi possível confirmar o lote: ${errorMessage(e)}. Nenhuma correção manual deve ser feita antes de conferir o saldo. Se a conexão falhou, tente novamente sem escolher outro arquivo: a chave original será reutilizada.`)
+      if (scope === getSessionScope()) {
+        setError(`Não foi possível confirmar a resposta: ${errorMessage(e)}. A referência original foi preservada. Confira o lote no servidor e, se necessário, selecione o mesmo CSV para tentar novamente.`)
+      }
     } finally {
       setOpeningLoading(false)
     }
+  }
+
+  async function checkPendingOpeningStock() {
+    if (!canAdjustPermission || openingLoading) return
+    const pending = readPendingOpeningStock()
+    if (!pending) {
+      setPendingOpening(null)
+      setError('Não foi encontrada uma referência de recuperação válida nesta conta e loja.')
+      return
+    }
+    const scope = getSessionScope()
+    setOpeningLoading(true)
+    setError('')
+    setOpeningMessage('')
+    try {
+      const result = await apiJson<{ batch_id: string; item_count: number; replayed: boolean }>(
+        `/api/v1/inventory/opening-stock/batches/${encodeURIComponent(pending.key)}`,
+      )
+      if (scope !== getSessionScope()) return
+      clearPendingOpeningStock(pending.key)
+      setPendingOpening(null)
+      setOpeningPreview(null)
+      setOpeningKey('')
+      setOpeningDigest('')
+      setOpeningConfirmed(false)
+      setOpeningMessage(`O servidor confirmou o lote ${result.batch_id} com ${result.item_count} produto(s). Não é necessário importar novamente.`)
+      await load()
+    } catch (e: unknown) {
+      if (scope !== getSessionScope()) return
+      setError(e instanceof APIError && e.status === 404
+        ? 'O servidor ainda não encontrou um lote confirmado com essa referência. Isso não descarta uma requisição em andamento. Selecione o mesmo CSV e reutilize a referência preservada.'
+        : `Não foi possível consultar o lote: ${errorMessage(e)}. Mantenha a referência até a situação ser esclarecida.`)
+    } finally {
+      setOpeningLoading(false)
+    }
+  }
+
+  function discardPendingOpeningStock() {
+    if (!canAdjustPermission || openingLoading || !pendingOpening) return
+    if (!window.confirm(
+      'Descartar somente a referência salva neste dispositivo? Isso NÃO desfaz uma importação que possa ter sido confirmada no servidor. Confira o histórico e o estoque antes de iniciar outro lote.',
+    )) return
+    clearPendingOpeningStock(pendingOpening.key)
+    setPendingOpening(null)
+    setOpeningPreview(null)
+    setOpeningKey('')
+    setOpeningDigest('')
+    setOpeningConfirmed(false)
+    setOpeningMessage('')
+    setError('Referência local descartada. A operação anterior pode existir no servidor; verifique os saldos antes de qualquer nova importação.')
   }
 
   return (
@@ -239,6 +337,27 @@ export default function InventoryPage() {
             Para corrigir estoque existente, use o ajuste auditado abaixo. Não repita a
             importação mudando o arquivo após erro de conexão.
           </p>
+          {pendingOpening ? (
+            <div className="mt-3 space-y-2 rounded-md border border-amber-300 p-3 text-sm" role="region" aria-label="Importação pendente de confirmação">
+              <p className="font-semibold">Existe uma tentativa de estoque inicial para conferir.</p>
+              <p className="text-xs text-gray-700">Referência: <code>{pendingOpening.key}</code></p>
+              <p className="text-xs text-gray-600">
+                A planilha não fica salva neste dispositivo. Consulte o servidor primeiro;
+                se a importação não for confirmada, escolha novamente o mesmo arquivo CSV para
+                reutilizar a chave original sem duplicar o lote.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={openingLoading} onClick={() => void checkPendingOpeningStock()}
+                  className="rounded-md border border-blue-300 px-3 py-2 text-sm disabled:opacity-50">
+                  Conferir lote no servidor
+                </button>
+                <button type="button" disabled={openingLoading} onClick={discardPendingOpeningStock}
+                  className="rounded-md border px-3 py-2 text-sm text-amber-900 disabled:opacity-50">
+                  Descartar referência local
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button type="button" onClick={downloadOpeningExample}
               className="rounded-md border px-3 py-2 text-sm">Baixar modelo CSV</button>
