@@ -127,12 +127,12 @@ func TestOpeningStockBatchIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	}
 	var qtyA, qtyB string
 	if err := pool.QueryRow(ctx, `
-		SELECT COALESCE(b.qty_on_hand,0)::text
+		SELECT COALESCE(b.qty_on_hand,0)::numeric(14,3)::text
 		FROM products p LEFT JOIN inventory_balances b ON p.id=b.product_id
 		WHERE p.tenant_id=$1 AND p.sku=$2
 	`, tenantA, skuA).Scan(&qtyA); err != nil { t.Fatal(err) }
 	if err := pool.QueryRow(ctx, `
-		SELECT COALESCE(b.qty_on_hand,0)::text
+		SELECT COALESCE(b.qty_on_hand,0)::numeric(14,3)::text
 		FROM products p LEFT JOIN inventory_balances b ON p.id=b.product_id
 		WHERE p.tenant_id=$1 AND p.sku=$2
 	`, tenantA, skuB).Scan(&qtyB); err != nil { t.Fatal(err) }
