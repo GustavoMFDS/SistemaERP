@@ -214,6 +214,7 @@ export default function SetupPage() {
   const steps = snapshot ? buildSetupSteps(snapshot) : []
   const overview = summarizeSetupSteps(steps)
   const activeIndex = steps.findIndex((step) => step.key === active)
+  const manualStep: ReviewStep | null = active === 'stock' || active === 'team' ? active : null
   const nextAttention = nextSetupAttention(steps, active)
   const canSaveCompany = Boolean(me?.permissions.includes('invoice:generate') && issuer)
   const updateField = (key: keyof IssuerFields, value: string) => {
@@ -407,7 +408,7 @@ export default function SetupPage() {
               </div>
             ) : null}
           </section>
-          {(active === 'stock' || active === 'team') && me.permissions.includes('invoice:generate') ? (
+          {manualStep && me.permissions.includes('invoice:generate') ? (
             <section aria-label="Revisão registrada da etapa" className="mt-3 rounded-lg border p-3 text-sm">
               <h3 className="font-semibold">Registro de revisão desta empresa</h3>
               <p className="mt-1 text-xs text-gray-600">
@@ -419,12 +420,12 @@ export default function SetupPage() {
               ) : (
                 <>
                   <p className="mt-2">
-                    {reviews[active] ? `Revisão registrada em ${new Date(reviews[active]).toLocaleString('pt-BR')}.` : 'Ainda não há revisão registrada.'}
+                    {reviews[manualStep] ? `Revisão registrada em ${new Date(reviews[manualStep]).toLocaleString('pt-BR')}.` : 'Ainda não há revisão registrada.'}
                   </p>
                   <button type="button" disabled={loading || saving}
-                    onClick={() => void saveReview(active, !reviews[active])}
+                    onClick={() => void saveReview(manualStep, !reviews[manualStep])}
                     className="mt-2 rounded-md border px-3 py-2 font-medium disabled:opacity-50">
-                    {saving ? 'Salvando…' : reviews[active] ? 'Reabrir revisão' : 'Registrar revisão'}
+                    {saving ? 'Salvando…' : reviews[manualStep] ? 'Reabrir revisão' : 'Registrar revisão'}
                   </button>
                 </>
               )}
