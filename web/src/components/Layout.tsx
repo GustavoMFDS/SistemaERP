@@ -44,6 +44,7 @@ export default function Layout() {
   const permissionSet = new Set(me?.permissions ?? [])
   const nav = [
     { to: '/home', label: 'Início', permission: null },
+    { to: '/setup', label: 'Configurar loja', permission: null }
     { to: '/products', label: 'Produtos', permission: 'product:read' },
     { to: '/inventory', label: 'Estoque', permission: 'inventory:read' },
     { to: '/purchases', label: 'Compras', permission: 'procurement:read' },
