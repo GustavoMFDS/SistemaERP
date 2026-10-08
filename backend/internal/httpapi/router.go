@@ -52,6 +52,12 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Use(middleware.AuthJWT(cfg, mods.Auth, logger))
 			pr.Use(middleware.LoadPermissions(mods.Auth, logger))
 
+			// Only fiscal managers may record non-authoritative setup reviews.
+			pr.Route("/setup", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("invoice:generate")).Get("/reviews", h.Setup.ListReviews)
+				rr.With(middleware.RequirePermission("invoice:generate"), trustedOrigin).Put("/reviews/{step}", h.Setup.SetReview)
+			})
+
 			pr.Route("/products", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("product:read")).Get("/", h.Products.List)
 				rr.With(middleware.RequirePermission("product:read")).Get("/barcode/{barcode}", h.Products.GetByBarcode)
