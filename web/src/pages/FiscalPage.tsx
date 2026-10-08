@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
 
 type XMLFile = {
@@ -177,7 +178,8 @@ export default function FiscalPage() {
         },
       })
       applyIssuer(profile)
-      setMessage('Dados fiscais do emitente atualizados.')
+      setMessage('Dados da loja salvos. Próximo passo: configurar o certificado da NFC-e.')
+      document.getElementById('fiscal-certificate')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       const next = await apiJson<NFCeReadiness>('/api/v1/fiscal/nfce/readiness')
       setReadiness(next)
     } catch (e: unknown) {
@@ -203,7 +205,8 @@ export default function FiscalPage() {
         },
       })
       applyConfig(next)
-      setMessage('Preparação NFC-e salva. A transmissão continua desativada.')
+      setMessage('Preparação salva. Confira as pendências abaixo antes de pedir a homologação. O sistema não ativou a transmissão.')
+      document.getElementById('fiscal-readiness')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       const readinessData = await apiJson<NFCeReadiness>('/api/v1/fiscal/nfce/readiness')
       setReadiness(readinessData)
     } catch (e: unknown) {
@@ -253,6 +256,33 @@ export default function FiscalPage() {
         </button>
       </div>
 
+      <section className="mt-4 rounded-md border bg-slate-50 p-4">
+        <h3 className="text-sm font-semibold">Configurar a nota fiscal — passo a passo</h3>
+        <p className="mt-1 text-sm text-gray-700">
+          Você informa os dados uma vez por loja. O sistema verifica o que está faltando,
+          mas só libera emissão real depois da validação fiscal e da homologação do ambiente.
+        </p>
+        <ol className="mt-3 grid gap-3 text-sm md:grid-cols-3">
+          <li>
+            <a href="#fiscal-issuer" className="font-semibold text-blue-700 hover:underline">1. Dados da loja</a>
+            <p className="text-xs text-gray-600">CNPJ cadastrado, inscrição estadual, regime e endereço.</p>
+          </li>
+          <li>
+            <a href="#fiscal-certificate" className="font-semibold text-blue-700 hover:underline">2. Certificado digital</a>
+            <p className="text-xs text-gray-600">Seu responsável técnico vincula o certificado A1 de forma segura.</p>
+          </li>
+          <li>
+            <a href="#fiscal-readiness" className="font-semibold text-blue-700 hover:underline">3. Conferir pendências</a>
+            <p className="text-xs text-gray-600">Veja o que falta antes dos testes de homologação.</p>
+          </li>
+        </ol>
+        <div className="mt-3 rounded-md border bg-white px-3 py-2 text-xs text-gray-700">
+          Ainda não cadastrou os produtos? <Link to="/products" className="text-blue-700 underline">Abra Produtos e importe uma planilha</Link>.
+          Para NFC-e, NCM, regras fiscais e tributação precisam ser conferidos pelo contador.
+          A instalação como aplicativo não substitui o servidor nem a autorização da SEFAZ.
+        </div>
+      </section>
+
       {message ? (
         <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-2 text-sm text-green-700">
           {message}
@@ -266,7 +296,7 @@ export default function FiscalPage() {
       ) : null}
 
       {readiness ? (
-        <section className="mt-4 rounded-md border p-4">
+        <section id="fiscal-readiness" className="mt-4 rounded-md border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold">Prontidão para homologação</h3>
@@ -306,15 +336,17 @@ export default function FiscalPage() {
           ) : null}
 
           <div className="mt-3 rounded-md bg-gray-50 p-2 text-xs text-gray-700">
-            Transmissão: <strong>desativada</strong>. Mesmo com todos os dados prontos, a emissão real
-            só será liberada após provider SEFAZ, assinatura, schemas e homologação.
+            Configuração de transmissão: <strong>{readiness.transmission_enabled ? 'habilitada para esta loja' : 'desativada para esta loja'}</strong>.
+            Os dados prontos são apenas uma das exigências: emissão fiscal exige certificado válido,
+            regras tributárias revisadas, provedor SEFAZ e homologação. Esta tela não emite notas.
           </div>
         </section>
       ) : null}
 
       {issuer ? (
-        <section className="mt-4 rounded-md border p-4">
-          <h3 className="text-sm font-semibold">Emitente</h3>
+        <section id="fiscal-issuer" className="mt-4 rounded-md border p-4">
+          <h3 className="text-sm font-semibold">1. Dados da loja para a NFC-e</h3>
+          <p className="mt-1 text-xs text-gray-600">Preencha conforme o cadastro oficial da empresa e confirme com o contador.</p>
           <p className="mt-1 text-xs text-gray-600">
             {issuer.legal_name} · CNPJ {issuer.cnpj}
           </p>
@@ -376,11 +408,13 @@ export default function FiscalPage() {
         </section>
       ) : null}
 
-      <section className="mt-4 rounded-md border p-4">
-        <h3 className="text-sm font-semibold">Configuração de homologação</h3>
+      <section id="fiscal-certificate" className="mt-4 rounded-md border p-4">
+        <h3 className="text-sm font-semibold">2. Certificado e ambiente da NFC-e</h3>
         <p className="mt-1 text-xs text-gray-600">
-          O QR Code v3 não exige CSC. Informe somente a referência do certificado A1 no gerenciador
-          seguro da implantação. A referência é write-only nesta tela.
+          Use primeiro o ambiente de testes (homologação). O certificado A1 deve ficar
+          no gerenciador seguro do servidor; nunca envie o arquivo PFX, a senha ou a chave privada
+          por e-mail ou mensagem. O responsável pela instalação fornece a referência segura.
+          Caso ela já esteja configurada, deixe o campo em branco para manter a atual.
         </p>
         <form onSubmit={saveConfig} className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
           <label>
@@ -395,12 +429,15 @@ export default function FiscalPage() {
             <input value={series} onChange={(e) => setSeries(Number(e.target.value))} type="number" min={0} max={889} className="mt-1 w-full rounded-md border px-3 py-2 text-sm" disabled={!canPrepare} />
           </label>
           <label className="md:col-span-3">
-            <span className="text-xs text-gray-600">Referência do certificado A1</span>
-            <input value={certificateSecretRef} onChange={(e) => setCertificateSecretRef(e.target.value)} placeholder={config?.certificate_reference_configured ? 'Já configurado — informe novamente para salvar alterações' : 'Ex.: secret://nfce/certificate'} className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm" disabled={!canPrepare} />
+            <span className="text-xs text-gray-600">Certificado A1 (código seguro fornecido pelo suporte)</span>
+            <input value={certificateSecretRef} onChange={(e) => setCertificateSecretRef(e.target.value)} placeholder={config?.certificate_reference_configured ? 'Certificado já vinculado: deixe em branco para manter' : 'Peça ao responsável técnico a referência segura do certificado'} className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm" disabled={!canPrepare} />
           </label>
           {canPrepare ? (
             <div className="md:col-span-3">
-              <button disabled={savingConfig} className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60">
+              {!config?.certificate_reference_configured && !certificateSecretRef.trim() ? (
+                <p className="mb-2 text-xs text-amber-800">Solicite o vínculo seguro do certificado A1 antes de concluir esta etapa.</p>
+              ) : null}
+              <button disabled={savingConfig || (!config?.certificate_reference_configured && !certificateSecretRef.trim())} className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60">
                 {savingConfig ? 'Salvando…' : 'Salvar preparação (transmissão permanece desativada)'}
               </button>
             </div>
