@@ -142,6 +142,24 @@ that tenant; `422` means malformed input. The batch, movements, balances and
 audit event are committed in **one transaction**; it is never a partial import.
 Operation `opening_stock` is reserved for initialization, not normal adjustments.
 
+### GET `/inventory/opening-stock/batches/{key}`
+
+Read-only recovery of an opening-stock batch (requires
+`inventory:adjust`). The key is the original `Idempotency-Key`
+used on POST, between 8 and 128 characters. The authenticated
+`tenant_id` determines the company and cannot be supplied by the client.
+
+- **200**: `{"batch_id":"...","item_count":3,"replayed":true}`;
+  the server confirms that this batch committed.
+- **404**: no committed batch with this key is visible in this company.
+  It does **not** prove a request is not still running.
+- **403**: insufficient permission; **422**: invalid key.
+
+No customer/product/quantity data or request digest is exposed. Responses
+use `Cache-Control: no-store`. If a prior POST had an ambiguous result,
+replay only the exact same payload with the original key; never blindly
+generate a fresh one to "retry".
+
 ### POST `/inventory/adjust`
 
 ```json
