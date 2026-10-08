@@ -190,6 +190,30 @@ func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, 
 	return nil
 }
 
+// Opening stock uses human-readable SKU rather than database UUIDs.
+func (r *ProductsRepo) GetManyBySKUs(
+	ctx context.Context, tx db.DBTX, tenantID string, skus []string,
+) (map[string]inv.Product, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT id::text, sku, active
+		FROM products
+		WHERE tenant_id=$1 AND sku=ANY($2::text[])
+	`, tenantID, skus)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]inv.Product, len(skus))
+	for rows.Next() {
+		var item inv.Product
+		if err := rows.Scan(&item.ID, &item.SKU, &item.Active); err != nil {
+			return nil, err
+		}
+		out[item.SKU] = item
+	}
+	return out, rows.Err()
+}
+
 func (r *ProductsRepo) GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id::text, category_id::text, sku, barcode, name, description, unit,
