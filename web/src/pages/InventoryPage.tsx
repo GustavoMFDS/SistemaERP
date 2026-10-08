@@ -263,7 +263,14 @@ export default function InventoryPage() {
                 <table className="min-w-full text-left text-xs">
                   <thead className="bg-gray-50"><tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Saldo contado</th></tr></thead>
                   <tbody>{openingPreview.rows.map((item) =>
-                    <tr key={item.sku}><td className="px-3 py-2">{item.sku}</td><td className="px-3 py-2">{item.quantity.toFixed(3)}</td></tr>)}</tbody>
+                    <tr key={item.sku}>
+                      <td className="px-3 py-2">{item.sku}
+                        <span className="block text-gray-500">
+                          {products.find((product) => product.sku === item.sku)?.name ?? 'Verifique o SKU na lista de produtos'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">{item.quantity.toFixed(3)}</td>
+                    </tr>)}</tbody>
                 </table>
               </div>
               <label className="flex items-start gap-2 text-sm">
