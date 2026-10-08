@@ -112,6 +112,36 @@ Money values accept at most 2 decimal places. Quantity values accept at most 3 d
 
 Requires `inventory:read`. Returns tenant-scoped active products with `qty_on_hand <= min_stock`, sorted by deficit. The response contains `items` (limited to at most 500) and `total` (the **full** tenant-wide count, not truncated to the list limit). The list can be empty even when other tenants have low stock. Product cost is hidden without `finance:read`.
 
+### POST `/inventory/opening-stock`
+
+Requires `inventory:adjust`, authentication, and `Idempotency-Key` of 8–128 characters.
+For a **new store's first stock count only**, submit the SKU and absolute quantity
+(not a delta). Each item must have an existing active SKU in the authenticated tenant.
+
+```json
+{
+  "items": [
+    { "sku": "PROD-001", "quantity": 15 },
+    { "sku": "PROD-002", "quantity": 4.5 }
+  ]
+}
+```
+
+The request accepts **1–100 distinct SKUs**, positive quantities with at most
+three decimal places, and applies the batch atomically. The database acquires
+row locks and refuses **every row** if any SKU is missing/inactive, has nonzero
+stock, or has ever had an inventory movement—even if its balance is zero now.
+Repeated requests with the same tenant/key and equivalent sorted payload return
+`200` with `replayed: true`, preserving the original `batch_id`, and never
+write a second movement. A changed payload under the same key, or a second
+opening batch for already used products, returns `409 conflict`.
+
+Successful first submission returns `201` with `batch_id`, `item_count`
+and `replayed: false`. `404` means at least one SKU does not belong to
+that tenant; `422` means malformed input. The batch, movements, balances and
+audit event are committed in **one transaction**; it is never a partial import.
+Operation `opening_stock` is reserved for initialization, not normal adjustments.
+
 ### POST `/inventory/adjust`
 
 ```json
