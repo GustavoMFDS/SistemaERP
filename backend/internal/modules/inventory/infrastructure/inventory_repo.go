@@ -100,6 +100,20 @@ func (r *InventoryRepo) InsertMovement(ctx context.Context, tx db.DBTX, tenantID
 	return err
 }
 
+// LowStockCount counts the full tenant catalog, independently of the paged UI list.
+func (r *InventoryRepo) LowStockCount(ctx context.Context, tenantID string) (int, error) {
+	var total int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM products p
+		LEFT JOIN inventory_balances b
+		  ON b.product_id=p.id AND b.tenant_id=p.tenant_id
+		WHERE p.tenant_id=$1 AND p.active=true
+		  AND COALESCE(b.qty_on_hand, 0) <= p.min_stock
+	`, tenantID).Scan(&total)
+	return total, err
+}
+
 func (r *InventoryRepo) LowStock(ctx context.Context, tenantID string, limit int) ([]inv.Product, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
