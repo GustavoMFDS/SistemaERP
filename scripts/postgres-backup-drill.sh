@@ -68,8 +68,8 @@ source_schema_version="${source_version%%|*}"
 if [ "$source_dirty" != "f" ]; then
   fail "source database migration state is dirty"
 fi
-if [ "$source_schema_version" -lt 29 ]; then
-  fail "source schema version $source_schema_version is below the current pilot baseline (29)"
+if [ "$source_schema_version" -lt 30 ]; then
+  fail "source schema version $source_schema_version is below the current pilot baseline (30)"
 fi
 
 printf 'Creating logical backup from %s...\n' "$source_db"
@@ -129,12 +129,12 @@ critical_tables="$(psql "$RESTORE_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "
       'return_refunds','payment_reconciliations','payment_reconciliation_adjustments','finance_idempotency_keys',
       'ledger_entries','audit_logs','nfce_configs','fiscal_document_sequences',
       'product_fiscal_profiles','sale_item_fiscal_snapshots','invoice_item_tax_calculations','invoice_fiscal_events',
-      'nfce_number_inutilizations'
+      'nfce_number_inutilizations','opening_stock_batches'
     );
 ")"
 
-if [ "$critical_tables" -lt 41 ]; then
-  fail "restored database is missing critical tables ($critical_tables/41 found)"
+if [ "$critical_tables" -lt 42 ]; then
+  fail "restored database is missing critical tables ($critical_tables/42 found)"
 fi
 
 source_counts="$(psql "$SOURCE_DATABASE_URL" -v ON_ERROR_STOP=1 -At -F '|' -c "
@@ -164,7 +164,7 @@ UTC timestamp: $timestamp
 Source database: $source_db
 Restore database: $restore_db
 Schema version: $restore_schema_version
-Critical tables: $critical_tables/41
+Critical tables: $critical_tables/42
 Source counts (companies|users|products|sales|audit_logs): $source_counts
 Restore counts (companies|users|products|sales|audit_logs): $restore_counts
 Strict row counts: ${STRICT_ROW_COUNTS:-0}
