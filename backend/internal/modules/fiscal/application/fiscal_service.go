@@ -1710,7 +1710,8 @@ func (s *FiscalService) InutilizeNFCeNumbers(
 		// retransmits the same range blindly after an ambiguous network result.
 		return fisc.NFCeInutilizationRemoteResult{}, err
 	}
-	if result.Pending() {
+	if result.Pending() &&
+		(result.StatusCode != 563 || len(result.ResponseXML) == 0) {
 		return result, nil
 	}
 
@@ -1731,14 +1732,26 @@ func (s *FiscalService) InutilizeNFCeNumbers(
 	if current.Status != fisc.NFCeInutilizationStatusSubmitted {
 		return fisc.NFCeInutilizationRemoteResult{}, common.ErrConflict
 	}
-	if err := s.fiscal.ApplyNFCeInutilizationResult(
-		ctx, tx, tenantID, requestID, result, responseSHA,
-	); err != nil {
-		return fisc.NFCeInutilizationRemoteResult{}, err
-	}
 	outcome := "rejected"
-	if result.Registered() {
-		outcome = "registered"
+	if result.Pending() {
+		// cStat 563 includes evidence of a previously authorized request.
+		// Persist that evidence without changing submitted status; a replay
+		// must not send the signed request again.
+		if err := s.fiscal.RecordPendingNFCeInutilizationResponse(
+			ctx, tx, tenantID, requestID, result, responseSHA,
+		); err != nil {
+			return fisc.NFCeInutilizationRemoteResult{}, err
+		}
+		outcome = "pending_reconciliation"
+	} else {
+		if err := s.fiscal.ApplyNFCeInutilizationResult(
+			ctx, tx, tenantID, requestID, result, responseSHA,
+		); err != nil {
+			return fisc.NFCeInutilizationRemoteResult{}, err
+		}
+		if result.Registered() {
+			outcome = "registered"
+		}
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
 		TenantID:     tenantID,
