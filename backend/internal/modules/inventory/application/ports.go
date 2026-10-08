@@ -13,6 +13,10 @@ type ProductsRepository interface {
 	Get(ctx context.Context, tenantID string, id string) (inv.Product, error)
 	GetByBarcode(ctx context.Context, tenantID string, barcode string) (inv.Product, error)
 	Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error)
+	LockProductImportKey(ctx context.Context, tx db.DBTX, tenantID, key string) error
+	GetProductImportBatch(ctx context.Context, tx db.DBTX, tenantID, key string) (batchID, requestHash string, itemCount int, found bool, err error)
+	LookupProductImportBatch(ctx context.Context, tenantID, key string) (batchID string, itemCount int, found bool, err error)
+	CreateProductImportBatch(ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int) (string, error)
 	Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error
 	GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error)
 	GetManyBySKUs(ctx context.Context, tx db.DBTX, tenantID string, skus []string) (map[string]inv.Product, error)
