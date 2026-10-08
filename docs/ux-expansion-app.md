@@ -132,6 +132,47 @@ Antes do uso real, validar concorrência, rollback e recuperação de queda
 de conexão com um banco e dispositivos reais. O GitHub Actions segue sem
 executar os jobs.
 
+### 6. Assistente de configuração inicial da loja
+
+A página **Configurar loja** (`/setup`) reúne cinco etapas com orientação
+para usuários não técnicos:
+
+1. **Dados da empresa:** consulta a razão social/CNPJ já provisionados nesta
+   empresa e permite preencher inscrição estadual, CRT, endereço, código
+   IBGE e CEP por meio do endpoint fiscal existente. Requer
+   `invoice:generate` para salvar; nunca altera o CNPJ de outra empresa.
+2. **Produtos:** consulta a contagem real do catálogo e leva ao cadastro
+   individual ou à importação CSV existente.
+3. **Estoque:** consulta o número de movimentações registradas e encaminha à
+   contagem física e à carga inicial idempotente. Movimentações **não provam**
+   que o saldo físico da loja tenha sido reconciliado.
+4. **Funcionários:** mostra os dados e perfil do próprio usuário. Não promete
+   criação/convite de contas porque ainda não há uma API administrativa segura
+   para isso. A etapa fica marcada para revisão.
+5. **NFC-e:** mostra a prontidão de dados e os bloqueios do servidor, com
+   link à preparação fiscal. `ready_for_homologation_data` **não é sinônimo**
+   de autorização da SEFAZ ou de transmissão liberada.
+
+O estado é calculado por leitura das APIs autenticadas e verificado novamente
+a pedido do operador; a tela não grava uma falsa conclusão local em
+`localStorage`. Consultas condicionadas às permissões evitam tentar obter
+dados fiscais ou de inventário para usuários não autorizados; falhas nas APIs
+ficam como **não verificadas** (fail-closed).
+
+A plataforma ainda exige provisionamento confiável de cada novo CNPJ,
+usuário proprietário e credenciais de ambiente pelo administrador da
+implantação. O assistente não cadastra uma empresa legal arbitrária e
+não pede certificado PFX, senha ou chave privada.
+
+Testes adicionados:
+- `web/e2e/setup-progress.spec.ts` para estados desconhecidos, restritos e
+  diferenciação entre preparação fiscal e emissão real;
+- `web/e2e/setup-wizard.spec.ts` para fluxo de navegação e ausência de
+  requisições fiscais para o perfil de caixa.
+
+**Pendente de execução:** build, lint, testes de navegação, teste E2E
+do cadastro fiscal assistido, piloto real e validações da SEFAZ.
+
 ## Próximas expansões
 
 - Melhorar recuperação de importação após fechar a aba, com referência de lote
