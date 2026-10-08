@@ -70,8 +70,6 @@ type ideXML struct {
 	Serie    int     `xml:"serie"`
 	NNF      int64   `xml:"nNF"`
 	DhEmi    string  `xml:"dhEmi"`
-	DhCont   *string `xml:"dhCont,omitempty"`
-	XJust    *string `xml:"xJust,omitempty"`
 	TpNF     int     `xml:"tpNF"`
 	IdDest   int     `xml:"idDest"`
 	CMunFG   string  `xml:"cMunFG"`
@@ -84,6 +82,8 @@ type ideXML struct {
 	IndPres  int     `xml:"indPres"`
 	ProcEmi  int     `xml:"procEmi"`
 	VerProc  string  `xml:"verProc"`
+	DhCont   *string `xml:"dhCont,omitempty"`
+	XJust    *string `xml:"xJust,omitempty"`
 }
 
 type emitXML struct {
