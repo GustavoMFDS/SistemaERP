@@ -11,6 +11,7 @@ import (
 type FinanceRepository interface {
 	InsertLedgerEntry(ctx context.Context, tx db.DBTX, tenantID string, e fin.LedgerEntry, createdByUserID *string) (string, error)
 	Dashboard(ctx context.Context, tenantID string, from, to string) (map[string]platform.Money, error)
+	OwnerOverview(ctx context.Context, tenantID, from, to string) (fin.OwnerOverview, error)
 	ListLedger(ctx context.Context, tenantID string, limit, offset int) ([]fin.LedgerEntry, int, error)
 
 	ListPayments(ctx context.Context, tenantID, from, to, method, status string, limit, offset int) ([]fin.PaymentRecord, int, error)
