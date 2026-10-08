@@ -32,8 +32,8 @@ type InventoryService struct {
 // OpeningStockItem represents an absolute opening count, not a repeatable
 // additive adjustment. A product with any prior stock activity is rejected.
 type OpeningStockItem struct {
-	SKU      string            `json:"sku" validate:"required,min=1,max=120"`
-	Quantity  platform.Quantity `json:"quantity" validate:"gt=0"`
+	SKU      string            `json:"sku" validate:"required,min=1,max=64"`
+	Quantity platform.Quantity `json:"quantity" validate:"gt=0"`
 }
 
 type OpeningStockRequest struct {
