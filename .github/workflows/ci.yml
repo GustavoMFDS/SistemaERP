@@ -103,7 +103,7 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v30 migration upgrade and rollback
+      - name: Verify v12 to v31 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -1039,6 +1039,36 @@ jobs:
           END
           $do$;
           SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify tenant setup reviews v31 upgrade and rollback
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT conname FROM pg_constraint WHERE conname='setup_step_reviews_actor_tenant_fk';" \
+            -c "SELECT step FROM setup_step_reviews LIMIT 1;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.setup_step_reviews') IS NOT NULL THEN RAISE EXCEPTION 'rollback 0031 failed'; END IF; END \$\$;"
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
