@@ -99,10 +99,43 @@ Testes adicionados:
 
 Os testes ainda exigem execução em ambiente com runner disponível.
 
+### 5. Estoque inicial por planilha, sem lançamento duplicado
+
+Em **Estoque → Cadastrar estoque inicial por planilha**, o responsável com
+`inventory:adjust` baixa o CSV com apenas `sku;quantidade`, preenche a
+contagem física de sua empresa (até 100 produtos por lote), confere a prévia,
+marca a confirmação e confirma novamente antes de enviar.
+
+O servidor resolve os SKUs sob o tenant autenticado e exige produtos
+**ativos, sem qualquer movimentação histórica e com saldo atual zero**.
+Qualquer SKU incompatível bloqueia a transação inteira, sem importação
+parcial. A referência de idempotência é criada ao escolher o arquivo e
+reutilizada enquanto a prévia permanecer aberta. Respostas ambíguas podem
+ser repetidas com a mesma referência: lote confirmado retorna `replayed=true`
+sem duplicar saldos. Uma nova chave para produto já movimentado é rejeitada.
+
+A tela não fornece estoque negativo, não sobrescreve saldos existentes e não
+altera custos nem preços. Produtos com contagem zero são omitidos da carga
+inicial; os que já tiveram operação precisam ser ajustados pelos fluxos
+auditados normais, jamais por nova carga inicial.
+
+Nova tabela `opening_stock_batches` na migration **0030**, com chaves
+únicas por tenant e referência da movimentação. O estado piloto e
+backup/restore exigem agora schema 30 e conferem essa tabela. O down da
+migration é **fail-closed** se houver lotes confirmados, para preservar
+a auditoria histórica.
+
+**Limites atuais:** a chave ainda existe na página do navegador, e o
+usuário pode perder a prévia após atualizar ou limpar os dados. Mesmo assim,
+a regra do backend de histórico impede novo saldo inicial em produtos usados.
+Antes do uso real, validar concorrência, rollback e recuperação de queda
+de conexão com um banco e dispositivos reais. O GitHub Actions segue sem
+executar os jobs.
+
 ## Próximas expansões
 
-- Importação de inventário inicial por contagem física com dupla conferência
-  e idempotência, separada do cadastro de produtos.
+- Melhorar recuperação de importação após fechar a aba, com referência de lote
+  recuperável em local persistente seguro e consulta administrativa.
 - Paginação completa e exportação do relatório global de estoque; o total já
   é computado globalmente, mas a listagem está limitada a 500 itens.
 - Relatórios gerenciais mais profundos (venda por item, período e custo),
