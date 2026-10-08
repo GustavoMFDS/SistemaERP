@@ -371,14 +371,29 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if err != nil || unchangedCfg.Environment != "homologation" || unchangedCfg.Series != 321 {
 		t.Fatalf("config unexpectedly changed under reserved NFC-e: %+v err=%v", unchangedCfg, err)
 	}
+	rotatedRef := "secret://integration/nfce/certificate-rotated"
 	rotatedCfg, err := service.PrepareNFCeConfig(
+		ctx, tenantID, actorUserID, fiscapp.PrepareNFCeConfigRequest{
+			Environment: "homologation", Series: 321,
+			CertificateSecretRef: rotatedRef,
+		},
+	)
+	if err != nil ||
+		rotatedCfg.Environment != "homologation" ||
+		rotatedCfg.Series != 321 ||
+		rotatedCfg.CertificateSecretRef == nil ||
+		*rotatedCfg.CertificateSecretRef != rotatedRef {
+		t.Fatalf("same-series certificate rotation should remain possible: %+v err=%v", rotatedCfg, err)
+	}
+	restoredCfg, err := service.PrepareNFCeConfig(
 		ctx, tenantID, actorUserID, fiscapp.PrepareNFCeConfigRequest{
 			Environment: "homologation", Series: 321,
 			CertificateSecretRef: certRef,
 		},
 	)
-	if err != nil || rotatedCfg.Environment != "homologation" || rotatedCfg.Series != 321 {
-		t.Fatalf("same-series certificate maintenance should remain possible: %+v err=%v", rotatedCfg, err)
+	if err != nil || restoredCfg.CertificateSecretRef == nil ||
+		*restoredCfg.CertificateSecretRef != certRef {
+		t.Fatalf("restore original certificate reference: %+v err=%v", restoredCfg, err)
 	}
 
 	var (
