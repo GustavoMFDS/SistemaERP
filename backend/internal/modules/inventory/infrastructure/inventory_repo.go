@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
@@ -16,6 +18,62 @@ type InventoryRepo struct {
 
 func NewInventoryRepo(dbpool *pgxpool.Pool) *InventoryRepo {
 	return &InventoryRepo{db: dbpool}
+}
+
+// Opening stock requires an immutable batch key. Advisory locks serialize
+// retries before reading the committed batch record.
+func (r *InventoryRepo) LockOpeningStockKey(
+	ctx context.Context, tx db.DBTX, tenantID, key string,
+) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+		tenantID+":opening-stock:"+key)
+	return err
+}
+
+func (r *InventoryRepo) GetOpeningStockBatch(
+	ctx context.Context, tx db.DBTX, tenantID, key string,
+) (batchID, requestHash string, itemCount int, found bool, err error) {
+	err = tx.QueryRow(ctx, `
+		SELECT id::text, request_hash, item_count
+		FROM opening_stock_batches
+		WHERE tenant_id=$1 AND idem_key=$2
+	`, tenantID, key).Scan(&batchID, &requestHash, &itemCount)
+	if err == pgx.ErrNoRows {
+		return "", "", 0, false, nil
+	}
+	if err != nil {
+		return "", "", 0, false, err
+	}
+	return batchID, requestHash, itemCount, true, nil
+}
+
+func (r *InventoryRepo) CreateOpeningStockBatch(
+	ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int,
+) (string, error) {
+	var batchID string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO opening_stock_batches(
+			tenant_id, idem_key, request_hash, item_count, created_by_user_id
+		) VALUES ($1,$2,$3,$4,$5)
+		RETURNING id::text
+	`, tenantID, key, requestHash, itemCount, actorID).Scan(&batchID)
+	return batchID, err
+}
+
+// All balance rows must already be locked by the caller. A movement made by
+// another transaction cannot commit past those locks between this check and
+// the opening writes.
+func (r *InventoryRepo) HasAnyStockMovements(
+	ctx context.Context, tx db.DBTX, tenantID string, productIDs []string,
+) (bool, error) {
+	var found bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM inventory_movements
+			WHERE tenant_id=$1 AND product_id=ANY($2::uuid[])
+		)
+	`, tenantID, productIDs).Scan(&found)
+	return found, err
 }
 
 func (r *InventoryRepo) EnsureBalanceRow(ctx context.Context, tx db.DBTX, tenantID string, productID string) error {
