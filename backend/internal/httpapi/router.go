@@ -39,6 +39,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 	authRefreshLimit := middleware.RateLimit(mods.Redis, "auth_refresh", cfg.RateLimitRefresh, time.Minute, failClosedRateLimit, middleware.RateLimitByIP)
 	authLogoutLimit := middleware.RateLimit(mods.Redis, "auth_logout", cfg.RateLimitLogout, time.Minute, failClosedRateLimit, middleware.RateLimitByIP)
 	salesLimit := middleware.RateLimit(mods.Redis, "sales_create", cfg.RateLimitSales, time.Minute, failClosedRateLimit, middleware.RateLimitByTenantUserOrIP)
+	productImportLimit := middleware.RateLimit(mods.Redis, "product_import", cfg.RateLimitSales, time.Minute, failClosedRateLimit, middleware.RateLimitByTenantUserOrIP)
 	fiscalLimit := middleware.RateLimit(mods.Redis, "fiscal", cfg.RateLimitFiscal, time.Minute, failClosedRateLimit, middleware.RateLimitByTenantUserOrIP)
 	trustedOrigin := middleware.RequireTrustedOrigin(cfg)
 
@@ -61,6 +62,8 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/products", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("product:read")).Get("/", h.Products.List)
 				rr.With(middleware.RequirePermission("product:read")).Get("/barcode/{barcode}", h.Products.GetByBarcode)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/import-batches", h.Products.ImportBatch)
+				rr.With(middleware.RequirePermission("product:write")).Get("/import-batches/{key}", h.Products.GetImportBatch)
 				rr.With(middleware.RequirePermission("product:read")).Get("/{id}", h.Products.Get)
 				rr.With(middleware.RequirePermission("product:write")).Post("/", h.Products.Create)
 				rr.With(middleware.RequirePermission("product:write")).Put("/{id}", h.Products.Update)
