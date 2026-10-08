@@ -24,6 +24,7 @@ type InventoryRepository interface {
 	GetBalancesForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) (map[string]inv.InventoryBalance, error)
 	LockOpeningStockKey(ctx context.Context, tx db.DBTX, tenantID, key string) error
 	GetOpeningStockBatch(ctx context.Context, tx db.DBTX, tenantID, key string) (batchID, requestHash string, itemCount int, found bool, err error)
+	LookupOpeningStockBatch(ctx context.Context, tenantID, key string) (batchID string, itemCount int, found bool, err error)
 	CreateOpeningStockBatch(ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int) (string, error)
 	HasAnyStockMovements(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) (bool, error)
 	GetBalanceForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productID string) (inv.InventoryBalance, error)
