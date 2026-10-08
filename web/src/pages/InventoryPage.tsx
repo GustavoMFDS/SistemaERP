@@ -13,7 +13,7 @@ type Product = {
   price_cash: number
 }
 
-type LowStockResponse = { items: Product[] }
+type LowStockResponse = { items: Product[] | null; total: number }
 
 type ProductsListResponse = { items: Product[]; total: number }
 
@@ -26,6 +26,8 @@ type AdjustRequest = {
 
 export default function InventoryPage() {
   const [low, setLow] = useState<Product[]>([])
+  const [lowTotal, setLowTotal] = useState(0)
+  const [lowLimit, setLowLimit] = useState(50)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -45,10 +47,11 @@ export default function InventoryPage() {
     setLoading(true)
     try {
       const [lowRes, prodRes] = await Promise.all([
-        apiJson<LowStockResponse>('/api/v1/inventory/low-stock?limit=50'),
+        apiJson<LowStockResponse>(`/api/v1/inventory/low-stock?limit=${lowLimit}`),
         apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0'),
       ])
-      setLow(lowRes.items)
+      setLow(lowRes.items ?? [])
+      setLowTotal(lowRes.total)
       setProducts(prodRes.items)
     } catch (e: unknown) {
       setError(errorMessage(e))
@@ -59,6 +62,9 @@ export default function InventoryPage() {
 
   useEffect(() => {
     void load()
+  }, [lowLimit])
+
+  useEffect(() => {
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
       .then((me) => setCanAdjustPermission(me.permissions.includes('inventory:adjust')))
       .catch((e: unknown) => setError(errorMessage(e)))
@@ -108,6 +114,16 @@ export default function InventoryPage() {
 
       <div className="mt-4">
         <h3 className="text-sm font-semibold">Baixo estoque</h3>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-600">
+          <span><strong>{lowTotal}</strong> produto(s) precisam de atenção. Mostrando {low.length}.</span>
+          {low.length < lowTotal && lowLimit < 500 ? (
+            <button type="button" className="rounded-md border px-3 py-2 hover:bg-gray-50"
+              onClick={() => setLowLimit(500)}>Mostrar até 500 produtos</button>
+          ) : null}
+          {low.length < lowTotal && lowLimit >= 500 ? (
+            <span className="text-amber-800">Há mais de 500 itens; procure os demais no cadastro de produtos.</span>
+          ) : null}
+        </div>
         <div className="mt-2 overflow-auto rounded-md border">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-gray-50 text-xs text-gray-600">
