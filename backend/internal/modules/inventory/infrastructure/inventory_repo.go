@@ -46,6 +46,25 @@ func (r *InventoryRepo) GetOpeningStockBatch(
 	return batchID, requestHash, itemCount, true, nil
 }
 
+// Read-only reconciliation is scoped to the authenticated company's tenant ID.
+// It reveals no CSV row data or request digest.
+func (r *InventoryRepo) LookupOpeningStockBatch(
+	ctx context.Context, tenantID, key string,
+) (batchID string, itemCount int, found bool, err error) {
+	err = r.db.QueryRow(ctx, `
+		SELECT id::text, item_count
+		FROM opening_stock_batches
+		WHERE tenant_id=$1 AND idem_key=$2
+	`, tenantID, key).Scan(&batchID, &itemCount)
+	if err == pgx.ErrNoRows {
+		return "", 0, false, nil
+	}
+	if err != nil {
+		return "", 0, false, err
+	}
+	return batchID, itemCount, true, nil
+}
+
 func (r *InventoryRepo) CreateOpeningStockBatch(
 	ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int,
 ) (string, error) {
