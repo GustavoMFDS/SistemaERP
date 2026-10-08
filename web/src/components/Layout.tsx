@@ -43,6 +43,7 @@ export default function Layout() {
 
   const permissionSet = new Set(me?.permissions ?? [])
   const nav = [
+    { to: '/home', label: 'Início', permission: null },
     { to: '/products', label: 'Produtos', permission: 'product:read' },
     { to: '/inventory', label: 'Estoque', permission: 'inventory:read' },
     { to: '/purchases', label: 'Compras', permission: 'procurement:read' },
@@ -50,7 +51,7 @@ export default function Layout() {
     { to: '/pdv', label: 'PDV', permission: 'sale:write' },
     { to: '/finance', label: 'Financeiro', permission: 'finance:read' },
     { to: '/fiscal', label: 'Fiscal (XML)', permission: 'invoice:read' },
-  ].filter((item) => permissionSet.has(item.permission))
+  ].filter((item) => item.permission === null || permissionSet.has(item.permission))
 
   async function logout() {
     if (loggingOut) return
@@ -98,7 +99,7 @@ export default function Layout() {
     <div className="min-h-full">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3">
-          <Link to="/products" className="text-sm font-semibold">
+          <Link to="/home" className="text-sm font-semibold">
             SistemaEmGo
           </Link>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
