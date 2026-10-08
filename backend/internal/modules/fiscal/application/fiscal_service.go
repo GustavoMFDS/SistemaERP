@@ -54,7 +54,7 @@ type PrepareNFCeConfigRequest struct {
 	Series               int    `json:"series" validate:"min=0,max=889"`
 	CSCID                string `json:"csc_id" validate:"omitempty,max=32"`
 	CSCSecretRef         string `json:"csc_secret_ref" validate:"omitempty,max=500"`
-	CertificateSecretRef string `json:"certificate_secret_ref" validate:"required,max=500"`
+	CertificateSecretRef string `json:"certificate_secret_ref" validate:"omitempty,max=500"`
 }
 
 type PrepareProductFiscalProfileRequest struct {
@@ -2708,6 +2708,23 @@ func (s *FiscalService) PrepareNFCeConfig(
 
 	if err := s.fiscal.LockNFCeTenantForUpdate(ctx, tx, tenantID); err != nil {
 		return fisc.NFCeConfig{}, err
+	}
+	// The certificate reference is write-only in public API responses.
+	// Leaving the field blank on a later edit must preserve the existing
+	// server-side reference, never wipe it or disclose it to the client.
+	if req.CertificateSecretRef == "" {
+		current, err := s.fiscal.GetNFCeReservationContextForUpdate(ctx, tx, tenantID)
+		if errors.Is(err, common.ErrNotFound) {
+			return fisc.NFCeConfig{}, common.ErrValidation
+		}
+		if err != nil {
+			return fisc.NFCeConfig{}, err
+		}
+		if current.Config.CertificateSecretRef == nil ||
+			strings.TrimSpace(*current.Config.CertificateSecretRef) == "" {
+			return fisc.NFCeConfig{}, common.ErrValidation
+		}
+		cfg.CertificateSecretRef = current.Config.CertificateSecretRef
 	}
 	hasOpenWork, err := s.fiscal.HasOpenNFCeWork(ctx, tx, tenantID)
 	if err != nil {
