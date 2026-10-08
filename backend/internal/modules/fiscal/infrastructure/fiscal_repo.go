@@ -259,6 +259,46 @@ func (r *FiscalRepo) UpsertNFCeConfig(
 	return err
 }
 
+// LockNFCeTenantForUpdate serializes fiscal configuration changes with
+// reservations, which lock the same issuer company row before allocating a number.
+// Query open invoices in a separate statement AFTER acquiring this lock, so
+// READ COMMITTED sees reservations committed while the change was waiting.
+func (r *FiscalRepo) LockNFCeTenantForUpdate(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+) error {
+	var id string
+	err := tx.QueryRow(ctx, `
+		SELECT id::text FROM companies WHERE id=$1 FOR UPDATE
+	`, tenantID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return common.ErrNotFound
+	}
+	return err
+}
+
+// HasOpenNFCeWork must run after LockNFCeTenantForUpdate in the same
+// transaction. Only active/ambiguous states constrain issuer and series;
+// rejected/authorized/cancelled historical documents keep their own snapshots.
+func (r *FiscalRepo) HasOpenNFCeWork(
+	ctx context.Context,
+	tx db.DBTX,
+	tenantID string,
+) (bool, error) {
+	var open bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM invoices
+			WHERE tenant_id=$1
+			  AND model=65
+			  AND status IN ('reserved', 'signed', 'submitted')
+		)
+	`, tenantID).Scan(&open)
+	return open, err
+}
+
 func (r *FiscalRepo) GetNFCeReservationContextForUpdate(
 	ctx context.Context,
 	tx db.DBTX,
