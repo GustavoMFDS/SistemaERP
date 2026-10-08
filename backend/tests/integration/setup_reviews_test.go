@@ -45,7 +45,9 @@ func TestSetupReviewsStayInTheirCompanyAndHaveTransactionalAudit(t *testing.T) {
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO companies(legal_name, cnpj) VALUES('Setup Review Fixture', $1)
 			RETURNING id::text
-		`, cnpj).Scan(&tenant); err != nil { t.Fatal(err) }
+		`, cnpj).Scan(&tenant); err != nil {
+			t.Fatal(err)
+		}
 		tenants = append(tenants, tenant)
 		if _, err := pool.Exec(ctx, `INSERT INTO user_tenants(user_id,tenant_id) VALUES($1,$2)`, actor, tenant); err != nil {
 			t.Fatal(err)
@@ -102,7 +104,9 @@ func TestSetupReviewsStayInTheirCompanyAndHaveTransactionalAudit(t *testing.T) {
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM audit_logs
 		WHERE tenant_id=$1 AND action='setup.review.set'
-	`, a).Scan(&auditCount); err != nil { t.Fatal(err) }
+	`, a).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
 	if auditCount != 2 {
 		t.Fatalf("expected transactional audit of review and reopening, got %d", auditCount)
 	}
