@@ -34,6 +34,11 @@ test('gestor acessa assistente e encontra caminhos para cada configuração', as
 test('caixa não recebe formulário de empresa ou acesso a dados fiscais', async ({ page }) => {
   await login(page, 'caixa@sistema.local')
   let fiscalRequests = 0
+  let setupRequests = 0
+  await page.route('**/api/v1/setup/**', async (route) => {
+    setupRequests += 1
+    await route.continue()
+  })
   await page.route('**/api/v1/fiscal/**', async (route) => {
     fiscalRequests += 1
     await route.continue()
@@ -43,4 +48,43 @@ test('caixa não recebe formulário de empresa ou acesso a dados fiscais', async
   await expect(page.getByText('Sem acesso').first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Salvar dados da minha loja' })).toHaveCount(0)
   expect(fiscalRequests).toBe(0)
+  expect(setupRequests).toBe(0)
+  await expect(page.getByRole('button', { name: 'Registrar revisão' })).toHaveCount(0)
+})
+
+test('revisão manual fica registrada entre recargas, sem virar aprovação fiscal', async ({ page }) => {
+  let stockReviewedAt = ''
+  await page.route('**/api/v1/setup/reviews**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ items: stockReviewedAt ? [{ step: 'stock', reviewed_at: stockReviewedAt }] : [] }),
+      })
+      return
+    }
+    if (route.request().method() === 'PUT' && route.request().url().endsWith('/stock')) {
+      const body = route.request().postDataJSON() as { reviewed: boolean }
+      stockReviewedAt = body.reviewed ? '2026-10-08T20:00:00Z' : ''
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ items: stockReviewedAt ? [{ step: 'stock', reviewed_at: stockReviewedAt }] : [] }),
+      })
+      return
+    }
+    await route.abort()
+  })
+  page.on('dialog', (dialog) => void dialog.accept())
+  await login(page, 'admin@sistema.local')
+  await page.goto('/setup')
+  await page.getByRole('button', { name: /3\\. Estoque inicial/ }).click()
+  const reviewSection = page.getByRole('region', { name: 'Revisão registrada da etapa' })
+  await expect(reviewSection).toContainText('Ainda não há revisão registrada.')
+  await reviewSection.getByRole('button', { name: 'Registrar revisão' }).click()
+  await expect(reviewSection).toContainText('Revisão registrada em')
+  await expect(page.getByRole('button', { name: /3\\. Estoque inicial/ })).toContainText('Conferir')
+  await page.reload()
+  await page.getByRole('button', { name: /3\\. Estoque inicial/ }).click()
+  await expect(page.getByRole('region', { name: 'Revisão registrada da etapa' })).toContainText('Revisão registrada em')
+  await reviewSection.getByRole('button', { name: 'Reabrir revisão' }).click()
+  await expect(reviewSection).toContainText('Ainda não há revisão registrada.')
 })
