@@ -15,6 +15,7 @@ type ProductsRepository interface {
 	Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error)
 	Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error
 	GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error)
+	GetManyBySKUs(ctx context.Context, tx db.DBTX, tenantID string, skus []string) (map[string]inv.Product, error)
 }
 
 type InventoryRepository interface {
