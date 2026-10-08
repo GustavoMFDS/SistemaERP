@@ -108,6 +108,18 @@ export default function Layout() {
                 Instalar aplicativo
               </button>
             ) : null}
+            <details className="relative text-xs">
+              <summary className="cursor-pointer rounded-md border px-2 py-1 hover:bg-gray-50">
+                Usar como app
+              </summary>
+              <div className="absolute right-0 z-20 mt-2 w-64 rounded-md border bg-white p-3 text-gray-700 shadow-lg">
+                <p className="font-semibold">Instalar no seu dispositivo</p>
+                <p className="mt-1">Android/Chrome: menu ⋮ → Instalar aplicativo ou Adicionar à tela inicial.</p>
+                <p className="mt-1">iPhone/Safari: Compartilhar → Adicionar à Tela de Início.</p>
+                <p className="mt-1">Computador: ícone de instalação na barra do navegador, quando disponível.</p>
+                <p className="mt-2 text-amber-800">Para usar a loja, o servidor precisa estar configurado e acessível. Não desinstale ou limpe dados com vendas offline pendentes.</p>
+              </div>
+            </details>
             <div className="text-xs text-gray-600">
               {me?.email ? (
                 <span>
