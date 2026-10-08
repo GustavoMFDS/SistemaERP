@@ -21,6 +21,18 @@ type Issuer = {
   address_state: string
   address_zip: string
 }
+type ReviewStep = 'stock' | 'team'
+type ReviewResponse = { items: Array<{ step: ReviewStep; reviewed_at: string }> }
+type ReviewDates = Partial<Record<ReviewStep, string>>
+
+function reviewDates(response: ReviewResponse): ReviewDates {
+  const result: ReviewDates = {}
+  for (const item of response.items) {
+    if (item.step === 'stock' || item.step === 'team') result[item.step] = item.reviewed_at
+  }
+  return result
+}
+
 type IssuerFields = {
   ie: string
   crt: string
@@ -80,6 +92,7 @@ export default function SetupPage() {
   const [stockMovementsTotal, setStockMovementsTotal] = useState<number | null>(null)
   const [readiness, setReadiness] = useState<FiscalReadinessData | null>(null)
   const [issuer, setIssuer] = useState<Issuer | null>(null)
+  const [reviews, setReviews] = useState<ReviewDates | null>(null)
   const [fields, setFields] = useState<IssuerFields>(emptyFields)
   const [active, setActive] = useState<SetupStepKey>('company')
   const [loading, setLoading] = useState(true)
@@ -98,6 +111,7 @@ export default function SetupPage() {
     setStockMovementsTotal(null)
     setReadiness(null)
     setIssuer(null)
+    setReviews(null)
     setFields(emptyFields)
     try {
       const user = await apiJson<Me>('/api/v1/auth/me')
@@ -114,6 +128,11 @@ export default function SetupPage() {
         jobs.push(apiJson<{ total: number }>('/api/v1/inventory/movements?limit=1&offset=0')
           .then((response) => setStockMovementsTotal(response.total))
           .catch((err: unknown) => { problems.push('Estoque: ' + errorMessage(err)) }))
+      }
+      if (permissions.has('invoice:generate')) {
+        jobs.push(apiJson<ReviewResponse>('/api/v1/setup/reviews')
+          .then((response) => setReviews(reviewDates(response)))
+          .catch((err: unknown) => { problems.push('Revisões do assistente: ' + errorMessage(err)) }))
       }
       if (permissions.has('invoice:read')) {
         jobs.push(apiJson<FiscalReadinessData>('/api/v1/fiscal/nfce/readiness')
@@ -162,6 +181,28 @@ export default function SetupPage() {
       setMessage('Dados fiscais salvos para a loja atual. Confira as próximas etapas.')
     } catch (err: unknown) {
       setError('Não foi possível salvar os dados da loja: ' + errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveReview(step: ReviewStep, reviewed: boolean) {
+    if (saving || !me?.permissions.includes('invoice:generate') || reviews === null) return
+    const description = step === 'stock' ? 'orientações de estoque' : 'permissões e acesso da equipe'
+    if (reviewed && !window.confirm(
+      `Registrar que revisou as ${description}? Isso não confirma contagem física, cadastro de funcionários nem prontidão fiscal.`,
+    )) return
+    setSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      const response = await apiJson<ReviewResponse>(`/api/v1/setup/reviews/${step}`, {
+        method: 'PUT', body: { reviewed },
+      })
+      setReviews(reviewDates(response))
+      setMessage(reviewed ? 'Revisão registrada no servidor para esta empresa.' : 'Revisão reaberta para esta empresa.')
+    } catch (err: unknown) {
+      setError('Não foi possível atualizar a revisão: ' + errorMessage(err))
     } finally {
       setSaving(false)
     }
@@ -366,6 +407,29 @@ export default function SetupPage() {
               </div>
             ) : null}
           </section>
+          {(active === 'stock' || active === 'team') && me.permissions.includes('invoice:generate') ? (
+            <section aria-label="Revisão registrada da etapa" className="mt-3 rounded-lg border p-3 text-sm">
+              <h3 className="font-semibold">Registro de revisão desta empresa</h3>
+              <p className="mt-1 text-xs text-gray-600">
+                Esta anotação acompanha o processo, mas não certifica estoque contado, equipe cadastrada
+                ou emissão fiscal autorizada. A etapa continuará exigindo conferência real.
+              </p>
+              {reviews === null ? (
+                <p className="mt-2 text-amber-800">Não foi possível consultar o registro; não é permitido confirmar sem conexão.</p>
+              ) : (
+                <>
+                  <p className="mt-2">
+                    {reviews[active] ? `Revisão registrada em ${new Date(reviews[active]).toLocaleString('pt-BR')}.` : 'Ainda não há revisão registrada.'}
+                  </p>
+                  <button type="button" disabled={loading || saving}
+                    onClick={() => void saveReview(active, !reviews[active])}
+                    className="mt-2 rounded-md border px-3 py-2 font-medium disabled:opacity-50">
+                    {saving ? 'Salvando…' : reviews[active] ? 'Reabrir revisão' : 'Registrar revisão'}
+                  </button>
+                </>
+              )}
+            </section>
+          ) : null}
           <nav aria-label="Navegação do assistente" className="mt-4 flex flex-wrap items-center justify-between gap-2">
             <button type="button" disabled={loading || saving || activeIndex <= 0}
               onClick={() => setActive(steps[activeIndex - 1].key)}
