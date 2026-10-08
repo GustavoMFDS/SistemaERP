@@ -1,17 +1,15 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
-
-	"github.com/go-chi/chi/v5"
 	"strconv"
 	"strings"
-
-	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
+	"github.com/go-chi/chi/v5"
 )
 
 type InventoryHandler struct {
@@ -67,6 +65,7 @@ func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request)
 
 // OpeningStockBatch returns only a committed batch in this authenticated tenant.
 func (h *InventoryHandler) OpeningStockBatch(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
