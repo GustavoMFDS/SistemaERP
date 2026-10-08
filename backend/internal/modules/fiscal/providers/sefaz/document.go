@@ -220,6 +220,7 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 	cUF, _ := fisc.UFCode(input.Issuer.AddressState)
 	ambient, _ := tpAmb(Environment(input.Reservation.Environment))
 	var qrCode string
+	var err error
 	if input.Reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType {
 		if input.QRCodeSignature == nil || strings.TrimSpace(*input.QRCodeSignature) == "" {
 			return nil, fmt.Errorf("offline contingency QR Code signature is required")
