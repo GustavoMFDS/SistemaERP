@@ -97,11 +97,11 @@ export default function Layout() {
   return (
     <div className="min-h-full">
       <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3">
           <Link to="/products" className="text-sm font-semibold">
             SistemaEmGo
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {appInstall.available ? (
               <button type="button" onClick={() => void appInstall.install()}
                 className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50">
@@ -120,7 +120,7 @@ export default function Layout() {
                 <p className="mt-2 text-amber-800">Para usar a loja, o servidor precisa estar configurado e acessível. Não desinstale ou limpe dados com vendas offline pendentes.</p>
               </div>
             </details>
-            <div className="text-xs text-gray-600">
+            <div className="hidden text-xs text-gray-600 sm:block">
               {me?.email ? (
                 <span>
                   {me.name} - {me.email}
@@ -150,14 +150,14 @@ export default function Layout() {
 
       <div className="mx-auto grid max-w-6xl grid-cols-12 gap-4 px-4 py-4">
         <aside className="col-span-12 md:col-span-3">
-          <nav className="rounded-lg border bg-white p-2">
+          <nav className="flex gap-1 overflow-x-auto rounded-lg border bg-white p-2 md:block">
             {nav.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
                   classNames(
-                    'block rounded-md px-3 py-2 text-sm',
+                    'block shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-sm',
                     isActive ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50',
                   )
                 }
