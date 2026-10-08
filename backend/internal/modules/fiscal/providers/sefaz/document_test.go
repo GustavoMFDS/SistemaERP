@@ -266,6 +266,14 @@ func TestBuildUnsignedNFCeOfflineContingencyCandidate(t *testing.T) {
 		t.Fatalf("BuildUnsignedNFCeLegacyCandidate contingency: %v", err)
 	}
 	xml := string(content)
+	// ide is an XSD sequence, not an unordered map: dhCont/xJust must
+	// follow verProc (and tpEmis), never appear directly after dhEmi.
+	verProcPos := strings.Index(xml, "<verProc>")
+	dhContPos := strings.Index(xml, "<dhCont>")
+	xJustPos := strings.Index(xml, "<xJust>")
+	if verProcPos < 0 || dhContPos <= verProcPos || xJustPos <= dhContPos {
+		t.Fatalf("invalid contingency ide XML order: %s", xml)
+	}
 	for _, want := range []string{
 		"<tpEmis>9</tpEmis>",
 		"<dhCont>" + startedAt.Format("2006-01-02T15:04:05-07:00") + "</dhCont>",
