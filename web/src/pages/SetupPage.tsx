@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
-import { buildSetupSteps, type FiscalReadinessData, type SetupStepKey, type SetupSnapshot, type SetupStatus } from '../lib/setupProgress'
+import { buildSetupSteps, nextSetupAttention, summarizeSetupSteps, type FiscalReadinessData, type SetupStepKey, type SetupSnapshot, type SetupStatus } from '../lib/setupProgress'
 
 type Me = { id: string; tenant_id: string; name: string; email: string; roles: string[]; permissions: string[] }
 type Issuer = {
@@ -171,6 +171,9 @@ export default function SetupPage() {
     me, productsTotal, stockMovementsTotal, fiscalReadiness: readiness,
   } : null
   const steps = snapshot ? buildSetupSteps(snapshot) : []
+  const overview = summarizeSetupSteps(steps)
+  const activeIndex = steps.findIndex((step) => step.key === active)
+  const nextAttention = nextSetupAttention(steps, active)
   const canSaveCompany = Boolean(me?.permissions.includes('invoice:generate') && issuer)
   const updateField = (key: keyof IssuerFields, value: string) => {
     setFields((previous) => ({ ...previous, [key]: value }))
@@ -208,9 +211,24 @@ export default function SetupPage() {
 
       {me ? (
         <>
-          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          <section aria-label="Resumo da configuração" className="mt-5 rounded-lg border bg-slate-50 p-3 text-sm">
+            <p><strong>{overview.verified}</strong> etapa(s) com dados básicos verificados;
+              {' '}<strong>{overview.attention}</strong> para preencher, verificar ou revisar;
+              {' '}<strong>{overview.restricted}</strong> sem permissão de acesso.</p>
+            <p className="mt-1 text-xs text-gray-600">
+              Esta contagem não confirma estoque conferido, equipe revisada nem emissão fiscal liberada.
+            </p>
+            {nextAttention && nextAttention !== active ? (
+              <button type="button" disabled={loading || saving}
+                onClick={() => setActive(nextAttention)}
+                className="mt-2 rounded-md border border-blue-300 bg-white px-3 py-2 text-sm font-medium text-blue-800 disabled:opacity-50">
+                Ver outra etapa que precisa de atenção →
+              </button>
+            ) : null}
+          </section>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {steps.map((step, index) => (
-              <button type="button" key={step.key} onClick={() => setActive(step.key)}
+              <button type="button" key={step.key} disabled={loading || saving} onClick={() => setActive(step.key)}
                 aria-current={active === step.key ? 'step' : undefined}
                 className={`rounded-lg border p-3 text-left hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 ${active === step.key ? 'border-blue-500 bg-blue-50' : ''}`}>
                 <span className="block text-sm font-semibold">{index + 1}. {step.title}</span>
@@ -348,6 +366,15 @@ export default function SetupPage() {
               </div>
             ) : null}
           </section>
+          <nav aria-label="Navegação do assistente" className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <button type="button" disabled={loading || saving || activeIndex <= 0}
+              onClick={() => setActive(steps[activeIndex - 1].key)}
+              className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">← Etapa anterior</button>
+            <span className="text-xs text-gray-600">Etapa {activeIndex + 1} de {steps.length}</span>
+            <button type="button" disabled={loading || saving || activeIndex < 0 || activeIndex >= steps.length - 1}
+              onClick={() => setActive(steps[activeIndex + 1].key)}
+              className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">Próxima etapa →</button>
+          </nav>
           <p className="mt-3 text-xs text-gray-500">
             As etapas são recalculadas a partir de dados do servidor quando você clica em “Conferir novamente”.
             Este assistente não armazena certificado, senha, documento fiscal nem dados de outra empresa.
