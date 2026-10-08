@@ -100,6 +100,24 @@ func TestOpeningStockBatchIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	if result.Replayed || result.ItemCount != 1 || result.BatchID == "" {
 		t.Fatalf("unexpected initial result: %+v", result)
 	}
+	// Read-only reconciliation returns committed batches, scoped to the tenant.
+	lookedUp, found, err := service.LookupOpeningStockBatch(ctx, tenantA, key)
+	if err != nil || !found || lookedUp.BatchID != result.BatchID || lookedUp.ItemCount != 1 {
+		t.Fatalf("committed batch not recoverable: %+v found=%v err=%v", lookedUp, found, err)
+	}
+	_, found, err = service.LookupOpeningStockBatch(ctx, tenantB, key)
+	if err != nil || found {
+		t.Fatalf("another tenant saw A's batch: found=%v err=%v", found, err)
+	}
+	_, found, err = service.LookupOpeningStockBatch(ctx, tenantA, "missing-safe-key")
+	if err != nil || found {
+		t.Fatalf("nonexistent batch was reported as committed: found=%v err=%v", found, err)
+	}
+	_, _, err = service.LookupOpeningStockBatch(ctx, tenantA, "short")
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("invalid lookup key must be rejected, got %v", err)
+	}
+
 	replayed, err := service.ImportOpeningStock(ctx, tenantA, actorID, key, first)
 	if err != nil || !replayed.Replayed || replayed.BatchID != result.BatchID {
 		t.Fatalf("replay must return same batch without new movement: %+v, %v", replayed, err)
