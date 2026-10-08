@@ -121,7 +121,7 @@ auditados normais, jamais por nova carga inicial.
 
 Nova tabela `opening_stock_batches` na migration **0030**, com chaves
 únicas por tenant e referência da movimentação. O estado piloto e
-backup/restore exigem agora schema 30 e conferem essa tabela. O down da
+backup/restore exigem agora schema 31 e conferem essa tabela e as revisões do assistente. O down da
 migration é **fail-closed** se houver lotes confirmados, para preservar
 a auditoria histórica.
 
@@ -183,6 +183,41 @@ Testes adicionados:
 **Pendente de execução:** build, lint, testes de navegação, teste E2E
 do cadastro fiscal assistido, piloto real e validações da SEFAZ.
 
+### 7. Revisões persistentes do assistente (por empresa)
+
+A migration **0031** adiciona `setup_step_reviews`, com chave
+`(tenant_id, step)` e vínculo do revisor à própria empresa por FK composta
+`(reviewed_by_user_id, tenant_id)`. A tabela armazena apenas a etapa
+(`stock` ou `team`), o usuário que revisou e a data, **sem** CPF,
+observações livres, certificado, senha, CNPJ de outra loja ou dados fiscais.
+
+Endpoints autenticados:
+- `GET /api/v1/setup/reviews`: consulta as revisões da empresa do token.
+- `PUT /api/v1/setup/reviews/{step}`: recebe `{"reviewed":true|false}`
+  para registrar ou reabrir a revisão; ambas as rotas exigem
+  `invoice:generate`, reservado aos responsáveis fiscais/gestores.
+  O PUT também verifica a origem confiável. Não existe seleção de
+  `tenant_id` no payload ou na URL.
+
+As operações de escrita são auditadas **na mesma transação**.
+Registros persistem entre recargas/navegadores, mas uma revisão manual
+**não muda** as métricas de produtos, a conferência física do estoque,
+a condição de permissão de colaboradores ou a prontidão da NFC-e.
+As cinco etapas permanecem avaliadas a partir das APIs autenticadas,
+sem "porcentagem de implantação pronta" artificial. A equipe ainda não
+pode ser provisionada pelo assistente.
+
+Testes novos:
+- integração PostgreSQL de isolamento entre duas empresas, rollback,
+  proibição de marcar fiscal manualmente e auditoria;
+- E2E de persistência entre recargas simulando a API, reversão de revisão
+  e ausência de requests administrativos no perfil de caixa;
+- migração 0031 com upgrade, rollback sem dados e reapply;
+- ferramentas de piloto e backup passam a exigir schema >=31 e 43 tabelas.
+
+**Status:** casos de teste adicionados ao repositório, mas CI atual
+não executa os steps nos runners hospedados; não inferir testes aprovados.
+
 ## Próximas expansões
 
 - Melhorar recuperação de importação após fechar a aba, com referência de lote
@@ -191,8 +226,8 @@ do cadastro fiscal assistido, piloto real e validações da SEFAZ.
   é computado globalmente, mas a listagem está limitada a 500 itens.
 - Relatórios gerenciais mais profundos (venda por item, período e custo),
   preservando a autorização de custo e margem.
-- Onboarding por empresa com estado persistente de etapas e verificações
-  sem inserir segredos no banco ou no frontend.
+- Ampliar o onboarding com evidências automáticas versionadas (sem
+  armazenar segredos) e um fluxo administrativo de funcionários com RBAC.
 
 ## Próxima fase: operação
 
