@@ -57,6 +57,7 @@ export default function ProductsPage() {
   const [importResult, setImportResult] = useState('')
   const [importKey, setImportKey] = useState('')
   const [importDigest, setImportDigest] = useState('')
+  const [importScope, setImportScope] = useState('')
   const [pendingImport, setPendingImport] = useState<PendingProductImport | null>(null)
 
   const [sku, setSku] = useState('')
@@ -191,6 +192,7 @@ export default function ProductsPage() {
     setImportPreview(null)
     setImportKey('')
     setImportDigest('')
+    setImportScope('')
     setImportResult('')
     if (!file) return
     if (file.size > 1024 * 1024) {
@@ -215,6 +217,7 @@ export default function ProductsPage() {
       setImportPreview(preview)
       setImportKey(pending?.key ?? crypto.randomUUID())
       setImportDigest(digest)
+      setImportScope(getSessionScope())
       setPendingImport(pending)
       setError('')
     } catch (e: unknown) {
@@ -234,7 +237,8 @@ export default function ProductsPage() {
 
   async function importProducts() {
     if (!canWrite || importing || !importPreview?.valid.length ||
-        importPreview.errors.length || !importKey || !importDigest) return
+        importPreview.errors.length || !importKey || !importDigest ||
+        !importScope || importScope !== getSessionScope()) return
     if (!window.confirm(`Cadastrar ${importPreview.valid.length} produto(s) nesta loja em um único lote? Se houver qualquer conflito, nenhum será cadastrado.`)) return
 
     const scope = getSessionScope()
@@ -286,6 +290,7 @@ export default function ProductsPage() {
       setImportPreview(null)
       setImportKey('')
       setImportDigest('')
+      setImportScope('')
       await load()
     } catch (e: unknown) {
       if (scope === getSessionScope()) {
@@ -318,6 +323,7 @@ export default function ProductsPage() {
       setImportPreview(null)
       setImportKey('')
       setImportDigest('')
+      setImportScope('')
       setImportResult(`O servidor confirmou o lote ${result.batch_id} com ${result.item_count} produto(s). Nenhuma nova gravação é necessária.`)
       await load()
     } catch (e: unknown) {
@@ -340,6 +346,7 @@ export default function ProductsPage() {
     setImportPreview(null)
     setImportKey('')
     setImportDigest('')
+    setImportScope('')
     setImportResult('')
     setError('Referência local descartada. Verifique o catálogo antes de iniciar uma nova importação.')
   }
@@ -538,7 +545,7 @@ export default function ProductsPage() {
               ) : null}
               <p className="text-xs text-gray-600">Prévia: {importPreview.valid.slice(0, 5).map((row) => `${row.sku} — ${row.name} (R$ ${row.price_cash.toFixed(2)})`).join(' · ')}</p>
               <p className="text-xs text-amber-800">Códigos NCM/CEST precisam ser conferidos com o contador. A importação não habilita emissão fiscal.</p>
-              <button type="button" onClick={() => void importProducts()} disabled={importing || importPreview.valid.length === 0 || importPreview.errors.length > 0 || !importKey}
+              <button type="button" onClick={() => void importProducts()} disabled={importing || importPreview.valid.length === 0 || importPreview.errors.length > 0 || !importKey || importScope !== getSessionScope()}
                 className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
                 {importing ? 'Importando produtos…' : `Confirmar importação de ${importPreview.valid.length} produto(s)`}
               </button>
