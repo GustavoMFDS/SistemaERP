@@ -94,3 +94,23 @@ export function buildSetupSteps(data: SetupSnapshot): SetupStep[] {
     },
   ]
 }
+
+/**
+ * Estes números descrevem apenas evidências obtidas do servidor.
+ * Etapas "review" não viram "ready" sem uma comprovação verificável;
+ * especialmente a NFC-e nunca é tratada como homologada pelo assistente.
+ */
+export function summarizeSetupSteps(steps: SetupStep[]) {
+  return {
+    verified: steps.filter((step) => step.status === 'ready').length,
+    attention: steps.filter((step) => step.status !== 'ready' && step.status !== 'restricted').length,
+    restricted: steps.filter((step) => step.status === 'restricted').length,
+  }
+}
+
+/** Próxima etapa acessível que merece conferência, após a etapa atual. */
+export function nextSetupAttention(steps: SetupStep[], current: SetupStepKey): SetupStepKey | null {
+  const index = steps.findIndex((step) => step.key === current)
+  const ordered = index < 0 ? steps : [...steps.slice(index + 1), ...steps.slice(0, index + 1)]
+  return ordered.find((step) => step.status !== 'ready' && step.status !== 'restricted')?.key ?? null
+}
