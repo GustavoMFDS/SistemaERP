@@ -138,6 +138,14 @@ func TestNFCeInutilizationPersistsRangeAndNeverBlindlyRetransmits(t *testing.T) 
 	service.SetNFCeInutilizationSchemaValidator(inutilizationFakeValidator{})
 
 	start := int64(time.Now().UnixNano()%800_000_000 + 1_000_000)
+	// Simulate a committed sequence frontier past the skipped range.
+	// Future numbers must never be inutilized before allocation.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO fiscal_document_sequences(tenant_id, model, series, next_number)
+		VALUES ($1,65,777,$2)
+	`, tenantID, start+150); err != nil {
+		t.Fatalf("set sequence frontier for unused historical range: %v", err)
+	}
 	registeredAt := time.Now().Truncate(time.Second)
 	client := &inutilizationFakeClient{result: fisc.NFCeInutilizationRemoteResult{
 		StatusCode:   102,
@@ -201,6 +209,19 @@ func TestNFCeInutilizationPersistsRangeAndNeverBlindlyRetransmits(t *testing.T) 
 	}
 	if client.calls != 1 {
 		t.Fatalf("overlap reached remote client: calls=%d", client.calls)
+	}
+
+	future := req
+	future.StartNumber = start + 150
+	future.EndNumber = start + 151
+	future.Justification = "Tentativa de inutilizar numeros ainda nao alocados."
+	if _, err := service.InutilizeNFCeNumbers(
+		ctx, tenantID, actorUserID, future,
+	); !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("future-range inutilization must fail closed: %v", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("future-range request reached remote client: calls=%d", client.calls)
 	}
 
 	ambiguousClient := &inutilizationFakeClient{err: errors.New("simulated timeout")}
