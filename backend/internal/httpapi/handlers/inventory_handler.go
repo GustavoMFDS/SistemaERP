@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 	"strconv"
 	"strings"
 
@@ -61,6 +63,29 @@ func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
+}
+
+// OpeningStockBatch returns only a committed batch in this authenticated tenant.
+func (h *InventoryHandler) OpeningStockBatch(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	result, found, err := h.svc.LookupOpeningStockBatch(r.Context(), au.TenantID, chi.URLParam(r, "key"))
+	if err == common.ErrValidation {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "referencia de lote invalida", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar lote", nil)
+		return
+	}
+	if !found {
+		writeError(w, r, http.StatusNotFound, "not_found", "lote nao confirmado nesta empresa", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // ImportOpeningStock applies one explicitly confirmed opening count only once.
