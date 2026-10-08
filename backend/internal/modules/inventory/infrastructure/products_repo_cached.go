@@ -77,6 +77,10 @@ func (r *CachedProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID st
 	return r.base.Update(ctx, tx, tenantID, id, p, preserveCost)
 }
 
+func (r *CachedProductsRepo) GetManyBySKUs(ctx context.Context, tx db.DBTX, tenantID string, skus []string) (map[string]inv.Product, error) {
+	return r.base.GetManyBySKUs(ctx, tx, tenantID, skus)
+}
+
 func (r *CachedProductsRepo) GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error) {
 	return r.base.GetManyByIDs(ctx, tx, tenantID, ids)
 }
