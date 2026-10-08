@@ -35,6 +35,10 @@ func NewInventoryService(cfg config.Config, uow db.UnitOfWork, invRepo Inventory
 	return &InventoryService{cfg: cfg, uow: uow, inv: invRepo, products: productsRepo, audit: auditSvc, validate: v, logger: logger}
 }
 
+func (s *InventoryService) LowStockCount(ctx context.Context, tenantID string) (int, error) {
+	return s.inv.LowStockCount(ctx, tenantID)
+}
+
 func (s *InventoryService) LowStock(ctx context.Context, tenantID string, limit int) ([]inv.Product, error) {
 	return s.inv.LowStock(ctx, tenantID, limit)
 }
