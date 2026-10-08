@@ -454,6 +454,47 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	service.SetNFCeInutilizationSchemaValidator(fakeCancellationValidator{})
 	service.SetNFCeRemoteInutilizationClient(remoteStack)
 
+	// A fully wired provider still must not enable production while the
+	// existing active seed item lacks its fiscal profile.
+	if _, err := service.SetNFCeProductionTransmission(
+		ctx, tenantID, actorUserID, true,
+	); !errors.Is(err, common.ErrFiscalNotReady) {
+		t.Fatalf("active product without fiscal profile must block production: %v", err)
+	}
+	var seedProductID string
+	if err := pool.QueryRow(ctx, `
+		SELECT id::text FROM products
+		WHERE tenant_id=$1 AND sku='SKU-COCA-2L' AND active=true
+	`, tenantID).Scan(&seedProductID); err != nil {
+		t.Fatalf("seeded active product required for fiscal readiness: %v", err)
+	}
+	tx, err = uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seeded fiscal profile tx: %v", err)
+	}
+	if err := fiscalRepo.UpsertProductFiscalProfile(ctx, tx, tenantID, actorUserID, fisc.ProductFiscalProfile{
+		TenantID:         tenantID,
+		ProductID:        seedProductID,
+		CFOP:             "5102",
+		ICMSOrigin:       "0",
+		ICMSRegime:       "csosn",
+		ICMSCode:         "102",
+		PISCST:           "49",
+		COFINSCST:        "49",
+		ReferenceVersion: "nfe-010e-v1.02|rtc-2026",
+	}); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("prepare seeded fiscal profile: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seeded fiscal profile: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `
+			DELETE FROM product_fiscal_profiles
+			WHERE tenant_id=$1 AND product_id=$2
+		`, tenantID, seedProductID)
+	})
 	productionCfg, err := service.SetNFCeProductionTransmission(
 		ctx, tenantID, actorUserID, true,
 	)
