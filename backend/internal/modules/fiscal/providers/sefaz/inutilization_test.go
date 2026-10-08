@@ -113,3 +113,30 @@ func TestParseInutilizationResponseRegistered(t *testing.T) {
 		t.Fatalf("expected registered result: %+v", result)
 	}
 }
+
+func TestDuplicateInutilizationIsPendingNotRejected(t *testing.T) {
+	input := InutilizationInput{
+		Environment: EnvironmentHomologation,
+		IssuerUF: "MG", IssuerCNPJ: "12.ABC.345/01DE-35",
+		Year: 2026, Series: 1, StartNumber: 101, EndNumber: 110,
+	}
+	response := InutilizationResponse{
+		Environment: "2", StatusCode: 563,
+		Reason: "Ja existe pedido de Inutilizacao com a mesma faixa",
+		UFCode: "31", Year: "26", CNPJ: "12ABC34501DE35",
+		Model: "65", Series: 1, StartNumber: 101, EndNumber: 110,
+		Protocol: "131260000000001",
+	}
+	const requestID = "ID312612ABC34501DE3565001000000101000000110"
+	out, err := inutilizationRemoteResult(requestID, input, response, []byte("<retInutNFe/>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Pending() || out.Registered() || out.Rejected() || out.Protocol != response.Protocol {
+		t.Fatalf("duplicate must await reconciliation: %+v", out)
+	}
+	response.EndNumber++
+	if _, err := inutilizationRemoteResult(requestID, input, response, []byte("<retInutNFe/>")); err == nil {
+		t.Fatal("duplicate response with mismatched range must be rejected")
+	}
+}
