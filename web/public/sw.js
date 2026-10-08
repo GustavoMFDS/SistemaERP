@@ -26,7 +26,11 @@ self.addEventListener('fetch', (event) => {
     try {
       const result = await fetch(request)
       if (result.ok && result.type === 'basic') {
-        await cache.put(isNavigation ? '/' : request, result.clone())
+        try {
+          await cache.put(isNavigation ? '/' : request, result.clone())
+        } catch {
+          // A full or blocked cache must not turn a successful fetch into a failed request.
+        }
       }
       return result
     } catch (error) {
