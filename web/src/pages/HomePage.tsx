@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
@@ -68,7 +68,7 @@ export default function HomePage() {
   const [overviewError, setOverviewError] = useState('')
   const [stockError, setStockError] = useState('')
 
-  async function refresh(fromDate: string, toDate: string, permissions: string[]) {
+  const refresh = useCallback(async (fromDate: string, toDate: string, permissions: string[]) => {
     if (fromDate > toDate) {
       setError('A data inicial não pode ser posterior à data final.')
       return
@@ -97,7 +97,7 @@ export default function HomePage() {
     }
     await Promise.all(tasks)
     setLoading(false)
-  }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -111,7 +111,7 @@ export default function HomePage() {
         if (!cancelled) setError(errorMessage(e))
       })
     return () => { cancelled = true }
-  }, [])
+  }, [refresh])
 
   async function onFilter(event: FormEvent) {
     event.preventDefault()
