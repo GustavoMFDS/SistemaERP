@@ -62,6 +62,7 @@ export default function HomePage() {
   const [from, setFrom] = useState(localDate(-6))
   const [to, setTo] = useState(localDate())
   const [overview, setOverview] = useState<Overview | null>(null)
+  const [reportPeriod, setReportPeriod] = useState<{ from: string; to: string } | null>(null)
   const [stock, setStock] = useState<StockResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -83,8 +84,8 @@ export default function HomePage() {
     const tasks: Promise<void>[] = []
     if (finance) {
       tasks.push(apiJson<{ overview: Overview }>(`/api/v1/finance/overview?${qs.toString()}`)
-        .then((data) => setOverview(data.overview))
-        .catch((e: unknown) => { setOverview(null); setOverviewError(errorMessage(e)) }))
+        .then((data) => { setOverview(data.overview); setReportPeriod({ from: fromDate, to: toDate }) })
+        .catch((e: unknown) => { setOverview(null); setReportPeriod(null); setOverviewError(errorMessage(e)) }))
     } else {
       setOverview(null)
     }
@@ -119,18 +120,18 @@ export default function HomePage() {
   }
 
   function exportSummary() {
-    if (!overview) return
+    if (!overview || !reportPeriod) return
     saveCSV([
       ['Relatório da loja', 'Valor'],
-      ['Período inicial', from],
-      ['Período final', to],
+      ['Período inicial', reportPeriod.from],
+      ['Período final', reportPeriod.to],
       ['Vendas após cancelamentos (R$)', overview.sales_after_cancellations.toFixed(2).replace('.', ',')],
       ['Lucro bruto estimado antes de devoluções e despesas (R$)', overview.estimated_gross_profit.toFixed(2).replace('.', ',')],
       ['Reembolsos registrados (R$)', overview.refunds_recorded.toFixed(2).replace('.', ',')],
       ['Lançamentos de vendas', String(overview.sales_count)],
       ['Lançamentos de cancelamentos', String(overview.cancelled_count)],
       ['Observação', 'Valores por data de lançamento, não equivalem ao lucro contábil.'],
-    ], `resumo-loja-${from}-a-${to}.csv`)
+    ], `resumo-loja-${reportPeriod.from}-a-${reportPeriod.to}.csv`)
   }
 
   // The API serializes platform.Money as decimal BRL units, not integer cents.
