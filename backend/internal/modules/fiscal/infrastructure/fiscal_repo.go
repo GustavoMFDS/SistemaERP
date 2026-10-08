@@ -1441,7 +1441,15 @@ func (r *FiscalRepo) NFCeNumberRangeIsAvailable(
 	var available bool
 	err := tx.QueryRow(ctx, `
 		SELECT
-		  NOT EXISTS (
+		  EXISTS (
+		    SELECT 1
+		    FROM fiscal_document_sequences seq
+		    WHERE seq.tenant_id=$1
+		      AND seq.model=65
+		      AND seq.series=$4
+		      AND seq.next_number > $6
+		  )
+		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM invoices i
 		    WHERE i.tenant_id=$1
