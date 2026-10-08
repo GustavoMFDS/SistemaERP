@@ -4,7 +4,7 @@
   "short_name": "SistemaEmGo",
   "description": "Caixa, produtos, estoque e gestão para a sua loja.",
   "lang": "pt-BR",
-  "start_url": "/products",
+  "start_url": "/home",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
