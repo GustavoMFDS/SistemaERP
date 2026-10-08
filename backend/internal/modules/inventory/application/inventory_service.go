@@ -32,7 +32,7 @@ type InventoryService struct {
 // OpeningStockItem represents an absolute opening count, not a repeatable
 // additive adjustment. A product with any prior stock activity is rejected.
 type OpeningStockItem struct {
-	ProductID string            `json:"product_id" validate:"required,uuid"`
+	SKU      string            `json:"sku" validate:"required,min=1,max=120"`
 	Quantity  platform.Quantity `json:"quantity" validate:"gt=0"`
 }
 
@@ -82,16 +82,19 @@ func (s *InventoryService) ImportOpeningStock(
 	}
 
 	items := append([]OpeningStockItem(nil), req.Items...)
-	sort.Slice(items, func(i, j int) bool { return items[i].ProductID < items[j].ProductID })
-	ids := make([]string, 0, len(items))
+	for i := range items {
+		items[i].SKU = strings.TrimSpace(items[i].SKU)
+		if items[i].SKU == "" || items[i].Quantity <= 0 {
+			return OpeningStockResult{}, common.ErrValidation
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].SKU < items[j].SKU })
+	skus := make([]string, 0, len(items))
 	for i, item := range items {
-		if item.Quantity <= 0 || s.validate.Var(item.ProductID, "uuid") != nil {
+		if i > 0 && item.SKU == items[i-1].SKU {
 			return OpeningStockResult{}, common.ErrValidation
 		}
-		if i > 0 && strings.EqualFold(item.ProductID, items[i-1].ProductID) {
-			return OpeningStockResult{}, common.ErrValidation
-		}
-		ids = append(ids, item.ProductID)
+		skus = append(skus, item.SKU)
 	}
 	payload, err := json.Marshal(items)
 	if err != nil {
@@ -121,18 +124,22 @@ func (s *InventoryService) ImportOpeningStock(
 		return OpeningStockResult{BatchID: batchID, ItemCount: itemCount, Replayed: true}, nil
 	}
 
-	products, err := s.products.GetManyByIDs(ctx, tx, tenantID, ids)
+	products, err := s.products.GetManyBySKUs(ctx, tx, tenantID, skus)
 	if err != nil {
 		return OpeningStockResult{}, err
 	}
-	if len(products) != len(ids) {
+	if len(products) != len(skus) {
 		return OpeningStockResult{}, common.ErrNotFound
 	}
-	for _, product := range products {
+	ids := make([]string, 0, len(skus))
+	for _, sku := range skus {
+		product := products[sku]
 		if !product.Active {
 			return OpeningStockResult{}, common.ErrConflict
 		}
+		ids = append(ids, product.ID)
 	}
+	sort.Strings(ids)
 	if err := s.inv.EnsureBalanceRows(ctx, tx, tenantID, ids); err != nil {
 		return OpeningStockResult{}, err
 	}
@@ -163,12 +170,13 @@ func (s *InventoryService) ImportOpeningStock(
 		return OpeningStockResult{}, err
 	}
 	for _, item := range items {
-		before := balances[item.ProductID]
+		productID := products[item.SKU].ID
+		before := balances[productID]
 		after, err := before.Creditar(item.Quantity)
 		if err != nil {
 			return OpeningStockResult{}, common.ErrValidation
 		}
-		if err := s.inv.UpdateBalance(ctx, tx, tenantID, item.ProductID, after.QtyOnHand); err != nil {
+		if err := s.inv.UpdateBalance(ctx, tx, tenantID, productID, after.QtyOnHand); err != nil {
 			return OpeningStockResult{}, err
 		}
 		reason := "Contagem inicial confirmada"
@@ -176,7 +184,7 @@ func (s *InventoryService) ImportOpeningStock(
 		actor := actorUserID
 		reference := batchID
 		movement := inv.NewMovement(
-			item.ProductID, inv.MovementAdjustment, item.Quantity, before, after,
+			productID, inv.MovementAdjustment, item.Quantity, before, after,
 			&reason, &refType, &reference, &actor, time.Now().Format(time.RFC3339),
 		)
 		if err := s.inv.InsertMovement(ctx, tx, tenantID, movement); err != nil {
