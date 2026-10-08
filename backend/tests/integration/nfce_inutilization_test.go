@@ -305,4 +305,55 @@ func TestNFCeInutilizationPersistsRangeAndNeverBlindlyRetransmits(t *testing.T) 
 	if status != fisc.NFCeInutilizationStatusSubmitted {
 		t.Fatalf("pending status=%s want=submitted", status)
 	}
+
+	duplicateClient := &inutilizationFakeClient{result: fisc.NFCeInutilizationRemoteResult{
+		StatusCode: 563,
+		Reason: "Ja existe pedido de inutilizacao com a mesma faixa",
+		Protocol: "131260000000009",
+		ResponseXML: []byte("<retInutNFe><infInut><cStat>563</cStat><nProt>131260000000009</nProt></infInut></retInutNFe>"),
+	}}
+	service.SetNFCeRemoteInutilizationClient(duplicateClient)
+	duplicate := req
+	duplicate.StartNumber = start + 130
+	duplicate.EndNumber = start + 131
+	duplicate.Justification = "Faixa ja inutilizada durante transmissao anterior."
+	observed, err := service.InutilizeNFCeNumbers(
+		ctx, tenantID, actorUserID, duplicate,
+	)
+	if err != nil || !observed.Pending() || observed.StatusCode != 563 ||
+		duplicateClient.calls != 1 {
+		t.Fatalf("duplicate observation must remain pending: %+v calls=%d err=%v",
+			observed, duplicateClient.calls, err)
+	}
+
+	var (
+		observedStatus string
+		observedCode int
+		observedProtocol string
+	)
+	if err := pool.QueryRow(ctx, `
+		SELECT status, status_code, protocol
+		FROM nfce_number_inutilizations
+		WHERE tenant_id=$1 AND request_id=$2
+	`, tenantID, observed.RequestID).Scan(
+		&observedStatus, &observedCode, &observedProtocol,
+	); err != nil {
+		t.Fatalf("read duplicate evidence: %v", err)
+	}
+	if observedStatus != fisc.NFCeInutilizationStatusSubmitted ||
+		observedCode != 563 || observedProtocol != "131260000000009" {
+		t.Fatalf("duplicate evidence lost: status=%s code=%d protocol=%s",
+			observedStatus, observedCode, observedProtocol)
+	}
+
+	replayedDuplicate, err := service.InutilizeNFCeNumbers(
+		ctx, tenantID, actorUserID, duplicate,
+	)
+	if err != nil || !replayedDuplicate.Pending() ||
+		replayedDuplicate.StatusCode != 563 ||
+		replayedDuplicate.Protocol != observedProtocol ||
+		duplicateClient.calls != 1 {
+		t.Fatalf("duplicate replay must preserve evidence without resend: %+v calls=%d err=%v",
+			replayedDuplicate, duplicateClient.calls, err)
+	}
 }
