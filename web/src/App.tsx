@@ -10,6 +10,7 @@ import PDVPage from './pages/PDVPage'
 import ProductsPage from './pages/ProductsPage'
 import PurchasesPage from './pages/PurchasesPage'
 import ReturnsPage from './pages/ReturnsPage'
+import SetupPage from './pages/SetupPage'
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<HomePage />} />
+          <Route path="/setup" element={<SetupPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/purchases" element={<PurchasesPage />} />
