@@ -125,12 +125,31 @@ backup/restore exigem agora schema 31 e conferem essa tabela e as revisões do a
 migration é **fail-closed** se houver lotes confirmados, para preservar
 a auditoria histórica.
 
-**Limites atuais:** a chave ainda existe na página do navegador, e o
-usuário pode perder a prévia após atualizar ou limpar os dados. Mesmo assim,
-a regra do backend de histórico impede novo saldo inicial em produtos usados.
-Antes do uso real, validar concorrência, rollback e recuperação de queda
-de conexão com um banco e dispositivos reais. O GitHub Actions segue sem
-executar os jobs.
+**Recuperação após interrupção:** antes do primeiro POST, a interface
+preserva uma referência UUID e o SHA-256 das linhas normalizadas do CSV em
+`localStorage`, isolados por `tenant_id` e `user_id` do token autenticado.
+Não armazena o CSV, seus SKUs, quantidades ou senha. Ao recarregar, exibe
+a tentativa pendente e permite consultar se o lote foi confirmado via
+`GET /api/v1/inventory/opening-stock/batches/{key}` (exige
+`inventory:adjust`; o backend lê apenas o tenant autenticado e responde
+200 para lote confirmado, 404 caso não exista registro confirmado).
+O 404 **não prova** que outra requisição com a mesma chave não esteja
+em andamento. O usuário precisa reabrir o mesmo arquivo para reutilizar
+a mesma referência; um conteúdo divergente é recusado até a tentativa
+anterior ser reconciliada ou descartada explicitamente.
+
+O navegador não reproduz automaticamente o POST, não deduz o resultado
+de erros de rede e aborta a transmissão se não conseguir persistir
+a referência local. Ao receber confirmação positiva, a chave é removida.
+Descartar a referência no navegador **não desfaz** o estoque no servidor.
+O dado local pode desaparecer com limpeza do navegador, fim da validade
+de 30 dias ou troca de dispositivo; a regra imutável do backend continua
+impedindo uma nova carga inicial em produtos já movimentados. Este
+recurso ainda não substitui um histórico administrativo central de lotes.
+
+Antes de uso real, validar concorrência, rollback e recuperação de queda
+de conexão com banco e dispositivos reais. Os novos testes ainda precisam
+ser executados em runner funcional.
 
 ### 6. Assistente de configuração inicial da loja
 
@@ -220,8 +239,12 @@ não executa os steps nos runners hospedados; não inferir testes aprovados.
 
 ## Próximas expansões
 
-- Melhorar recuperação de importação após fechar a aba, com referência de lote
-  recuperável em local persistente seguro e consulta administrativa.
+- Criar lotes atômicos e recuperáveis para **cadastro de produtos por CSV**:
+  atualmente o endpoint de produtos grava linha a linha, e falhas podem
+  deixar uma importação parcial. Não reutilizar esse fluxo como se fosse
+  idempotente e não marcar lote parcial como concluído.
+- Oferecer histórico administrativo no servidor para consultar lotes de
+  importação sem depender da referência local (com auditoria e RBAC).
 - Paginação completa e exportação do relatório global de estoque; o total já
   é computado globalmente, mas a listagem está limitada a 500 itens.
 - Relatórios gerenciais mais profundos (venda por item, período e custo),
