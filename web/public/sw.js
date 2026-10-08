@@ -22,7 +22,13 @@ self.addEventListener('fetch', (event) => {
   const staticAsset = url.pathname.startsWith('/assets/') || url.pathname === '/app-icon.svg'
   if (!isNavigation && !staticAsset) return
   event.respondWith((async () => {
-    const cache = await caches.open(CACHE)
+    let cache
+    try {
+      cache = await caches.open(CACHE)
+    } catch {
+      // Browsers may block Cache Storage; ordinary online POS still works.
+      return fetch(request)
+    }
     try {
       const result = await fetch(request)
       if (result.ok && result.type === 'basic') {
