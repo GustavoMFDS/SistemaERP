@@ -108,9 +108,9 @@ Money values accept at most 2 decimal places. Quantity values accept at most 3 d
 
 ## Inventory
 
-### GET `/inventory/low-stock`
+### GET `/inventory/low-stock?limit=50`
 
-Returns products with `qty_on_hand <= min_stock`.
+Requires `inventory:read`. Returns tenant-scoped active products with `qty_on_hand <= min_stock`, sorted by deficit. The response contains `items` (limited to at most 500) and `total` (the **full** tenant-wide count, not truncated to the list limit). The list can be empty even when other tenants have low stock. Product cost is hidden without `finance:read`.
 
 ### POST `/inventory/adjust`
 
@@ -275,6 +275,26 @@ Cancels only purchases with no received quantity. An associated open account pay
 ### GET `/finance/dashboard?from=2026-01-01&to=2026-01-31`
 
 Returns aggregated ledger totals for the period.
+
+### GET `/finance/overview?from=2026-01-01&to=2026-01-31`
+
+Requires `finance:read`, and uses **only** the authenticated tenant. Date filters use the ledger posting date (inclusive on the start date and exclusive after the end date). Returns:
+
+```json
+{
+  "from": "2026-01-01",
+  "to": "2026-01-31",
+  "overview": {
+    "sales_after_cancellations": 1200.00,
+    "estimated_gross_profit": 250.00,
+    "refunds_recorded": 40.00,
+    "sales_count": 80,
+    "cancelled_count": 2
+  }
+}
+```
+
+The numbers above are an **illustrative response**, not real store data. Profit is a **gross estimate** derived from posted sale/cancellation ledger entries: it **does not** account for returns, taxes, provider fees, costs outside item cost, or operating expenses. Sales after cancellations do **not** subtract return refunds. Refunds are shown separately. Cancelled transactions may originate in a different period than the initial sale, so the report must not be presented as a bank settlement or accounting profit.
 
 ### GET `/finance/payments`
 
