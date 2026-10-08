@@ -105,6 +105,52 @@ func TestNFCeInutilizationPersistsRangeAndNeverBlindlyRetransmits(t *testing.T) 
 
 	uow := db.NewPgxUnitOfWork(pool)
 	repo := fiscinfra.NewFiscalRepo(pool)
+
+	// Inutilization and regular allocation must contend on the identical
+	// transaction-scoped lock, including across different fiscal years.
+	// A second connection must be unable to allocate while the range
+	// validator holds the lock.
+	lockTx, err := uow.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin range lock transaction: %v", err)
+	}
+	if err := repo.LockNFCeInutilizationRange(ctx, lockTx, tenantID, 2026, 778); err != nil {
+		_ = lockTx.Rollback(ctx)
+		t.Fatalf("lock inutilization range: %v", err)
+	}
+	blockedCtx, blockedCancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	blockedTx, err := uow.Begin(blockedCtx)
+	if err != nil {
+		_ = lockTx.Rollback(ctx)
+		blockedCancel()
+		t.Fatalf("begin competing reservation: %v", err)
+	}
+	_, allocationErr := repo.ReserveNextNFCeNumber(blockedCtx, blockedTx, tenantID, 778)
+	_ = blockedTx.Rollback(context.Background())
+	blockedCancel()
+	if allocationErr == nil {
+		_ = lockTx.Rollback(ctx)
+		t.Fatal("fiscal allocation bypassed pending inutilization range lock")
+	}
+	if err := lockTx.Rollback(ctx); err != nil {
+		t.Fatalf("release inutilization range lock: %v", err)
+	}
+	releasedTx, err := uow.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstNumber, err := repo.ReserveNextNFCeNumber(ctx, releasedTx, tenantID, 778)
+	if err != nil {
+		_ = releasedTx.Rollback(ctx)
+		t.Fatalf("reservation after range unlock: %v", err)
+	}
+	if firstNumber != 1 {
+		_ = releasedTx.Rollback(ctx)
+		t.Fatalf("range lock must not consume number; got %d", firstNumber)
+	}
+	if err := releasedTx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback probe allocation: %v", err)
+	}
 	certRef := "integration-inutilization-cert"
 	tx, err := uow.Begin(ctx)
 	if err != nil {
