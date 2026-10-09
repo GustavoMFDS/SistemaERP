@@ -10,6 +10,7 @@ import (
 type Handlers struct {
 	Auth            *AuthHandler
 	Products        *ProductsHandler
+	ProductImages   *ProductImagesHandler
 	Inventory       *InventoryHandler
 	Cash            *CashHandler
 	Sales           *SalesHandler
@@ -29,6 +30,7 @@ func New(cfg config.Config, mods *modules.Modules, logger *slog.Logger) *Handler
 	return &Handlers{
 		Auth:            NewAuthHandler(cfg, mods.Auth, mods.Audit, mods.Redis, logger),
 		Products:        NewProductsHandler(mods.Products, logger),
+		ProductImages:   NewProductImagesHandler(mods.DB, mods.Audit),
 		Inventory:       NewInventoryHandler(mods.Inventory, logger),
 		Cash:            NewCashHandler(mods.Cash, logger),
 		Sales:           NewSalesHandler(mods.Sales, logger),
