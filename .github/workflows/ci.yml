@@ -1165,6 +1165,50 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             up 1
 
+      - name: Verify product photos migration v36 upgrade, rollback and reapply
+        run: |
+          # The dedicated upgrade database is at v34 here.
+          # Apply account migration 0035, then the new photo migration 0036.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 2
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.product_images') IS NULL THEN
+              RAISE EXCEPTION 'photos table missing after v36';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='product_images_product_tenant_fk'
+            ) THEN
+              RAISE EXCEPTION 'tenant-scoped composite FK missing after v36';
+            END IF;
+          END
+          $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.product_images') IS NOT NULL THEN RAISE EXCEPTION 'rollback v36 left product_images'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
       - name: Run tagged integration tests
         working-directory: backend
         env:
