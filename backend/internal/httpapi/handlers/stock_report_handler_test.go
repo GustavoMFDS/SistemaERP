@@ -46,3 +46,23 @@ func TestStockReportCSVEscapesSpreadsheetFormulasAndOmitsFinance(t *testing.T) {
 		}
 	}
 }
+
+
+func TestSafeSpreadsheetCellUnicodeFormulaProtection(t *testing.T) {
+	for _, value := range []string{
+		"\u00A0=SUM(1,2)",
+		"\u200B@cmd",
+		"\uFEFF+1+1",
+		"\n\t-SUM(10,2)",
+		"\t=HYPERLINK(\"https://example.test\")",
+	} {
+		if got := safeSpreadsheetCell(value); got != "'"+value {
+			t.Errorf("untrusted spreadsheet text not neutralized: %q -> %q", value, got)
+		}
+	}
+	for _, value := range []string{"Produto regular", "012345", "Arroz 5 kg"} {
+		if got := safeSpreadsheetCell(value); got != value {
+			t.Errorf("ordinary value was unexpectedly changed: %q -> %q", value, got)
+		}
+	}
+}
