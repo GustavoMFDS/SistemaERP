@@ -39,5 +39,6 @@ type InventoryRepository interface {
 	InsertMovement(ctx context.Context, tx db.DBTX, tenantID string, m inv.InventoryMovement) error
 	LowStock(ctx context.Context, tenantID string, limit int) ([]inv.Product, error)
 	LowStockCount(ctx context.Context, tenantID string) (int, error)
+	StockReport(ctx context.Context, tenantID string, limit int) ([]inv.StockReportRow, error)
 	ListMovements(ctx context.Context, tenantID string, productID string, limit, offset int) ([]inv.InventoryMovement, int, error)
 }
