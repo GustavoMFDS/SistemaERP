@@ -54,6 +54,12 @@ func TestCustomerDirectoryIsTenantScopedAndAudited(t *testing.T) {
 		`, actor, tenantID); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := db.Exec(ctx, `
+			INSERT INTO user_tenant_roles(user_id,tenant_id,role_id)
+			SELECT $1,$2,id FROM roles WHERE name='admin'
+		`, actor, tenantID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	tenantA, tenantB := tenants[0], tenants[1]
 	defer func() {
@@ -62,6 +68,7 @@ func TestCustomerDirectoryIsTenantScopedAndAudited(t *testing.T) {
 		for _, tenantID := range tenants {
 			_, _ = db.Exec(cleanup, `DELETE FROM audit_logs WHERE tenant_id=$1`, tenantID)
 			_, _ = db.Exec(cleanup, `DELETE FROM customers WHERE tenant_id=$1`, tenantID)
+			_, _ = db.Exec(cleanup, `DELETE FROM user_tenant_roles WHERE tenant_id=$1`, tenantID)
 			_, _ = db.Exec(cleanup, `DELETE FROM user_tenants WHERE tenant_id=$1`, tenantID)
 			_, _ = db.Exec(cleanup, `DELETE FROM companies WHERE id=$1`, tenantID)
 		}
@@ -98,6 +105,31 @@ func TestCustomerDirectoryIsTenantScopedAndAudited(t *testing.T) {
 		WHERE tenant_id=$1 AND action IN ('customer.create','customer.update')
 	`, tenantA).Scan(&audits); err != nil || audits != 2 {
 		t.Fatalf("customer writes must be audited: %d %v", audits, err)
+	}
+	// Search input is literal: % and _ must not become SQL ILIKE wildcards.
+	wildcard, err := svc.List(ctx, tenantA, "%", 20, 0)
+	if err != nil || wildcard.Total != 0 {
+		t.Fatalf("wildcard unexpectedly listed customer PII: %+v err=%v", wildcard, err)
+	}
+	// The service must refuse writes by an actor without permission, even
+	// if an internal caller bypasses the HTTP middleware.
+	_, err = svc.Create(ctx, tenantA, "00000000-0000-4000-8000-000000000001",
+		customers.CustomerInput{Name: "Sem Permissão"}, "", "", "")
+	if !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("customer write by non-member should fail closed: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE user_tenants SET active=false
+		WHERE tenant_id=$1 AND user_id=$2`, tenantA, actor); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Update(ctx, tenantA, actor, created.ID,
+		customers.CustomerInput{Name: "Cliente Suspenso"}, "", "", "")
+	if !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("inactive membership wrote customer data: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE user_tenants SET active=true
+		WHERE tenant_id=$1 AND user_id=$2`, tenantA, actor); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := svc.List(ctx, tenantA, "", 51, 0); !errors.Is(err, common.ErrValidation) {
 		t.Fatalf("unbounded list accepted: %v", err)
