@@ -8,6 +8,7 @@ type Photo = {
   data_url: string
   thumbnail_url: string
   principal: boolean
+  caption: string
 }
 
 async function resizedJPEG(file: File, maxDimension: number, maxBytes: number) {
@@ -52,6 +53,7 @@ export default function ProductPhotos({ productId, productName, canWrite, onChan
   onChange?: () => void
 }) {
   const [photos, setPhotos] = useState<Photo[]>([])
+  const [captions, setCaptions] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -65,6 +67,7 @@ export default function ProductPhotos({ productId, productName, canWrite, onChan
       )
       if (scope !== getSessionScope()) return
       setPhotos(result.items ?? [])
+      setCaptions(Object.fromEntries((result.items ?? []).map((photo) => [photo.id, photo.caption ?? ''])))
       setError('')
     } catch (e: unknown) {
       if (scope === getSessionScope()) setError(errorMessage(e))
@@ -118,6 +121,24 @@ export default function ProductPhotos({ productId, productName, canWrite, onChan
     }
   }
 
+  async function saveCaption(id: string) {
+    if (!canWrite || busy) return
+    const scope = getSessionScope()
+    setBusy(true)
+    setError('')
+    try {
+      await apiJson('/api/v1/products/' + encodeURIComponent(productId) + '/images/' + encodeURIComponent(id) + '/caption', {
+        method: 'PATCH',
+        body: { caption: (captions[id] ?? '').trim() },
+      })
+      if (scope === getSessionScope()) await load()
+    } catch (e: unknown) {
+      if (scope === getSessionScope()) setError(errorMessage(e))
+    } finally {
+      if (scope === getSessionScope()) setBusy(false)
+    }
+  }
+
   async function deletePhoto(id: string) {
     if (!canWrite || busy || !window.confirm('Excluir esta foto do produto?')) return
     const scope = getSessionScope()
@@ -143,7 +164,7 @@ export default function ProductPhotos({ productId, productName, canWrite, onChan
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="font-semibold text-slate-800">Fotos — {productName}</h3>
-          <p className="text-xs text-slate-600">Opcional. A primeira foto será a principal; se excluí-la, a próxima assume seu lugar.</p>
+          <p className="text-xs text-slate-600">Opcional. Identifique cada foto por cor ou modelo. Isso não divide o estoque. A primeira imagem é a principal.</p>
         </div>
         {canWrite && photos.length < 5 ? (
           <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-100">
@@ -165,6 +186,21 @@ export default function ProductPhotos({ productId, productName, canWrite, onChan
                 className="h-28 w-full rounded-md object-contain" />
             </a>
             <p className="mt-1 text-center text-xs text-slate-600">{photo.principal ? 'Foto principal' : 'Foto adicional'}</p>
+            {canWrite ? (
+              <div className="mt-2 space-y-1">
+                <label className="block text-xs text-slate-600" htmlFor={'photo-caption-' + photo.id}>
+                  Cor ou modelo
+                </label>
+                <input id={'photo-caption-' + photo.id} type="text" maxLength={40}
+                  value={captions[photo.id] ?? photo.caption ?? ''}
+                  placeholder="Ex.: Azul" disabled={busy}
+                  onChange={(e) => setCaptions((old) => ({ ...old, [photo.id]: e.target.value }))}
+                  className="w-full rounded-md border border-slate-300 p-1 text-xs" />
+                <button type="button" disabled={busy || (captions[photo.id] ?? '').trim() === photo.caption}
+                  onClick={() => void saveCaption(photo.id)}
+                  className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs disabled:opacity-50">Salvar nome</button>
+              </div>
+            ) : photo.caption ? <p className="mt-1 text-center text-xs">{photo.caption}</p> : null}
             {canWrite ? <button type="button" disabled={busy} onClick={() => void deletePhoto(photo.id)}
               className="mt-1 w-full rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 disabled:opacity-50">
               Excluir
