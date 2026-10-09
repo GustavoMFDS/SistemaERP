@@ -72,6 +72,10 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.With(middleware.RequireAnyPermission("product:write", "inventory:adjust")).Get("/imports/history", h.Products.ListUnifiedImportHistory)
 
 			pr.Route("/products", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("product:read")).Get("/images/previews", h.ProductImages.Previews)
+				rr.With(middleware.RequirePermission("product:read")).Get("/{id}/images", h.ProductImages.List)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/{id}/images", h.ProductImages.Upload)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin).Delete("/{id}/images/{photoID}", h.ProductImages.Delete)
 				rr.With(middleware.RequirePermission("product:read")).Get("/", h.Products.List)
 				rr.With(middleware.RequirePermission("product:read")).Get("/barcode/{barcode}", h.Products.GetByBarcode)
 				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/import-batches", h.Products.ImportBatch)
