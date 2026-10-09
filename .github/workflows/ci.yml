@@ -1219,7 +1219,7 @@ jobs:
             up 1
 
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
-            -c "DO \\$\\$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption missing'; END IF; END \\$\\$;"
+            -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption missing'; END IF; END \$\$;"
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
@@ -1229,7 +1229,7 @@ jobs:
             down 1
 
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
-            -c "DO \\$\\$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption rollback failed'; END IF; END \\$\\$;"
+            -c "DO \$\$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption rollback failed'; END IF; END \$\$;"
 
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
