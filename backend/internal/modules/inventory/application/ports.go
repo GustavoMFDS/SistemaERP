@@ -16,7 +16,7 @@ type ProductsRepository interface {
 	LockProductImportKey(ctx context.Context, tx db.DBTX, tenantID, key string) error
 	GetProductImportBatch(ctx context.Context, tx db.DBTX, tenantID, key string) (batchID, requestHash string, itemCount int, found bool, err error)
 	LookupProductImportBatch(ctx context.Context, tenantID, key string) (batchID string, itemCount int, found bool, err error)
-	ListProductImportHistory(ctx context.Context, tenantID string, limit, offset int) ([]inv.ImportBatchEntry, bool, error)
+	ListProductImportHistory(ctx context.Context, tenantID string, limit, offset int, from, to string) ([]inv.ImportBatchEntry, bool, error)
 	CreateProductImportBatch(ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int) (string, error)
 	Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error
 	GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error)
@@ -30,7 +30,7 @@ type InventoryRepository interface {
 	LockOpeningStockKey(ctx context.Context, tx db.DBTX, tenantID, key string) error
 	GetOpeningStockBatch(ctx context.Context, tx db.DBTX, tenantID, key string) (batchID, requestHash string, itemCount int, found bool, err error)
 	LookupOpeningStockBatch(ctx context.Context, tenantID, key string) (batchID string, itemCount int, found bool, err error)
-	ListOpeningStockHistory(ctx context.Context, tenantID string, limit, offset int) ([]inv.ImportBatchEntry, bool, error)
+	ListOpeningStockHistory(ctx context.Context, tenantID string, limit, offset int, from, to string) ([]inv.ImportBatchEntry, bool, error)
 	CreateOpeningStockBatch(ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int) (string, error)
 	HasAnyStockMovements(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) (bool, error)
 	GetBalanceForUpdate(ctx context.Context, tx db.DBTX, tenantID string, productID string) (inv.InventoryBalance, error)
