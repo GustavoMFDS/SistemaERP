@@ -37,14 +37,14 @@ function localDate(offsetDays = 0): string {
 
 const quickLinks = [
   { to: '/setup', label: 'Configurar minha loja', permission: 'product:write', detail: 'Passo a passo para quem está começando' },
-  { to: '/staff', label: 'Gerenciar funcionários', permission: 'team:manage', detail: 'Convidar pessoas e definir gerente ou caixa para esta loja' }
+  { to: '/staff', label: 'Gerenciar funcionários', permission: 'team:manage', detail: 'Convidar pessoas e definir gerente ou caixa para esta loja' },
   { to: '/pdv', label: 'Abrir o caixa', permission: 'sale:write', detail: 'Registrar vendas e receber pagamentos' },
   { to: '/products', label: 'Cadastrar produtos', permission: 'product:write', detail: 'Adicionar um produto ou importar uma planilha' },
   { to: '/inventory', label: 'Conferir estoque', permission: 'inventory:read', detail: 'Ver itens em falta e entradas ou ajustes' },
-  { to: '/stock-movements', label: 'Histórico do estoque', permission: 'inventory:read', detail: 'Acompanhar entradas, saídas, perdas e ajustes por produto' }
-  { to: '/imports', label: 'Ver histórico das importações', permission: 'imports:history', detail: 'Lotes confirmados de produtos e estoque em ordem de data' }
+  { to: '/stock-movements', label: 'Histórico do estoque', permission: 'inventory:read', detail: 'Acompanhar entradas, saídas, perdas e ajustes por produto' },
+  { to: '/imports', label: 'Ver histórico das importações', permission: 'imports:history', detail: 'Lotes confirmados de produtos e estoque em ordem de data' },
   { to: '/purchases', label: 'Registrar compras', permission: 'procurement:read', detail: 'Acompanhar fornecedores e recebimentos' },
-  { to: '/customers', label: 'Cadastrar clientes', permission: 'customer:read', detail: 'Guardar contatos de clientes desta loja com privacidade' }
+  { to: '/customers', label: 'Cadastrar clientes', permission: 'customer:read', detail: 'Guardar contatos de clientes desta loja com privacidade' },
   { to: '/finance', label: 'Conferir pagamentos', permission: 'finance:read', detail: 'Ver divergências e conciliações' },
   { to: '/fiscal', label: 'Configurar nota fiscal', permission: 'invoice:read', detail: 'Seguir o passo a passo da NFC-e' },
 ]
