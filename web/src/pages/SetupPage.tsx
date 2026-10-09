@@ -380,10 +380,18 @@ export default function SetupPage() {
                 <p><strong>Seu acesso:</strong> {me.name} ({me.email})</p>
                 <p><strong>Perfil:</strong> {me.roles.length ? me.roles.join(', ') : 'Sem perfil atribuído'}</p>
                 <p><strong>Permissões atuais:</strong> {me.permissions.length}.</p>
+                {me.permissions.includes('team:manage') ? (
+                  <Link to="/staff" className="block rounded-md border border-blue-300 p-3 text-blue-700 underline">
+                    Abrir administração de funcionários e permissões →
+                  </Link>
+                ) : (
+                  <p className="rounded-md border p-3 text-amber-800">
+                    Para convidar ou suspender funcionários, peça acesso ao administrador da loja.
+                  </p>
+                )}
                 <p className="rounded-md bg-amber-50 p-3 text-amber-900">
-                  O assistente ainda não cria funcionários nem altera permissões. Para evitar acesso indevido,
-                  o cadastro de contas de outras pessoas precisa de uma área administrativa própria,
-                  com confirmação e auditoria. Nunca compartilhe uma única senha entre operadores.
+                  Cada funcionário deve ter a própria senha. Convites e papéis são auditados por empresa.
+                  Esta etapa requer revisão humana mesmo com a equipe cadastrada.
                 </p>
               </div>
             ) : null}
