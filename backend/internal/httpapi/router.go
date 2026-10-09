@@ -94,6 +94,12 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("inventory:adjust")).Get("/opening-stock/batches/{key}", h.Inventory.OpeningStockBatch)
 			})
 
+			pr.Route("/customers", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("customer:read")).Get("/", h.Customers.List)
+				rr.With(middleware.RequirePermission("customer:write"), trustedOrigin).Post("/", h.Customers.Create)
+				rr.With(middleware.RequirePermission("customer:write"), trustedOrigin).Put("/{id}", h.Customers.Update)
+			})
+
 			pr.Route("/suppliers", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("procurement:read")).Get("/", h.Procurement.ListSuppliers)
 				rr.With(middleware.RequirePermission("procurement:write")).Post("/", h.Procurement.CreateSupplier)
