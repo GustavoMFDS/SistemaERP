@@ -259,12 +259,44 @@ Testes novos:
 **Status:** casos de teste adicionados ao repositório, mas CI atual
 não executa os steps nos runners hospedados; não inferir testes aprovados.
 
+### 8. Histórico administrativo das importações
+
+As telas **Produtos** e **Estoque** apresentam o histórico apenas quando o
+operador tem, respectivamente, `product:write` e `inventory:adjust`.
+Os dados vêm do banco da **empresa autenticada**, não de chaves locais:
+`GET /api/v1/products/import-batches/history` e
+`GET /api/v1/inventory/opening-stock/batches/history`.
+
+A página mostra a data/hora, o nome do usuário responsável, a quantidade de
+produtos do lote e o identificador do recibo. A paginação padrão é de 10 na
+interface (API: limite de 1–50, offset de 0–5000), com botões de atualizar,
+anterior e próximo. Um lote confirmado aparece mesmo depois de trocar de
+navegador ou limpar o armazenamento local, desde que o usuário tenha acesso
+à **mesma empresa**.
+
+As consultas retornam **somente lotes transacionalmente confirmados**;
+não mostram tentativas pendentes, falhas nem importações antigas individuais,
+anteriores à migração de lotes. O recibo não possui CSV, SKU, quantidade
+unitária, preço, certificado, chave de idempotência ou hash: não pode ser
+usado para reconstruir a planilha nem adivinhar o conteúdo de um lote.
+A API restringe tenant no SQL, exige permissão no servidor, não tem
+parâmetro de tenant, evita cache HTTP e rejeita paginação inválida com 422.
+O frontend descarta resultados de consultas antigas em mudança de sessão,
+desmontagem ou navegação.
+
+Testes de integração verificam isolamento de duas empresas, ordem,
+paginação, nome do revisor e que lotes abortados não aparecem.
+Playwright cobre navegação anterior/próxima, histórico de ambos os módulos,
+negativa de acesso ao caixa e limites de paginação.
+**Esses testes não equivalem a validação aprovada enquanto os jobs não rodarem.**
+
 ## Próximas expansões
 
-- Exibir a auditoria de lotes em tela para o administrador e permitir
-  exportação segura de erros sem expor dados financeiros a perfis sem acesso.
-- Oferecer histórico administrativo no servidor para consultar lotes de
-  importação sem depender da referência local (com auditoria e RBAC).
+- Acrescentar filtro por período ao histórico e exportação administrativa
+  de metadados dos recibos, sem incluir CSV, preços ou dados fiscais.
+- Oferecer conciliação assistida de lotes sem referência local e um histórico
+  separado de **tentativas não confirmadas**, sem inferir commit a partir de
+  erros de rede.
 - Paginação completa e exportação do relatório global de estoque; o total já
   é computado globalmente, mas a listagem está limitada a 500 itens.
 - Relatórios gerenciais mais profundos (venda por item, período e custo),
