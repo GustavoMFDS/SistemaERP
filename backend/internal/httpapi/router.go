@@ -59,6 +59,8 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("invoice:generate"), trustedOrigin).Put("/reviews/{step}", h.Setup.SetReview)
 			})
 
+			pr.With(middleware.RequireAnyPermission("product:write", "inventory:adjust")).Get("/imports/history", h.Products.ListUnifiedImportHistory)
+
 			pr.Route("/products", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("product:read")).Get("/", h.Products.List)
 				rr.With(middleware.RequirePermission("product:read")).Get("/barcode/{barcode}", h.Products.GetByBarcode)
