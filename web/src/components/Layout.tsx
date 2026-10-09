@@ -45,6 +45,7 @@ export default function Layout() {
   const nav = [
     { to: '/home', label: 'Início', permission: null },
     { to: '/setup', label: 'Configurar loja', permission: null },
+    { to: '/staff', label: 'Funcionários', permission: 'team:manage' }
     { to: '/products', label: 'Produtos', permission: 'product:read' },
     { to: '/inventory', label: 'Estoque', permission: 'inventory:read' },
     { to: '/imports', label: 'Histórico de importações', permission: 'imports:history' }
