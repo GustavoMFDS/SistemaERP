@@ -41,7 +41,8 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 
     pool, err := pgxpool.New(ctx, url)
     if err != nil { t.Fatal(err) }
-    defer pool.Close()
+    // Later t.Cleanup handlers must run before this pool is closed.
+    t.Cleanup(pool.Close)
 
     var actor, role string
     if err := pool.QueryRow(ctx, `
