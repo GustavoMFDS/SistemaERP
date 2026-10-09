@@ -14,6 +14,7 @@ test('catálogo: foto opcional, miniatura e exclusão sem afetar estoque', async
 
   let photoBase64 = ''
   let attempts = 0
+  let photoCaption = ''
   const product = {
     id: productId, sku: 'FOTO-001', name: 'Caderno Brochurão 96 folhas',
     unit: 'un', price_cash: 12.5, cost_price: 0, min_stock: 5,
@@ -41,6 +42,7 @@ test('catálogo: foto opcional, miniatura e exclusão sem afetar estoque', async
       return reply({ items: photoBase64 ? [{
         id: imageId, data_url: 'data:image/jpeg;base64,' + photoBase64,
         thumbnail_url: 'data:image/jpeg;base64,' + photoBase64, principal: true,
+        caption: photoCaption,
       }] : [] })
     }
     if (path === '/api/v1/products/' + productId + '/images' && method === 'POST') {
@@ -52,6 +54,11 @@ test('catálogo: foto opcional, miniatura e exclusão sem afetar estoque', async
       attempts += 1
       photoBase64 = body.image_base64
       return reply({ id: imageId, replayed: false }, 201)
+    }
+    if (path === '/api/v1/products/' + productId + '/images/' + imageId + '/caption' && method === 'PATCH') {
+      const body = route.request().postDataJSON() as { caption: string }
+      photoCaption = body.caption
+      return reply({ id: imageId, caption: photoCaption })
     }
     if (path === '/api/v1/products/' + productId + '/images/' + imageId && method === 'DELETE') {
       photoBase64 = ''
@@ -83,6 +90,10 @@ test('catálogo: foto opcional, miniatura e exclusão sem afetar estoque', async
   })
   await expect(gallery.getByText('Foto principal')).toBeVisible()
   expect(attempts).toBe(1)
+  await gallery.getByRole('textbox', { name: 'Cor ou modelo' }).fill('Azul')
+  await gallery.getByRole('button', { name: 'Salvar nome' }).click()
+  await expect(gallery.getByRole('textbox', { name: 'Cor ou modelo' })).toHaveValue('Azul')
+  expect(photoCaption).toBe('Azul')
   await expect(page.getByRole('row', { name: /FOTO-001/ }).locator('img')).toHaveCount(1)
   await expect(page.getByRole('row', { name: /FOTO-001/ })).toContainText('15.00')
 
