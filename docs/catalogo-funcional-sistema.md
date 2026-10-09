@@ -393,3 +393,12 @@ Um item só pode ser apresentado como **validado** quando existirem, no mínimo:
 **Ordem proposta:** 1) galeria persistente e miniaturas; 2) representação de variações sem estoque por opção; 3) fluxo de variações com controle de saldo e integração transacional; 4) testes, migração reversível, acessibilidade e homologação. Até essas provas, manter os itens acima [ ] e não declarar a funcionalidade pronta nem efetuar merge.
 
 **Bloqueios gerais preservados:** PR #15 continua sem merge; CI do SHA corrente não está validado, e fiscal/SEFAZ real continua condicionado a testes/homologação externos.
+
+### Implementação inicial rastreada (PR #25, ainda rascunho)
+
+- **Código novo na branch feature/catalog-product-photos-20261009:** migration 0036, API privada de até cinco fotos por produto, JPEG normalizado no servidor, miniaturas bateladas no catálogo/estoque/PDV, permissão de leitura/escrita, auditoria de adição/remoção, replay idempotente e galeria opcional na UI.
+- **Atenção:** a galeria está implementada no código, mas **não foi testada ponta a ponta** nesta branch. A escolha/reordenação manual da foto principal também não foi implementada; por enquanto a primeira foto é principal automaticamente. O requisito fica marcado aberto até o aceite e a validação.
+- **Variações e estoque por cor/tamanho:** permanecem explicitamente pendentes na [issue #24](https://github.com/GustavoMFDS/SistemaERP/issues/24). O envio de múltiplas imagens hoje **não divide o estoque**: as imagens são ilustrativas de um produto único.
+- [PR #25 — fotos e miniaturas](https://github.com/GustavoMFDS/SistemaERP/pull/25) foi aberto como *draft* contra a branch do PR #15, sem merge.
+- **CI da branch:** runs recentes continuam sem executar steps (jobs runner_id=0, steps=[]), inclusive o run 37958899385; não há evidência de go test, build, lint, integração, E2E ou upgrade/rollback de 0036 aprovado. A etapa de verificação de migration foi adicionada ao workflow, não executada com sucesso.
+- **Gate para merge:** validar testes Go, build/lint, migração v36 com rollback/reapply, controle de acesso de duas lojas e E2E de galeria, seleção no PDV, devoluções e estoque. O PR #15 e a homologação fiscal continuam gates independentes.
