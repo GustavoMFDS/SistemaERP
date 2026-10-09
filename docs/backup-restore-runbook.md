@@ -8,7 +8,7 @@ The repository script is:
 bash scripts/postgres-backup-drill.sh
 ```
 
-It creates a PostgreSQL custom-format dump, records a SHA-256 checksum, restores it into a **disposable** database, validates the restored schema, checks the 41 critical pilot tables, compares representative row counts, and writes an evidence file.
+It creates a PostgreSQL custom-format dump, records a SHA-256 checksum, restores it into a **disposable** database, validates the restored schema, checks 44 baseline pilot tables and, when installed, the photo and variant tables, compares representative row counts, and writes an evidence file.
 
 ## Safety model
 
@@ -21,7 +21,7 @@ Protections:
 - the restore database name must contain `restore`, `backup`, `drill`, `validation`, or `test`;
 - `ALLOW_RESTORE_RESET=1` is mandatory;
 - the source database must have a clean migration state;
-- the source schema must be at least version 29;
+- the source schema must be at least version 32;
 - credentials are not written to the evidence file.
 
 Never point `RESTORE_DATABASE_URL` at staging or production data that must be preserved.
@@ -104,7 +104,7 @@ A backup drill is considered successful when:
 - checksum verification passes;
 - `pg_restore` completes with `--exit-on-error`;
 - restored `schema_migrations` is clean and matches the source version;
-- all 41 critical pilot tables exist;
+- all 44 baseline pilot tables exist, plus `product_images` from schema 36 and `product_variations` from schema 38 when applicable;
 - representative row counts are captured;
 - the evidence file reports `Result: PASS`.
 
@@ -113,3 +113,37 @@ A repository-only test does **not** prove production backup readiness. Before a 
 ## Recommended cadence
 
 Before pilot entry, execute at least one full restore drill. After launch, define the business RPO/RTO and schedule backup plus restore verification according to those requirements. A backup that has never been restored should not be treated as verified.
+
+
+## App/browser decision for the family stores
+
+The product should remain a responsive web application with an installable
+**PWA**, rather than an Android/Windows native rewrite at this stage. The
+same HTTPS deployment works on computers, phones and tablets and provides
+a home-screen/desktop icon in browsers that support installation.
+
+The current PWA service worker caches **app shell assets only**, not APIs,
+invoices, customer details or authentication. Offline sales use the separate
+tenant/user-scoped write-ahead queue: the operator must keep the device/browser
+storage intact until every pending sale has been reconciled. Creating a PWA
+icon does **not** make fiscal transmission work without SEFAZ connectivity.
+
+Validate actual pilot equipment *before launch*:
+- USB barcode scanners in keyboard-wedge mode: enter code + Enter, including
+  back-to-back scans and the device's configured keyboard layout.
+- Normal A4/office receipt printers: browser print dialogs, margins and
+  cross-browser tests on the exact host OS.
+- Thermal ESC/POS printer, cash drawer and serial/Bluetooth equipment:
+  do not assume silent printing or device control works across Safari,
+  Firefox and Chromium. Use a vendor-supported driver or a small
+  audited **local companion service** only if a pilot device needs one.
+- Intermittent network: queued sales, retry with original idempotency key,
+  stock revalidation when reconnecting and refusal to close a cash session
+  with pending sales.
+- Shared or lost devices: independent company/user sessions, offline
+  queue privacy, safe logout and device/browser storage retention.
+
+Only consider a native client once an actual deployment requirement (specific
+printer/TEF hardware, kiosk restrictions, sustained disconnected operation,
+or OS integration) has been demonstrated and cannot be met by the PWA and a
+small bridge. No new store app distribution is required for the current pilot.

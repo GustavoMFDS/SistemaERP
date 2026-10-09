@@ -129,12 +129,22 @@ critical_tables="$(psql "$RESTORE_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "
       'return_refunds','payment_reconciliations','payment_reconciliation_adjustments','finance_idempotency_keys',
       'ledger_entries','audit_logs','nfce_configs','fiscal_document_sequences',
       'product_fiscal_profiles','sale_item_fiscal_snapshots','invoice_item_tax_calculations','invoice_fiscal_events',
-      'nfce_number_inutilizations','opening_stock_batches','setup_step_reviews','product_import_batches'
+      'nfce_number_inutilizations','opening_stock_batches','setup_step_reviews','product_import_batches',
+      'product_images','product_variations'
     );
 ")"
 
-if [ "$critical_tables" -lt 44 ]; then
-  fail "restored database is missing critical tables ($critical_tables/44 found)"
+# Migration 0036 adds product_images; 0038 adds product_variations.
+# Older pilot schema versions keep the original 44-table acceptance baseline.
+expected_tables=44
+if [ "$source_schema_version" -ge 36 ]; then
+  expected_tables=$((expected_tables + 1))
+fi
+if [ "$source_schema_version" -ge 38 ]; then
+  expected_tables=$((expected_tables + 1))
+fi
+if [ "$critical_tables" -lt "$expected_tables" ]; then
+  fail "restored database is missing critical tables ($critical_tables/$expected_tables found)"
 fi
 
 source_counts="$(psql "$SOURCE_DATABASE_URL" -v ON_ERROR_STOP=1 -At -F '|' -c "
@@ -164,7 +174,7 @@ UTC timestamp: $timestamp
 Source database: $source_db
 Restore database: $restore_db
 Schema version: $restore_schema_version
-Critical tables: $critical_tables/44
+Critical tables: $critical_tables/$expected_tables
 Source counts (companies|users|products|sales|audit_logs): $source_counts
 Restore counts (companies|users|products|sales|audit_logs): $restore_counts
 Strict row counts: ${STRICT_ROW_COUNTS:-0}
