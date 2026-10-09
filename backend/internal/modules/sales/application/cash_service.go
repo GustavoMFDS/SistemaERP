@@ -2,6 +2,9 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"time"
@@ -43,8 +46,31 @@ type CashMovementRequest struct {
 	Notes  *string        `json:"notes"`
 }
 
+func cashMovementRequestHash(sessionID string, req CashMovementRequest) (string, error) {
+	payload, err := json.Marshal(struct {
+		SessionID string  `json:"cash_session_id"`
+		Type      string  `json:"movement_type"`
+		Amount    string  `json:"amount"`
+		Notes     *string `json:"notes,omitempty"`
+	}{
+		SessionID: sessionID,
+		Type:      req.Type,
+		Amount:    req.Amount.String(),
+		Notes:     req.Notes,
+	})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 func NewCashService(uow db.UnitOfWork, cash CashRepository, finRepo FinanceRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *CashService {
 	return &CashService{uow: uow, cash: cash, fin: finRepo, audit: auditSvc, validate: v, logger: logger}
+}
+
+func (s *CashService) CurrentSession(ctx context.Context, tenantID string) (sales.CashSession, error) {
+	return s.cash.GetOpenSession(ctx, tenantID)
 }
 
 func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
@@ -78,62 +104,106 @@ func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID s
 	return id, nil
 }
 
-func (s *CashService) RecordMovement(ctx context.Context, tenantID, userID, sessionID string, req CashMovementRequest) (string, error) {
+func (s *CashService) RecordMovement(ctx context.Context, tenantID, userID, sessionID, idempotencyKey string, req CashMovementRequest) (string, bool, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	sessionID = strings.TrimSpace(sessionID)
 	req.Type = strings.TrimSpace(req.Type)
-	if err := s.validate.Struct(req); err != nil {
-		return "", common.ErrValidation
+	if req.Notes != nil {
+		notes := strings.TrimSpace(*req.Notes)
+		if notes == "" {
+			req.Notes = nil
+		} else {
+			req.Notes = &notes
+		}
 	}
+	if idempotencyKey == "" || sessionID == "" {
+		return "", false, common.ErrValidation
+	}
+	if err := s.validate.Struct(req); err != nil {
+		return "", false, common.ErrValidation
+	}
+	requestHash, err := cashMovementRequestHash(sessionID, req)
+	if err != nil {
+		return "", false, common.ErrValidation
+	}
+	const op = "cash.record_movement"
 
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := s.fin.LockIdempotencyKey(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", false, err
+	}
+	if resourceID, _, storedHash, _, ok, err := s.fin.GetIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey); err != nil {
+		return "", false, err
+	} else if ok {
+		if storedHash != requestHash {
+			return "", false, common.ErrConflict
+		}
+		_ = tx.Rollback(ctx)
+		return resourceID, false, nil
+	}
+
 	session, err := s.cash.GetSession(ctx, tx, tenantID, sessionID)
 	if err != nil || session.Status != "open" {
-		return "", common.ErrCashSessionClosed
+		return "", false, common.ErrCashSessionClosed
 	}
 
 	if req.Type == "withdrawal" {
 		payments, err := s.cash.SumPaymentsByMethod(ctx, tx, tenantID, sessionID)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		supply, withdrawal, err := s.cash.SumMovements(ctx, tx, tenantID, sessionID)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
-		available := session.OpeningAmount.Add(payments["cash"]).Add(supply).Sub(withdrawal)
+		available, err := session.OpeningAmount.AddChecked(payments["cash"])
+		if err != nil {
+			return "", false, common.ErrValidation
+		}
+		available, err = available.AddChecked(supply)
+		if err != nil {
+			return "", false, common.ErrValidation
+		}
+		available, err = available.SubChecked(withdrawal)
+		if err != nil {
+			return "", false, common.ErrValidation
+		}
 		if req.Amount > available {
-			return "", common.ErrInsufficientCash
+			return "", false, common.ErrInsufficientCash
 		}
 	}
 
 	id, err := s.cash.InsertMovement(ctx, tx, tenantID, sessionID, userID, req.Type, req.Amount, req.Notes)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	signedAmount := req.Amount
 	if req.Type == "withdrawal" {
 		signedAmount = -signedAmount
 	}
-	if s.fin != nil {
-		cashID := sessionID
-		actor := userID
-		if _, err := s.fin.InsertLedgerEntry(ctx, tx, tenantID, fin.LedgerEntry{
-			EntryType:     req.Type,
-			CashSessionID: &cashID,
-			AmountGross:   signedAmount,
-			AmountNet:     signedAmount,
-			Notes:         req.Notes,
-			CreatedAt:     time.Now().Format(time.RFC3339),
-		}, &actor); err != nil {
-			return "", err
-		}
+	cashID := sessionID
+	actor := userID
+	if _, err := s.fin.InsertLedgerEntry(ctx, tx, tenantID, fin.LedgerEntry{
+		EntryType:     req.Type,
+		CashSessionID: &cashID,
+		AmountGross:   signedAmount,
+		AmountNet:     signedAmount,
+		Notes:         req.Notes,
+		CreatedAt:     time.Now().Format(time.RFC3339),
+	}, &actor); err != nil {
+		return "", false, err
 	}
 
+	resultAmount := req.Amount
+	if err := s.fin.SaveIdempotencyResult(ctx, tx, tenantID, op, idempotencyKey, requestHash, id, req.Type, &resultAmount); err != nil {
+		return "", false, err
+	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
 		TenantID: tenantID, ActorUserID: userID, Action: "cash." + req.Type,
 		ResourceType: "cash_movement", ResourceID: id, Outcome: "success",
@@ -142,20 +212,20 @@ func (s *CashService) RecordMovement(ctx context.Context, tenantID, userID, sess
 			"amount":          req.Amount.String(),
 		},
 	}); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return id, nil
+	return id, true, nil
 }
 
 func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID, sessionID string, req CashCloseRequest) (sales.CashCloseResult, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return sales.CashCloseResult{}, common.ErrValidation
 	}
-	for method, amount := range req.ClosingByMethod {
-		if !isCashReconciliationMethod(method) || amount < 0 {
+	for method := range req.ClosingByMethod {
+		if method == "cash" || !isCashReconciliationMethod(method) {
 			return sales.CashCloseResult{}, common.ErrValidation
 		}
 	}
@@ -187,7 +257,19 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 	for _, method := range cashReconciliationMethods {
 		expected[method] = payments[method]
 	}
-	expected["cash"] = session.OpeningAmount.Add(payments["cash"]).Add(supply).Sub(withdrawal)
+	expectedCash, err := session.OpeningAmount.AddChecked(payments["cash"])
+	if err != nil {
+		return sales.CashCloseResult{}, common.ErrValidation
+	}
+	expectedCash, err = expectedCash.AddChecked(supply)
+	if err != nil {
+		return sales.CashCloseResult{}, common.ErrValidation
+	}
+	expectedCash, err = expectedCash.SubChecked(withdrawal)
+	if err != nil {
+		return sales.CashCloseResult{}, common.ErrValidation
+	}
+	expected["cash"] = expectedCash
 
 	declared := make(map[string]platform.Money, len(cashReconciliationMethods))
 	if len(req.ClosingByMethod) == 0 {
@@ -202,6 +284,15 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 		}
 	}
 	declared["cash"] = req.ClosingAmount
+
+	difference := make(map[string]platform.Money, len(cashReconciliationMethods))
+	for _, method := range cashReconciliationMethods {
+		methodDifference, err := declared[method].SubChecked(expected[method])
+		if err != nil {
+			return sales.CashCloseResult{}, common.ErrValidation
+		}
+		difference[method] = methodDifference
+	}
 
 	if err := s.cash.CloseSession(
 		ctx,
@@ -224,7 +315,7 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 		Metadata: map[string]any{
 			"expected_cash":      expected["cash"].String(),
 			"closing_amount":     req.ClosingAmount.String(),
-			"closing_difference": req.ClosingAmount.Sub(expected["cash"]).String(),
+			"closing_difference": difference["cash"].String(),
 			"expected_by_method": moneyMapStrings(expected),
 			"declared_by_method": moneyMapStrings(declared),
 		},
@@ -236,14 +327,10 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 		return sales.CashCloseResult{}, err
 	}
 
-	difference := make(map[string]platform.Money, len(cashReconciliationMethods))
-	for _, method := range cashReconciliationMethods {
-		difference[method] = declared[method].Sub(expected[method])
-	}
 	return sales.CashCloseResult{
 		ExpectedCash:       expected["cash"],
 		ClosingAmount:      req.ClosingAmount,
-		ClosingDifference:  req.ClosingAmount.Sub(expected["cash"]),
+		ClosingDifference:  difference["cash"],
 		ExpectedByMethod:   expected,
 		DeclaredByMethod:   declared,
 		DifferenceByMethod: difference,

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
@@ -15,12 +14,11 @@ import (
 
 type SalesHandler struct {
 	svc    *salesapp.SalesService
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewSalesHandler(svc *salesapp.SalesService, auditSvc *audit.Service, logger *slog.Logger) *SalesHandler {
-	return &SalesHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewSalesHandler(svc *salesapp.SalesService, logger *slog.Logger) *SalesHandler {
+	return &SalesHandler{svc: svc, logger: logger}
 }
 
 func (h *SalesHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +34,11 @@ func (h *SalesHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao listar vendas", nil)
 		return
 	}
+	if !middleware.HasPermission(r.Context(), "finance:read") {
+		for i := range items {
+			items[i].ProfitEstimated = 0
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
 }
 
@@ -48,8 +51,18 @@ func (h *SalesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sale, items, pays, err := h.svc.Get(r.Context(), au.TenantID, id)
 	if err != nil {
-		writeError(w, r, http.StatusNotFound, "not_found", "venda nao encontrada", nil)
+		if err == common.ErrNotFound {
+			writeError(w, r, http.StatusNotFound, "not_found", "venda nao encontrada", nil)
+		} else {
+			writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar venda", nil)
+		}
 		return
+	}
+	if !middleware.HasPermission(r.Context(), "finance:read") {
+		sale.ProfitEstimated = 0
+		for i := range items {
+			items[i].CostUnit = 0
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sale": sale, "items": items, "payments": pays})
 }
@@ -64,6 +77,19 @@ func (h *SalesHandler) CreateAndFinalize(w http.ResponseWriter, r *http.Request)
 	var req salesapp.SaleCreateRequest
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	hasDiscount := req.DiscountValue > 0
+	if !hasDiscount {
+		for _, item := range req.Items {
+			if item.DiscountValue > 0 {
+				hasDiscount = true
+				break
+			}
+		}
+	}
+	if hasDiscount && !middleware.HasPermission(r.Context(), "sale:discount") {
+		writeError(w, r, http.StatusForbidden, "authorization_error", "permissao insuficiente para desconto", nil)
 		return
 	}
 

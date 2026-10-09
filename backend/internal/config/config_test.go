@@ -109,6 +109,48 @@ func TestValidateRejectsMVPFiscalProviderInProd(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresExplicitProductionSEFAZGate(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.FiscalProvider = "sefaz"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "explicit SEFAZ transmission environment flag") {
+		t.Fatalf("expected explicit production SEFAZ gate error, got %v", err)
+	}
+}
+
+func TestValidateAcceptsExplicitProductionSEFAZConfiguration(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.FiscalProvider = "sefaz"
+	cfg.NFCeSEFAZProductionEnabled = true
+	cfg.NFCeCertificateSecretDir = "/run/secrets/nfce"
+	cfg.NFCeSchemaDir = "/opt/nfce/schema"
+	cfg.NFCeSchemaEntrypoint = "leiauteNFe_v4.00.xsd"
+	cfg.NFCeEventSchemaEntrypoint = "envEventoCancNFe_v1.00.xsd"
+	cfg.NFCeInutilizationSchemaEntrypoint = "inutNFe_v4.00.xsd"
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected explicit production SEFAZ config to validate: %v", err)
+	}
+}
+
+func TestValidateRejectsProductionSEFAZGateOutsideProd(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.Env = "staging"
+	cfg.FiscalProvider = "sefaz"
+	cfg.NFCeSEFAZProductionEnabled = true
+	cfg.NFCeCertificateSecretDir = "/run/secrets/nfce"
+	cfg.NFCeSchemaDir = "/opt/nfce/schema"
+	cfg.NFCeSchemaEntrypoint = "leiauteNFe_v4.00.xsd"
+	cfg.NFCeEventSchemaEntrypoint = "envEventoCancNFe_v1.00.xsd"
+	cfg.NFCeInutilizationSchemaEntrypoint = "inutNFe_v4.00.xsd"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "only allowed in production") {
+		t.Fatalf("expected production SEFAZ environment validation error, got %v", err)
+	}
+}
+
 func TestValidateRejectsPlaceholderSecretsInProd(t *testing.T) {
 	cfg := validProdConfig()
 	cfg.JWTSecret = "REPLACE_WITH_RANDOM_32_PLUS_CHARACTER_SECRET"

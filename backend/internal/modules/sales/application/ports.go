@@ -19,6 +19,7 @@ type SalesRepository interface {
 	CancelSale(ctx context.Context, tx db.DBTX, tenantID string, id string, reason string) error
 	GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error)
 	HasInvoiceForSale(ctx context.Context, tx db.DBTX, tenantID string, id string) (bool, error)
+	HasReturnsForSale(ctx context.Context, tx db.DBTX, tenantID string, id string) (bool, error)
 
 	LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error
 	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (saleID string, total platform.Money, requestHash string, ok bool, err error)
@@ -30,6 +31,7 @@ type CashRepository interface {
 	OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error)
 	CloseSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID, userID string, expectedCash, closingAmount platform.Money, notes *string) error
 	GetSession(ctx context.Context, tx db.DBTX, tenantID string, sessionID string) (sales.CashSession, error)
+	GetOpenSession(ctx context.Context, tenantID string) (sales.CashSession, error)
 	InsertMovement(ctx context.Context, tx db.DBTX, tenantID, sessionID, userID, movementType string, amount platform.Money, notes *string) (string, error)
 	SumPaymentsByMethod(ctx context.Context, tx db.DBTX, tenantID, sessionID string) (map[string]platform.Money, error)
 	SumMovements(ctx context.Context, tx db.DBTX, tenantID, sessionID string) (supply platform.Money, withdrawal platform.Money, err error)
@@ -49,4 +51,7 @@ type ProductsRepository interface {
 
 type FinanceRepository interface {
 	InsertLedgerEntry(ctx context.Context, tx db.DBTX, tenantID string, e fin.LedgerEntry, createdByUserID *string) (string, error)
+	LockIdempotencyKey(ctx context.Context, tx db.DBTX, tenantID, operation, key string) error
+	GetIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key string) (resourceID, resultStatus, requestHash string, resultAmount *platform.Money, ok bool, err error)
+	SaveIdempotencyResult(ctx context.Context, tx db.DBTX, tenantID, operation, key, requestHash, resourceID, resultStatus string, resultAmount *platform.Money) error
 }

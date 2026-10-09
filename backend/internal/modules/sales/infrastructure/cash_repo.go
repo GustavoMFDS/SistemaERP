@@ -8,6 +8,7 @@ import (
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,24 +22,60 @@ func NewCashRepo(dbpool *pgxpool.Pool) *CashRepo {
 }
 
 func (r *CashRepo) EnsureDefaultRegister(ctx context.Context, tenantID string) (string, error) {
+	// Keep first-use registration safe when two terminals open the PDV at the
+	// same time. The insert and select are separate statements so a waiter that
+	// loses the unique-key race gets a fresh READ COMMITTED snapshot and can see
+	// the register committed by the winner.
+	if _, err := r.db.Exec(ctx, `
+		INSERT INTO cash_registers(tenant_id, name, active)
+		SELECT $1::uuid, 'Caixa Principal', true
+		WHERE NOT EXISTS (SELECT 1 FROM cash_registers WHERE tenant_id=$1)
+		ON CONFLICT (tenant_id, name) DO NOTHING
+	`, tenantID); err != nil {
+		return "", err
+	}
+
 	var id string
 	err := r.db.QueryRow(ctx, `
-		WITH ins AS (
-			INSERT INTO cash_registers(tenant_id, name, active)
-			SELECT $1::uuid, 'Caixa Principal', true
-			WHERE NOT EXISTS (SELECT 1 FROM cash_registers WHERE tenant_id=$1)
-			RETURNING id, created_at
-		)
 		SELECT id::text
-		FROM (
-			SELECT id, created_at FROM ins
-			UNION ALL
-			SELECT id, created_at FROM cash_registers WHERE tenant_id=$1
-		) registers
-		ORDER BY created_at
+		FROM cash_registers
+		WHERE tenant_id=$1
+		ORDER BY created_at, id
 		LIMIT 1
 	`, tenantID).Scan(&id)
 	return id, err
+}
+
+func (r *CashRepo) GetOpenSession(ctx context.Context, tenantID string) (sales.CashSession, error) {
+	var s sales.CashSession
+	var openingRaw string
+	err := r.db.QueryRow(ctx, `
+		SELECT cs.id::text, cs.cash_register_id::text, cs.opened_by_user_id::text, cs.status, cs.opening_amount::text
+		FROM cash_sessions cs
+		WHERE cs.tenant_id=$1
+		  AND cs.status='open'
+		  AND cs.cash_register_id = (
+			SELECT cr.id
+			FROM cash_registers cr
+			WHERE cr.tenant_id=$1
+			ORDER BY cr.created_at, cr.id
+			LIMIT 1
+		  )
+		ORDER BY cs.opened_at DESC
+		LIMIT 1
+	`, tenantID).Scan(&s.ID, &s.RegisterID, &s.OpenedByUserID, &s.Status, &openingRaw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return s, common.ErrNotFound
+		}
+		return s, err
+	}
+	opening, err := platform.ParseMoney(openingRaw)
+	if err != nil {
+		return s, err
+	}
+	s.OpeningAmount = opening
+	return s, nil
 }
 
 func (r *CashRepo) OpenSession(ctx context.Context, tx db.DBTX, tenantID string, registerID, userID string, openingAmount platform.Money, notes *string) (string, error) {
@@ -113,13 +150,23 @@ func (r *CashRepo) InsertMovement(ctx context.Context, tx db.DBTX, tenantID, ses
 
 func (r *CashRepo) SumPaymentsByMethod(ctx context.Context, tx db.DBTX, tenantID, sessionID string) (map[string]platform.Money, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT p.method, COALESCE(SUM(p.amount),0)::text
-		FROM sales s
-		JOIN payments p ON p.sale_id=s.id AND p.tenant_id=s.tenant_id
-		WHERE s.tenant_id=$1
-		  AND s.cash_session_id=$2
-		  AND s.status='finalized'
-		GROUP BY p.method
+		WITH method_totals AS (
+			SELECT p.method, p.amount
+			FROM sales s
+			JOIN payments p ON p.sale_id=s.id AND p.tenant_id=s.tenant_id
+			WHERE s.tenant_id=$1
+			  AND s.cash_session_id=$2
+			  AND s.status='finalized'
+			UNION ALL
+			SELECT rr.method, -rr.amount
+			FROM return_refunds rr
+			WHERE rr.tenant_id=$1
+			  AND rr.cash_session_id=$2
+			  AND rr.method <> 'cash'
+		)
+		SELECT method, COALESCE(SUM(amount),0)::text
+		FROM method_totals
+		GROUP BY method
 	`, tenantID, sessionID)
 	if err != nil {
 		return nil, err
@@ -169,12 +216,16 @@ func (r *CashRepo) SaveReconciliation(ctx context.Context, tx db.DBTX, tenantID,
 	for _, method := range methods {
 		exp := expected[method]
 		dec := declared[method]
+		difference, err := dec.SubChecked(exp)
+		if err != nil {
+			return common.ErrValidation
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO cash_session_reconciliations(
 				tenant_id, cash_session_id, method, expected_amount, declared_amount, difference_amount
 			)
 			VALUES ($1,$2,$3,$4,$5,$6)
-		`, tenantID, sessionID, method, exp.DBString(), dec.DBString(), dec.Sub(exp).DBString()); err != nil {
+		`, tenantID, sessionID, method, exp.DBString(), dec.DBString(), difference.DBString()); err != nil {
 			return err
 		}
 	}

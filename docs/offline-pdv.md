@@ -49,7 +49,7 @@ Migração:
 - Evite incluir dados pessoais sensiveis no payload de venda offline. Quando o cliente for opcional, prefira venda sem identificacao.
 - `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
 - A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
-- Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo que outro tenant/usuário leia o estado anterior no mesmo navegador. Logout limpa apenas o escopo atual antes de remover o access token.
+- Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo acesso cruzado pelo aplicativo no mesmo navegador. Logout limpa a referência local de caixa e o cache de catálogo, mas não apaga fila offline nem carrinhos suspensos.
 - A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual.
 - Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova.
 - Cabecalhos sensiveis como `Authorization`, cookies e tokens nao sao persistidos na fila.
@@ -78,3 +78,53 @@ Migração:
 - A migration `0013_single_open_cash_session` cria um índice único parcial para permitir somente uma sessão `open` por tenant/registro.
 - Se a migration encontrar duplicatas já abertas, ela aborta e exige reconciliação operacional; não fecha sessões automaticamente.
 - A migration `0014_cash_reconciliation` persiste `expected_cash` e `closing_difference`. No fechamento, o backend calcula abertura + pagamentos em dinheiro de vendas finalizadas, compara com o valor declarado e grava/audita a diferença.
+
+
+## Leitura de codigo de barras
+
+- Produtos possuem `barcode` opcional e a unicidade e por tenant/loja, permitindo o mesmo EAN/GTIN em empresas independentes.
+- No PDV, leitores USB/Bluetooth que operam como teclado podem preencher o campo de codigo e enviar `Enter`.
+- O primeiro scan adiciona o produto ao carrinho; scans seguintes do mesmo produto incrementam a quantidade em vez de criar linhas duplicadas.
+- O PDV tenta resolver primeiro pelo catalogo ja carregado no navegador. Se o codigo nao estiver no cache e houver conexao, consulta `GET /api/v1/products/barcode/{barcode}`.
+- Offline, um codigo so pode ser resolvido se o produto estiver no cache local previamente carregado. O sistema nao inventa nem aceita produto desconhecido durante a queda de rede.
+
+
+## Carrinhos suspensos
+
+Carrinho suspenso e fila offline são conceitos diferentes:
+
+- carrinho suspenso é um rascunho local ainda não finalizado e não possui `Idempotency-Key`;
+- fila offline representa uma intenção exata de venda já finalizada pelo operador e persistida por write-ahead;
+- carrinhos suspensos são escopados por tenant+usuário no navegador;
+- retomar um carrinho não envia nenhuma requisição; o write-ahead só ocorre quando o operador finaliza;
+- descontos continuam sujeitos à permissão server-side `sale:discount` quando a venda é enviada ou reexecutada.
+
+
+## Validade do catálogo offline
+
+- O cache de produtos é escopado por tenant+usuário e guarda `savedAt` junto dos itens.
+- O PDV aceita fallback de catálogo por no máximo 24 horas desde a última atualização online bem-sucedida.
+- Cache legado sem timestamp é tratado como não confiável para novas vendas até que haja uma atualização online.
+- Cache expirado ou inválido não é usado para formar carrinho; o operador precisa reconectar e atualizar o catálogo.
+- Carrinhos suspensos retomados online recarregam o catálogo e reaplicam o preço efetivo atual antes de voltar ao carrinho ativo.
+- O preço efetivo do PDV segue a mesma regra do backend: `promo_price` positivo quando presente, caso contrário `price_cash`.
+
+
+## Carrinhos suspensos e logout
+
+- Carrinho suspenso é apenas rascunho local, escopado por tenant+usuário; não cria venda nem reserva estoque.
+- O navegador mantém no máximo 20 carrinhos suspensos e rejeita o próximo em vez de descartar silenciosamente um rascunho antigo.
+- Se houver qualquer item na fila offline, o logout é bloqueado até sincronização, reconciliação ou descarte explícito item a item no PDV.
+- A fila legada global também bloqueia logout enquanto não for importada ou descartada explicitamente, evitando que trabalho não escopado fique disponível para o próximo usuário autenticado no mesmo navegador.
+- Falha ao revogar a sessão no servidor preserva token e todo o estado local.
+- Carrinhos suspensos permanecem salvos no escopo tenant+usuário após logout e reaparecem quando o mesmo operador entra novamente.
+- Outro usuário autenticado no mesmo navegador recebe outro namespace e não carrega esses carrinhos pela aplicação.
+
+
+## Fechamento de caixa com vendas offline
+
+- O caixa não pode ser fechado enquanto existir intenção offline `pending` ou `attention` cujo `cash_session_id` seja a sessão atual.
+- A fila legada global `sistemaemgo:offlineQueue:v1` também bloqueia fechamento enquanto não for importada para revisão ou descartada explicitamente; como ela não possui namespace confiável de tenant/usuário, o sistema não presume que seus itens sejam irrelevantes para o caixa atual.
+- O operador deve sincronizar ou reconciliar essas vendas antes do fechamento, preservando o período físico/financeiro em que elas ocorreram.
+- Carrinho suspenso não bloqueia fechamento porque ainda não é venda nem intenção finalizada e não está vinculado a uma sessão de caixa.
+- O bloqueio local complementa, mas não substitui, a validação server-side de sessão aberta usada na criação da venda.

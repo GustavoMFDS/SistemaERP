@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -11,7 +12,6 @@ import (
 	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/redis/go-redis/v9"
-	"log/slog"
 )
 
 type AuthHandler struct {
@@ -103,7 +103,7 @@ func (h *AuthHandler) allowLoginIdentifier(r *http.Request, email string) (bool,
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
-	token := refreshTokenFromCookie(r)
+	token := refreshTokenFromCookie(r, h.cfg)
 	resp, userID, tenantID, err := h.auth.RefreshWithSubject(r.Context(), token)
 	if err != nil {
 		clearRefreshCookie(w, h.cfg)
@@ -137,7 +137,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
-	token := refreshTokenFromCookie(r)
+	token := refreshTokenFromCookie(r, h.cfg)
 	userID, tenantID, _ := h.auth.IdentifyRefreshToken(token)
 	requestID, ip, userAgent := audit.RequestContext(r)
 
@@ -178,7 +178,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	info, err := h.auth.GetUserInfo(r.Context(), au.UserID)
+	info, err := h.auth.GetUserInfo(r.Context(), au.UserID, au.TenantID)
 	if err != nil {
 		writeError(w, r, http.StatusNotFound, "not_found", "usuario nao encontrado", nil)
 		return
@@ -199,12 +199,21 @@ func noStore(w http.ResponseWriter) {
 	w.Header().Set("Pragma", "no-cache")
 }
 
+const localRefreshCookieName = "sistemaemgo_refresh_token"
+
+func refreshCookieName(cfg config.Config) string {
+	if cfg.IsProdLike() {
+		return "__Host-refresh_token"
+	}
+	return localRefreshCookieName
+}
+
 func setRefreshCookie(w http.ResponseWriter, cfg config.Config, token string, ttl time.Duration) {
 	if token == "" {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "__Host-refresh_token",
+		Name:     refreshCookieName(cfg),
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
@@ -216,7 +225,7 @@ func setRefreshCookie(w http.ResponseWriter, cfg config.Config, token string, tt
 
 func clearRefreshCookie(w http.ResponseWriter, cfg config.Config) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     "__Host-refresh_token",
+		Name:     refreshCookieName(cfg),
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -226,8 +235,8 @@ func clearRefreshCookie(w http.ResponseWriter, cfg config.Config) {
 	})
 }
 
-func refreshTokenFromCookie(r *http.Request) string {
-	c, err := r.Cookie("__Host-refresh_token")
+func refreshTokenFromCookie(r *http.Request, cfg config.Config) string {
+	c, err := r.Cookie(refreshCookieName(cfg))
 	if err != nil {
 		return ""
 	}

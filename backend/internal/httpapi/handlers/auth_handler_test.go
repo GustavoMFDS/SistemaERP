@@ -39,6 +39,33 @@ func TestPublicTokenResponseDoesNotExposeRefreshToken(t *testing.T) {
 	}
 }
 
+func TestRefreshCookieUsesHostPrefixOnlyForProdLikeHTTPS(t *testing.T) {
+	localCfg := config.Config{Env: "test"}
+	localRec := httptest.NewRecorder()
+	setRefreshCookie(localRec, localCfg, "local-token", time.Hour)
+	localHeader := localRec.Header().Get("Set-Cookie")
+	if !strings.Contains(localHeader, localRefreshCookieName+"=") {
+		t.Fatalf("local refresh cookie name=%q, want %q", localHeader, localRefreshCookieName)
+	}
+	if strings.Contains(localHeader, "__Host-") || strings.Contains(localHeader, "Secure") {
+		t.Fatalf("local HTTP cookie must not use reserved __Host- prefix or Secure: %q", localHeader)
+	}
+	if !strings.Contains(localHeader, "HttpOnly") || !strings.Contains(localHeader, "SameSite=Strict") {
+		t.Fatalf("local refresh cookie lost security attributes: %q", localHeader)
+	}
+
+	prodCfg := config.Config{Env: "staging"}
+	prodRec := httptest.NewRecorder()
+	setRefreshCookie(prodRec, prodCfg, "prod-token", time.Hour)
+	prodHeader := prodRec.Header().Get("Set-Cookie")
+	if !strings.Contains(prodHeader, "__Host-refresh_token=") ||
+		!strings.Contains(prodHeader, "Secure") ||
+		!strings.Contains(prodHeader, "HttpOnly") ||
+		!strings.Contains(prodHeader, "SameSite=Strict") {
+		t.Fatalf("prod-like refresh cookie must keep __Host- security contract: %q", prodHeader)
+	}
+}
+
 func TestRefreshFailureExpiresInvalidCookie(t *testing.T) {
 	cfg := config.Config{
 		Env:             "test",
@@ -52,7 +79,7 @@ func TestRefreshFailureExpiresInvalidCookie(t *testing.T) {
 	h := NewAuthHandler(cfg, svc, nil, nil, slog.Default())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
-	req.AddCookie(&http.Cookie{Name: "__Host-refresh_token", Value: "invalid-token", Path: "/"})
+	req.AddCookie(&http.Cookie{Name: refreshCookieName(cfg), Value: "invalid-token", Path: "/"})
 	rec := httptest.NewRecorder()
 	h.Refresh(rec, req)
 
@@ -61,7 +88,7 @@ func TestRefreshFailureExpiresInvalidCookie(t *testing.T) {
 	}
 	cleared := false
 	for _, header := range rec.Header().Values("Set-Cookie") {
-		if strings.Contains(header, "__Host-refresh_token") && strings.Contains(header, "Max-Age=0") {
+		if strings.Contains(header, refreshCookieName(cfg)) && strings.Contains(header, "Max-Age=0") {
 			cleared = true
 		}
 	}
@@ -105,7 +132,7 @@ func TestLogoutRequiresSuccessfulRefreshRevocation(t *testing.T) {
 	store.revokeErr = errors.New("redis unavailable")
 
 	failedReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
-	failedReq.AddCookie(&http.Cookie{Name: "__Host-refresh_token", Value: login.RefreshToken, Path: "/"})
+	failedReq.AddCookie(&http.Cookie{Name: refreshCookieName(cfg), Value: login.RefreshToken, Path: "/"})
 	failedRec := httptest.NewRecorder()
 	h.Logout(failedRec, failedReq)
 
@@ -113,7 +140,7 @@ func TestLogoutRequiresSuccessfulRefreshRevocation(t *testing.T) {
 		t.Fatalf("failed logout status=%d, want 503", failedRec.Code)
 	}
 	for _, header := range failedRec.Header().Values("Set-Cookie") {
-		if strings.Contains(header, "__Host-refresh_token") && strings.Contains(header, "Max-Age=0") {
+		if strings.Contains(header, refreshCookieName(cfg)) && strings.Contains(header, "Max-Age=0") {
 			t.Fatalf("failed logout must not expire refresh cookie: %q", header)
 		}
 	}
@@ -123,7 +150,7 @@ func TestLogoutRequiresSuccessfulRefreshRevocation(t *testing.T) {
 
 	store.revokeErr = nil
 	okReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
-	okReq.AddCookie(&http.Cookie{Name: "__Host-refresh_token", Value: login.RefreshToken, Path: "/"})
+	okReq.AddCookie(&http.Cookie{Name: refreshCookieName(cfg), Value: login.RefreshToken, Path: "/"})
 	okRec := httptest.NewRecorder()
 	h.Logout(okRec, okReq)
 
@@ -132,7 +159,7 @@ func TestLogoutRequiresSuccessfulRefreshRevocation(t *testing.T) {
 	}
 	cleared := false
 	for _, header := range okRec.Header().Values("Set-Cookie") {
-		if strings.Contains(header, "__Host-refresh_token") && strings.Contains(header, "Max-Age=0") {
+		if strings.Contains(header, refreshCookieName(cfg)) && strings.Contains(header, "Max-Age=0") {
 			cleared = true
 		}
 	}

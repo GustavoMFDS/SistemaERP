@@ -244,7 +244,7 @@ func (s *AuthService) InvalidateUserPermissions(userID string) {
 	// Kept for compatibility with callers that may explicitly invalidate.
 }
 
-func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserInfo, error) {
+func (s *AuthService) GetUserInfo(ctx context.Context, userID string, tenantID string) (AuthUserInfo, error) {
 	u, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return AuthUserInfo{}, common.ErrNotFound
@@ -252,12 +252,21 @@ func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserI
 	if !u.Active {
 		return AuthUserInfo{}, common.ErrInactiveUser
 	}
-	tenantID, err := s.users.GetDefaultTenantID(ctx, u.ID)
+	if err := s.ensureUserTenantAccess(ctx, userID, tenantID); err != nil {
+		return AuthUserInfo{}, err
+	}
+	roles, err := s.users.ListUserRoles(ctx, userID, tenantID)
 	if err != nil {
 		return AuthUserInfo{}, err
 	}
-	roles, _ := s.users.ListUserRoles(ctx, userID, tenantID)
-	return AuthUserInfo{ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles}, nil
+	permissions, err := s.users.ListUserPermissions(ctx, userID, tenantID)
+	if err != nil {
+		return AuthUserInfo{}, err
+	}
+	return AuthUserInfo{
+		ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID,
+		Roles: roles, Permissions: permissions,
+	}, nil
 }
 
 func (s *AuthService) ensureUserActive(ctx context.Context, userID string) error {

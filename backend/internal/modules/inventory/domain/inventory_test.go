@@ -66,3 +66,21 @@ func TestMovementType_NormalizeDelta(t *testing.T) {
 		t.Fatalf("want ErrInvalidMovementType, got %v", err)
 	}
 }
+
+func TestInventoryBalance_RejectsQuantityRangeOverflow(t *testing.T) {
+	b := inv.InventoryBalance{
+		ProductID: "p1",
+		QtyOnHand: platform.NewQuantityMilli(99_999_999_999_999),
+	}
+	if _, err := b.Creditar(platform.NewQuantityMilli(1)); err != inv.ErrInvalidQuantity {
+		t.Fatalf("want ErrInvalidQuantity for quantity overflow, got %v", err)
+	}
+
+	min := inv.InventoryBalance{
+		ProductID: "p1",
+		QtyOnHand: platform.NewQuantityMilli(-99_999_999_999_999),
+	}
+	if _, err := min.AplicarDelta(platform.NewQuantityMilli(-1), true); err != inv.ErrInvalidQuantity {
+		t.Fatalf("want ErrInvalidQuantity for negative quantity overflow, got %v", err)
+	}
+}

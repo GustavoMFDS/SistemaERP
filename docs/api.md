@@ -34,7 +34,7 @@ Response:
     "token_type": "Bearer",
     "expires_in": 900
   },
-  "user": { "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"] }
+  "user": { "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"], "permissions": ["sale:write", "sale:discount"] }
 }
 ```
 
@@ -44,7 +44,7 @@ Access tokens are short-lived, and protected requests recheck current user statu
 
 ### POST `/auth/refresh`
 
-Accepts the refresh token only from the `__Host-refresh_token` HttpOnly cookie. JSON body refresh tokens are no longer accepted.
+Accepts the refresh token only from the HttpOnly refresh cookie. Staging/production use the Secure `__Host-refresh_token` cookie; local HTTP development/tests use `sistemaemgo_refresh_token` because the reserved `__Host-` prefix requires HTTPS/Secure. JSON body refresh tokens are not accepted.
 
 Refresh tokens are rotated; a consumed token cannot be reused. A rejected/invalid refresh also expires the browser refresh cookie.
 
@@ -65,8 +65,187 @@ Revokes the current refresh token and only then clears the refresh cookie. If se
 Response:
 
 ```json
-{ "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"] }
+{ "id": "...", "email": "...", "name": "...", "tenant_id": "...", "roles": ["admin"], "permissions": ["sale:write", "sale:discount"] }
 ```
+
+
+`permissions` reflects the effective tenant-scoped RBAC for the tenant in the current access token. It is useful for UI capability hints; protected endpoints still enforce permissions server-side.
+## Funcionários — administração restrita por CNPJ
+
+A migration `0033_staff_invitations` adiciona convites com hash de token,
+expiração de 48 horas e status **ativo por vínculo com a empresa**. Desativar
+um vínculo **não desativa a identidade global**, nem remove auditoria ou
+histórico transacional. `AuthJWT`, refresh, seleção da empresa-padrão e
+RBAC consultam o vínculo ativo para rejeitar o acesso no próximo request.
+
+O rollback da migration 0033 é bloqueado se existirem funcionários
+suspensos; caso contrário, remover a coluna `active` reativaria
+involuntariamente esses acessos. A autorização do administrador
+é verificada também dentro da transação de escrita.
+
+A permissão `team:manage` é criada somente para o papel `admin`.
+Não é atribuída a gerentes nem operadores de caixa. Os endpoints
+administrativos aceitam apenas o CNPJ do contexto autenticado;
+não recebem nem respeitam `tenant_id` na URL ou no corpo.
+
+### GET `/staff`
+
+Exige `team:manage`. Lista até 200 membros e até 200 convites
+pendentes ativos apenas do tenant da sessão:
+
+```json
+{
+  "members": [{
+    "id": "uuid",
+    "name": "Operadora Loja",
+    "email": "operadora@example.com",
+    "role": "cashier",
+    "active": true
+  }],
+  "invitations": [{
+    "id": "uuid",
+    "name": "Nova Funcionária",
+    "email": "nova@example.com",
+    "role": "manager",
+    "expires_at": "2026-10-10T21:00:00Z"
+  }]
+}
+```
+
+`Cache-Control: no-store`. Não retorna hashes de senha, tokens,
+sessões, segredos ou vínculos de outra empresa.
+
+### POST `/staff/invitations`
+
+Exige `team:manage`, origem confiável, rate limit por usuário/empresa.
+
+```json
+{ "name": "Funcionária", "email": "nova@example.com", "role": "cashier" }
+```
+
+`role` aceita **somente** `cashier` ou `manager`; `admin` é
+intencionalmente proibido. Em sucesso (201), devolve informações
+do convite e um `token` aleatório de 256 bits exibido **uma vez só**.
+O banco armazena SHA-256 do token, nunca o token original.
+Um convite anterior pendente para o mesmo e-mail e empresa é revogado
+em uma transação; o link anterior deixa de funcionar.
+
+Convites só são criados para **novos e-mails**, ainda não pertencentes
+a uma conta global. Para pessoas que já usam uma conta em outra loja,
+a ligação de identidades requer provisionamento controlado posterior;
+**não** se compartilham senhas nem se faz vínculo implícito entre CNPJs.
+
+O administrador deve passar o link por canal confiável à pessoa
+destinatária. Ainda não há integração de envio de e-mail. O navegador
+usa `/accept-invite#token=...`: fragmentos de URL não são enviados
+ao servidor em requisições HTTP. A página limpa o fragmento assim
+que o recebe. Não inclua o token em logs, relatórios ou screenshots.
+
+### POST `/staff/accept-invite`
+
+Público, com rate limit por IP e origem confiável. Corpo:
+
+```json
+{ "token": "64-caracteres-hex", "password": "senha-única-com-no-mínimo-12-caracteres" }
+```
+
+A senha é escolhida pelo próprio funcionário, com 12 a 72 bytes,
+e armazenada com bcrypt. Em transação única: trava o convite,
+confere expiração e uso único, cadastra o usuário, cria vínculo
+`user_tenants(active=true)`, atribui o papel aprovado,
+marca o convite como aceito e grava auditoria. O token usado
+não pode ser reutilizado. Retorna `201 {"status":"registered"}`.
+Um convite inválido, consumido ou expirado retorna 422. Não existe
+elevação para administrador via ativação.
+
+### PUT `/staff/{id}/role`
+
+Exige `team:manage` e origem confiável. Corpo
+`{"role":"manager"}` ou `{"role":"cashier"}`.
+Protege o próprio usuário administrador e todos os usuários com papel
+`admin`, mesmo que haja uma requisição de outro tenant.
+Substitui somente os papéis do usuário na **empresa atual**,
+com auditoria e transação.
+
+### PUT `/staff/{id}/status`
+
+Exige `team:manage` e origem confiável. Corpo
+`{"active":false}` ou `{"active":true}`.
+Suspende ou reativa **somente o vínculo da empresa atual**;
+não altera `users.active` global, não deleta vínculos históricos,
+não revoga sessões de outras empresas. Acesso e permissões do
+tenant suspenso são rejeitados já na próxima chamada, inclusive
+a partir de JWT ainda não expirado.
+
+### DELETE `/staff/invitations/{id}`
+
+Exige `team:manage` e origem confiável. Revoga convite pendente
+da empresa autenticada; retorna 204 ou 404 se não for um convite
+pendente daquele tenant.
+
+Os fluxos de escrita são auditados na mesma transação; tokens e
+senhas não são incluídos nos eventos. Essa etapa exige execução
+real de migrations, testes Go/integração, E2E e piloto operacional
+antes de uso de produção.
+
+## Clientes — diretório de contatos por CNPJ
+
+O diretório administrativo usa a tabela `customers` já vinculada
+por `tenant_id`. A migration **0034** concede `customer:read` e
+`customer:write` apenas aos papéis `admin` e `manager`
+existentes no provisionamento. O operador `cashier` não recebe
+automaticamente acesso a nomes, e-mails ou telefones.
+O endpoint rejeita parâmetros `tenant_id` externos; não permite
+acesso a clientes de outra pessoa jurídica.
+
+### GET `/customers?q=&limit=20&offset=0`
+
+Exige `customer:read`. Busca opcional por fragmento do nome
+(`q` até 100 caracteres). Página de 1 a 50, `offset` entre 0
+e 5000, com número total e ordenação estável por criação/id.
+Parâmetros desconhecidos, duplicados ou fora do intervalo retornam
+422. Resposta com `Cache-Control: no-store`:
+
+```json
+{
+  "items": [{
+    "id": "uuid",
+    "name": "Maria Silva",
+    "email": "maria@example.com",
+    "phone": "(11) 99999-0000"
+  }],
+  "total": 1, "limit": 20, "offset": 0
+}
+```
+
+### POST `/customers`
+
+Exige `customer:write` e origem confiável. Corpo:
+`{"name":"Maria Silva","email":"maria@example.com","phone":"(11) 99999-0000"}`.
+E-mail e telefone podem ser `null`; nome exige entre 2 e
+120 caracteres, e-mail válido até 254 bytes e telefone até 30 bytes.
+Não há campo de CPF/documento no formulário desta etapa.
+Retorna 201 com registro cadastrado, sob o tenant autenticado.
+
+### PUT `/customers/{id}`
+
+Exige `customer:write` e origem confiável. Mesmo corpo de
+cadastro. `id` deve ser UUID existente **na mesma empresa**;
+caso contrário, retorna 404. Todas as escritas são transacionais
+e gravam auditoria `customer.create` ou `customer.update`
+sem copiar nomes, e-mails ou telefones para os metadados de auditoria.
+Não há opção de exclusão nem de importação em massa nesta etapa.
+
+Criação e edição revalidam a permissão `customer:write` e o vínculo
+ativo do usuário dentro da transação, mesmo se o middleware de
+rota for contornado. A busca `q` é literal: `%` e `_` não são
+curingas de SQL.
+
+**Fora do escopo:** crediário, contas a receber, políticas de
+cobrança, CPF/CNPJ, autorização para envio comercial de mensagens,
+unificação de identidades entre empresas, retenção e exclusão LGPD
+automatizadas por essa tela. A equipe deve seguir as políticas de
+minimização e retenção documentadas e validar os fluxos em ambiente real.
 
 ## Products
 
@@ -77,6 +256,12 @@ Response:
 ```json
 { "items": [{ "id": "...", "sku": "SKU001", "name": "Coca 2L", "price_cash": 10.9, "active": true }], "total": 1 }
 ```
+
+### GET `/products/barcode/{barcode}`
+
+Returns the active tenant's product with an exact barcode match. Barcode uniqueness is tenant-scoped, so independent stores can register the same manufacturer EAN/GTIN without sharing catalog data.
+
+This endpoint is intended for PDV scanner fallback when the product is not already available in the browser's local catalog cache.
 
 ### POST `/products`
 
@@ -98,19 +283,306 @@ Response:
 
 Money values accept at most 2 decimal places. Quantity values accept at most 3 decimal places.
 
+### POST `/products/import-batches`
+
+Creates **1–500 products atomically** under the authenticated company.
+Requires `product:write`, trusted request origin, and
+`Idempotency-Key` (8–128 characters). Applies a tenant-scoped rate limit.
+
+```json
+{
+  "items": [
+    {
+      "sku": "ARROZ-5KG",
+      "name": "Arroz 5kg",
+      "unit": "un",
+      "price_cash": 24.90,
+      "min_stock": 5,
+      "barcode": null,
+      "ncm": null,
+      "cest": null,
+      "cost_price": 0,
+      "active": true
+    }
+  ]
+}
+```
+
+Responses: **201** `{"batch_id":"...","item_count":1,"replayed":false}`;
+**200** with `replayed:true` for an identical committed attempt,
+**409** when the key's previous payload differs or an existing SKU/barcode
+conflicts, **422** for invalid input, **403** without permission.
+
+Validation and normalization take place in the backend. Product records,
+their zero stock balances, the receipt and the audit event commit in
+one transaction; any failure rolls back the entire batch. This endpoint
+does **not** increase stock or authorize fiscal issuance. Without
+`finance:read`, server-side cost is forced to zero.
+
+### GET `/imports/history`
+
+Unified, read-only, chronologically ordered list of **committed**
+product CSV and opening-stock batches, under the currently authenticated
+company. The server requires at least one of `product:write` or
+`inventory:adjust` and checks them **independently** for each stream.
+A user with only `product:write` does not see opening stock; a user
+with only `inventory:adjust` does not see product import batches.
+Without either permission returns **403**, even when the company has
+no batches.
+
+Optional `limit` (1–50, default 20), `offset` (0–5000, default 0),
+`from` and `to` use the same strict date filtering as the separate
+histories (`America/Sao_Paulo`, inclusive calendar days, maximum
+365 days between both bounds); malformed filters return **422**.
+Pagination is applied **after** SQL UNION ALL, in global order
+`created_at DESC, kind ASC, batch_id DESC`. This avoids omitting a
+type or showing duplicated records when the two streams interleave.
+
+```json
+{
+  "items": [
+    {
+      "batch_id": "00000000-0000-4000-8000-000000000032",
+      "kind": "products",
+      "item_count": 10,
+      "actor_name": "Gerente",
+      "created_at": "2026-10-08T18:00:00Z"
+    }
+  ],
+  "limit": 20,
+  "offset": 0,
+  "has_more": false
+}
+```
+
+`kind` is `products` or `opening-stock`. No tenant identifier is
+accepted from clients. Receipts have no CSV contents, SKUs, financial
+values, certificate material, request hashes or idempotency keys.
+Only *confirmed* batches are shown; missing receipts must not be
+interpreted as failure or rollback of an in-flight request. The
+endpoint is never cached (`Cache-Control: no-store`).
+Combined CSV export is intentionally **not** exposed: use the existing
+module-scoped endpoints where appropriate.
+
+### GET `/products/import-batches/history`
+
+Requires `product:write`. Lists **committed** product CSV batch receipts
+for the authenticated company. Optional `limit` (default 20, 1–50)
+and `offset` (default 0, 0–5000) must be single valid integers.
+Optional `from` and `to` parameters are strict ISO calendar dates (`YYYY-MM-DD`)
+using **America/Sao_Paulo** business-day boundaries (both days inclusive).
+If both are provided, the dates must be ordered and at most 365 days apart.
+Invalid input returns **422**, unauthorized clients **403**.
+
+Response, for example:
+```json
+{
+  "items": [{
+    "batch_id": "00000000-0000-4000-8000-000000000032",
+    "item_count": 10,
+    "actor_name": "Gerente",
+    "created_at": "2026-10-08T18:00:00Z"
+  }],
+  "limit": 20,
+  "offset": 0,
+  "has_more": false
+}
+```
+
+Newest first; ties resolved by batch ID. Returns only receipt metadata,
+without import keys, hashes, CSV rows, costs, product lists, certificates or
+fiscal data. A missing receipt cannot prove an in-flight POST has finished.
+The history does **not** include older, pre-migration per-product operations.
+Uses `Cache-Control: no-store`.
+
+### GET `/products/import-batches/history/export.csv`
+
+Exports **all matching committed receipts**, not just the current UI page,
+as a semicolon-delimited UTF-8 CSV with BOM and fixed filename.
+Requires `product:write`. Accepts optional `from` and `to` date bounds
+with the same validation as the paginated list; rejects `limit`/`offset`.
+Includes only UTC creation date, actor display name, number of items and
+batch UUID. No CSV rows, SKU, price/cost, tax data, idempotency keys, request
+hashes, certificates or access tokens are included. Actor display names are
+escaped for Excel/Calc formula injection.
+
+The export is limited to **1,000 matching receipts**. If more exist, returns
+**422** (and no CSV content) asking for a shorter date interval; invalid
+dates and malformed filters also return 422. Successful downloads use
+`Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+The API rate-limits downloads per company/user.
+
+### GET `/products/import-batches/{key}`
+
+Requires `product:write`. Checks the authenticated company's *committed*
+receipt without returning any CSV contents, prices, or product data.
+Returns **200** `{"batch_id":"...","item_count":1,"replayed":true}`,
+**404** when no committed receipt is visible, **403** for unauthorized,
+and **422** for an invalid key. Uses `Cache-Control: no-store`.
+
+After ambiguous POST failures, keep the *same key and same payload*.
+A 404 is not proof that a prior request has finished; never generate a
+new idempotency key automatically to retry.
+
 ## Inventory
 
-### GET `/inventory/low-stock`
+### GET `/inventory/low-stock?limit=50`
 
-Returns products with `qty_on_hand <= min_stock`.
+Requires `inventory:read`. Returns tenant-scoped active products with `qty_on_hand <= min_stock`, sorted by deficit. The response contains `items` (limited to at most 500) and `total` (the **full** tenant-wide count, not truncated to the list limit). The list can be empty even when other tenants have low stock. Product cost is hidden without `finance:read`.
+
+### GET `/inventory/movements`
+
+Requires `inventory:read`; returns tenant-scoped stock movements,
+with `limit` (1–500, default 100), `offset` (0–5000, default 0),
+and optional `product_id` (UUID). Unknown or duplicate parameters,
+malformed UUIDs and out-of-range pagination return HTTP 422.
+The response
+includes the existing movement quantities and references, now also
+`product_sku` and `product_name` via a tenant-safe SQL JOIN to
+the product catalog. Ordering is stable by `created_at DESC, id DESC`.
+
+```json
+{
+  "items": [{
+    "id": "uuid",
+    "product_id": "uuid",
+    "product_sku": "ARROZ-5",
+    "product_name": "Arroz 5kg",
+    "movement_type": "sale",
+    "delta": -1,
+    "qty_before": 12,
+    "qty_after": 11,
+    "reason": null,
+    "created_at": "2026-10-08T20:00:00Z"
+  }],
+  "total": 1
+}
+```
+
+The new `/stock-movements` page uses the existing API to display
+sale, return, purchase, adjustment, damage and loss events in a
+read-only timeline, and lets a user filter by an ID taken from a
+server-returned product. It **does not** authorize stock changes
+or prove that the physical stock has been counted.
+
+### POST `/inventory/opening-stock`
+
+Requires `inventory:adjust`, authentication, and `Idempotency-Key` of 8–128 characters.
+For a **new store's first stock count only**, submit the SKU and absolute quantity
+(not a delta). Each item must have an existing active SKU in the authenticated tenant.
+
+```json
+{
+  "items": [
+    { "sku": "PROD-001", "quantity": 15 },
+    { "sku": "PROD-002", "quantity": 4.5 }
+  ]
+}
+```
+
+The request accepts **1–100 distinct SKUs**, positive quantities with at most
+three decimal places, and applies the batch atomically. The database acquires
+row locks and refuses **every row** if any SKU is missing/inactive, has nonzero
+stock, or has ever had an inventory movement—even if its balance is zero now.
+Repeated requests with the same tenant/key and equivalent sorted payload return
+`200` with `replayed: true`, preserving the original `batch_id`, and never
+write a second movement. A changed payload under the same key, or a second
+opening batch for already used products, returns `409 conflict`.
+
+Successful first submission returns `201` with `batch_id`, `item_count`
+and `replayed: false`. `404` means at least one SKU does not belong to
+that tenant; `422` means malformed input. The batch, movements, balances and
+audit event are committed in **one transaction**; it is never a partial import.
+Operation `opening_stock` is reserved for initialization, not normal adjustments.
+
+### GET `/inventory/opening-stock/batches/history`
+
+Requires `inventory:adjust`. Lists only **committed opening-stock**
+receipts for the authenticated company, newest first. Supports the same
+validated `limit` (1–50), `offset` (0–5000), optional inclusive
+`from`/`to` business-day filters in America/Sao_Paulo, `has_more` pagination,
+response fields and `Cache-Control: no-store` as product history.
+No inventory quantities, SKU list, CSV contents, idempotency key or
+request hash are returned. A failed/unconfirmed/in-flight request does
+not appear in the history.
+
+### GET `/inventory/opening-stock/batches/history/export.csv`
+
+Requires `inventory:adjust`. Same filtered CSV contract, spreadsheet formula
+neutralization, 1,000-receipt cap and no-store protections as product import
+history. Only metadata of **committed opening-stock batches** of the
+authenticated company is exported; inventory movement details, SKUs and
+counts per product are never exported. Filenames distinguish product from
+opening-stock import history. Timestamps are explicitly UTC in the CSV.
+
+### GET `/inventory/opening-stock/batches/{key}`
+
+Read-only recovery of an opening-stock batch (requires
+`inventory:adjust`). The key is the original `Idempotency-Key`
+used on POST, between 8 and 128 characters. The authenticated
+`tenant_id` determines the company and cannot be supplied by the client.
+
+- **200**: `{"batch_id":"...","item_count":3,"replayed":true}`;
+  the server confirms that this batch committed.
+- **404**: no committed batch with this key is visible in this company.
+  It does **not** prove a request is not still running.
+- **403**: insufficient permission; **422**: invalid key.
+
+No customer/product/quantity data or request digest is exposed. Responses
+use `Cache-Control: no-store`. If a prior POST had an ambiguous result,
+replay only the exact same payload with the original key; never blindly
+generate a fresh one to "retry".
 
 ### POST `/inventory/adjust`
 
 ```json
-{ "product_id": "...", "delta": 10, "reason": "Entrada por compra", "type": "purchase" }
+{ "product_id": "...", "delta": -2, "reason": "Perda identificada no inventário", "type": "loss" }
 ```
 
+### GET `/inventory/stock-report.csv`
+
+Requires `inventory:read`. Generates a download of the **entire
+catalog of the authenticated CNPJ** (active and inactive products,
+including those that are not low-stock), limited to 5,000 records.
+The response contains only SKU, product name, unit, current quantity,
+minimum quantity, low-stock status, and whether the item is active.
+No costs, prices, profits, fiscal documents, user identities,
+hashes or cross-tenant information are included.
+
+The report is a read-only snapshot and does not perform physical
+inventory counts, stock adjustments or reservation of quantities.
+Query parameters (especially `tenant_id`) are rejected with 422.
+The CSV is UTF-8 with BOM and semicolon separator, quantity
+decimals in Brazilian notation, and formula-injection escaping.
+Responses use `Cache-Control: no-store` and `nosniff`, with
+an IP/user/tenant rate limit. A catalog larger than 5,000 items
+returns 422 **without a partial CSV**; full streaming/filtered export
+for larger stores remains planned.
+
+### GET `/finance/products-ranking`
+
+Requires `finance:read`; `from=YYYY-MM-DD` and `to=YYYY-MM-DD`
+are mandatory calendar dates in Brazil/Sao_Paulo and must be ordered
+within 366 days. `limit` defaults to 10, max 50, with strict 422
+for invalid dates/duplicates/range/limit. The authenticated company
+is taken exclusively from the JWT, never from query params.
+
+The result lists products of **finalized** sales ordered by the
+recorded sum of sale-item subtotals, with product ID, SKU, name, number
+of distinct finalized sales, summed units and item-level sale amount
+(both as exact decimal strings, not float accounting values).
+Cancelled sales are excluded. Does **not** offset partial returns,
+refunds, fees, taxes or operating expenses and is **not net profit**.
+No cost/margin fields or other CNPJs are exposed; response is
+`Cache-Control: no-store`.
+
 ## Cash / PDV
+
+
+Manual inventory adjustment accepts only `adjustment`, `loss`, and `damage`. `purchase` and `return` movements are reserved for the transactional procurement and return workflows.
+### GET `/cash/sessions/current`
+
+Returns the currently open session for the tenant's default cash register. This endpoint is used to recover browser state after a lost or ambiguous open-session response. It returns `404 not_found` when no session is open.
 
 ### POST `/cash/sessions/open`
 
@@ -179,29 +651,335 @@ Idempotency behavior:
 { "reason": "Erro de operacao" }
 ```
 
+## Suppliers and Purchases
+
+All routes are tenant-scoped.
+
+### GET `/suppliers`
+
+Supports `query`, `limit`, and `offset`.
+
+### POST `/suppliers`
+
+Requires `Idempotency-Key`. Replaying the same key with the same normalized request returns the original supplier with `"replayed": true`; reusing the key with a different request returns `409 conflict`.
+
+```json
+{
+  "name": "Distribuidora Exemplo",
+  "document": "11222333000199",
+  "email": "compras@example.com",
+  "phone": "34999999999",
+  "contact_name": "Representante",
+  "notes": null,
+  "active": true
+}
+```
+
+### PUT `/suppliers/{id}`
+
+Updates one tenant-scoped supplier.
+
+### GET `/purchases`
+
+Supports `status` with `ordered`, `partially_received`, `received`, or `cancelled`, plus `limit` and `offset`.
+
+### POST `/purchases`
+
+Requires `Idempotency-Key`. Replaying the same key and request returns the original purchase instead of creating another order or account payable. A changed request with the same key returns `409 conflict`.
+
+Creates an ordered purchase. Creating the purchase does **not** change inventory.
+
+```json
+{
+  "supplier_id": "...",
+  "invoice_number": "NF-123",
+  "payment_due_date": "2026-12-31",
+  "notes": "Entrega em duas etapas",
+  "items": [
+    { "product_id": "...", "qty": 10, "unit_cost": 7.5 }
+  ]
+}
+```
+
+When `payment_due_date` is present, an open account-payable record is linked to the purchase.
+
+### GET `/purchases/{id}`
+
+Returns the purchase, ordered/received quantities per item, and receipt history.
+
+### POST `/purchases/{id}/receive`
+
+Requires `Idempotency-Key`. The key is persisted in the same transaction as the receipt and stock movement, so retrying after an ambiguous/lost response cannot credit inventory twice.
+
+Receives any positive quantity up to the remaining ordered quantity.
+
+```json
+{
+  "items": [
+    { "purchase_item_id": "...", "qty": 4.5 }
+  ],
+  "notes": "Primeira entrega"
+}
+```
+
+The operation is transactional: it updates purchase quantities, credits inventory, writes `purchase` inventory movements with `purchase_receipt` references, updates the current product cost, and records a receipt. Partial receipts set the purchase to `partially_received`; the final receipt sets it to `received`.
+
+### POST `/purchases/{id}/cancel`
+
+Cancels only purchases with no received quantity. An associated open account payable is cancelled as part of the same transaction.
+
 ## Finance
 
 ### GET `/finance/dashboard?from=2026-01-01&to=2026-01-31`
 
 Returns aggregated ledger totals for the period.
 
+### GET `/finance/overview?from=2026-01-01&to=2026-01-31`
+
+Requires `finance:read`, and uses **only** the authenticated tenant. Date filters use the ledger posting date (inclusive on the start date and exclusive after the end date). Returns:
+
+```json
+{
+  "from": "2026-01-01",
+  "to": "2026-01-31",
+  "overview": {
+    "sales_after_cancellations": 1200.00,
+    "estimated_gross_profit": 250.00,
+    "refunds_recorded": 40.00,
+    "sales_count": 80,
+    "cancelled_count": 2
+  }
+}
+```
+
+The numbers above are an **illustrative response**, not real store data. Profit is a **gross estimate** derived from posted sale/cancellation ledger entries: it **does not** account for returns, taxes, provider fees, costs outside item cost, or operating expenses. Sales after cancellations do **not** subtract return refunds. Refunds are shown separately. Cancelled transactions may originate in a different period than the initial sale, so the report must not be presented as a bank settlement or accounting profit.
+
+### GET `/finance/payments`
+
+Lists tenant-scoped payments. Optional filters: `from`, `to`, `method`, `status`, `limit`, and `offset`.
+
+Non-cash payments start as `pending`; cash payments use `not_applicable` because physical cash is reconciled at cash-session close.
+
+Sales may carry provider-neutral transaction metadata:
+
+```json
+{
+  "method": "credit",
+  "amount": 120,
+  "provider": "acquirer-name",
+  "transaction_ref": "provider-transaction-id",
+  "authorization_code": "ABC123",
+  "installments": 3
+}
+```
+
+All metadata fields except `method` and `amount` remain optional.
+
+### POST `/finance/payments/{id}/reconcile`
+
+Requires `finance:reconcile` and `Idempotency-Key`.
+
+```json
+{
+  "received_amount": 120,
+  "fee_amount": 3.5,
+  "provider": "acquirer-name",
+  "external_ref": "settlement-batch-id",
+  "notes": "Conciliação do lote"
+}
+```
+
+The backend stores the initial reconciliation as immutable history. A gross received amount different from the sale payment marks the payment `divergent`; provider fees are tracked separately and do not change the original sale. If `provider` or `external_ref` is supplied, both fields are required as a pair. Payment `transaction_ref` remains the original sale/payment transaction identifier; reconciliation `external_ref` is a separate settlement/reconciliation identifier and never overwrites it.
+
+A second initial reconciliation for the same payment returns `409 conflict`. Corrections use the explicit adjustment endpoint below.
+
+### POST `/finance/payments/{id}/reconciliation-adjustments`
+
+Requires `finance:reconcile` and `Idempotency-Key`. It is valid only after a non-cash payment has an initial `reconciled` or `divergent` result.
+
+```json
+{
+  "received_amount": 120,
+  "fee_amount": 3.5,
+  "notes": "Correção após conferência do extrato"
+}
+```
+
+The original reconciliation row is not changed. A new adjustment row records the previous and corrected received/fee values, the resulting status, operator, justification and timestamp. Same-key replay returns the original adjustment; a no-op adjustment is rejected.
+
+### GET `/finance/payments/{id}/reconciliation-history`
+
+Requires `finance:read`. Returns the immutable initial reconciliation plus all subsequent adjustment rows in chronological order.
+
+```json
+{
+  "initial": {
+    "status": "divergent",
+    "received_amount": 119,
+    "fee_amount": 3.5,
+    "external_ref": "settlement-batch-id"
+  },
+  "adjustments": [
+    {
+      "previous_received_amount": 119,
+      "new_received_amount": 120,
+      "previous_fee_amount": 3.5,
+      "new_fee_amount": 3.5,
+      "status": "reconciled",
+      "notes": "Correção após conferência do extrato"
+    }
+  ]
+}
+```
+
+### GET `/finance/refunds`
+
+Lists return refund obligations and derives `pending`, `partial`, or `settled` from the amount already paid back.
+
+### POST `/finance/returns/{id}/refunds`
+
+Requires `finance:reconcile` and `Idempotency-Key`.
+
+```json
+{
+  "method": "pix",
+  "amount": 15,
+  "provider": "bank-or-acquirer",
+  "external_ref": "refund-id",
+  "cash_session_id": "optional-open-session-id",
+  "notes": "Saldo devolvido ao cliente"
+}
+```
+
+The sum of settlements can never exceed the return's `refund_due`. Cash refunds require an open cash session, sufficient physical cash, and create a real cash withdrawal. Cash refunds cannot carry provider/external-reference metadata. For digital refunds, provider and external reference remain optional, but when one is supplied the other is required. Digital refunds may optionally be associated with an open session so the method-level cash close reconciliation uses the net value. Every settlement also creates a negative `return_refund` ledger entry.
+
+## Store setup: manual review acknowledgements
+
+All paths below use the `/api/v1` prefix. The caller's authenticated
+`tenant_id` identifies the company; clients cannot choose another CNPJ.
+
+### GET `/setup/reviews`
+
+Requires `invoice:generate` (restricted to authorized setup managers).
+Returns a list of manual review acknowledgements only:
+
+```json
+{"items":[{"step":"stock","reviewed_at":"2026-10-08T20:00:00Z"}]}
+```
+
+The only accepted step values are `stock` and `team`. Missing steps
+remain unreviewed, and a record is **not** evidence of completed stock
+reconciliation, employee provisioning or SEFAZ readiness.
+
+### PUT `/setup/reviews/{step}`
+
+Requires `invoice:generate`, a valid session and a trusted request origin.
+Body `{"reviewed":true}` records/repeats a review; `{"reviewed":false}`
+reopens it. Both return the same `{"items":[...]}` shape as GET.
+
+Writes are scoped to the authenticated company and audit-logged
+transactionally. The endpoint never accepts a company identifier,
+a free-text note, credentials or fiscal certificates. Invalid steps return
+422 and malformed/omitted `reviewed` returns 400.
+
 ## Fiscal
 
-### POST `/fiscal/nfe/xml`
+The repository currently implements **NFC-e model 65 preparation**, not real SEFAZ authorization. Production-like environments must keep `FISCAL_PROVIDER=disabled` until a SEFAZ-ready provider is implemented and homologated.
+
+All routes below are tenant-scoped and require JWT authentication plus the indicated RBAC permission.
+
+### GET `/fiscal/nfce/readiness`
+
+Requires `invoice:read`.
+
+Returns non-secret readiness indicators for NFC-e homologation preparation:
 
 ```json
-{ "sale_id": "..." }
+{
+  "tenant_id": "...",
+  "model": 65,
+  "issuer_identity_configured": true,
+  "issuer_address_configured": true,
+  "municipality_code_configured": true,
+  "config_exists": true,
+  "transmission_enabled": false,
+  "environment": "homologation",
+  "series": 1,
+  "csc_reference_configured": false,
+  "certificate_reference_configured": true,
+  "active_products": 120,
+  "products_missing_ncm": 0,
+  "ready_for_homologation_data": true,
+  "blocking_reasons": []
+}
 ```
 
-Response:
+`ready_for_homologation_data=true` means only that the repository has the minimum non-secret data prepared. It does **not** mean the tenant is authorized or homologated by SEFAZ.
+
+### GET `/fiscal/nfce/issuer`
+
+Requires `invoice:read`.
+
+Returns legal identity plus the editable NFC-e issuer profile. Legal name and CNPJ are read-only through this fiscal endpoint.
+
+### PUT `/fiscal/nfce/issuer`
+
+Requires `invoice:generate`.
+
+Updates IE, CRT and issuer address data used for NFC-e preparation:
 
 ```json
-{ "invoice_id": "...", "xml_file_id": "..." }
+{
+  "ie": "110042490114",
+  "crt": "4",
+  "address_street": "Avenida Fiscal",
+  "address_number": "100",
+  "address_complement": null,
+  "address_neighborhood": "Centro",
+  "address_city": "Uberlandia",
+  "address_city_code": "3170206",
+  "address_state": "MG",
+  "address_zip": "38400000"
+}
 ```
+
+`crt` accepts `1`, `2`, `3`, or `4`. Municipality code must contain 7 digits and ZIP 8 digits.
+
+### GET `/fiscal/nfce/config`
+
+Requires `invoice:read`.
+
+Returns the tenant NFC-e preparation state. Secret-store references are never returned. `certificate_reference_configured` is the current required secret-reference indicator. `csc_reference_configured` is informational/legacy because QR Code v3 does not require CSC.
+
+### PUT `/fiscal/nfce/config`
+
+Requires `invoice:generate`.
+
+Stores the **reference** to the A1 certificate material in an external secret store:
+
+```json
+{
+  "environment": "homologation",
+  "series": 1,
+  "certificate_secret_ref": "secret://nfce/certificate"
+}
+```
+
+QR Code v3 does not require CSC. The API still accepts `csc_id` plus `csc_secret_ref` as an optional legacy pair, but they are not a readiness requirement. The backend forces `enabled=false` regardless of input. Certificate/legacy CSC secret values must not be sent to this endpoint or stored in source control.
+
+### GET `/fiscal/nfe/xml`
+
+Requires `invoice:read`. Lists historical XML files and development previews already stored for the tenant.
 
 ### GET `/fiscal/nfe/xml/{id}/download`
 
-Returns `application/xml`.
+Requires `invoice:read`. Returns `application/xml`.
+
+### POST `/fiscal/nfe/xml` — development preview only
+
+Available only when `FISCAL_PROVIDER=mvp` (development/test). The MVP provider now produces an explicitly marked **NFC-e model 65 preview** and requires product NCM, but it is not signed, authorized, transmitted, protocolled, or suitable for fiscal use.
+
+This route is not registered when `FISCAL_PROVIDER=disabled`.
 
 ## Metrics
 
@@ -328,3 +1106,34 @@ Metadata keys containing secrets, tokens, cookies, authorization values, credent
 RBAC is tenant-scoped. Effective permissions come from `user_tenant_roles` joined with `role_permissions`, filtered by the authenticated `tenant_id` and `user_id`. A role assigned in tenant A does not grant permissions in tenant B.
 
 In staging/production, users must have an explicit `user_tenants` membership. The legacy fallback to the first company is available only for development/test databases that predate tenant membership migrations.
+
+
+## Returns and exchanges
+
+### POST `/sales/{id}/returns`
+
+Requires permission `sale:return` and header `Idempotency-Key`.
+
+Registers a partial or full return against a finalized sale. The backend computes the refundable amount from the original net sale value; clients cannot choose the refund amount.
+
+```json
+{
+  "kind": "return",
+  "reason": "Tamanho incorreto",
+  "items": [
+    { "sale_item_id": "uuid", "qty": 1, "restock": true }
+  ]
+}
+```
+
+Use `kind: "exchange"` when the returned merchandise is part of an exchange. The replacement is created as a normal new sale in the PDV. `restock=false` records the return without crediting sellable stock (for example, damaged merchandise).
+
+Response includes `refund_due` and `refund_status: "pending"`. Financial settlement/refund is intentionally separate.
+
+### GET `/returns`
+
+Lists return/exchange records. Optional query: `sale_id`.
+
+### GET `/returns/{id}`
+
+Returns the header and returned items for one return.

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SistemaEmGo">
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <rect x="66" y="66" width="380" height="380" rx="96" fill="#0284c7"/>
+  <path d="M144 224h224M144 288h224" stroke="#bae6fd" stroke-width="18" stroke-linecap="round" opacity=".45"/>
+  <text x="256" y="295" fill="white" font-size="157" font-family="Arial,sans-serif" font-weight="bold" text-anchor="middle">SG</text>
+</svg>

@@ -86,3 +86,34 @@ func TestSale_PodeCancelar(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestSaleItem_CalcularSubtotal_RejectsMoneyRangeOverflow(t *testing.T) {
+	it := sales.SaleItem{
+		Qty:       platform.NewQuantityMilli(2_000),
+		UnitPrice: platform.NewMoneyCents(999_999_999_999),
+	}
+	if _, _, err := it.CalcularSubtotal(); err != sales.ErrInvalidMoney {
+		t.Fatalf("want ErrInvalidMoney for overflowing line total, got %v", err)
+	}
+}
+
+func TestSale_CalcularTotal_RejectsAggregateMoneyRangeOverflow(t *testing.T) {
+	s := sales.NewFinalizedSale("cs", nil, "u", 0)
+	items := []sales.SaleItem{
+		{ProductID: "p1", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(600_000_000_000)},
+		{ProductID: "p2", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(600_000_000_000)},
+	}
+	if _, err := s.CalcularTotal(items); err != sales.ErrInvalidMoney {
+		t.Fatalf("want ErrInvalidMoney for overflowing sale total, got %v", err)
+	}
+}
+
+func TestSale_CalcularTotal_RejectsZeroTotal(t *testing.T) {
+	s := sales.NewFinalizedSale("cs", nil, "u", platform.NewMoneyCents(1000))
+	items := []sales.SaleItem{
+		{ProductID: "p1", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(1000)},
+	}
+	if _, err := s.CalcularTotal(items); err != sales.ErrInvalidMoney {
+		t.Fatalf("want ErrInvalidMoney for zero-total sale, got %v", err)
+	}
+}

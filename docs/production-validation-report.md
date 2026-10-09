@@ -1,5 +1,61 @@
 # Production Validation Report
 
+
+## Revalidation — 2026-09-23 (retail roadmap integration / static hardening)
+
+- Integration PR: #15, `ops/pilot-readiness-20260923` → `main`.
+- Reviewed application/docs HEAD before this report refresh: `916e17f237d2784b92f902d29c7449342db79784`.
+- Blocked run on that exact HEAD: GitHub Actions `35951869112`; all six required jobs completed as failure with zero executed steps and no assigned runner.
+- This report refresh itself changes documentation only; merge still requires a runner-backed execution of the final PR SHA.
+- Scope integrated: barcode/PDV scanner, suppliers and purchases, partial receiving, returns/exchanges, payment reconciliation/refunds, PDV shortcuts/suspended carts/discount RBAC, and pilot-readiness documentation.
+- This round also performed a static E2E/code audit while GitHub-hosted runners were unavailable before job startup.
+- Representative blocked run: GitHub Actions `35926193338`; all six jobs (`backend`, `frontend`, `integration`, `security`, `e2e`, `e2e-prodlike`) completed as failure with zero executed steps and no assigned runner. Therefore this round does **not** claim dynamic CI evidence for the final SHA.
+- Merge gate remains closed until the final PR SHA executes on real runners and all required jobs pass.
+
+### Findings closed in the integration branch
+
+- Sales test fake updated for the return guard interface; multiple Go formatting/import blockers found by static review were corrected.
+- Cash closing now supports negative net digital methods when refunds in the session exceed sales, while physical cash remains non-negative.
+- Procurement payables gained tenant-safe composite foreign keys; direct cross-tenant supplier/purchase linkage is covered by integration checks.
+- Procurement uses dedicated `procurement:read`, `procurement:write`, and `procurement:receive` permissions; cashier has no procurement access by default.
+- Purchase creation rejects inactive suppliers/products; stock and cost still change only on receipt.
+- Purchase create/receive/cancel audit events are written in the same transaction as the business mutation.
+- Manual inventory adjustment can no longer forge `purchase` or `return` movements; these types are reserved to the dedicated transactional modules.
+- Product duplicate SKU/barcode writes map to HTTP 409; missing product update targets map to 404.
+- Product cost, sale item cost and estimated profit are redacted from users without `finance:read`; hidden cost is preserved server-side on product updates.
+- Product/stock write controls are hidden when the current tenant permissions do not allow them; backend RBAC remains authoritative.
+- Return list/detail reads now require `sale:return`.
+- Each digital payment accepts one immutable initial reconciliation. Same-key replay remains idempotent; a second initial reconciliation with another key returns conflict and the database has a unique tenant/payment guard.
+- Migration `0022` adds immutable reconciliation-adjustment history. Corrections preserve the initial row, record prior/new received amount and fee plus justification/operator/timestamp, are idempotent, and are queryable through `finance:read`.
+- Payment `transaction_ref` remains the original sale/payment identifier; reconciliation `external_ref` is stored separately and never overwrites the original transaction metadata.
+- Refund close logic remains single-counted: cash refunds use cash withdrawal; digital refunds linked to a session reduce that method directly.
+- Barcode uniqueness conflicts, cashier procurement denial, cashier cost/profit redaction, reserved inventory movement types, negative digital close, inactive purchase products, purchase cancellation and transactional purchase audit have E2E coverage added to the suite.
+- Product create/update, supplier create/update, purchase create/receive/cancel and manual inventory adjustments now write audit events in the same transaction as the business mutation.
+- Product catalog text is normalized before validation; invalid promotional pricing (`promo_price > price_cash`) is rejected.
+- PDV now uses the same effective promotional price as the backend, refreshes prices before resuming a suspended cart, refuses stale offline catalog cache after 24 hours, and never silently evicts an older suspended cart when the local cap is reached.
+- Finance reconciliation requires provider/external-reference pairs when settlement metadata is supplied, prevents duplicate initial reconciliation per payment, supports explicit audited adjustments/history, and preserves exact idempotent replay payloads for refunds.
+- Pilot preflight now requires schema >=23, validates 36 critical tables plus reconciliation-history immutability triggers, a current DFe-compatible 14-character CNPJ, active cash register, clean no-open-session baseline, sellable stock, active supplier, valid promotional pricing, least-privilege runtime DB credentials and separated operator/responsible-user duties.
+
+### NFC-e foundation added after the static retail audit
+
+- Migration `0023_nfce_foundation` adds model-65-only sequencing, tenant NFC-e configuration, issuer municipality IBGE code, product NCM/CEST fields, and invoice authorization/rejection metadata.
+- NFC-e config stores only secret-manager references; API responses never expose CSC/certificate references and SQL forces preparation state to `enabled=false`.
+- Config actor is protected by a composite tenant/user foreign key to `user_tenants`.
+- Product writes validate NCM as 8 digits and CEST, when present, as 7 digits.
+- The development MVP output was converted from an ambiguous model-55 stub to an explicit model-65 non-fiscal preview that refuses missing NCM.
+- `GET /fiscal/nfce/readiness` reports tenant data blockers without exposing secrets.
+- Issuer and preparation config can be maintained through RBAC-protected endpoints/UI while transmission stays disabled.
+- Integration/E2E/CI coverage was added for migration rollback/reapply, tenant isolation, invalid series/model/NCM, secret-reference non-disclosure and absence of an issuance/transmission action in the production-facing UI.
+- This foundation is **not** SEFAZ authorization and does not claim fiscal homologation.
+
+### Current verdict
+
+The integrated branch is **statically hardened and mergeable, but not merge-approved**. Dynamic validation is still blocked outside the application because GitHub Actions is not provisioning a runner. Once Actions can execute again, the final SHA must pass backend, frontend, integration, security, browser E2E and production-like E2E before merge.
+
+The fiscal gate remains closed for real issuance, but the repository now contains the NFC-e model 65 preparation foundation: migration `0023`, tenant-scoped issuer/config readiness, product NCM/CEST, secret-store references, fiscal sequencing metadata, safe preparation UI/API, and development preview hardening. Staging/production must still keep `FISCAL_PROVIDER=disabled` until a SEFAZ-ready provider implements current tax/schema rules, access-key generation, XML signing, QR/CSC, transmission/protocol handling, contingency/cancellation flows and DANFE-NFC-e, followed by homologation.
+
+Backup/restore, monitoring/alerting, bounded load testing, dependency-failure drills and runtime DB least-privilege now have reproducible tooling/runbooks in the repository. They are still **environment evidence gates**: the target staging/pilot infrastructure must execute them and retain evidence. Legal/accounting/LGPD approvals also remain external prerequisites.
+
 ## Revalidation — 2026-09-22 (round 5 hardening)
 
 - Base audited: `main` after merge commit `654a9eb53b12b4a8a30f432de49d64e2e0b9b88e`.
@@ -270,7 +326,7 @@ Result: `12/d tenant_scoped_roles` and `12/u tenant_scoped_roles` succeeded; mig
 | Production config rejects insecure Redis URL/passwordless Redis | PASS | `REDIS_URL` validation requires `redis`/`rediss` and a non-placeholder password in prod-like environments. |
 | Production config rejects missing CORS allowed origins | PASS | Config validation requires explicit origins in staging/prod. |
 | Production config rejects unprotected metrics | PASS | Config validation requires bearer token or basic auth credentials in staging/prod. |
-| Refresh token is cookie-only | PASS | Public auth response omits refresh token; refresh reads `__Host-refresh_token` cookie. |
+| Refresh token is cookie-only | PASS | Public auth response omits refresh token; staging/production use Secure `__Host-refresh_token`, while local HTTP uses a non-prefixed HttpOnly/SameSite=Strict cookie so browsers can actually retain it. |
 | Access token is not stored in localStorage/sessionStorage | PASS | `web/src/lib/auth.ts` keeps access token in memory and removes legacy `auth_token` storage keys. |
 | Audit sanitizer redacts secrets | PASS | Unit tests cover password, tokens, cookie, authorization, API key, structs, typed maps, arrays, and oversized metadata. |
 | Rate limit keys do not expose raw emails | PASS | Login identifier keys use SHA-256 normalized identifier hashes. |

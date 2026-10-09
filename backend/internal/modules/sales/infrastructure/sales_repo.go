@@ -2,14 +2,27 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func mapSalesWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return common.ErrConflict
+	}
+	return err
+}
 
 type SalesRepo struct {
 	db *pgxpool.Pool
@@ -38,8 +51,25 @@ func (r *SalesRepo) InsertItem(ctx context.Context, tx db.DBTX, tenantID string,
 }
 
 func (r *SalesRepo) InsertPayment(ctx context.Context, tx db.DBTX, tenantID string, p sales.Payment) error {
-	_, err := tx.Exec(ctx, `INSERT INTO payments(tenant_id, sale_id, method, amount) VALUES ($1,$2,$3,$4)`, tenantID, p.SaleID, p.Method, p.Amount.DBString())
-	return err
+	installments := p.Installments
+	if installments <= 0 {
+		installments = 1
+	}
+	status := p.ReconciliationStatus
+	if status == "" {
+		status = "pending"
+		if p.Method == "cash" {
+			status = "not_applicable"
+		}
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO payments(
+			tenant_id, sale_id, method, amount, provider, transaction_ref,
+			authorization_code, installments, reconciliation_status
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+	`, tenantID, p.SaleID, p.Method, p.Amount.DBString(), p.Provider, p.TransactionRef, p.AuthorizationCode, installments, status)
+	return mapSalesWriteError(err)
 }
 
 func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
@@ -50,6 +80,9 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 		FROM sales WHERE tenant_id=$1 AND id=$2
 	`, tenantID, id).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sales.Sale{}, nil, nil, common.ErrNotFound
+		}
 		return sales.Sale{}, nil, nil, err
 	}
 	if err := assignSaleMoney(&s, subtotal, discount, total, profit); err != nil {
@@ -80,7 +113,13 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 		return sales.Sale{}, nil, nil, err
 	}
 
-	payRows, err := r.db.Query(ctx, `SELECT id::text, sale_id::text, method, amount::text FROM payments WHERE tenant_id=$1 AND sale_id=$2 ORDER BY created_at`, tenantID, id)
+	payRows, err := r.db.Query(ctx, `
+		SELECT id::text, sale_id::text, method, amount::text, provider, transaction_ref,
+		       authorization_code, installments, reconciliation_status
+		FROM payments
+		WHERE tenant_id=$1 AND sale_id=$2
+		ORDER BY created_at
+	`, tenantID, id)
 	if err != nil {
 		return sales.Sale{}, nil, nil, err
 	}
@@ -89,7 +128,10 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 	for payRows.Next() {
 		var p sales.Payment
 		var amount string
-		if err := payRows.Scan(&p.ID, &p.SaleID, &p.Method, &amount); err != nil {
+		if err := payRows.Scan(
+			&p.ID, &p.SaleID, &p.Method, &amount, &p.Provider, &p.TransactionRef,
+			&p.AuthorizationCode, &p.Installments, &p.ReconciliationStatus,
+		); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		if p.Amount, err = platform.ParseMoney(amount); err != nil {
@@ -150,6 +192,16 @@ func (r *SalesRepo) HasInvoiceForSale(ctx context.Context, tx db.DBTX, tenantID 
 	return exists, err
 }
 
+func (r *SalesRepo) HasReturnsForSale(ctx context.Context, tx db.DBTX, tenantID string, id string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM sale_returns WHERE tenant_id=$1 AND sale_id=$2
+		)
+	`, tenantID, id).Scan(&exists)
+	return exists, err
+}
+
 func (r *SalesRepo) CancelSale(ctx context.Context, tx db.DBTX, tenantID string, id string, reason string) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE sales
@@ -167,6 +219,9 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 		FROM sales WHERE tenant_id=$1 AND id=$2 FOR UPDATE
 	`, tenantID, id).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sales.Sale{}, nil, nil, common.ErrNotFound
+		}
 		return sales.Sale{}, nil, nil, err
 	}
 	if err := assignSaleMoney(&s, subtotal, discount, total, profit); err != nil {
@@ -197,7 +252,13 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 		return sales.Sale{}, nil, nil, err
 	}
 
-	payRows, err := tx.Query(ctx, `SELECT id::text, sale_id::text, method, amount::text FROM payments WHERE tenant_id=$1 AND sale_id=$2 ORDER BY created_at`, tenantID, id)
+	payRows, err := tx.Query(ctx, `
+		SELECT id::text, sale_id::text, method, amount::text, provider, transaction_ref,
+		       authorization_code, installments, reconciliation_status
+		FROM payments
+		WHERE tenant_id=$1 AND sale_id=$2
+		ORDER BY created_at
+	`, tenantID, id)
 	if err != nil {
 		return sales.Sale{}, nil, nil, err
 	}
@@ -206,7 +267,10 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 	for payRows.Next() {
 		var p sales.Payment
 		var amount string
-		if err := payRows.Scan(&p.ID, &p.SaleID, &p.Method, &amount); err != nil {
+		if err := payRows.Scan(
+			&p.ID, &p.SaleID, &p.Method, &amount, &p.Provider, &p.TransactionRef,
+			&p.AuthorizationCode, &p.Installments, &p.ReconciliationStatus,
+		); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		if p.Amount, err = platform.ParseMoney(amount); err != nil {

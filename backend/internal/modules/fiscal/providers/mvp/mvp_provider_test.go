@@ -3,6 +3,7 @@ package mvp
 import (
 	"context"
 	"encoding/xml"
+	"strings"
 	"testing"
 
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
@@ -15,7 +16,10 @@ type nfeDoc struct {
 	InfNFe  struct {
 		ID     string `xml:"Id,attr"`
 		Versao string `xml:"versao,attr"`
-		Det    []struct {
+		Ide    struct {
+			Mod string `xml:"mod"`
+		} `xml:"ide"`
+		Det []struct {
 			NItem string `xml:"nItem,attr"`
 			Prod  struct {
 				CProd  string `xml:"cProd"`
@@ -36,24 +40,28 @@ type nfeDoc struct {
 				VNF   string `xml:"vNF"`
 			} `xml:"ICMSTot"`
 		} `xml:"total"`
+		InfAdic struct {
+			InfCpl string `xml:"infCpl"`
+		} `xml:"infAdic"`
 	} `xml:"infNFe"`
 }
 
-func TestProvider_GenerateNFeXML_OK(t *testing.T) {
+func TestProvider_GenerateNFeXML_ProducesExplicitNFCe65Preview(t *testing.T) {
 	p := New()
+	ncm := "01012100"
 
 	sale := sales.Sale{ID: "sale-1", DiscountValue: platform.NewMoneyCents(200), Total: platform.NewMoneyCents(1800)}
 	items := []sales.SaleItem{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(2_000), UnitPrice: platform.NewMoneyCents(1000)}}
 	products := map[string]inv.Product{
-		"prod-1": {ID: "prod-1", SKU: "P001", Name: "Produto 1", Unit: "UN", Active: true},
+		"prod-1": {ID: "prod-1", SKU: "P001", Name: "Produto 1", Unit: "UN", NCM: &ncm, Active: true},
 	}
 
 	content, fileName, err := p.GenerateNFeXML(context.Background(), sale, items, products)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if fileName != "NFe-sale-1.xml" {
-		t.Fatalf("want fileName=NFe-sale-1.xml, got %s", fileName)
+	if fileName != "NFCe-preview-sale-1.xml" {
+		t.Fatalf("want fileName=NFCe-preview-sale-1.xml, got %s", fileName)
 	}
 
 	var doc nfeDoc
@@ -62,6 +70,12 @@ func TestProvider_GenerateNFeXML_OK(t *testing.T) {
 	}
 	if doc.InfNFe.ID != "NFe"+sale.ID {
 		t.Fatalf("want Id=%s, got %s", "NFe"+sale.ID, doc.InfNFe.ID)
+	}
+	if doc.InfNFe.Ide.Mod != "65" {
+		t.Fatalf("want NFC-e model 65, got %s", doc.InfNFe.Ide.Mod)
+	}
+	if !strings.Contains(doc.InfNFe.InfAdic.InfCpl, "NAO FISCAL / NAO TRANSMITIR") {
+		t.Fatalf("preview warning missing: %q", doc.InfNFe.InfAdic.InfCpl)
 	}
 	if doc.InfNFe.Total.ICMSTot.VProd != "20.00" {
 		t.Fatalf("want vProd=20.00, got %s", doc.InfNFe.Total.ICMSTot.VProd)
@@ -78,6 +92,9 @@ func TestProvider_GenerateNFeXML_OK(t *testing.T) {
 	if doc.InfNFe.Det[0].Prod.CProd != "P001" {
 		t.Fatalf("want cProd=P001, got %s", doc.InfNFe.Det[0].Prod.CProd)
 	}
+	if doc.InfNFe.Det[0].Prod.NCM != ncm {
+		t.Fatalf("want NCM=%s, got %s", ncm, doc.InfNFe.Det[0].Prod.NCM)
+	}
 	if doc.InfNFe.Det[0].Prod.QCom != "2.000" {
 		t.Fatalf("want qCom=2.000, got %s", doc.InfNFe.Det[0].Prod.QCom)
 	}
@@ -86,10 +103,28 @@ func TestProvider_GenerateNFeXML_OK(t *testing.T) {
 	}
 }
 
+func TestProvider_GenerateNFeXML_RejectsMissingNCM(t *testing.T) {
+	p := New()
+	sale := sales.Sale{ID: "sale-1", Total: platform.NewMoneyCents(100)}
+	items := []sales.SaleItem{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(100)}}
+	products := map[string]inv.Product{
+		"prod-1": {ID: "prod-1", SKU: "P001", Name: "Produto 1", Unit: "UN", Active: true},
+	}
+
+	if _, _, err := p.GenerateNFeXML(context.Background(), sale, items, products); err == nil {
+		t.Fatal("expected missing NCM to reject preview generation")
+	}
+}
+
 func TestProvider_GenerateNFeXML_MissingProductSnapshot(t *testing.T) {
 	p := New()
-	_, _, err := p.GenerateNFeXML(context.Background(), sales.Sale{ID: "sale-1"}, []sales.SaleItem{{ProductID: "prod-404", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(100)}}, map[string]inv.Product{})
+	_, _, err := p.GenerateNFeXML(
+		context.Background(),
+		sales.Sale{ID: "sale-1"},
+		[]sales.SaleItem{{ProductID: "prod-404", Qty: platform.NewQuantityMilli(1_000), UnitPrice: platform.NewMoneyCents(100)}},
+		map[string]inv.Product{},
+	)
 	if err == nil {
-		t.Fatalf("expected error")
+		t.Fatal("expected error")
 	}
 }

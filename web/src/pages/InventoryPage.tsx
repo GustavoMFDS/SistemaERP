@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
-import { apiJson, errorMessage } from '../lib/api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { ChangeEvent, FormEvent } from 'react'
+import { APIError, apiDownload, apiJson, errorMessage } from '../lib/api'
+import { getSessionScope } from '../lib/auth'
+import ImportBatchHistory from '../components/ImportBatchHistory'
+import { clearPendingOpeningStock, fingerprintOpeningStock, readPendingOpeningStock, savePendingOpeningStock, type PendingOpeningStock } from '../lib/openingStockRecovery'
+import { OPENING_STOCK_EXAMPLE, parseOpeningStockCSV, type OpeningStockPreview } from '../lib/openingStockImport'
 
 type Product = {
   id: string
@@ -13,7 +18,7 @@ type Product = {
   price_cash: number
 }
 
-type LowStockResponse = { items: Product[] }
+type LowStockResponse = { items: Product[] | null; total: number }
 
 type ProductsListResponse = { items: Product[]; total: number }
 
@@ -21,43 +26,102 @@ type AdjustRequest = {
   product_id: string
   delta: number
   reason: string
-  type: 'purchase' | 'adjustment' | 'loss' | 'damage' | 'return'
+  type: 'adjustment' | 'loss' | 'damage'
 }
 
 export default function InventoryPage() {
   const [low, setLow] = useState<Product[]>([])
+  const [openingPreview, setOpeningPreview] = useState<OpeningStockPreview | null>(null)
+  const [openingKey, setOpeningKey] = useState('')
+  const [openingDigest, setOpeningDigest] = useState('')
+  const [pendingOpening, setPendingOpening] = useState<PendingOpeningStock | null>(null)
+  const [historyRefresh, setHistoryRefresh] = useState(0)
+  const [downloadingStock, setDownloadingStock] = useState(false)
+  const [openingConfirmed, setOpeningConfirmed] = useState(false)
+  const [openingLoading, setOpeningLoading] = useState(false)
+  const [openingMessage, setOpeningMessage] = useState('')
+  const [lowTotal, setLowTotal] = useState(0)
+  const [lowLimit, setLowLimit] = useState(50)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [canAdjustPermission, setCanAdjustPermission] = useState(false)
 
   const [productId, setProductId] = useState('')
+  const [adjustSearch, setAdjustSearch] = useState('')
+  const [adjustMatches, setAdjustMatches] = useState<Product[]>([])
+  const [searchingProduct, setSearchingProduct] = useState(false)
   const [delta, setDelta] = useState<number>(0)
   const [reason, setReason] = useState('')
   const [type, setType] = useState<AdjustRequest['type']>('adjustment')
+  const adjustOptions = useMemo(() => {
+    const list = adjustSearch.trim().length >= 2
+      ? adjustMatches
+      : products.slice(0, 30)
+    const selected = [...products, ...adjustMatches].find((item) => item.id === productId)
+    if (selected && !list.some((item) => item.id === selected.id)) return [selected, ...list]
+    return list
+  }, [products, adjustMatches, adjustSearch, productId])
+
   const canAdjust = useMemo(
     () => productId && delta !== 0 && reason.trim().length >= 3,
     [productId, delta, reason],
   )
 
-  async function load() {
+  const load = useCallback(async () => {
     setError('')
     setLoading(true)
     try {
       const [lowRes, prodRes] = await Promise.all([
-        apiJson<LowStockResponse>('/api/v1/inventory/low-stock?limit=50'),
+        apiJson<LowStockResponse>(`/api/v1/inventory/low-stock?limit=${lowLimit}`),
         apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0'),
       ])
-      setLow(lowRes.items)
-      setProducts(prodRes.items)
+      setLow(lowRes.items ?? [])
+      setLowTotal(lowRes.total)
+      setProducts(prodRes.items ?? [])
     } catch (e: unknown) {
       setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
-  }
+  }, [lowLimit])
 
   useEffect(() => {
     void load()
+  }, [load])
+
+  useEffect(() => {
+    const query = adjustSearch.trim()
+    if (query.length < 2) {
+      setAdjustMatches([])
+      setSearchingProduct(false)
+      return
+    }
+    let active = true
+    const timer = window.setTimeout(async () => {
+      setSearchingProduct(true)
+      try {
+        const result = await apiJson<ProductsListResponse>(
+          `/api/v1/products?query=${encodeURIComponent(query)}&limit=80`,
+        )
+        if (active) setAdjustMatches(result.items ?? [])
+      } catch (error: unknown) {
+        if (active) setError('Não foi possível procurar o produto: ' + errorMessage(error))
+      } finally {
+        if (active) setSearchingProduct(false)
+      }
+    }, 300)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [adjustSearch])
+
+  useEffect(() => {
+    void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
+      .then((me) => {
+        const authorized = me.permissions.includes('inventory:adjust')
+        setCanAdjustPermission(authorized)
+        setPendingOpening(authorized ? readPendingOpeningStock() : null)
+      })
+      .catch((e: unknown) => setError(errorMessage(e)))
   }, [])
 
   async function onAdjust(e: FormEvent) {
@@ -80,20 +144,201 @@ export default function InventoryPage() {
     }
   }
 
+  function downloadOpeningExample() {
+    const blob = new Blob(['\uFEFF' + OPENING_STOCK_EXAMPLE], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'modelo-estoque-inicial.csv'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function chooseOpeningFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    setOpeningPreview(null)
+    setOpeningKey('')
+    setOpeningDigest('')
+    setOpeningConfirmed(false)
+    setOpeningMessage('')
+    if (!file) return
+    if (file.size > 1024 * 1024) {
+      setError('O CSV deve ter até 1 MB e no máximo 100 produtos.')
+      return
+    }
+    try {
+      const preview = parseOpeningStockCSV(await file.text())
+      if (preview.errors.length || !preview.rows.length) {
+        setOpeningPreview(preview)
+        setError('')
+        return
+      }
+      const digest = await fingerprintOpeningStock(preview.rows)
+      const pending = readPendingOpeningStock()
+      if (pending && pending.digest !== digest) {
+        setPendingOpening(pending)
+        setError('Há uma importação anterior pendente. Confira a referência no servidor ou selecione exatamente o mesmo CSV; não inicie outro lote até reconciliar a tentativa anterior.')
+        return
+      }
+      setOpeningPreview(preview)
+      setOpeningDigest(digest)
+      setOpeningKey(pending?.key ?? crypto.randomUUID())
+      setPendingOpening(pending)
+      setError('')
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
+  async function submitOpeningStock() {
+    if (!canAdjustPermission || openingLoading || !openingPreview ||
+        !openingConfirmed || openingPreview.errors.length || !openingPreview.rows.length ||
+        !openingKey || !openingDigest) return
+    if (!window.confirm(
+      `Confirmar saldo inicial de ${openingPreview.rows.length} produto(s)? O lote só funciona em produtos que nunca tiveram movimentação. A operação é atômica e auditada.`,
+    )) return
+
+    const scope = getSessionScope()
+    setOpeningLoading(true)
+    setOpeningMessage('')
+    setError('')
+    // Persist only the key and normalized content fingerprint. Without this,
+    // losing the HTTP response would also lose the only safe replay key.
+    try {
+      const previous = readPendingOpeningStock()
+      const record: PendingOpeningStock = {
+        key: openingKey,
+        digest: openingDigest,
+        createdAt: previous?.createdAt ?? Date.now(),
+      }
+      savePendingOpeningStock(record)
+      setPendingOpening(record)
+    } catch (e: unknown) {
+      setError('Importação não iniciada: não foi possível preservar a referência de recuperação. ' + errorMessage(e))
+      setOpeningLoading(false)
+      return
+    }
+    try {
+      const result = await apiJson<{ batch_id: string; item_count: number; replayed: boolean }>(
+        '/api/v1/inventory/opening-stock',
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': openingKey },
+          body: { items: openingPreview.rows.map(({ sku, quantity }) => ({ sku, quantity })) },
+        },
+      )
+      if (scope !== getSessionScope()) return
+      clearPendingOpeningStock(openingKey)
+      setPendingOpening(null)
+      setHistoryRefresh((version) => version + 1)
+      setOpeningMessage(
+        result.replayed
+          ? `Lote ${result.batch_id} já havia sido aplicado. Nenhum estoque foi lançado novamente.`
+          : `Saldo inicial de ${result.item_count} produto(s) salvo com segurança. Lote ${result.batch_id}.`,
+      )
+      setOpeningPreview(null)
+      setOpeningKey('')
+      setOpeningDigest('')
+      setOpeningConfirmed(false)
+      await load()
+    } catch (e: unknown) {
+      if (scope === getSessionScope()) {
+        setError(`Não foi possível confirmar a resposta: ${errorMessage(e)}. A referência original foi preservada. Confira o lote no servidor e, se necessário, selecione o mesmo CSV para tentar novamente.`)
+      }
+    } finally {
+      setOpeningLoading(false)
+    }
+  }
+
+  async function checkPendingOpeningStock() {
+    if (!canAdjustPermission || openingLoading) return
+    const pending = readPendingOpeningStock()
+    if (!pending) {
+      setPendingOpening(null)
+      setError('Não foi encontrada uma referência de recuperação válida nesta conta e loja.')
+      return
+    }
+    const scope = getSessionScope()
+    setOpeningLoading(true)
+    setError('')
+    setOpeningMessage('')
+    try {
+      const result = await apiJson<{ batch_id: string; item_count: number; replayed: boolean }>(
+        `/api/v1/inventory/opening-stock/batches/${encodeURIComponent(pending.key)}`,
+      )
+      if (scope !== getSessionScope()) return
+      clearPendingOpeningStock(pending.key)
+      setPendingOpening(null)
+      setOpeningPreview(null)
+      setOpeningKey('')
+      setOpeningDigest('')
+      setOpeningConfirmed(false)
+      setHistoryRefresh((version) => version + 1)
+      setOpeningMessage(`O servidor confirmou o lote ${result.batch_id} com ${result.item_count} produto(s). Não é necessário importar novamente.`)
+      await load()
+    } catch (e: unknown) {
+      if (scope !== getSessionScope()) return
+      setError(e instanceof APIError && e.status === 404
+        ? 'O servidor ainda não encontrou um lote confirmado com essa referência. Isso não descarta uma requisição em andamento. Selecione o mesmo CSV e reutilize a referência preservada.'
+        : `Não foi possível consultar o lote: ${errorMessage(e)}. Mantenha a referência até a situação ser esclarecida.`)
+    } finally {
+      setOpeningLoading(false)
+    }
+  }
+
+  function discardPendingOpeningStock() {
+    if (!canAdjustPermission || openingLoading || !pendingOpening) return
+    if (!window.confirm(
+      'Descartar somente a referência salva neste dispositivo? Isso NÃO desfaz uma importação que possa ter sido confirmada no servidor. Confira o histórico e o estoque antes de iniciar outro lote.',
+    )) return
+    clearPendingOpeningStock(pendingOpening.key)
+    setPendingOpening(null)
+    setOpeningPreview(null)
+    setOpeningKey('')
+    setOpeningDigest('')
+    setOpeningConfirmed(false)
+    setOpeningMessage('')
+    setError('Referência local descartada. A operação anterior pode existir no servidor; verifique os saldos antes de qualquer nova importação.')
+  }
+
   return (
     <div>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold">Estoque</h2>
-          <p className="text-sm text-gray-600">Ajuste manual e alerta de baixo estoque.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Estoque da loja</h2>
+          <p className="mt-1 text-sm text-slate-600">Veja o que precisa repor. Abra os ajustes apenas quando necessário.</p>
         </div>
-        <button
-          onClick={() => void load()}
-          className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-          disabled={loading}
-        >
-          {loading ? 'Atualizando…' : 'Atualizar'}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/stock-movements" className="rounded-md border px-3 py-2 text-sm text-blue-700">
+            Ver movimentações
+          </Link>
+          <button type="button"
+            onClick={async () => {
+              if (downloadingStock) return
+              setDownloadingStock(true)
+              setError('')
+              try {
+                await apiDownload('/api/v1/inventory/stock-report.csv',
+                  'relatorio-estoque-loja.csv', 'text/csv;charset=utf-8')
+              } catch (cause: unknown) {
+                setError('Não foi possível baixar o relatório: ' + errorMessage(cause))
+              } finally {
+                setDownloadingStock(false)
+              }
+            }}
+            className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+            disabled={downloadingStock}>
+            {downloadingStock ? 'Gerando CSV…' : 'Exportar estoque CSV'}
+          </button>
+          <button
+            onClick={() => void load()}
+            className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+            disabled={loading}
+          >
+            {loading ? 'Atualizando…' : 'Atualizar'}
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -102,13 +347,23 @@ export default function InventoryPage() {
         </div>
       ) : null}
 
-      <div className="mt-4">
-        <h3 className="text-sm font-semibold">Baixo estoque</h3>
+      <section aria-label="Produtos que precisam de reposição" className="mt-6 rounded-2xl border border-slate-200 p-5">
+        <h3 className="text-base font-bold text-slate-900">Precisa de reposição</h3>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-600">
+          <span><strong>{lowTotal}</strong> produto(s) precisam de atenção. Mostrando {low.length}.</span>
+          {low.length < lowTotal && lowLimit < 500 ? (
+            <button type="button" className="rounded-md border px-3 py-2 hover:bg-gray-50"
+              onClick={() => setLowLimit(500)}>Mostrar até 500 produtos</button>
+          ) : null}
+          {low.length < lowTotal && lowLimit >= 500 ? (
+            <span className="text-amber-800">Há mais de 500 itens; procure os demais no cadastro de produtos.</span>
+          ) : null}
+        </div>
         <div className="mt-2 overflow-auto rounded-md border">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-gray-50 text-xs text-gray-600">
               <tr>
-                <th className="px-3 py-2">SKU</th>
+                <th className="px-3 py-2">Código (SKU)</th>
                 <th className="px-3 py-2">Produto</th>
                 <th className="px-3 py-2">Qtd</th>
                 <th className="px-3 py-2">Min</th>
@@ -133,21 +388,120 @@ export default function InventoryPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div className="mt-6">
-        <h3 className="text-sm font-semibold">Ajuste de estoque</h3>
+      {canAdjustPermission ? (
+        <details open={Boolean(pendingOpening)} className="mt-5 rounded-2xl border border-slate-200 p-5">
+          <summary className="cursor-pointer text-base font-bold">Cadastrar estoque inicial por planilha</summary>
+          <div className="mt-4">
+          <p className="mt-1 text-sm text-gray-600">
+            Ideal para configurar uma loja nova: informe somente o SKU do produto e a quantidade
+            contada na prateleira. A planilha não cria produtos nem altera preços.
+          </p>
+          <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+            Use esta planilha só na primeira contagem da loja. Para alterar um produto já movimentado,
+            escolha “Ajustar quantidade”. Se houver falha de conexão, confira a tentativa antes de enviar novamente.
+          </p>
+          {pendingOpening ? (
+            <div className="mt-3 space-y-2 rounded-md border border-amber-300 p-3 text-sm" role="region" aria-label="Importação pendente de confirmação">
+              <p className="font-semibold">Existe uma tentativa de estoque inicial para conferir.</p>
+              <p className="text-xs text-gray-700">Referência: <code>{pendingOpening.key}</code></p>
+              <p className="text-xs text-gray-600">
+                A planilha não fica salva neste dispositivo. Consulte o servidor primeiro;
+                se a importação não for confirmada, escolha novamente o mesmo arquivo CSV para
+                reutilizar a chave original sem duplicar o lote.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={openingLoading} onClick={() => void checkPendingOpeningStock()}
+                  className="rounded-md border border-blue-300 px-3 py-2 text-sm disabled:opacity-50">
+                  Conferir lote no servidor
+                </button>
+                <button type="button" disabled={openingLoading} onClick={discardPendingOpeningStock}
+                  className="rounded-md border px-3 py-2 text-sm text-amber-900 disabled:opacity-50">
+                  Descartar referência local
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={downloadOpeningExample}
+              className="rounded-md border px-3 py-2 text-sm">Baixar modelo CSV</button>
+            <label className="text-sm">
+              <span className="mr-2">Escolher planilha CSV</span>
+              <input type="file" accept=".csv,text/csv" disabled={openingLoading}
+                onChange={(e) => void chooseOpeningFile(e)} className="text-xs" />
+            </label>
+          </div>
+          {openingPreview ? (
+            <div className="mt-3 space-y-3">
+              <p className="text-sm">Conferência: {openingPreview.total} linha(s),
+                {' '}{openingPreview.rows.length} válida(s), {openingPreview.errors.length} com erro.</p>
+              {openingPreview.errors.length > 0 ? (
+                <div className="rounded-md border border-red-200 p-3 text-xs text-red-700">
+                  <strong>Corrija o arquivo antes de continuar:</strong>
+                  <ul className="list-disc pl-5">{openingPreview.errors.slice(0, 20).map((entry, index) =>
+                    <li key={index}>{entry}</li>)}</ul>
+                </div>
+              ) : null}
+              <div className="max-h-44 overflow-auto rounded-md border">
+                <table className="min-w-full text-left text-xs">
+                  <thead className="bg-gray-50"><tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Saldo contado</th></tr></thead>
+                  <tbody>{openingPreview.rows.map((item) =>
+                    <tr key={item.sku}>
+                      <td className="px-3 py-2">{item.sku}
+                        <span className="block text-gray-500">
+                          {products.find((product) => product.sku === item.sku)?.name ?? 'Verifique o SKU na lista de produtos'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">{item.quantity.toFixed(3)}</td>
+                    </tr>)}</tbody>
+                </table>
+              </div>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" checked={openingConfirmed} disabled={openingLoading}
+                  onChange={(e) => setOpeningConfirmed(e.target.checked)} />
+                <span>Conferi os códigos e as quantidades com a contagem física da loja atual.</span>
+              </label>
+              <button type="button" onClick={() => void submitOpeningStock()}
+                disabled={openingLoading || !openingConfirmed || openingPreview.errors.length > 0 || !openingPreview.rows.length}
+                className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+                {openingLoading ? 'Salvando lote…' : `Confirmar estoque inicial de ${openingPreview.rows.length} produto(s)`}
+              </button>
+            </div>
+          ) : null}
+          {openingMessage ? <p role="status" className="mt-3 text-sm text-green-800">{openingMessage}</p> : null}
+          <ImportBatchHistory kind="opening-stock" refreshVersion={historyRefresh} />
+          </div>
+        </details>
+      ) : null}
+
+      {canAdjustPermission ? (
+        <details className="mt-5 rounded-2xl border border-slate-200 p-5">
+          <summary className="cursor-pointer text-base font-bold">Ajustar quantidade no estoque</summary>
+          <p className="mt-3 text-xs text-slate-600">Use somente para correções justificadas. Entradas de compras e devoluções possuem fluxos próprios.</p>
         <form onSubmit={onAdjust} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-4">
           <label className="block md:col-span-2">
-            <span className="text-xs text-gray-600">Produto</span>
+            <span className="text-sm font-semibold text-slate-700">Procure o produto pelo nome ou código</span>
+            <input
+              aria-label="Buscar produto para ajuste de estoque"
+              type="search"
+              value={adjustSearch}
+              onChange={(e) => setAdjustSearch(e.target.value)}
+              placeholder="Digite pelo menos 2 letras para procurar em todo o cadastro"
+              className="mt-2 w-full rounded-lg border px-3 py-3 text-sm"
+            />
+            <span className="mt-2 block text-xs text-slate-600">
+              {searchingProduct ? 'Procurando…' : adjustSearch.trim().length < 2 ? 'Mostrando 30 opções iniciais. Digite para encontrar outros produtos.' : `${adjustMatches.length} resultado(s) encontrados.`}
+            </span>
             <select
+              aria-label="Produto para ajustar"
               value={productId}
               onChange={(e) => setProductId(e.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               required
             >
               <option value="">Selecione…</option>
-              {products.map((p) => (
+              {adjustOptions.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.sku} — {p.name}
                 </option>
@@ -162,17 +516,16 @@ export default function InventoryPage() {
               onChange={(e) => setType(e.target.value as AdjustRequest['type'])}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             >
-              <option value="purchase">Entrada (compra)</option>
-              <option value="return">Entrada (devolução)</option>
-              <option value="adjustment">Ajuste</option>
-              <option value="loss">Perda</option>
-              <option value="damage">Avaria</option>
+              <option value="adjustment">Correção da contagem</option>
+              <option value="loss">Produto perdido</option>
+              <option value="damage">Produto danificado</option>
             </select>
           </label>
 
           <label className="block">
-            <span className="text-xs text-gray-600">Delta</span>
+            <span className="text-xs text-gray-600">Quanto adicionar ou retirar?</span>
             <input
+              aria-label="Variação do estoque (positiva para adicionar, negativa para retirar)"
               value={String(delta)}
               onChange={(e) => setDelta(Number(e.target.value))}
               type="number"
@@ -188,7 +541,7 @@ export default function InventoryPage() {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              placeholder="Ex.: Entrada por compra, ajuste de inventário…"
+              placeholder="Ex.: correção de inventário, perda identificada…"
               required
             />
           </label>
@@ -202,7 +555,8 @@ export default function InventoryPage() {
             </button>
           </div>
         </form>
-      </div>
+        </details>
+      ) : null}
     </div>
   )
 }

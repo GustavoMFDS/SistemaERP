@@ -195,6 +195,54 @@ func TestCreateAndFinalizeConcurrentDuplicateRequests(t *testing.T) {
 	}
 }
 
+func TestValidateSalePaymentSemanticsRejectsInstallmentsOutsideCredit(t *testing.T) {
+	err := validateSalePaymentSemantics([]SalePaymentRequest{{
+		Method:       "pix",
+		Installments: 2,
+	}})
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("want ErrValidation for pix installments, got %v", err)
+	}
+}
+
+func TestValidateSalePaymentSemanticsRejectsCashProviderMetadata(t *testing.T) {
+	provider := "acquirer"
+	err := validateSalePaymentSemantics([]SalePaymentRequest{{
+		Method:       "cash",
+		Installments: 1,
+		Provider:     &provider,
+	}})
+	if !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("want ErrValidation for cash provider metadata, got %v", err)
+	}
+}
+
+func TestValidateSalePaymentSemanticsAllowsCreditInstallments(t *testing.T) {
+	provider := "acquirer"
+	transactionRef := "txn-123"
+	authorizationCode := "auth-456"
+	err := validateSalePaymentSemantics([]SalePaymentRequest{{
+		Method:            "credit",
+		Installments:      12,
+		Provider:          &provider,
+		TransactionRef:    &transactionRef,
+		AuthorizationCode: &authorizationCode,
+	}})
+	if err != nil {
+		t.Fatalf("expected credit installments and metadata to be valid, got %v", err)
+	}
+}
+
+func TestValidateSalePaymentSemanticsAllowsSingleInstallmentDigitalPayment(t *testing.T) {
+	err := validateSalePaymentSemantics([]SalePaymentRequest{{
+		Method:       "debit",
+		Installments: 1,
+	}})
+	if err != nil {
+		t.Fatalf("expected single-installment debit payment to be valid, got %v", err)
+	}
+}
+
 func newSalesServiceFixture(stock platform.Quantity) (*SalesService, *fakeSalesRepo, *fakeInventoryRepo, *fakeProductsRepo) {
 	salesRepo := &fakeSalesRepo{results: map[string]idemResult{}}
 	fakeTxUnlock = salesRepo.mu.Unlock
@@ -286,6 +334,9 @@ func (r *fakeSalesRepo) GetSaleForUpdate(context.Context, db.DBTX, string, strin
 func (r *fakeSalesRepo) HasInvoiceForSale(context.Context, db.DBTX, string, string) (bool, error) {
 	return false, nil
 }
+func (r *fakeSalesRepo) HasReturnsForSale(context.Context, db.DBTX, string, string) (bool, error) {
+	return false, nil
+}
 func (r *fakeSalesRepo) LockIdempotencyKey(context.Context, db.DBTX, string, string, string) error {
 	r.mu.Lock()
 	return nil
@@ -348,6 +399,9 @@ func (fakeCashRepo) CloseSession(context.Context, db.DBTX, string, string, strin
 func (fakeCashRepo) GetSession(context.Context, db.DBTX, string, string) (sales.CashSession, error) {
 	return sales.CashSession{ID: "cash-1", Status: "open", OpeningAmount: 0}, nil
 }
+func (fakeCashRepo) GetOpenSession(context.Context, string) (sales.CashSession, error) {
+	return sales.CashSession{ID: "cash-1", Status: "open", OpeningAmount: 0}, nil
+}
 func (fakeCashRepo) InsertMovement(context.Context, db.DBTX, string, string, string, string, platform.Money, *string) (string, error) {
 	return "movement-1", nil
 }
@@ -365,4 +419,13 @@ type fakeFinanceRepo struct{}
 
 func (fakeFinanceRepo) InsertLedgerEntry(context.Context, db.DBTX, string, fin.LedgerEntry, *string) (string, error) {
 	return "ledger-1", nil
+}
+func (fakeFinanceRepo) LockIdempotencyKey(context.Context, db.DBTX, string, string, string) error {
+	return nil
+}
+func (fakeFinanceRepo) GetIdempotencyResult(context.Context, db.DBTX, string, string, string) (string, string, string, *platform.Money, bool, error) {
+	return "", "", "", nil, false, nil
+}
+func (fakeFinanceRepo) SaveIdempotencyResult(context.Context, db.DBTX, string, string, string, string, string, string, *platform.Money) error {
+	return nil
 }

@@ -78,7 +78,11 @@ test('offline browser state is isolated by tenant and user', async ({ page }) =>
     const auth = await import('/src/lib/auth.ts')
 
     function token(sub: string, tenant: string): string {
-      const payload = btoa(JSON.stringify({ sub, tenant_id: tenant }))
+      const payload = btoa(JSON.stringify({
+        sub,
+        tenant_id: tenant,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }))
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '')
@@ -134,7 +138,11 @@ test('permanent queue conflict does not block later sales and expired items are 
     const auth = await import('/src/lib/auth.ts')
     const queue = await import('/src/lib/offlineQueue.ts')
 
-    const payload = btoa(JSON.stringify({ sub: 'user-1', tenant_id: 'tenant-1' }))
+    const payload = btoa(JSON.stringify({
+      sub: 'user-1',
+      tenant_id: 'tenant-1',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '')
@@ -185,4 +193,113 @@ test('permanent queue conflict does not block later sales and expired items are 
   expect(result.summary.attention).toBe(2)
   expect(result.summary.total).toBe(2)
   expect(result.preservedCount).toBe(2)
+})
+
+
+test('offline catalog cache expires after the safe window', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await expect(page).toHaveURL(/\/pdv$/)
+  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+
+  const cacheKey = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const key = auth.scopedStorageKey('sistemaemgo:productsCache:v2')
+    if (!key) throw new Error('missing catalog cache scope')
+    const raw = localStorage.getItem(key)
+    if (!raw) throw new Error('catalog cache was not persisted')
+    const parsed = JSON.parse(raw) as { savedAt?: number; items?: unknown[] }
+    if (!Number.isFinite(parsed.savedAt) || !Array.isArray(parsed.items)) {
+      throw new Error('catalog cache is missing freshness metadata')
+    }
+    return key
+  })
+
+  await page.route('**/api/v1/products?**', async (route) => {
+    await route.abort('failed')
+  })
+
+  await page.reload()
+  await expect(page.getByText('Catálogo carregado do cache local porque o servidor está indisponível.')).toBeVisible()
+  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+
+  await page.evaluate((key) => {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '{}') as {
+      savedAt?: number
+      items?: unknown[]
+    }
+    parsed.savedAt = Date.now() - 25 * 60 * 60 * 1000
+    localStorage.setItem(key, JSON.stringify(parsed))
+  }, cacheKey)
+
+  await page.reload()
+  await expect(
+    page.getByText('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.'),
+  ).toBeVisible()
+  await expect(page.getByLabel('Produto').locator('option')).toHaveCount(1)
+})
+
+
+test('product authorization errors never fall back to offline cache', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  await page.getByRole('link', { name: 'PDV' }).click()
+  await expect(page).toHaveURL(/\/pdv$/)
+  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+
+  await page.route('**/api/v1/products?**', async (route) => {
+    await route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'permissao revogada' }),
+    })
+  })
+
+  await page.reload()
+  await expect(page.getByText('permissao revogada')).toBeVisible()
+  await expect(page.getByLabel('Produto').locator('option')).toHaveCount(1)
+})
+
+test('expired access token cannot address tenant scoped local storage', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const original = auth.getToken()
+    const encode = (value: object) =>
+      btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+    const expired = `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
+      sub: 'expired-user',
+      tenant_id: 'expired-tenant',
+      exp: Math.floor(Date.now() / 1000) - 60,
+    })}.signature`
+
+    auth.setToken(expired)
+    const expiredResult = {
+      usable: auth.hasUsableAccessToken(),
+      scope: auth.getSessionScope(),
+      storageKey: auth.scopedStorageKey('test:scope'),
+      cashSessionId: auth.getCashSessionId(),
+    }
+    auth.setToken(original)
+    return expiredResult
+  })
+
+  expect(result.usable).toBe(false)
+  expect(result.scope).toBe('')
+  expect(result.storageKey).toBeNull()
+  expect(result.cashSessionId).toBe('')
 })

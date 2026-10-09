@@ -25,10 +25,12 @@ O sistema é composto por:
 - **Seed**: dados de teste em `backend/seed/seed.sql`.
 - **Logs estruturados**: `slog` (JSON) + `request_id`.
 
-## Fluxos MVP
-- Venda: abrir caixa → carrinho → finalizar venda → baixa estoque → financeiro → pronto para NF-e.
+## Fluxos operacionais
+- Venda: abrir caixa → carrinho → finalizar venda → baixa estoque → financeiro.
 - Estoque: cadastro produto → entrada/ajuste → alerta mínimo.
-- Fiscal: selecionar venda finalizada → gerar XML → armazenar/download.
+- Fiscal atual: preparar emitente NFC-e por tenant → classificar produtos com NCM/CEST → preparar referência do certificado A1 → validar readiness. CSC permanece somente como compatibilidade legada opcional; QR Code v3 não o exige.
+- Preview fiscal de desenvolvimento: venda finalizada → preview NFC-e modelo 65 marcado como não fiscal → armazenar/download.
+- Fiscal futuro: provider SEFAZ separado para assinatura, schemas oficiais, chave/QR Code, autorização, protocolo, contingência, cancelamento/inutilização e DANFE-NFC-e. Produção mantém `FISCAL_PROVIDER=disabled` até homologação.
 # Architecture notes
 
 Current code keeps the existing package layout to avoid a risky full rewrite. The safe refactor direction is to flatten modules incrementally once behavior is covered by tests.

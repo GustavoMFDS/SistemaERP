@@ -107,6 +107,22 @@ export function getQueueSummary(): QueueSummary {
   return { pending, attention, total: queue.length }
 }
 
+export function getQueueSummaryForCashSession(cashSessionId: string): QueueSummary {
+  const normalized = cashSessionId.trim()
+  if (!normalized) return { pending: 0, attention: 0, total: 0 }
+
+  const queue = loadQueue().filter((item) => {
+    if (!item.path.includes('/api/v1/sales') || !item.body || typeof item.body !== 'object') {
+      return false
+    }
+    const body = item.body as { cash_session_id?: unknown }
+    return body.cash_session_id === normalized
+  })
+  const pending = queue.filter((item) => item.state !== 'attention').length
+  const attention = queue.filter((item) => item.state === 'attention').length
+  return { pending, attention, total: queue.length }
+}
+
 export function getQueueCount(): number {
   return getQueueSummary().total
 }
