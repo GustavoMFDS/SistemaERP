@@ -56,7 +56,17 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 
 	// Use a private NFC-e series so reruns cannot inherit another test's
 	// number allocation. Never reset fiscal sequences for the seeded tenant.
-	seriesA := int(time.Now().UnixNano()%250) + 500
+	var seriesA int
+	if err := pool.QueryRow(ctx, `
+		SELECT candidate.value FROM generate_series(400, 880) AS candidate(value)
+		WHERE NOT EXISTS (
+			SELECT 1 FROM fiscal_document_sequences f
+			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=candidate.value
+		)
+		ORDER BY candidate.value LIMIT 1
+	`, tenantA).Scan(&seriesA); err != nil {
+		t.Fatalf("no unused NFC-e series available for foundation test: %v", err)
+	}
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=$2`, tenantA, seriesA)
