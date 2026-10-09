@@ -78,6 +78,11 @@ um vínculo **não desativa a identidade global**, nem remove auditoria ou
 histórico transacional. `AuthJWT`, refresh, seleção da empresa-padrão e
 RBAC consultam o vínculo ativo para rejeitar o acesso no próximo request.
 
+O rollback da migration 0033 é bloqueado se existirem funcionários
+suspensos; caso contrário, remover a coluna `active` reativaria
+involuntariamente esses acessos. A autorização do administrador
+é verificada também dentro da transação de escrita.
+
 A permissão `team:manage` é criada somente para o papel `admin`.
 Não é atribuída a gerentes nem operadores de caixa. Os endpoints
 administrativos aceitam apenas o CNPJ do contexto autenticado;
@@ -230,6 +235,11 @@ caso contrário, retorna 404. Todas as escritas são transacionais
 e gravam auditoria `customer.create` ou `customer.update`
 sem copiar nomes, e-mails ou telefones para os metadados de auditoria.
 Não há opção de exclusão nem de importação em massa nesta etapa.
+
+Criação e edição revalidam a permissão `customer:write` e o vínculo
+ativo do usuário dentro da transação, mesmo se o middleware de
+rota for contornado. A busca `q` é literal: `%` e `_` não são
+curingas de SQL.
 
 **Fora do escopo:** crediário, contas a receber, políticas de
 cobrança, CPF/CNPJ, autorização para envio comercial de mensagens,
@@ -423,7 +433,10 @@ Requires `inventory:read`. Returns tenant-scoped active products with `qty_on_ha
 ### GET `/inventory/movements`
 
 Requires `inventory:read`; returns tenant-scoped stock movements,
-with `limit`, `offset` and optional `product_id`. The response
+with `limit` (1–500, default 100), `offset` (0–5000, default 0),
+and optional `product_id` (UUID). Unknown or duplicate parameters,
+malformed UUIDs and out-of-range pagination return HTTP 422.
+The response
 includes the existing movement quantities and references, now also
 `product_sku` and `product_name` via a tenant-safe SQL JOIN to
 the product catalog. Ordering is stable by `created_at DESC, id DESC`.
