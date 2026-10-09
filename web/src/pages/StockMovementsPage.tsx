@@ -142,7 +142,7 @@ export default function StockMovementsPage() {
             </tbody>
           </table>
         </div>
-      )}
+      ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
         <button type="button" disabled={loading || offset === 0}
           onClick={() => setOffset((n) => Math.max(0, n - pageSize))}

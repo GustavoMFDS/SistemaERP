@@ -20,13 +20,13 @@ test('importação protege contra duplicações, quantidade negativa e casas exc
 })
 
 test('importação aceita campos CSV entre aspas', () => {
-  const out = parseOpeningStockCSV('sku,quantidade\n\"P-1\",\"3.250\"\n')
+  const out = parseOpeningStockCSV('sku,quantidade\n"P-1","3.250"\n')
   expect(out.errors).toEqual([])
   expect(out.rows[0]).toMatchObject({ sku: 'P-1', quantity: 3.25 })
 })
 
 test('importação rejeita CSV sem cabeçalho esperado ou com aspas incompletas', () => {
   expect(() => parseOpeningStockCSV('sku;nome\nA;Produto')).toThrow('Colunas obrigatórias')
-  expect(() => parseOpeningStockCSV('sku;quantidade\n\"A;20')).toThrow('aspas')
+  expect(() => parseOpeningStockCSV('sku;quantidade\n"A;20')).toThrow('aspas')
   expect(() => parseOpeningStockCSV('sku;quantidade\n')).toThrow()
 })

@@ -16,7 +16,7 @@ test('modelo CSV brasileiro preserva valores decimais, códigos e NCM', () => {
 })
 
 test('CSV com aspas e separador por vírgulas', () => {
-  const result = parseProductCSV('sku,nome,preco,unidade\n\"P-1\",\"Arroz, tipo 1\",\"14.90\",un\n')
+  const result = parseProductCSV('sku,nome,preco,unidade\n"P-1","Arroz, tipo 1","14.90",un\n')
   expect(result.errors).toEqual([])
   expect(result.valid[0]).toMatchObject({ sku: 'P-1', name: 'Arroz, tipo 1', price_cash: 14.9 })
 })
@@ -32,7 +32,7 @@ test('importação rejeita duplicados e classificação inválida antes da escri
 test('importação não aceita arquivo vazio, campos obrigatórios ausentes ou aspas inválidas', () => {
   expect(() => parseProductCSV('sku;nome;preco\n')).toThrow()
   expect(() => parseProductCSV('sku;nome\nA;Produto')).toThrow('Colunas obrigatórias')
-  expect(() => parseProductCSV('sku;nome;preco\nA;\"Produto;10')).toThrow('aspas não fechadas')
+  expect(() => parseProductCSV('sku;nome;preco\nA;"Produto;10')).toThrow('aspas não fechadas')
 })
 
 test('prévia segue limites de SKU, código de barras, unidade e escala do estoque', () => {
