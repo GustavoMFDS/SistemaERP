@@ -5,6 +5,7 @@ import FinancePage from './pages/FinancePage'
 import HomePage from './pages/HomePage'
 import FiscalPage from './pages/FiscalPage'
 import InventoryPage from './pages/InventoryPage'
+import StockMovementsPage from './pages/StockMovementsPage'
 import UnifiedImportHistoryPage from './pages/UnifiedImportHistoryPage'
 import LoginPage from './pages/LoginPage'
 import StaffPage from './pages/StaffPage'
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="/staff" element={<StaffPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
+          <Route path="/stock-movements" element={<StockMovementsPage />} />
           <Route path="/imports" element={<UnifiedImportHistoryPage />} />
           <Route path="/purchases" element={<PurchasesPage />} />
           <Route path="/returns" element={<ReturnsPage />} />
