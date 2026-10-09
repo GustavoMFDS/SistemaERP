@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { ChangeEvent, FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
@@ -273,6 +274,9 @@ export default function InventoryPage() {
           <p className="text-sm text-gray-600">Ajuste manual e alerta de baixo estoque.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link to="/stock-movements" className="rounded-md border px-3 py-2 text-sm text-blue-700">
+            Ver movimentações
+          </Link>
           <button type="button"
             onClick={async () => {
               if (downloadingStock) return
