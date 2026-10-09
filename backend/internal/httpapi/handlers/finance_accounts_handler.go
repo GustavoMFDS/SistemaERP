@@ -66,6 +66,12 @@ func accountKey(r *http.Request) (string, bool) {
 	return id.String(), true
 }
 
+type financeAccountSummary struct {
+	PayableOpen    platform.Money `json:"payable_open"`
+	ReceivableOpen platform.Money `json:"receivable_open"`
+	OverdueOpen    platform.Money `json:"overdue_open"`
+}
+
 func (h *FinanceAccountsHandler) List(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
@@ -73,57 +79,109 @@ func (h *FinanceAccountsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := r.URL.Query().Get("kind")
-	var where string
-	switch kind {
-	case "", "all":
-		where = ""
-	case "payable", "receivable":
-		where = "WHERE kind='" + kind + "'"
-	default:
+	if kind != "" && kind != "all" && kind != "payable" && kind != "receivable" {
 		accountFailure(w, r, http.StatusUnprocessableEntity, "Tipo de conta inválido")
+		return
+	}
+	limit, offset := 80, 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 500 {
+			accountFailure(w, r, http.StatusUnprocessableEntity, "Limite deve estar entre 1 e 500")
+			return
+		}
+		limit = n
+	}
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || n > 1000000 {
+			accountFailure(w, r, http.StatusUnprocessableEntity, "Deslocamento inválido")
+			return
+		}
+		offset = n
+	}
+	// Always bind the chosen tenant and kind. Totals are computed over every
+	// account, independently of the current page, to avoid understating debts.
+	base := `
+		FROM (
+		  SELECT id, 'payable'::text AS kind, description, amount, due_date, status,
+		         settled_at, settlement_method, purchase_id::text AS purchase_id
+		  FROM accounts_payable WHERE tenant_id=$1
+		  UNION ALL
+		  SELECT id, 'receivable'::text AS kind, description, amount, due_date, status,
+		         settled_at, settlement_method, NULL::text AS purchase_id
+		  FROM accounts_receivable WHERE tenant_id=$1
+		) AS all_accounts
+		WHERE ($2::text='' OR $2::text='all' OR kind=$2)`
+	var total int
+	if err := h.pool.QueryRow(r.Context(), `SELECT count(*)`+base, au.TenantID, kind).Scan(&total); err != nil {
+		accountFailure(w, r, http.StatusInternalServerError, "Não foi possível contar as contas")
 		return
 	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT id::text, kind, description, amount::text, due_date::text,
 		       status, settled_at, settlement_method, purchase_id
-		FROM (
-		  SELECT id, 'payable' AS kind, description, amount, due_date, status,
-		         settled_at, settlement_method, purchase_id::text AS purchase_id
-		  FROM accounts_payable WHERE tenant_id=$1
-		  UNION ALL
-		  SELECT id, 'receivable', description, amount, due_date, status,
-		         settled_at, settlement_method, NULL::text
-		  FROM accounts_receivable WHERE tenant_id=$1
-		) AS all_accounts `+where+`
-		ORDER BY due_date ASC, id ASC LIMIT 500
-	`, au.TenantID)
+	`+base+` ORDER BY due_date ASC, id ASC LIMIT $3 OFFSET $4`, au.TenantID, kind, limit, offset)
 	if err != nil {
 		accountFailure(w, r, http.StatusInternalServerError, "Não foi possível consultar contas")
 		return
 	}
-	defer rows.Close()
 	items := make([]financeAccount, 0)
 	for rows.Next() {
 		var item financeAccount
 		var amount string
 		if err := rows.Scan(&item.ID, &item.Kind, &item.Description, &amount, &item.DueDate,
 			&item.Status, &item.SettledAt, &item.SettlementMethod, &item.PurchaseID); err != nil {
+			rows.Close()
 			accountFailure(w, r, http.StatusInternalServerError, "Não foi possível ler contas")
 			return
 		}
 		money, err := platform.ParseMoney(amount)
 		if err != nil {
+			rows.Close()
 			accountFailure(w, r, http.StatusInternalServerError, "Valor de conta inválido no banco")
 			return
 		}
 		item.Amount = money
 		items = append(items, item)
 	}
-	if rows.Err() != nil {
+	readErr := rows.Err()
+	rows.Close()
+	if readErr != nil {
 		accountFailure(w, r, http.StatusInternalServerError, "Erro ao consultar contas")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items), "truncated": len(items) == 500})
+	// These are complete tenant-scoped totals, NOT a sum of the displayed page.
+	var payable, receivable, overdue string
+	err = h.pool.QueryRow(r.Context(), `
+		SELECT COALESCE(SUM(amount) FILTER (WHERE kind='payable' AND status='open'), 0)::text,
+		       COALESCE(SUM(amount) FILTER (WHERE kind='receivable' AND status='open'), 0)::text,
+		       COALESCE(SUM(amount) FILTER (WHERE status='open'
+		         AND due_date < (now() AT TIME ZONE 'America/Sao_Paulo')::date), 0)::text
+		FROM (
+		  SELECT 'payable'::text AS kind, amount, status, due_date FROM accounts_payable WHERE tenant_id=$1
+		  UNION ALL
+		  SELECT 'receivable'::text, amount, status, due_date FROM accounts_receivable WHERE tenant_id=$1
+		) all_balances
+	`, au.TenantID).Scan(&payable, &receivable, &overdue)
+	if err != nil {
+		accountFailure(w, r, 500, "Não foi possível calcular os saldos em aberto")
+		return
+	}
+	payableMoney, e1 := platform.ParseMoney(payable)
+	receivableMoney, e2 := platform.ParseMoney(receivable)
+	overdueMoney, e3 := platform.ParseMoney(overdue)
+	if e1 != nil || e2 != nil || e3 != nil {
+		accountFailure(w, r, 500, "Valor financeiro inválido no banco")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items, "total": total, "limit": limit, "offset": offset,
+		"truncated": offset+len(items) < total,
+		"summary": financeAccountSummary{
+			PayableOpen: payableMoney, ReceivableOpen: receivableMoney, OverdueOpen: overdueMoney,
+		},
+	})
 }
 
 // Trends uses the underlying tenant-scoped ledger, not sampled UI rows.
@@ -152,8 +210,8 @@ func (h *FinanceAccountsHandler) Trends(w http.ResponseWriter, r *http.Request) 
 		  ) d
 		), totals AS (
 		  SELECT (created_at AT TIME ZONE 'America/Sao_Paulo')::date AS day,
-		    COALESCE(SUM(amount_net) FILTER (WHERE entry_type IN ('sale','sale_cancel','revenue')),0) AS inflow,
-		    COALESCE(SUM(amount_net) FILTER (WHERE entry_type IN ('expense','return_refund')),0) AS outflow
+		    COALESCE(SUM(amount_net) FILTER (WHERE entry_type IN ('sale','revenue') AND amount_net > 0),0) AS inflow,
+		    COALESCE(SUM(amount_net) FILTER (WHERE entry_type IN ('sale_cancel','expense','return_refund') AND amount_net < 0),0) AS outflow
 		  FROM ledger_entries
 		  WHERE tenant_id=$1
 		    AND created_at >= ((now() AT TIME ZONE 'America/Sao_Paulo')::date - ($2::int - 1))::timestamp AT TIME ZONE 'America/Sao_Paulo'

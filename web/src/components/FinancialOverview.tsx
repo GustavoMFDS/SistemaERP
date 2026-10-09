@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 
@@ -14,7 +14,7 @@ type Account = {
   purchase_id?: string | null
 }
 type TrendPoint = { date: string; inflow: number; outflow: number }
-type ListResponse = { items: Account[]; total: number; truncated: boolean }
+type ListResponse = { items: Account[]; total: number; limit: number; offset: number; truncated: boolean; summary?: { payable_open: number; receivable_open: number; overdue_open: number } }
 type TrendResponse = { items: TrendPoint[]; days: number }
 const money = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n)
 const PAYMENT_METHODS = [
@@ -33,7 +33,11 @@ export default function FinancialOverview() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [truncated, setTruncated] = useState(false)
+  const [accountCount, setAccountCount] = useState(0)
+  const [pageOffset, setPageOffset] = useState(0)
+  const [balances, setBalances] = useState({ payable: 0, receivable: 0, overdue: 0 })
+  const [summaryReady, setSummaryReady] = useState(false)
+  const pageSize = 80
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ kind: 'payable', description: '', amount: '', due_date: today() })
   const [settle, setSettle] = useState<string | null>(null)
@@ -47,11 +51,18 @@ export default function FinancialOverview() {
     setError('')
     try {
       const [list, chart] = await Promise.all([
-        apiJson<ListResponse>('/api/v1/finance/accounts'),
+        apiJson<ListResponse>(`/api/v1/finance/accounts?kind=${view}&limit=${pageSize}&offset=${pageOffset}`),
         withTrend ? apiJson<TrendResponse>(`/api/v1/finance/trends?days=${days}`) : Promise.resolve(null),
       ])
       setAccounts(Array.isArray(list.items) ? list.items : [])
-      setTruncated(Boolean(list.truncated))
+      setAccountCount(list.total)
+      if (list.summary) {
+        setBalances({ payable: Number(list.summary.payable_open), receivable: Number(list.summary.receivable_open), overdue: Number(list.summary.overdue_open) })
+        setSummaryReady(true)
+      } else {
+        setSummaryReady(false)
+        setError('O servidor precisa ser atualizado para mostrar o total correto de todas as contas. A lista continua disponível.')
+      }
       if (chart) setTrends(Array.isArray(chart.items) ? chart.items : [])
     } catch (e: unknown) {
       setError(errorMessage(e))
@@ -68,21 +79,9 @@ export default function FinancialOverview() {
     return () => { active = false }
   }, [])
 
-  useEffect(() => { void refresh() }, [days]) // chart period also reloads accounts
+  useEffect(() => { void refresh() }, [days, view, pageOffset]) // requested period and account page
 
-  const totals = useMemo(() => {
-    const todayISO = today()
-    return accounts.reduce((out, item) => {
-      if (item.status === 'open') {
-        if (item.kind === 'payable') out.payable += item.amount
-        else out.receivable += item.amount
-        if (item.due_date < todayISO) out.overdue += item.amount
-      }
-      return out
-    }, { payable: 0, receivable: 0, overdue: 0 })
-  }, [accounts])
-
-  const visible = useMemo(() => accounts.filter((a) => view === 'all' || a.kind === view), [accounts, view])
+  const visible = accounts // already tenant-scoped and filtered/paginated by the API
   const chartMax = Math.max(1, ...trends.flatMap((item) => [Math.max(0, item.inflow), Math.abs(item.outflow)]))
   const chartIn = trends.reduce((sum, item) => sum + item.inflow, 0)
   const chartOut = trends.reduce((sum, item) => sum + Math.abs(item.outflow), 0)
@@ -135,18 +134,18 @@ export default function FinancialOverview() {
     <section aria-label="Painel de contas e evolução" className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-3">
         {[
-          ['A receber', totals.receivable, 'Valores abertos a receber'],
-          ['A pagar', totals.payable, 'Despesas ainda não baixadas'],
-          ['Vencidas', totals.overdue, 'Contas abertas após o vencimento'],
+          ['A receber', balances.receivable, 'Valores abertos a receber'],
+          ['A pagar', balances.payable, 'Despesas ainda não baixadas'],
+          ['Vencidas', balances.overdue, 'Contas abertas após o vencimento'],
         ].map(([title, amount, caption]) => (
           <div key={String(title)} className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-sm font-medium text-slate-600">{title}</p>
-            <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{money(Number(amount))}</p>
+            <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{summaryReady ? money(Number(amount)) : '—'}</p>
             <p className="mt-1 text-xs text-slate-500">{caption}</p>
           </div>
         ))}
       </div>
-      {truncated ? <p role="alert" className="text-sm text-amber-800">Mais de 500 contas registradas: os totais acima mostram apenas as 500 mais próximas do vencimento. Não são o saldo completo.</p> : null}
+      <p className="text-xs text-slate-500">{summaryReady ? "Os totais acima consideram todas as contas da loja, inclusive as que não estão na página atual." : "Os totais estão indisponíveis até atualizar o servidor. Não use os valores exibidos na lista como saldo da loja."}</p>
 
       <section aria-labelledby="trends-title" className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -162,7 +161,7 @@ export default function FinancialOverview() {
         </div>
         <div className="mt-4 flex flex-wrap gap-4 text-xs font-medium">
           <span className="text-emerald-700">Entradas: {money(chartIn)}</span>
-          <span className="text-rose-700">Saídas: {money(chartOut)}</span>
+          <span className="text-rose-700">Saídas e estornos: {money(chartOut)}</span>
         </div>
         <div role="img" aria-label="Gráfico de barras: entradas em verde e saídas em rosa por dia" className="mt-5 flex h-44 items-end gap-1 overflow-hidden border-b border-slate-200 pb-1">
           {trends.map((point) => (
@@ -209,7 +208,7 @@ export default function FinancialOverview() {
         ) : null}
         <div className="mt-5 flex flex-wrap gap-2">
           {([['all','Todas'],['payable','A pagar'],['receivable','A receber']] as const).map(([value,label])=>(
-            <button key={value} type="button" onClick={()=>setView(value)}
+            <button key={value} type="button" onClick={()=>{setView(value);setPageOffset(0);setSettle(null)}}
               aria-pressed={view===value}
               className={view===value?'rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white':'rounded-full border px-4 py-2 text-xs font-medium text-slate-700'}>
               {label}
@@ -218,7 +217,7 @@ export default function FinancialOverview() {
           <button type="button" onClick={()=>void refresh()} disabled={loading} className="ml-auto rounded-lg border px-3 py-2 text-xs">Atualizar</button>
         </div>
         <div className="mt-4 space-y-2">
-          {visible.slice(0,80).map((item)=>(
+          {visible.map((item)=>(
             <article key={item.id} className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center">
               <div className="min-w-0">
                 <p className="font-semibold text-slate-900">{item.description}</p>
@@ -248,7 +247,19 @@ export default function FinancialOverview() {
             </article>
           ))}
           {visible.length === 0 ? <p className="rounded-xl bg-slate-50 p-6 text-center text-sm text-slate-500">Nenhuma conta nessa categoria.</p> : null}
-          {visible.length>80 ? <p className="text-xs text-amber-800">Mostrando 80 contas. Use um filtro para reduzir a lista.</p>:null}
+          <nav aria-label="Páginas de contas" className="flex flex-wrap items-center justify-between gap-3 pt-4 text-sm">
+            <span className="text-slate-600">
+              {accountCount === 0 ? 'Nenhuma conta' : `Exibindo ${pageOffset + 1}–${pageOffset + visible.length} de ${accountCount} contas`}
+            </span>
+            <div className="flex gap-2">
+              <button type="button" disabled={loading || pageOffset === 0}
+                onClick={()=>setPageOffset((value)=>Math.max(0,value-pageSize))}
+                className="rounded-lg border px-4 py-2 disabled:opacity-40">Anterior</button>
+              <button type="button" disabled={loading || pageOffset + visible.length >= accountCount}
+                onClick={()=>setPageOffset((value)=>value+pageSize)}
+                className="rounded-lg border px-4 py-2 disabled:opacity-40">Próxima</button>
+            </div>
+          </nav>
         </div>
       </section>
     </section>
