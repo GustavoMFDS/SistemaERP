@@ -64,6 +64,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("product:read")).Get("/barcode/{barcode}", h.Products.GetByBarcode)
 				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/import-batches", h.Products.ImportBatch)
 				rr.With(middleware.RequirePermission("product:write")).Get("/import-batches/history", h.Products.ListImportHistory)
+				rr.With(middleware.RequirePermission("product:write"), productImportLimit).Get("/import-batches/history/export.csv", h.Products.ExportImportHistory)
 				rr.With(middleware.RequirePermission("product:write")).Get("/import-batches/{key}", h.Products.GetImportBatch)
 				rr.With(middleware.RequirePermission("product:read")).Get("/{id}", h.Products.Get)
 				rr.With(middleware.RequirePermission("product:write")).Post("/", h.Products.Create)
@@ -76,6 +77,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/adjust", h.Inventory.Adjust)
 				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/opening-stock", h.Inventory.ImportOpeningStock)
 				rr.With(middleware.RequirePermission("inventory:adjust")).Get("/opening-stock/batches/history", h.Inventory.ListOpeningStockHistory)
+				rr.With(middleware.RequirePermission("inventory:adjust"), productImportLimit).Get("/opening-stock/batches/history/export.csv", h.Inventory.ExportOpeningStockHistory)
 				rr.With(middleware.RequirePermission("inventory:adjust")).Get("/opening-stock/batches/{key}", h.Inventory.OpeningStockBatch)
 			})
 
