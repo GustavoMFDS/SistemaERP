@@ -147,6 +147,9 @@ does **not** increase stock or authorize fiscal issuance. Without
 Requires `product:write`. Lists **committed** product CSV batch receipts
 for the authenticated company. Optional `limit` (default 20, 1–50)
 and `offset` (default 0, 0–5000) must be single valid integers.
+Optional `from` and `to` parameters are strict ISO calendar dates (`YYYY-MM-DD`)
+using **America/Sao_Paulo** business-day boundaries (both days inclusive).
+If both are provided, the dates must be ordered and at most 365 days apart.
 Invalid input returns **422**, unauthorized clients **403**.
 
 Response, for example:
@@ -169,6 +172,23 @@ without import keys, hashes, CSV rows, costs, product lists, certificates or
 fiscal data. A missing receipt cannot prove an in-flight POST has finished.
 The history does **not** include older, pre-migration per-product operations.
 Uses `Cache-Control: no-store`.
+
+### GET `/products/import-batches/history/export.csv`
+
+Exports **all matching committed receipts**, not just the current UI page,
+as a semicolon-delimited UTF-8 CSV with BOM and fixed filename.
+Requires `product:write`. Accepts optional `from` and `to` date bounds
+with the same validation as the paginated list; rejects `limit`/`offset`.
+Includes only UTC creation date, actor display name, number of items and
+batch UUID. No CSV rows, SKU, price/cost, tax data, idempotency keys, request
+hashes, certificates or access tokens are included. Actor display names are
+escaped for Excel/Calc formula injection.
+
+The export is limited to **1,000 matching receipts**. If more exist, returns
+**422** (and no CSV content) asking for a shorter date interval; invalid
+dates and malformed filters also return 422. Successful downloads use
+`Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+The API rate-limits downloads per company/user.
 
 ### GET `/products/import-batches/{key}`
 
@@ -222,11 +242,21 @@ Operation `opening_stock` is reserved for initialization, not normal adjustments
 
 Requires `inventory:adjust`. Lists only **committed opening-stock**
 receipts for the authenticated company, newest first. Supports the same
-validated `limit` (1–50), `offset` (0–5000), `has_more` pagination,
+validated `limit` (1–50), `offset` (0–5000), optional inclusive
+`from`/`to` business-day filters in America/Sao_Paulo, `has_more` pagination,
 response fields and `Cache-Control: no-store` as product history.
 No inventory quantities, SKU list, CSV contents, idempotency key or
 request hash are returned. A failed/unconfirmed/in-flight request does
 not appear in the history.
+
+### GET `/inventory/opening-stock/batches/history/export.csv`
+
+Requires `inventory:adjust`. Same filtered CSV contract, spreadsheet formula
+neutralization, 1,000-receipt cap and no-store protections as product import
+history. Only metadata of **committed opening-stock batches** of the
+authenticated company is exported; inventory movement details, SKUs and
+counts per product are never exported. Filenames distinguish product from
+opening-stock import history. Timestamps are explicitly UTC in the CSV.
 
 ### GET `/inventory/opening-stock/batches/{key}`
 
