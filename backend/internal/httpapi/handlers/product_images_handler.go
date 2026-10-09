@@ -5,6 +5,7 @@ import (
     "crypto/sha256"
     "encoding/base64"
     "errors"
+    "image"
     "image/jpeg"
     "net/http"
     "unicode/utf8"
@@ -76,6 +77,44 @@ func catalogJPEG(encoded string, maxBytes, maxDimension int) ([]byte, error) {
         }
         if normalized.Len() <= maxBytes {
             return normalized.Bytes(), nil
+        }
+    }
+    return nil, ErrValidation
+}
+
+
+// Derive the preview from the server-normalized photo. Do not trust a client
+// thumbnail: a mismatched picture could mislead the operator at checkout.
+func catalogThumbnailJPEG(normalized []byte) ([]byte, error) {
+    decoded, err := jpeg.Decode(bytes.NewReader(normalized))
+    if err != nil {
+        return nil, ErrValidation
+    }
+    src := decoded.Bounds()
+    sw, sh := src.Dx(), src.Dy()
+    if sw <= 0 || sh <= 0 {
+        return nil, ErrValidation
+    }
+    ratio := float64(120) / float64(max(sw, sh))
+    if ratio > 1 {
+        ratio = 1
+    }
+    width, height := max(1, int(float64(sw)*ratio)), max(1, int(float64(sh)*ratio))
+    preview := image.NewRGBA(image.Rect(0, 0, width, height))
+    for y := 0; y < height; y++ {
+        for x := 0; x < width; x++ {
+            px := src.Min.X + x*sw/width
+            py := src.Min.Y + y*sh/height
+            preview.Set(x, y, decoded.At(px, py))
+        }
+    }
+    for _, quality := range []int{75, 60, 45, 32} {
+        var out bytes.Buffer
+        if err := jpeg.Encode(&out, preview, &jpeg.Options{Quality: quality}); err != nil {
+            return nil, ErrValidation
+        }
+        if out.Len() <= maxCatalogThumbBytes {
+            return out.Bytes(), nil
         }
     }
     return nil, ErrValidation
@@ -210,6 +249,7 @@ func (h *ProductImagesHandler) Upload(w http.ResponseWriter, r *http.Request) {
     }
     var req struct {
         ImageBase64 string `json:"image_base64"`
+        // Accepted for backwards compatibility, but never trusted or persisted.
         ThumbnailBase64 string `json:"thumbnail_base64"`
     }
     if err := readJSON(w, r, &req); err != nil {
@@ -221,9 +261,9 @@ func (h *ProductImagesHandler) Upload(w http.ResponseWriter, r *http.Request) {
         photoError(w, r, http.StatusUnprocessableEntity, "Foto inválida ou muito grande")
         return
     }
-    thumb, err := catalogJPEG(req.ThumbnailBase64, maxCatalogThumbBytes, 160)
+    thumb, err := catalogThumbnailJPEG(raw)
     if err != nil {
-        photoError(w, r, http.StatusUnprocessableEntity, "Miniatura inválida ou muito grande")
+        photoError(w, r, http.StatusUnprocessableEntity, "Não foi possível preparar a miniatura")
         return
     }
     digest := sha256.Sum256(raw)
