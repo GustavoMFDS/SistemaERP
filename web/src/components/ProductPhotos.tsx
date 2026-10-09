@@ -112,8 +112,10 @@ export default function ProductPhotos({ productId, productName, canWrite, onChan
       }
     } catch (e: unknown) {
       if (scope === getSessionScope()) {
-        setError('Não foi possível confirmar todas as fotos: ' + errorMessage(e) + '. Confira a galeria antes de enviar novamente.')
+        // Refresh any photos that were saved before the error. Keep the
+        // warning visible: load() clears errors after a successful fetch.
         await load()
+        setError('Não foi possível confirmar todas as fotos: ' + errorMessage(e) + '. Confira a galeria antes de enviar novamente.')
         onChange?.()
       }
     } finally {
