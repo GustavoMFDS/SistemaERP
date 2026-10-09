@@ -194,7 +194,7 @@ export default function ProductsPage() {
       setName('')
       setPriceCash(0)
       setMinStock(0)
-      setQuery('')
+      setQuery(payload.name)
       setPhotoProductId(created.id)
       await load()
     } catch (e: unknown) {
