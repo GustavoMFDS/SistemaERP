@@ -16,6 +16,31 @@
 - Evidência primária: [roteador/API](../backend/internal/httpapi/router.go), [telas do app](../web/src/App.tsx), [API documentada](api.md), [expansões de UX](ux-expansion-app.md), [visão do projeto](../README.md), [validação histórica](production-validation-report.md), [CI](../.github/workflows/ci.yml).
 - Em cada alteração futura: marcar o item **após inspeção do commit correspondente**; acrescentar link de PR, teste e evidência de execução ao liberar como validado. Não converter `[x]` em "pronto para produção" automaticamente.
 
+## Visão geral por módulo
+
+| Módulo | Itens com código identificado | Pendências e melhorias | Leitura |
+|---|---:|---:|---|
+| Empresas, contas e permissões | 12 | 6 | Administração multi-CNPJ parcial |
+| Assistente inicial e proprietário | 7 | 5 | Guias prontos no código; implantação ainda assistida |
+| Produtos | 10 | 5 | Catálogo e CSV; falta edição/exportação avançada |
+| Estoque | 11 | 7 | Movimentos e CSV; falta inventário físico formal |
+| PDV e caixa | 14 | 8 | Vendas e caixa; faltam integrações de hardware/pagamento |
+| Compras e fornecedores | 8 | 5 | Fluxo operacional; faltam automatizações |
+| Devoluções | 7 | 3 | Reembolso; falta troca inteiramente guiada |
+| Financeiro | 7 | 7 | Ledger/conciliação; faltam crediário e integrações reais |
+| Clientes | 5 | 6 | Agenda básica; falta relação completa com vendas |
+| Fiscal/SEFAZ | 8 | 9 | Fundação técnica; produção **bloqueada** |
+| Privacidade e segurança | 8 | 4 | APIs técnicas; validação externa e UX pendentes |
+| PWA/periféricos | 5 | 5 | PWA e impressão do navegador; hardware não integrado |
+| Infraestrutura e qualidade | 6 | 9 | Ferramentas prontas; evidências do SHA atual faltando |
+| **Total de linhas das seções 1–13** | **108** | **79** | **Não equivale a percentual de produção** |
+
+As seções P0–P3 contêm **22 linhas de ação adicionais**, que em
+parte **repetem e priorizam** as 79 pendências acima. Não somar essas
+linhas como novas funcionalidades independentes. As contagens são
+itens editoriais desta checklist, não métricas de cobertura, de
+qualidade de código ou de progresso validado.
+
 ## 1. Empresas, contas, funcionários e permissões
 
 **Localização:** autenticação/API, `/staff` e `/accept-invite`. **Estado:** núcleo implementado; onboarding autônomo e alguns casos multiloja ainda parciais.
@@ -109,7 +134,7 @@
 
 ## 5. PDV, vendas e operação de caixa
 
-**Localização:** `/pdv`, ``/sales`, `/cash`.
+**Localização:** `/pdv`, `/sales`, `/cash`.
 
 - [x] Abrir e fechar sessão de caixa.
 - [x] Suprimento/sangria ou movimentação manual de caixa, com controles de permissão.
