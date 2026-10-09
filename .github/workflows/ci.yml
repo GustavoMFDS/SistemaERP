@@ -1209,6 +1209,35 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             up 1
 
+      - name: Verify captions migration v37 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \\$\\$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption missing'; END IF; END \\$\\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \\$\\$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption rollback failed'; END IF; END \\$\\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
       - name: Verify product gallery tenant isolation at DB level
         run: |
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 \
