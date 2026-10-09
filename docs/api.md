@@ -142,6 +142,51 @@ one transaction; any failure rolls back the entire batch. This endpoint
 does **not** increase stock or authorize fiscal issuance. Without
 `finance:read`, server-side cost is forced to zero.
 
+### GET `/imports/history`
+
+Unified, read-only, chronologically ordered list of **committed**
+product CSV and opening-stock batches, under the currently authenticated
+company. The server requires at least one of `product:write` or
+`inventory:adjust` and checks them **independently** for each stream.
+A user with only `product:write` does not see opening stock; a user
+with only `inventory:adjust` does not see product import batches.
+Without either permission returns **403**, even when the company has
+no batches.
+
+Optional `limit` (1–50, default 20), `offset` (0–5000, default 0),
+`from` and `to` use the same strict date filtering as the separate
+histories (`America/Sao_Paulo`, inclusive calendar days, maximum
+365 days between both bounds); malformed filters return **422**.
+Pagination is applied **after** SQL UNION ALL, in global order
+`created_at DESC, kind ASC, batch_id DESC`. This avoids omitting a
+type or showing duplicated records when the two streams interleave.
+
+```json
+{
+  "items": [
+    {
+      "batch_id": "00000000-0000-4000-8000-000000000032",
+      "kind": "products",
+      "item_count": 10,
+      "actor_name": "Gerente",
+      "created_at": "2026-10-08T18:00:00Z"
+    }
+  ],
+  "limit": 20,
+  "offset": 0,
+  "has_more": false
+}
+```
+
+`kind` is `products` or `opening-stock`. No tenant identifier is
+accepted from clients. Receipts have no CSV contents, SKUs, financial
+values, certificate material, request hashes or idempotency keys.
+Only *confirmed* batches are shown; missing receipts must not be
+interpreted as failure or rollback of an in-flight request. The
+endpoint is never cached (`Cache-Control: no-store`).
+Combined CSV export is intentionally **not** exposed: use the existing
+module-scoped endpoints where appropriate.
+
 ### GET `/products/import-batches/history`
 
 Requires `product:write`. Lists **committed** product CSV batch receipts
