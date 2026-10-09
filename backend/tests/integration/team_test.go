@@ -99,6 +99,35 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 	if err := svc.Accept(ctx, token, password, "", "", ""); err != nil {
 		t.Fatalf("acceptance failed: %v", err)
 	}
+	if _, _, err := svc.Invite(ctx, tenantA, ownerID, "Outra Conta", email,
+		"cashier", "", "", ""); !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("existing identity cannot be linked to another account implicitly: %v", err)
+	}
+	revoked, revokedToken, err := svc.Invite(ctx, tenantA, ownerID, "Outra Pessoa",
+		fmt.Sprintf("revoked-%d@example.test", time.Now().UnixNano()), "manager", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Revoke(ctx, tenantA, ownerID, revoked.ID, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Accept(ctx, revokedToken, password, "", "", ""); !errors.Is(err, team.ErrInviteUnavailable) {
+		t.Fatalf("revoked invitation must not be accepted: %v", err)
+	}
+	expired, expiredToken, err := svc.Invite(ctx, tenantA, ownerID, "Convite Expirado",
+		fmt.Sprintf("expired-%d@example.test", time.Now().UnixNano()), "cashier", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		UPDATE staff_invitations SET expires_at=now()-interval '1 minute'
+		WHERE id=$1 AND tenant_id=$2
+	`, expired.ID, tenantA); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Accept(ctx, expiredToken, password, "", "", ""); !errors.Is(err, team.ErrInviteUnavailable) {
+		t.Fatalf("expired invitation must not be accepted: %v", err)
+	}
 	if err := svc.Accept(ctx, token, password, "", "", ""); !errors.Is(err, team.ErrInviteUnavailable) {
 		t.Fatalf("same token must never activate twice: %v", err)
 	}
