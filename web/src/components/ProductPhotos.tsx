@@ -97,13 +97,14 @@ export default function ProductPhotos({ productId, productName, canWrite, onChan
       for (const file of selected) {
         // The browser converts the uploaded photo into a bounded JPEG and thumbnail.
         const image_base64 = await resizedJPEG(file, 900, 256 * 1024)
-        const thumbnail_base64 = await resizedJPEG(file, 120, 12 * 1024)
+        // The API creates the thumbnail from these same pixels, preventing
+        // a mismatched preview from misleading salespeople at checkout.
         if (scope !== getSessionScope()) return
         const uploadKey = await imageAttemptKey(image_base64, scope, productId)
         await apiJson<{ id: string }>('/api/v1/products/' + encodeURIComponent(productId) + '/images', {
           method: 'POST',
           headers: { 'Idempotency-Key': uploadKey },
-          body: { image_base64, thumbnail_base64 },
+          body: { image_base64 },
         })
       }
       if (scope === getSessionScope()) {
