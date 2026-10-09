@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { apiJson, errorMessage } from '../lib/api'
+import { apiDownload, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 
 type Receipt = {
@@ -24,18 +24,42 @@ type Props = {
 const pageSize = 10
 const maxOffset = 5000
 
+function validDateRange(from: string, to: string): boolean {
+  if (!from || !to) return true
+  const first = Date.parse(from + 'T00:00:00Z')
+  const last = Date.parse(to + 'T00:00:00Z')
+  return Number.isFinite(first) && Number.isFinite(last) &&
+    last >= first && last - first <= 365 * 24 * 60 * 60 * 1000
+}
+
 export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) {
   const [offset, setOffset] = useState(0)
   const [page, setPage] = useState<Page | null>(null)
   const [refreshCounter, setRefreshCounter] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
+  const [exportError, setExportError] = useState('')
+  const [fromDraft, setFromDraft] = useState('')
+  const [toDraft, setToDraft] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const requestSequence = useRef(0)
   const scope = getSessionScope()
 
   const endpoint = kind === 'products'
     ? '/api/v1/products/import-batches/history'
     : '/api/v1/inventory/opening-stock/batches/history'
+
+  const periodValid = validDateRange(fromDraft, toDraft)
+  const filtersChanged = fromDraft !== from || toDraft !== to
+
+  function buildQuery(): string {
+    const query = new URLSearchParams()
+    if (from) query.set('from', from)
+    if (to) query.set('to', to)
+    return query.toString()
+  }
 
   useEffect(() => {
     const requestID = ++requestSequence.current
@@ -49,7 +73,10 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
     setLoading(true)
     setPage(null)
     setError('')
-    void apiJson<Page>(`${endpoint}?limit=${pageSize}&offset=${offset}`).then((data) => {
+    const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) })
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+    void apiJson<Page>(`${endpoint}?${params.toString()}`).then((data) => {
       if (requestID !== requestSequence.current || requestScope !== getSessionScope()) return
       setPage(data)
       setLoading(false)
@@ -60,7 +87,47 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
       setLoading(false)
     })
     return () => { ++requestSequence.current }
-  }, [endpoint, offset, refreshCounter, refreshVersion, scope])
+  }, [endpoint, offset, refreshCounter, refreshVersion, scope, from, to])
+
+  function applyFilters() {
+    if (!periodValid) return
+    setOffset(0)
+    setFrom(fromDraft)
+    setTo(toDraft)
+    setExportError('')
+    setRefreshCounter((version) => version + 1)
+  }
+
+  function clearFilters() {
+    setFromDraft('')
+    setToDraft('')
+    setFrom('')
+    setTo('')
+    setOffset(0)
+    setExportError('')
+    setRefreshCounter((version) => version + 1)
+  }
+
+  async function exportCSV() {
+    if (loading || exporting || filtersChanged || !periodValid || !scope) return
+    setExporting(true)
+    setExportError('')
+    const fileName = kind === 'products'
+      ? 'historico-importacao-produtos.csv'
+      : 'historico-estoque-inicial.csv'
+    const query = buildQuery()
+    try {
+      await apiDownload(
+        `${endpoint}/export.csv${query ? '?'+query : ''}`,
+        fileName,
+        'text/csv;charset=utf-8',
+      )
+    } catch (cause: unknown) {
+      setExportError(errorMessage(cause))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <section className="mt-5 rounded-md border p-3" aria-label="Histórico de importações confirmadas">
@@ -78,6 +145,52 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
           Atualizar histórico
         </button>
       </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-3 rounded-md bg-gray-50 p-3">
+        <label className="text-xs">
+          <span className="block text-gray-700">Data inicial</span>
+          <input type="date" value={fromDraft} onChange={(event) => setFromDraft(event.target.value)}
+            className="mt-1 rounded-md border bg-white px-2 py-2 text-sm" />
+        </label>
+        <label className="text-xs">
+          <span className="block text-gray-700">Data final</span>
+          <input type="date" value={toDraft} onChange={(event) => setToDraft(event.target.value)}
+            className="mt-1 rounded-md border bg-white px-2 py-2 text-sm" />
+        </label>
+        <button type="button" onClick={applyFilters} disabled={!periodValid || loading}
+          className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">
+          Filtrar período
+        </button>
+        <button type="button" onClick={clearFilters} disabled={loading}
+          className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">
+          Limpar filtros
+        </button>
+        <button type="button" onClick={() => void exportCSV()}
+          disabled={loading || exporting || !periodValid || filtersChanged}
+          className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+          {exporting ? 'Preparando CSV…' : 'Baixar histórico CSV'}
+        </button>
+        <p className="w-full text-xs text-gray-600">
+          Datas no horário de Brasília. Exportação de até 1.000 lotes, somente metadados.
+          Para períodos muito grandes, reduza as datas.
+        </p>
+        {!periodValid ? (
+          <p role="alert" className="w-full text-xs text-red-700">
+            Informe a data final igual ou posterior à inicial, com intervalo máximo de 365 dias.
+          </p>
+        ) : null}
+        {filtersChanged && periodValid ? (
+          <p className="w-full text-xs text-amber-800">
+            Aplique os filtros antes de exportar o histórico.
+          </p>
+        ) : null}
+        {exportError ? (
+          <p role="alert" className="w-full text-xs text-red-700">
+            Não foi possível baixar o CSV: {exportError}
+          </p>
+        ) : null}
+      </div>
+
       {loading ? <p role="status" className="mt-3 text-xs text-gray-600">Consultando histórico…</p> : null}
       {error ? (
         <p role="alert" className="mt-3 text-xs text-red-700">
@@ -101,7 +214,9 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
             <tbody className="divide-y">
               {page.items.map((item) => (
                 <tr key={item.batch_id}>
-                  <td className="px-2 py-2">{new Date(item.created_at).toLocaleString('pt-BR')}</td>
+                  <td className="px-2 py-2">
+                    {new Date(item.created_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+                  </td>
                   <td className="px-2 py-2">{item.actor_name}</td>
                   <td className="px-2 py-2">{item.item_count}</td>
                   <td className="px-2 py-2"><code className="break-all">{item.batch_id}</code></td>
@@ -124,7 +239,7 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
           Próxima página
         </button>
         {offset >= maxOffset ? (
-          <span className="text-amber-800">Limite da consulta atingido; solicite um relatório para lotes mais antigos.</span>
+          <span className="text-amber-800">Limite da consulta atingido; reduza o período para lotes mais antigos.</span>
         ) : null}
       </div>
     </section>
