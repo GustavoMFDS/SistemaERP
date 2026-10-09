@@ -85,7 +85,9 @@ export function buildSetupSteps(data: SetupSnapshot): SetupStep[] {
     },
     {
       key: 'team', title: 'Funcionários e permissões', status: 'review',
-      detail: 'Seu acesso está ativo. O cadastro e a revisão de outros usuários ainda exigem administração fora deste assistente.',
+      detail: permits.has('team:manage')
+        ? 'Use Funcionários para convidar pessoas e conferir seus acessos. Revise a equipe antes do piloto.'
+        : 'Peça ao administrador da loja para revisar a equipe e suas permissões.',
     },
     {
       key: 'fiscal', title: 'Preparar a NFC-e', status: fiscal,
