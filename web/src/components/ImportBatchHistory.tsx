@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { apiDownload, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 
@@ -139,11 +140,16 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
             Não mostra os dados da planilha.
           </p>
         </div>
-        <button type="button" disabled={loading}
-          onClick={() => setRefreshCounter((value) => value + 1)}
-          className="rounded-md border px-3 py-2 text-xs disabled:opacity-50">
-          Atualizar histórico
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link to="/imports" className="rounded-md border px-3 py-2 text-xs text-blue-700 hover:bg-gray-50">
+            Ver linha do tempo das importações
+          </Link>
+          <button type="button" disabled={loading}
+            onClick={() => setRefreshCounter((value) => value + 1)}
+            className="rounded-md border px-3 py-2 text-xs disabled:opacity-50">
+            Atualizar histórico
+          </button>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-end gap-3 rounded-md bg-gray-50 p-3">
