@@ -73,6 +73,13 @@ func (r *CachedProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID st
 	return r.base.Create(ctx, tx, tenantID, p)
 }
 
+// CreateVariation must be forwarded as well: ProductsService uses this
+// transaction-only capability when a product family is created. Without it,
+// stores configured with Redis reject every variant despite PostgreSQL support.
+func (r *CachedProductsRepo) CreateVariation(ctx context.Context, tx db.DBTX, tenantID, parentID, optionLabel string, p inv.Product) (string, error) {
+    return r.base.CreateVariation(ctx, tx, tenantID, parentID, optionLabel, p)
+}
+
 func (r *CachedProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error {
 	return r.base.Update(ctx, tx, tenantID, id, p, preserveCost)
 }
