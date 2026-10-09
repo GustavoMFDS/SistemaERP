@@ -19,6 +19,7 @@ type Handlers struct {
 	Procurement *ProcurementHandler
 	Returns     *ReturnsHandler
 	Setup       *SetupHandler
+	Team        *TeamHandler
 	Audit       *AuditHandler
 }
 
@@ -35,6 +36,7 @@ func New(cfg config.Config, mods *modules.Modules, logger *slog.Logger) *Handler
 		Procurement: NewProcurementHandler(mods.Procurement, logger),
 		Returns:     NewReturnsHandler(mods.Returns, logger),
 		Setup:       NewSetupHandler(mods.Setup),
+		Team:        NewTeamHandler(mods.Team),
 		Audit:       NewAuditHandler(mods.Audit, logger),
 	}
 }
