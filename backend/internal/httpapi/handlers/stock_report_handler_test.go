@@ -10,12 +10,12 @@ import (
 
 func TestStockReportCSVEscapesSpreadsheetFormulasAndOmitsFinance(t *testing.T) {
 	result, err := stockReportCSV([]inv.StockReportRow{{
-		SKU: "=HYPERLINK(\"https://test.invalid\")",
-		Name: " \t+SUM(1,1)",
-		Unit: "un",
-		Quantity: "2.500",
-		Minimum: "3.000",
-		Active: true,
+		SKU:        "=HYPERLINK(\"https://test.invalid\")",
+		Name:       " \t+SUM(1,1)",
+		Unit:       "un",
+		Quantity:   "2.500",
+		Minimum:    "3.000",
+		Active:     true,
 		BelowLimit: true,
 	}})
 	if err != nil {
