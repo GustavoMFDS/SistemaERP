@@ -181,6 +181,31 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 		t.Fatalf("negative offset should fail-closed: %v", err)
 	}
 
+	// Inclusive business-day range returns the two receipts of company A.
+	businessDay := time.Now().UTC().Add(-3 * time.Hour).Format("2006-01-02")
+	filtered, err := svc.ListImportHistory(ctx, tenantA, 10, 0, invapp.ImportHistoryFilter{
+		From: businessDay, To: businessDay,
+	})
+	if err != nil || len(filtered.Items) != 2 {
+		t.Fatalf("Brazilian calendar filter lost batch receipts: %+v err=%v", filtered, err)
+	}
+	absent, err := svc.ListImportHistory(ctx, tenantA, 10, 0, invapp.ImportHistoryFilter{
+		From: "2000-01-01", To: "2000-01-02",
+	})
+	if err != nil || len(absent.Items) != 0 {
+		t.Fatalf("old period must exclude current receipts: %+v err=%v", absent, err)
+	}
+	toExport, err := svc.ExportImportHistory(ctx, tenantA, invapp.ImportHistoryFilter{
+		From: businessDay, To: businessDay,
+	})
+	if err != nil || len(toExport) != 2 {
+		t.Fatalf("filter export must match company A receipts: %+v err=%v", toExport, err)
+	}
+	otherExport, err := svc.ExportImportHistory(ctx, tenantB, invapp.ImportHistoryFilter{})
+	if err != nil || len(otherExport) != 1 || otherExport[0].BatchID != other.BatchID {
+		t.Fatalf("export leaked receipt from another company: %+v err=%v", otherExport, err)
+	}
+
 	// A bad actor relationship must roll back even after row insertion.
 	_, err = svc.ImportProducts(ctx, tenantA,
 		"00000000-0000-4000-8000-000000000001", key+"-bad-actor",
