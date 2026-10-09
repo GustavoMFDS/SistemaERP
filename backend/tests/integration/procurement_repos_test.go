@@ -55,8 +55,18 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 
 	repo := procinfra.NewRepo(pool)
 	uow := db.NewPgxUnitOfWork(pool)
-	document := "55566677000188"
+	// A fresh document avoids collisions with fixtures left by interrupted runs.
+	document := fmt.Sprintf("%014d", time.Now().UnixNano()%100000000000000)
+	namePrefix := "Fornecedor Integration " + document
 
+	// Install cleanup before any write; failures halfway through supplier or
+	// purchase creation must not leave another conflicting tenant fixture.
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM purchase_items WHERE purchase_id IN (SELECT id FROM purchases WHERE tenant_id=$1 AND supplier_id IN (SELECT id FROM suppliers WHERE tenant_id=$1 AND document=$2))`, tenantA, document)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM purchases WHERE tenant_id=$1 AND supplier_id IN (SELECT id FROM suppliers WHERE tenant_id=$1 AND document=$2)`, tenantA, document)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM suppliers WHERE tenant_id IN ($1,$2) AND document=$3`, tenantA, tenantB, document)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
+	})
 	createSupplier := func(tenantID, name string) string {
 		t.Helper()
 		tx, err := uow.Begin(ctx)
@@ -76,8 +86,8 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 		return id
 	}
 
-	supplierA := createSupplier(tenantA, "Fornecedor Tenant A")
-	supplierB := createSupplier(tenantB, "Fornecedor Tenant B")
+	supplierA := createSupplier(tenantA, namePrefix+" A")
+	supplierB := createSupplier(tenantB, namePrefix+" B")
 
 	// The database must reject cross-tenant references even if a caller bypasses
 	// the application service and writes directly to the procurement tables.
@@ -94,18 +104,11 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 		t.Fatal("database unexpectedly accepted a cross-tenant supplier on accounts payable")
 	}
 
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM purchase_items WHERE purchase_id IN (SELECT id FROM purchases WHERE supplier_id=$1)`, supplierA)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM purchases WHERE supplier_id=$1`, supplierA)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM suppliers WHERE id IN ($1,$2)`, supplierA, supplierB)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
-	})
-
-	listA, totalA, err := repo.ListSuppliers(ctx, tenantA, "Fornecedor Tenant", 50, 0)
+	listA, totalA, err := repo.ListSuppliers(ctx, tenantA, namePrefix, 50, 0)
 	if err != nil {
 		t.Fatalf("list tenant A suppliers: %v", err)
 	}
-	listB, totalB, err := repo.ListSuppliers(ctx, tenantB, "Fornecedor Tenant", 50, 0)
+	listB, totalB, err := repo.ListSuppliers(ctx, tenantB, namePrefix, 50, 0)
 	if err != nil {
 		t.Fatalf("list tenant B suppliers: %v", err)
 	}

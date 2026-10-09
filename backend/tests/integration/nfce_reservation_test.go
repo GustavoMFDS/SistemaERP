@@ -162,6 +162,10 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	}
 	defer pool.Close()
 
+	// Each run owns a fresh pair of valid NFC-e series. Never rely on a
+	// hard-coded fiscal number that may have been consumed in a prior run.
+	var sequenceSeries int
+
 	var tenantID, actorUserID string
 	if err := pool.QueryRow(ctx, `
 		SELECT utr.tenant_id::text, utr.user_id::text
@@ -172,6 +176,24 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	`).Scan(&tenantID, &actorUserID); err != nil {
 		t.Fatalf("seeded tenant/admin required: %v", err)
 	}
+
+	// Reserve a pair of unused series from the test database. Random selection
+	// can collide with stale rows from interrupted integration runs.
+	if err := pool.QueryRow(ctx, `
+		SELECT candidate.value FROM generate_series(400, 880) AS candidate(value)
+		WHERE NOT EXISTS (
+			SELECT 1 FROM fiscal_document_sequences f
+			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=candidate.value
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM fiscal_document_sequences f
+			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=candidate.value+1
+		)
+		ORDER BY candidate.value LIMIT 1
+	`, tenantID).Scan(&sequenceSeries); err != nil {
+		t.Fatalf("no unused NFC-e series available for integration: %v", err)
+	}
+	secondarySeries := sequenceSeries + 1
 
 	var registerID string
 	if err := pool.QueryRow(ctx, `
@@ -224,7 +246,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if err := fiscalRepo.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, fisc.NFCeConfig{
 		TenantID:             tenantID,
 		Environment:          "homologation",
-		Series:               321,
+		Series:               sequenceSeries,
 		CertificateSecretRef: &certRef,
 	}); err != nil {
 		_ = tx.Rollback(ctx)
@@ -299,7 +321,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM products WHERE tenant_id=$1 AND id=$2`, tenantID, productID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM cash_sessions WHERE tenant_id=$1 AND id=$2`, tenantID, cashSessionID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM cash_registers WHERE tenant_id=$1 AND id=$2`, tenantID, registerID)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=321`, tenantID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=$2`, tenantID, sequenceSeries)
 	})
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -323,7 +345,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if !created {
 		t.Fatal("first reservation must be created")
 	}
-	if reservation.Status != "reserved" || reservation.Model != 65 || reservation.Series != 321 {
+	if reservation.Status != "reserved" || reservation.Model != 65 || reservation.Series != sequenceSeries {
 		t.Fatalf("unexpected reservation: %+v", reservation)
 	}
 	if reservation.DocumentNumber != 1 {
@@ -361,33 +383,33 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	}
 	if _, err := service.PrepareNFCeConfig(
 		ctx, tenantID, actorUserID, fiscapp.PrepareNFCeConfigRequest{
-			Environment: "production", Series: 322,
+			Environment: "production", Series: secondarySeries,
 			CertificateSecretRef: certRef,
 		},
 	); !errors.Is(err, common.ErrConflict) {
 		t.Fatalf("environment/series change with reserved NFC-e must fail closed: %v", err)
 	}
 	unchangedCfg, err := fiscalRepo.GetNFCeConfig(ctx, tenantID)
-	if err != nil || unchangedCfg.Environment != "homologation" || unchangedCfg.Series != 321 {
+	if err != nil || unchangedCfg.Environment != "homologation" || unchangedCfg.Series != sequenceSeries {
 		t.Fatalf("config unexpectedly changed under reserved NFC-e: %+v err=%v", unchangedCfg, err)
 	}
 	rotatedRef := "secret://integration/nfce/certificate-rotated"
 	rotatedCfg, err := service.PrepareNFCeConfig(
 		ctx, tenantID, actorUserID, fiscapp.PrepareNFCeConfigRequest{
-			Environment: "homologation", Series: 321,
+			Environment: "homologation", Series: sequenceSeries,
 			CertificateSecretRef: rotatedRef,
 		},
 	)
 	if err != nil ||
 		rotatedCfg.Environment != "homologation" ||
-		rotatedCfg.Series != 321 ||
+		rotatedCfg.Series != sequenceSeries ||
 		rotatedCfg.CertificateSecretRef == nil ||
 		*rotatedCfg.CertificateSecretRef != rotatedRef {
 		t.Fatalf("same-series certificate rotation should remain possible: %+v err=%v", rotatedCfg, err)
 	}
 	restoredCfg, err := service.PrepareNFCeConfig(
 		ctx, tenantID, actorUserID, fiscapp.PrepareNFCeConfigRequest{
-			Environment: "homologation", Series: 321,
+			Environment: "homologation", Series: sequenceSeries,
 			CertificateSecretRef: certRef,
 		},
 	)
@@ -422,7 +444,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if err := fiscalRepo.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, fisc.NFCeConfig{
 		TenantID:             tenantID,
 		Environment:          "production",
-		Series:               322,
+		Series:               secondarySeries,
 		CSCID:                &cscID,
 		CSCSecretRef:         &cscRef,
 		CertificateSecretRef: &certRef,
@@ -454,19 +476,26 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	service.SetNFCeInutilizationSchemaValidator(fakeCancellationValidator{})
 	service.SetNFCeRemoteInutilizationClient(remoteStack)
 
-	// A fully wired provider still must not enable production while the
-	// existing active seed item lacks its fiscal profile.
+	// Create our own active product without a fiscal profile rather than
+	// assume the shared demo seed has never been updated by another test.
+	// The gap and its subsequent profile are removed regardless of outcome.
+	var seedProductID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO products(tenant_id, sku, name, unit, price_cash, active, ncm)
+		VALUES ($1, $2, 'Lacuna fiscal de teste', 'UN', 10, true, '61091000')
+		RETURNING id::text
+	`, tenantID, "FISCAL-GAP-"+time.Now().Format("150405.000000000")).Scan(&seedProductID); err != nil {
+		t.Fatalf("create fiscal profile gap: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product_fiscal_profiles WHERE tenant_id=$1 AND product_id=$2`, tenantID, seedProductID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM products WHERE tenant_id=$1 AND id=$2`, tenantID, seedProductID)
+	})
+	// A fully wired provider must not enable production with this explicit gap.
 	if _, err := service.SetNFCeProductionTransmission(
 		ctx, tenantID, actorUserID, true,
 	); !errors.Is(err, common.ErrFiscalNotReady) {
 		t.Fatalf("active product without fiscal profile must block production: %v", err)
-	}
-	var seedProductID string
-	if err := pool.QueryRow(ctx, `
-		SELECT id::text FROM products
-		WHERE tenant_id=$1 AND sku='SKU-COCA-2L' AND active=true
-	`, tenantID).Scan(&seedProductID); err != nil {
-		t.Fatalf("seeded active product required for fiscal readiness: %v", err)
 	}
 	tx, err = uow.Begin(ctx)
 	if err != nil {
@@ -489,12 +518,6 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit seeded fiscal profile: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `
-			DELETE FROM product_fiscal_profiles
-			WHERE tenant_id=$1 AND product_id=$2
-		`, tenantID, seedProductID)
-	})
 	productionCfg, err := service.SetNFCeProductionTransmission(
 		ctx, tenantID, actorUserID, true,
 	)
@@ -539,8 +562,8 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 			tenantID, productionSaleID,
 		)
 		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=322`,
-			tenantID,
+			`DELETE FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=$2`,
+			tenantID, secondarySeries,
 		)
 	})
 
@@ -552,7 +575,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	}
 	if !created ||
 		productionReservation.Environment != "production" ||
-		productionReservation.Series != 322 {
+		productionReservation.Series != secondarySeries {
 		t.Fatalf("unexpected production reservation: %+v created=%t", productionReservation, created)
 	}
 
@@ -703,8 +726,8 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if err := pool.QueryRow(ctx, `
 		SELECT next_number
 		FROM fiscal_document_sequences
-		WHERE tenant_id=$1 AND model=65 AND series=321
-	`, tenantID).Scan(&nextNumber); err != nil {
+		WHERE tenant_id=$1 AND model=65 AND series=$2
+	`, tenantID, sequenceSeries).Scan(&nextNumber); err != nil {
 		t.Fatalf("read sequence after reservation: %v", err)
 	}
 	if nextNumber != 2 {
@@ -743,7 +766,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if err := fiscalRepo.UpsertNFCeConfig(ctx, tx, tenantID, actorUserID, fisc.NFCeConfig{
 		TenantID:             tenantID,
 		Environment:          "homologation",
-		Series:               321,
+		Series:               sequenceSeries,
 		CertificateSecretRef: &certRef,
 	}); err != nil {
 		_ = tx.Rollback(ctx)

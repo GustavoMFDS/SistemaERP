@@ -54,8 +54,22 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 		t.Fatalf("create tenant B: %v", err)
 	}
 
+	// Use a private NFC-e series so reruns cannot inherit another test's
+	// number allocation. Never reset fiscal sequences for the seeded tenant.
+	var seriesA int
+	if err := pool.QueryRow(ctx, `
+		SELECT candidate.value FROM generate_series(400, 880) AS candidate(value)
+		WHERE NOT EXISTS (
+			SELECT 1 FROM fiscal_document_sequences f
+			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=candidate.value
+		)
+		ORDER BY candidate.value LIMIT 1
+	`, tenantA).Scan(&seriesA); err != nil {
+		t.Fatalf("no unused NFC-e series available for foundation test: %v", err)
+	}
+
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM fiscal_document_sequences WHERE tenant_id=$1`, tenantA)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=$2`, tenantA, seriesA)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM nfce_configs WHERE tenant_id=$1`, tenantA)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
 	})
@@ -140,7 +154,7 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin first sequence tx: %v", err)
 	}
-	number, err := repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	number, err := repo.ReserveNextNFCeNumber(ctx, tx, tenantA, seriesA)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("reserve first NFC-e number: %v", err)
@@ -157,7 +171,7 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin rollback sequence tx: %v", err)
 	}
-	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, seriesA)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("reserve rollback NFC-e number: %v", err)
@@ -174,7 +188,7 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin reused sequence tx: %v", err)
 	}
-	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, seriesA)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("reserve reused NFC-e number: %v", err)
