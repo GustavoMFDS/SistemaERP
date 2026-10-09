@@ -7,6 +7,7 @@ import (
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/audit"
+	"github.com/example/sistemaemgo/internal/modules/customers"
 	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
 	authinfra "github.com/example/sistemaemgo/internal/modules/auth/infrastructure"
 	finapp "github.com/example/sistemaemgo/internal/modules/finance/application"
@@ -47,6 +48,7 @@ type Modules struct {
 	Returns     *retapp.Service
 	Setup       *setup.Service
 	Team        *team.Service
+	Customers   *customers.Service
 	Events      *events.Bus
 	DB          *pgxpool.Pool
 	Redis       *redis.Client
@@ -191,6 +193,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		Returns:     returnsSvc,
 		Setup:       setupSvc,
 		Team:        team.New(pool, auditSvc),
+		Customers:   customers.New(pool, auditSvc),
 		Events:      bus,
 		DB:          pool,
 		Redis:       rdb,
