@@ -33,6 +33,18 @@ async function resizedJPEG(file: File, maxDimension: number, maxBytes: number) {
   }
 }
 
+// Derive a stable UUID from this photo and store scope to make resubmissions
+// idempotent even after ambiguous network failures and browser reloads.
+async function imageAttemptKey(encodedJPEG: string, scope: string, productID: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode(scope + ':' + productID + ':' + encodedJPEG)))
+  const bytes = digest.slice(0, 16)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
+}
+
 export default function ProductPhotos({ productId, productName, canWrite, onChange }: {
   productId: string
   productName: string
@@ -84,9 +96,10 @@ export default function ProductPhotos({ productId, productName, canWrite, onChan
         const image_base64 = await resizedJPEG(file, 900, 256 * 1024)
         const thumbnail_base64 = await resizedJPEG(file, 120, 12 * 1024)
         if (scope !== getSessionScope()) return
+        const uploadKey = await imageAttemptKey(image_base64, scope, productId)
         await apiJson<{ id: string }>('/api/v1/products/' + encodeURIComponent(productId) + '/images', {
           method: 'POST',
-          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          headers: { 'Idempotency-Key': uploadKey },
           body: { image_base64, thumbnail_base64 },
         })
       }
