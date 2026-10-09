@@ -180,16 +180,16 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	// Reserve a pair of unused series from the test database. Random selection
 	// can collide with stale rows from interrupted integration runs.
 	if err := pool.QueryRow(ctx, `
-		SELECT series FROM generate_series(400, 880) AS series
+		SELECT candidate.value FROM generate_series(400, 880) AS candidate(value)
 		WHERE NOT EXISTS (
 			SELECT 1 FROM fiscal_document_sequences f
-			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=series
+			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=candidate.value
 		)
 		AND NOT EXISTS (
 			SELECT 1 FROM fiscal_document_sequences f
-			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=series+1
+			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=candidate.value+1
 		)
-		ORDER BY series LIMIT 1
+		ORDER BY candidate.value LIMIT 1
 	`, tenantID).Scan(&sequenceSeries); err != nil {
 		t.Fatalf("no unused NFC-e series available for integration: %v", err)
 	}
