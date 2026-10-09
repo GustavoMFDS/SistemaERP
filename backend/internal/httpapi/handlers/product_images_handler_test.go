@@ -5,6 +5,7 @@ import (
     "encoding/base64"
     "image"
     "image/jpeg"
+    "image/color"
     "testing"
 )
 
@@ -65,5 +66,42 @@ func TestCatalogJPEGRemovesAppendedNonImagePayload(t *testing.T) {
     // or safe re-encoding is acceptable; retaining the suffix is not.
     if err == nil && bytes.Contains(clean, suffix) {
         t.Fatal("untrusted suffix survived JPEG recompression")
+    }
+}
+
+func TestCatalogThumbnailGeneratedFromOriginalPixels(t *testing.T) {
+    pic := image.NewRGBA(image.Rect(0, 0, 600, 300))
+    for y := 0; y < 300; y++ {
+        for x := 0; x < 600; x++ {
+            pic.Set(x, y, color.RGBA{R: 230, G: 30, B: 15, A: 255})
+        }
+    }
+    var src bytes.Buffer
+    if err := jpeg.Encode(&src, pic, &jpeg.Options{Quality: 85}); err != nil {
+        t.Fatal(err)
+    }
+    normalized, err := catalogJPEG(base64.StdEncoding.EncodeToString(src.Bytes()), maxCatalogPhotoBytes, 1600)
+    if err != nil {
+        t.Fatalf("normalizing image: %v", err)
+    }
+    thumb, err := catalogThumbnailJPEG(normalized)
+    if err != nil || len(thumb) == 0 || len(thumb) > maxCatalogThumbBytes {
+        t.Fatalf("thumbnail exceeds bound or is invalid: %d %v", len(thumb), err)
+    }
+    decoded, err := jpeg.Decode(bytes.NewReader(thumb))
+    if err != nil { t.Fatal(err) }
+    bounds := decoded.Bounds()
+    if bounds.Dx() > 120 || bounds.Dy() > 120 || bounds.Dx() < 1 || bounds.Dy() < 1 {
+        t.Fatalf("thumbnail size incorrect: %v", bounds)
+    }
+    r, g, b, _ := decoded.At(bounds.Min.X + bounds.Dx()/2, bounds.Min.Y + bounds.Dy()/2).RGBA()
+    if r <= g*2 || r <= b*2 {
+        t.Fatalf("thumbnail pixels do not reflect red source: r=%d g=%d b=%d", r, g, b)
+    }
+}
+
+func TestCatalogThumbnailRejectsMalformedJPEG(t *testing.T) {
+    if _, err := catalogThumbnailJPEG([]byte("not jpeg")); err == nil {
+        t.Fatal("malformed image accepted")
     }
 }
