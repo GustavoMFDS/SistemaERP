@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 	"time"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
@@ -116,12 +118,18 @@ func (h *InventoryHandler) ListOpeningStockHistory(w http.ResponseWriter, r *htt
 // Even if a malicious user profile contains a spreadsheet formula (including
 // leading whitespace), the CSV export must not execute it in Excel/Calc.
 func safeSpreadsheetCell(value string) string {
-	trimmed := strings.TrimLeft(value, " \t\r\n\uFEFF")
+	trimmed := strings.TrimLeftFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r) ||
+			r == '\uFEFF' || r == '\u200B' || r == '\u2060'
+	})
 	if trimmed != "" && strings.ContainsRune("=+-@", rune(trimmed[0])) {
 		return "'" + value
 	}
-	if len(value) > 0 && strings.ContainsAny(value[:1], "\t\r\n") {
-		return "'" + value
+	if value != "" {
+		first, _ := utf8.DecodeRuneInString(value)
+		if unicode.IsControl(first) {
+			return "'" + value
+		}
 	}
 	return value
 }
