@@ -1,0 +1,164 @@
+import { useCallback, useEffect, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import { apiJson, errorMessage } from '../lib/api'
+import { getSessionScope } from '../lib/auth'
+
+type Photo = {
+  id: string
+  data_url: string
+  thumbnail_url: string
+  principal: boolean
+}
+
+async function resizedJPEG(file: File, maxDimension: number, maxBytes: number) {
+  const bitmap = await createImageBitmap(file)
+  try {
+    const ratio = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(bitmap.width * ratio))
+    canvas.height = Math.max(1, Math.round(bitmap.height * ratio))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('O navegador não conseguiu preparar a imagem.')
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    for (const quality of [0.85, 0.73, 0.6, 0.45]) {
+      const url = canvas.toDataURL('image/jpeg', quality)
+      const encoded = url.split(',')[1] ?? ''
+      if (Math.floor(encoded.length * 3 / 4) <= maxBytes) return encoded
+    }
+    throw new Error('A imagem ficou grande demais. Tente uma foto mais simples.')
+  } finally {
+    bitmap.close()
+  }
+}
+
+export default function ProductPhotos({ productId, productName, canWrite, onChange }: {
+  productId: string
+  productName: string
+  canWrite: boolean
+  onChange?: () => void
+}) {
+  const [photos, setPhotos] = useState<Photo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    const scope = getSessionScope()
+    setLoading(true)
+    try {
+      const result = await apiJson<{ items: Photo[] }>(
+        '/api/v1/products/' + encodeURIComponent(productId) + '/images',
+      )
+      if (scope !== getSessionScope()) return
+      setPhotos(result.items ?? [])
+      setError('')
+    } catch (e: unknown) {
+      if (scope === getSessionScope()) setError(errorMessage(e))
+    } finally {
+      if (scope === getSessionScope()) setLoading(false)
+    }
+  }, [productId])
+
+  useEffect(() => { void load() }, [load])
+
+  async function choosePhotos(event: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (!canWrite || busy || selected.length === 0) return
+    if (selected.length > 5 - photos.length) {
+      setError('Você pode adicionar até cinco fotos por produto.')
+      return
+    }
+    if (selected.some((f) => !['image/jpeg', 'image/png', 'image/webp'].includes(f.type) || f.size > 10 * 1024 * 1024)) {
+      setError('Escolha arquivos JPG, PNG ou WebP com até 10 MB cada.')
+      return
+    }
+    const scope = getSessionScope()
+    setBusy(true)
+    setError('')
+    try {
+      for (const file of selected) {
+        // The browser converts the uploaded photo into a bounded JPEG and thumbnail.
+        const image_base64 = await resizedJPEG(file, 900, 256 * 1024)
+        const thumbnail_base64 = await resizedJPEG(file, 120, 12 * 1024)
+        if (scope !== getSessionScope()) return
+        await apiJson<{ id: string }>('/api/v1/products/' + encodeURIComponent(productId) + '/images', {
+          method: 'POST',
+          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          body: { image_base64, thumbnail_base64 },
+        })
+      }
+      if (scope === getSessionScope()) {
+        await load()
+        onChange?.()
+      }
+    } catch (e: unknown) {
+      if (scope === getSessionScope()) {
+        setError('Não foi possível confirmar todas as fotos: ' + errorMessage(e) + '. Confira a galeria antes de enviar novamente.')
+        await load()
+        onChange?.()
+      }
+    } finally {
+      if (scope === getSessionScope()) setBusy(false)
+    }
+  }
+
+  async function deletePhoto(id: string) {
+    if (!canWrite || busy || !window.confirm('Excluir esta foto do produto?')) return
+    const scope = getSessionScope()
+    setBusy(true)
+    setError('')
+    try {
+      await apiJson('/api/v1/products/' + encodeURIComponent(productId) + '/images/' + encodeURIComponent(id), {
+        method: 'DELETE',
+      })
+      if (scope === getSessionScope()) {
+        await load()
+        onChange?.()
+      }
+    } catch (e: unknown) {
+      if (scope === getSessionScope()) setError(errorMessage(e))
+    } finally {
+      if (scope === getSessionScope()) setBusy(false)
+    }
+  }
+
+  return (
+    <section aria-label={'Fotos de ' + productName} className="space-y-3 rounded-xl bg-slate-50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-semibold text-slate-800">Fotos — {productName}</h3>
+          <p className="text-xs text-slate-600">Opcional. A primeira foto será a principal; se excluí-la, a próxima assume seu lugar.</p>
+        </div>
+        {canWrite && photos.length < 5 ? (
+          <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-100">
+            {busy ? 'Enviando…' : 'Adicionar fotos'}
+            <input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy}
+              onChange={(event) => void choosePhotos(event)} className="sr-only" />
+          </label>
+        ) : null}
+      </div>
+      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {loading ? <p className="text-sm text-slate-600">Carregando fotos…</p> : null}
+      {!loading && photos.length === 0 ? <p className="text-sm text-slate-600">Este produto ainda não tem fotos.</p> : null}
+      <div className="flex flex-wrap gap-3">
+        {photos.map((photo) => (
+          <div key={photo.id} className="w-36 rounded-lg border border-slate-200 bg-white p-2">
+            <a href={photo.data_url} target="_blank" rel="noopener noreferrer"
+              aria-label={'Ver foto de ' + productName}>
+              <img src={photo.thumbnail_url} alt={'Foto de ' + productName}
+                className="h-28 w-full rounded-md object-contain" />
+            </a>
+            <p className="mt-1 text-center text-xs text-slate-600">{photo.principal ? 'Foto principal' : 'Foto adicional'}</p>
+            {canWrite ? <button type="button" disabled={busy} onClick={() => void deletePhoto(photo.id)}
+              className="mt-1 w-full rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 disabled:opacity-50">
+              Excluir
+            </button> : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
