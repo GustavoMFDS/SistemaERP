@@ -47,6 +47,13 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
       } as typeof baseProduct
       return reply({ id: variantID, parent_id: parentID }, 201)
     }
+    if ((pathname === '/api/v1/products/' + parentID + '/variations' ||
+        pathname === '/api/v1/products/' + variantID + '/variations') && request.method() === 'GET') {
+      return reply({ parent_id: parentID, items: [
+        { ...baseProduct, option_label: '', is_base: true },
+        ...(variant ? [{ ...variant, option_label: 'Azul', is_base: false }] : []),
+      ] })
+    }
     if (pathname === '/api/v1/products/images/previews') return reply({ items: {} })
     if (pathname === '/api/v1/products/' + variantID + '/images') return reply({ items: [] })
     return reply({ message: 'mock endpoint not implemented' }, 404)
@@ -77,6 +84,12 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
   await page.getByRole('textbox', { name: 'Buscar produto' }).fill('Caderno')
   await expect(page.getByRole('row', { name: /CAD-AZUL/ })).toContainText('0.00')
   await expect(page.getByRole('row', { name: /CAD-BASE/ })).toContainText('15.00')
+  await page.getByRole('row', { name: /CAD-AZUL/ }).getByRole('button', { name: 'Ver cores/tamanhos' }).click()
+  const family = page.getByRole('region', { name: 'Cores e tamanhos do produto' })
+  await expect(family).toContainText('CAD-BASE')
+  await expect(family).toContainText('CAD-AZUL')
+  await expect(family).toContainText('15.00')
+  await expect(family).toContainText('0.00')
   // Only one POST must atomically commit both new SKU and family relationship.
   expect(createdPayload).not.toBeNull()
 })
