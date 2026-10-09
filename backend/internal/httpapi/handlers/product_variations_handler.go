@@ -26,6 +26,9 @@ type productVariationOption struct {
     ID string `json:"id"`
     SKU string `json:"sku"`
     Name string `json:"name"`
+    Unit string `json:"unit"`
+    Barcode *string `json:"barcode"`
+    PromoPrice *float64 `json:"promo_price"`
     PriceCash float64 `json:"price_cash"`
     QtyOnHand float64 `json:"qty_on_hand"`
     Active bool `json:"active"`
@@ -56,7 +59,7 @@ func (h *ProductVariationsHandler) List(w http.ResponseWriter, r *http.Request) 
         photoError(w, r, http.StatusInternalServerError, "Não foi possível consultar as opções"); return
     }
     rows, err := h.pool.Query(r.Context(), `
-        SELECT p.id::text, p.sku, p.name, p.price_cash::float8,
+        SELECT p.id::text, p.sku, p.name, p.unit, p.barcode, p.price_cash::float8, p.promo_price::float8,
                COALESCE(b.qty_on_hand,0)::float8, p.active,
                COALESCE(v.option_label,''), (p.id=$2::uuid)
         FROM products p
@@ -74,7 +77,7 @@ func (h *ProductVariationsHandler) List(w http.ResponseWriter, r *http.Request) 
     options := make([]productVariationOption, 0, 8)
     for rows.Next() {
         var item productVariationOption
-        if err := rows.Scan(&item.ID, &item.SKU, &item.Name, &item.PriceCash,
+        if err := rows.Scan(&item.ID, &item.SKU, &item.Name, &item.Unit, &item.Barcode, &item.PriceCash, &item.PromoPrice,
             &item.QtyOnHand, &item.Active, &item.Label, &item.IsBase); err != nil {
             photoError(w, r, http.StatusInternalServerError, "Falha ao ler opções"); return
         }
