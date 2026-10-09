@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/example/sistemaemgo/internal/modules/inventory/application"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 )
 
