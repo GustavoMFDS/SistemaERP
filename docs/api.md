@@ -142,6 +142,34 @@ one transaction; any failure rolls back the entire batch. This endpoint
 does **not** increase stock or authorize fiscal issuance. Without
 `finance:read`, server-side cost is forced to zero.
 
+### GET `/products/import-batches/history`
+
+Requires `product:write`. Lists **committed** product CSV batch receipts
+for the authenticated company. Optional `limit` (default 20, 1–50)
+and `offset` (default 0, 0–5000) must be single valid integers.
+Invalid input returns **422**, unauthorized clients **403**.
+
+Response, for example:
+```json
+{
+  "items": [{
+    "batch_id": "00000000-0000-4000-8000-000000000032",
+    "item_count": 10,
+    "actor_name": "Gerente",
+    "created_at": "2026-10-08T18:00:00Z"
+  }],
+  "limit": 20,
+  "offset": 0,
+  "has_more": false
+}
+```
+
+Newest first; ties resolved by batch ID. Returns only receipt metadata,
+without import keys, hashes, CSV rows, costs, product lists, certificates or
+fiscal data. A missing receipt cannot prove an in-flight POST has finished.
+The history does **not** include older, pre-migration per-product operations.
+Uses `Cache-Control: no-store`.
+
 ### GET `/products/import-batches/{key}`
 
 Requires `product:write`. Checks the authenticated company's *committed*
@@ -189,6 +217,16 @@ and `replayed: false`. `404` means at least one SKU does not belong to
 that tenant; `422` means malformed input. The batch, movements, balances and
 audit event are committed in **one transaction**; it is never a partial import.
 Operation `opening_stock` is reserved for initialization, not normal adjustments.
+
+### GET `/inventory/opening-stock/batches/history`
+
+Requires `inventory:adjust`. Lists only **committed opening-stock**
+receipts for the authenticated company, newest first. Supports the same
+validated `limit` (1–50), `offset` (0–5000), `has_more` pagination,
+response fields and `Cache-Control: no-store` as product history.
+No inventory quantities, SKU list, CSV contents, idempotency key or
+request hash are returned. A failed/unconfirmed/in-flight request does
+not appear in the history.
 
 ### GET `/inventory/opening-stock/batches/{key}`
 
