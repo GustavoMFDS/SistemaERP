@@ -440,6 +440,26 @@ generate a fresh one to "retry".
 { "product_id": "...", "delta": -2, "reason": "Perda identificada no inventário", "type": "loss" }
 ```
 
+### GET `/inventory/stock-report.csv`
+
+Requires `inventory:read`. Generates a download of the **entire
+catalog of the authenticated CNPJ** (active and inactive products,
+including those that are not low-stock), limited to 5,000 records.
+The response contains only SKU, product name, unit, current quantity,
+minimum quantity, low-stock status, and whether the item is active.
+No costs, prices, profits, fiscal documents, user identities,
+hashes or cross-tenant information are included.
+
+The report is a read-only snapshot and does not perform physical
+inventory counts, stock adjustments or reservation of quantities.
+Query parameters (especially `tenant_id`) are rejected with 422.
+The CSV is UTF-8 with BOM and semicolon separator, quantity
+decimals in Brazilian notation, and formula-injection escaping.
+Responses use `Cache-Control: no-store` and `nosniff`, with
+an IP/user/tenant rate limit. A catalog larger than 5,000 items
+returns 422 **without a partial CSV**; full streaming/filtered export
+for larger stores remains planned.
+
 ## Cash / PDV
 
 
