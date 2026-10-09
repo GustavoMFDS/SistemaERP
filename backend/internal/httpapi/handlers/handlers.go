@@ -20,6 +20,7 @@ type Handlers struct {
 	Returns     *ReturnsHandler
 	Setup       *SetupHandler
 	Team        *TeamHandler
+	Customers   *CustomersHandler
 	Audit       *AuditHandler
 }
 
@@ -37,6 +38,7 @@ func New(cfg config.Config, mods *modules.Modules, logger *slog.Logger) *Handler
 		Returns:     NewReturnsHandler(mods.Returns, logger),
 		Setup:       NewSetupHandler(mods.Setup),
 		Team:        NewTeamHandler(mods.Team),
+		Customers:   NewCustomersHandler(mods.Customers),
 		Audit:       NewAuditHandler(mods.Audit, logger),
 	}
 }
