@@ -487,20 +487,50 @@ precisa de regras de cobrança, privacidade e auditoria próprias.
 
 ## Próximas expansões
 
-- Acrescentar visão de movimentações e histórico fiscal em módulos próprios
-  (somente leitura e RBAC), sem transformar recibo em prova de emissão.
-- Planejar relatórios por período para gestores, sem misturar dados de CNPJs
-  distintos ou elevar permissões do usuário.
+- Acrescentar histórico fiscal de documentos, pendências e rejeições em
+  módulo próprio de leitura, sem transformar recibo em prova de emissão.
+- Evoluir relatórios gerenciais para reconhecer devoluções e reembolsos
+  explicitamente, sem confundir subtotal vendido com lucro.
 - Oferecer conciliação assistida de lotes sem referência local e um histórico
   separado de **tentativas não confirmadas**, sem inferir commit a partir de
   erros de rede.
-- Paginação completa e exportação do relatório global de estoque; o total já
-  é computado globalmente, mas a listagem está limitada a 500 itens.
+- Oferecer relatório de estoque acima de 5.000 produtos com segmentação,
+  sem CSV truncado, e uma conciliação de contagem física aprovada.
 - Relatórios gerenciais mais profundos (venda por item, período e custo),
   preservando a autorização de custo e margem.
 - Ampliar o onboarding com evidências automáticas versionadas e adicionar
   vinculação verificada de uma mesma identidade a outros CNPJs, sem
   mistura de permissões nem elevação automática a administrador.
+
+## Hardenings da revisão seguinte (pendentes de CI executável)
+
+- **Compilação de frontend:** corrigidas vírgulas ausentes em
+  `Layout.tsx` e `HomePage.tsx`, introduzidas pelos novos atalhos.
+- **Funcionários:** `Invite`, `Revoke` e `UpdateMember` exigem
+  administrador ativo **também dentro da transação**, não só na rota.
+  O rollback da migration 0033 recusa voltar ao esquema antigo se
+  qualquer vínculo estiver suspenso, evitando reativação silenciosa.
+- **Clientes:** criação e atualização verificam `customer:write`,
+  usuário e vínculo ativos também na transação. Busca por nome é
+  literal; `%` e `_` não são curingas.
+- **Movimentações:** consultas rejeitam UUID inválido, paginação fora
+  do intervalo e parâmetros desconhecidos como `tenant_id`.
+  Limite 1–500 e offset 0–5000, `Cache-Control: no-store`.
+- **Ranking gerencial:** rejeita parâmetros extras/duplicados no
+  servidor. Teste de integração adicionado para venda finalizada,
+  venda cancelada, datas e produtos de dois CNPJs com mesmo SKU.
+- **CSV:** neutralização de fórmulas escondidas depois de espaços
+  Unicode e controles, com testes de regressão.
+- **E2E:** corrigido o seletor acessível de formulário de clientes
+  e alterado o teste de permissão de convites para chamar uma rota
+  POST realmente existente.
+
+Essas são **correções enviadas ao PR**, não evidência de aprovação
+em testes executados. O cenário GitHub Actions `runner_id=0`,
+`steps=0` ainda impede usar seus resultados como prova de qualidade.
+Migrations 0033–0034, `go test ./...`, testes de integração,
+`npm run lint`, `npm run build` e Playwright permanecem gates
+obrigatórios para merge e piloto.
 
 ## Próxima fase: operação
 
