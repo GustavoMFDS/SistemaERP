@@ -54,15 +54,16 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 		t.Fatalf("create tenant B: %v", err)
 	}
 
+	// Use a private NFC-e series so reruns cannot inherit another test's
+	// number allocation. Never reset fiscal sequences for the seeded tenant.
+	seriesA := int(time.Now().UnixNano()%250) + 500
+
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=$2`, tenantA, seriesA)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM nfce_configs WHERE tenant_id=$1`, tenantA)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
 	})
 
-	// Use a private NFC-e series so reruns cannot inherit another test's
-	// number allocation. Never reset fiscal sequences for the seeded tenant.
-	seriesA := int(time.Now().UnixNano()%250) + 500
 	repo := fiscinfra.NewFiscalRepo(pool)
 	uow := db.NewPgxUnitOfWork(pool)
 
