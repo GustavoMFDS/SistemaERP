@@ -37,13 +37,15 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
       )
       return reply({ items: result, total: result.length })
     }
-    if (pathname === '/api/v1/products' && request.method() === 'POST') {
-      createdPayload = request.postDataJSON() as Record<string, unknown>
+    if (pathname === '/api/v1/products/' + parentID + '/variations' && request.method() === 'POST') {
+      const requestBody = request.postDataJSON() as { option_label: string; product: Record<string, unknown> }
+      expect(requestBody.option_label).toBe('Azul')
+      createdPayload = requestBody.product
       variant = {
         ...baseProduct, ...createdPayload, id: variantID,
         qty_on_hand: 0, barcode: (createdPayload.barcode as string | null) ?? null,
       } as typeof baseProduct
-      return reply({ id: variantID }, 201)
+      return reply({ id: variantID, parent_id: parentID }, 201)
     }
     if (pathname === '/api/v1/products/images/previews') return reply({ items: {} })
     if (pathname === '/api/v1/products/' + variantID + '/images') return reply({ items: [] })
@@ -75,4 +77,6 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
   await page.getByRole('textbox', { name: 'Buscar produto' }).fill('Caderno')
   await expect(page.getByRole('row', { name: /CAD-AZUL/ })).toContainText('0.00')
   await expect(page.getByRole('row', { name: /CAD-BASE/ })).toContainText('15.00')
+  // Only one POST must atomically commit both new SKU and family relationship.
+  expect(createdPayload).not.toBeNull()
 })
