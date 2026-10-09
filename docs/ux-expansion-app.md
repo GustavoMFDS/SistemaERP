@@ -290,10 +290,40 @@ Playwright cobre navegação anterior/próxima, histórico de ambos os módulos,
 negativa de acesso ao caixa e limites de paginação.
 **Esses testes não equivalem a validação aprovada enquanto os jobs não rodarem.**
 
+### 9. Filtros de período e exportação de histórico
+
+Os dois históricos agora permitem escolher data inicial/final e filtrar
+lotes confirmados. As datas seguem o **calendário de Brasília**
+(`America/Sao_Paulo`), com início/fim inclusivos e intervalo máximo
+de 365 dias entre as datas quando ambos os campos são preenchidos.
+Ao aplicar/limpar o período, a paginação volta ao início. A interface
+também mostra os horários das linhas nessa zona.
+
+O responsável pode baixar um **CSV só de metadados** (data/hora UTC,
+nome do operador, quantidade total de itens e ID do lote), com os
+mesmos filtros aplicados à consulta. O CSV é gerado pela API, não a
+partir das linhas atualmente visíveis na tabela; mantém portanto a
+separação por `tenant_id` no servidor. Não exporta planilha original,
+SKU, preço, custo, quantidade individual, documento fiscal, chave de
+idempotência nem hash da tentativa.
+
+Os arquivos são UTF-8 com BOM e separador `;`, compatíveis com Excel/
+LibreOffice. O backend trata valores que poderiam ser interpretados como
+fórmulas de planilha, usa nomes de arquivo fixos, evita cache HTTP,
+restringe a exportação a **1.000 lotes** e rejeita com erro 422 (sem
+enviar CSV parcial) pedidos acima desse limite ou intervalos inválidos.
+Ao exceder o limite, o usuário deve restringir o período. Não há
+exportação anônima nem possibilidade de solicitar o CNPJ de terceiros.
+
+Testes unitários cobrem validação de data, parâmetros e CSV contra
+injeção de fórmulas; integração cobre filtragem e isolamento por empresa,
+e E2E cobre seleção de datas, download e o limite. **Ainda dependem de
+execução real em runner funcional antes do uso em produção.**
+
 ## Próximas expansões
 
-- Acrescentar filtro por período ao histórico e exportação administrativa
-  de metadados dos recibos, sem incluir CSV, preços ou dados fiscais.
+- Acrescentar uma visão unificada de movimentações e histórico fiscal
+  (somente leitura, com RBAC), sem transformar recibo em prova de emissão.
 - Oferecer conciliação assistida de lotes sem referência local e um histórico
   separado de **tentativas não confirmadas**, sem inferir commit a partir de
   erros de rede.
