@@ -44,13 +44,13 @@ func TestImportHistoryQueryRejectsMalformedDateAndPage(t *testing.T) {
 func TestHistoryCSVDoesNotExecuteFormulasOrExposePayload(t *testing.T) {
 	items := []inv.ImportBatchEntry{
 		{
-			BatchID: "00000000-0000-4000-8000-000000000001",
+			BatchID:   "00000000-0000-4000-8000-000000000001",
 			ActorName: " \t=HYPERLINK(\"https://example.test\",\"x\")",
 			ItemCount: 2,
 			CreatedAt: time.Date(2026, 10, 8, 19, 0, 0, 0, time.UTC),
 		},
 		{
-			BatchID: "00000000-0000-4000-8000-000000000002",
+			BatchID:   "00000000-0000-4000-8000-000000000002",
 			ActorName: "+SOMA(1;1)",
 			ItemCount: 1,
 			CreatedAt: time.Date(2026, 10, 7, 19, 0, 0, 0, time.UTC),
