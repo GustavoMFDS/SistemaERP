@@ -420,6 +420,27 @@ auditada. A implantação de um fluxo formal de inventário e ajuste
 com confirmação continua pendente. A validação funcional e
 o teste de limites dependem de ambiente executando CI.
 
+### 13. Histórico visual das movimentações
+
+A página `/stock-movements` lista em ordem cronológica entradas,
+vendas, perdas, avarias, devoluções e ajustes de estoque realizados
+**na empresa autenticada**. Usa a API já existente
+`GET /api/v1/inventory/movements`, enriquecida com SKU e nome do
+produto por JOIN `(tenant_id, product_id)` e ordem estável por
+data e identificador. O usuário vê o saldo antes, a variação e o saldo
+depois, além do motivo, se houver.
+
+Um clique no produto filtra as movimentações daquele item, com opção
+de voltar para todos. A interface pagina em grupos de 20 e a API
+continua protegida por `inventory:read`. Um operador de caixa com
+acesso de leitura não ganha permissões de ajuste, abertura de lote,
+custo financeiro ou emissão fiscal.
+
+Isso é uma linha do tempo de **movimentos registrados**, não um
+inventário físico reconciliado. Não cria operação de escrita.
+A validação E2E da navegação, dos filtros e da ordenação segue
+dependente de execução real do Playwright.
+
 ## Próximas expansões
 
 - Acrescentar visão de movimentações e histórico fiscal em módulos próprios
