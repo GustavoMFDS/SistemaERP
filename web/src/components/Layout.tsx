@@ -45,13 +45,13 @@ export default function Layout() {
   const nav = [
     { to: '/home', label: 'Início', permission: null },
     { to: '/setup', label: 'Configurar loja', permission: null },
-    { to: '/staff', label: 'Funcionários', permission: 'team:manage' }
+    { to: '/staff', label: 'Funcionários', permission: 'team:manage' },
     { to: '/products', label: 'Produtos', permission: 'product:read' },
     { to: '/inventory', label: 'Estoque', permission: 'inventory:read' },
-    { to: '/stock-movements', label: 'Movimentações', permission: 'inventory:read' }
-    { to: '/imports', label: 'Histórico de importações', permission: 'imports:history' }
+    { to: '/stock-movements', label: 'Movimentações', permission: 'inventory:read' },
+    { to: '/imports', label: 'Histórico de importações', permission: 'imports:history' },
     { to: '/purchases', label: 'Compras', permission: 'procurement:read' },
-    { to: '/customers', label: 'Clientes', permission: 'customer:read' }
+    { to: '/customers', label: 'Clientes', permission: 'customer:read' },
     { to: '/returns', label: 'Devoluções/Trocas', permission: 'sale:return' },
     { to: '/pdv', label: 'PDV', permission: 'sale:write' },
     { to: '/finance', label: 'Financeiro', permission: 'finance:read' },
