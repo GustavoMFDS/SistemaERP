@@ -7,6 +7,8 @@ import FiscalPage from './pages/FiscalPage'
 import InventoryPage from './pages/InventoryPage'
 import UnifiedImportHistoryPage from './pages/UnifiedImportHistoryPage'
 import LoginPage from './pages/LoginPage'
+import StaffPage from './pages/StaffPage'
+import AcceptStaffInvitePage from './pages/AcceptStaffInvitePage'
 import PDVPage from './pages/PDVPage'
 import ProductsPage from './pages/ProductsPage'
 import PurchasesPage from './pages/PurchasesPage'
@@ -17,12 +19,14 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/accept-invite" element={<AcceptStaffInvitePage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<HomePage />} />
           <Route path="/setup" element={<SetupPage />} />
+          <Route path="/staff" element={<StaffPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/imports" element={<UnifiedImportHistoryPage />} />
