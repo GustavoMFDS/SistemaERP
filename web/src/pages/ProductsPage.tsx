@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { APIError, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
@@ -49,6 +49,9 @@ export default function ProductsPage() {
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
   const [photoProductId, setPhotoProductId] = useState('')
+  const manualFormRef = useRef<HTMLDetailsElement>(null)
+  const skuInputRef = useRef<HTMLInputElement>(null)
+  const [variationSource, setVariationSource] = useState('')
   const [photoVersion, setPhotoVersion] = useState(0)
   const [items, setItems] = useState<Product[]>([])
   const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
@@ -86,12 +89,12 @@ export default function ProductsPage() {
     priceCash,
   ])
 
-  async function load() {
+  async function load(nextQuery = query) {
     setError('')
     setLoading(true)
     try {
       const qs = new URLSearchParams()
-      if (query.trim()) qs.set('query', query.trim())
+      if (nextQuery.trim()) qs.set('query', nextQuery.trim())
       const data = await apiJson<ListResponse>(`/api/v1/products?${qs.toString()}`)
       setItems(data.items)
       setTotal(data.total)
@@ -194,12 +197,41 @@ export default function ProductsPage() {
       setName('')
       setPriceCash(0)
       setMinStock(0)
+      setVariationSource('')
       setQuery(payload.name)
       setPhotoProductId(created.id)
-      await load()
+      await load(payload.name)
     } catch (e: unknown) {
       setError(errorMessage(e))
     }
+  }
+
+
+  function prepareNewVariation(product: Product) {
+    if (!canWrite) return
+    const option = window.prompt('Qual é a cor ou tamanho? Ex.: Azul, Verde, 42')?.trim()
+    if (!option) return
+    if (option.length > 40) {
+      setError('Use no máximo 40 caracteres para a cor ou tamanho.')
+      return
+    }
+    // Reuse the existing per-product stock and sale/return paths, rather than
+    // create a second ledger or silently split quantities from the parent.
+    setSku('')
+    setBarcode('')
+    setNcm('')
+    setCest('')
+    setName(product.name + ' — ' + option)
+    setUnit(product.unit)
+    setPriceCash(product.price_cash)
+    setMinStock(product.min_stock)
+    setVariationSource(product.name + ' — ' + option)
+    setError('')
+    if (manualFormRef.current) {
+      manualFormRef.current.open = true
+      manualFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    window.requestAnimationFrame(() => skuInputRef.current?.focus())
   }
 
   async function chooseImportFile(event: ChangeEvent<HTMLInputElement>) {
@@ -505,7 +537,13 @@ export default function ProductsPage() {
                   )}
                 </td>
                 </>) : null}
-                <td className="px-3 py-2">{p.name}</td>
+                <td className="px-3 py-2">
+                  <div>{p.name}</div>
+                  {canWrite ? <button type="button" onClick={() => prepareNewVariation(p)}
+                    className="mt-1 text-xs font-medium text-blue-700 underline hover:text-blue-900">
+                    Nova cor/tamanho com estoque próprio
+                  </button> : null}
+                </td>
                 <td className="px-3 py-2">{p.unit}</td>
                 <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
                 <td className="px-3 py-2">
@@ -596,13 +634,17 @@ export default function ProductsPage() {
       ) : null}
 
       {canWrite ? (
-        <details className="mt-5 rounded-2xl border border-slate-200 p-5">
+        <details ref={manualFormRef} className="mt-5 rounded-2xl border border-slate-200 p-5">
           <summary className="cursor-pointer text-base font-bold">Adicionar produto manualmente</summary>
         <form onSubmit={onCreate} className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-8">
           <p className="text-sm text-slate-600 md:col-span-8">Preencha o nome, o código e o preço. Os dados fiscais podem ser preenchidos depois, com ajuda do contador.</p>
+          {variationSource ? <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 md:col-span-8">
+            Nova opção de {variationSource}: ela terá código próprio e estoque independente. Informe um código (SKU) diferente do original. O saldo começa zerado; ajuste-o na aba Estoque após cadastrar. Os dados fiscais e código de barras não são copiados automaticamente.
+          </p> : null}
           <label className="block md:col-span-2">
             <span className="text-xs text-gray-600">Código do produto (SKU)</span>
             <input
+              ref={skuInputRef}
               value={sku}
               onChange={(e) => setSku(e.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
