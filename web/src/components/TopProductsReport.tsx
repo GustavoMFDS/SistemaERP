@@ -14,10 +14,12 @@ type RankedProduct = {
 type Result = { items: RankedProduct[]; from: string; to: string; limit: number }
 
 function brazilDate(daysBack: number): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date())
-  const date = new Date(parts + 'T12:00:00Z')
+  }).formatToParts(new Date())
+  const value = (part: string) => parts.find((entry) => entry.type === part)?.value ?? ''
+  const iso = `${value('year')}-${value('month')}-${value('day')}`
+  const date = new Date(iso + 'T12:00:00Z')
   date.setUTCDate(date.getUTCDate() - daysBack)
   return date.toISOString().slice(0, 10)
 }
