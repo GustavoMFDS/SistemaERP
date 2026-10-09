@@ -70,6 +70,119 @@ Response:
 
 
 `permissions` reflects the effective tenant-scoped RBAC for the tenant in the current access token. It is useful for UI capability hints; protected endpoints still enforce permissions server-side.
+## Funcionários — administração restrita por CNPJ
+
+A migration `0033_staff_invitations` adiciona convites com hash de token,
+expiração de 48 horas e status **ativo por vínculo com a empresa**. Desativar
+um vínculo **não desativa a identidade global**, nem remove auditoria ou
+histórico transacional. `AuthJWT`, refresh, seleção da empresa-padrão e
+RBAC consultam o vínculo ativo para rejeitar o acesso no próximo request.
+
+A permissão `team:manage` é criada somente para o papel `admin`.
+Não é atribuída a gerentes nem operadores de caixa. Os endpoints
+administrativos aceitam apenas o CNPJ do contexto autenticado;
+não recebem nem respeitam `tenant_id` na URL ou no corpo.
+
+### GET `/staff`
+
+Exige `team:manage`. Lista até 200 membros e até 200 convites
+pendentes ativos apenas do tenant da sessão:
+
+```json
+{
+  "members": [{
+    "id": "uuid",
+    "name": "Operadora Loja",
+    "email": "operadora@example.com",
+    "role": "cashier",
+    "active": true
+  }],
+  "invitations": [{
+    "id": "uuid",
+    "name": "Nova Funcionária",
+    "email": "nova@example.com",
+    "role": "manager",
+    "expires_at": "2026-10-10T21:00:00Z"
+  }]
+}
+```
+
+`Cache-Control: no-store`. Não retorna hashes de senha, tokens,
+sessões, segredos ou vínculos de outra empresa.
+
+### POST `/staff/invitations`
+
+Exige `team:manage`, origem confiável, rate limit por usuário/empresa.
+
+```json
+{ "name": "Funcionária", "email": "nova@example.com", "role": "cashier" }
+```
+
+`role` aceita **somente** `cashier` ou `manager`; `admin` é
+intencionalmente proibido. Em sucesso (201), devolve informações
+do convite e um `token` aleatório de 256 bits exibido **uma vez só**.
+O banco armazena SHA-256 do token, nunca o token original.
+Um convite anterior pendente para o mesmo e-mail e empresa é revogado
+em uma transação; o link anterior deixa de funcionar.
+
+Convites só são criados para **novos e-mails**, ainda não pertencentes
+a uma conta global. Para pessoas que já usam uma conta em outra loja,
+a ligação de identidades requer provisionamento controlado posterior;
+**não** se compartilham senhas nem se faz vínculo implícito entre CNPJs.
+
+O administrador deve passar o link por canal confiável à pessoa
+destinatária. Ainda não há integração de envio de e-mail. O navegador
+usa `/accept-invite#token=...`: fragmentos de URL não são enviados
+ao servidor em requisições HTTP. A página limpa o fragmento assim
+que o recebe. Não inclua o token em logs, relatórios ou screenshots.
+
+### POST `/staff/accept-invite`
+
+Público, com rate limit por IP e origem confiável. Corpo:
+
+```json
+{ "token": "64-caracteres-hex", "password": "senha-única-com-no-mínimo-12-caracteres" }
+```
+
+A senha é escolhida pelo próprio funcionário, com 12 a 72 bytes,
+e armazenada com bcrypt. Em transação única: trava o convite,
+confere expiração e uso único, cadastra o usuário, cria vínculo
+`user_tenants(active=true)`, atribui o papel aprovado,
+marca o convite como aceito e grava auditoria. O token usado
+não pode ser reutilizado. Retorna `201 {"status":"registered"}`.
+Um convite inválido, consumido ou expirado retorna 422. Não existe
+elevação para administrador via ativação.
+
+### PUT `/staff/{id}/role`
+
+Exige `team:manage` e origem confiável. Corpo
+`{"role":"manager"}` ou `{"role":"cashier"}`.
+Protege o próprio usuário administrador e todos os usuários com papel
+`admin`, mesmo que haja uma requisição de outro tenant.
+Substitui somente os papéis do usuário na **empresa atual**,
+com auditoria e transação.
+
+### PUT `/staff/{id}/status`
+
+Exige `team:manage` e origem confiável. Corpo
+`{"active":false}` ou `{"active":true}`.
+Suspende ou reativa **somente o vínculo da empresa atual**;
+não altera `users.active` global, não deleta vínculos históricos,
+não revoga sessões de outras empresas. Acesso e permissões do
+tenant suspenso são rejeitados já na próxima chamada, inclusive
+a partir de JWT ainda não expirado.
+
+### DELETE `/staff/invitations/{id}`
+
+Exige `team:manage` e origem confiável. Revoga convite pendente
+da empresa autenticada; retorna 204 ou 404 se não for um convite
+pendente daquele tenant.
+
+Os fluxos de escrita são auditados na mesma transação; tokens e
+senhas não são incluídos nos eventos. Essa etapa exige execução
+real de migrations, testes Go/integração, E2E e piloto operacional
+antes de uso de produção.
+
 ## Products
 
 ### GET `/products?query=...&limit=...&offset=...`
