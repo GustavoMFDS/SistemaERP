@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiJson, errorMessage } from '../lib/api'
+import { BRAND_NAME } from '../lib/branding'
 import {
   claimLegacyQueue,
   discardLegacyQueue,
@@ -902,7 +903,7 @@ export default function PDVPage() {
       return node
     }
 
-    addText('h1', 'SistemaEmGo')
+    addText('h1', BRAND_NAME)
     addText('div', 'COMPROVANTE NÃO FISCAL', 'warn')
     addText('p', 'Não é documento fiscal e não substitui NFC-e/NF-e.', 'muted')
     addText('p', `Venda: ${receipt.saleId}`, 'muted')
