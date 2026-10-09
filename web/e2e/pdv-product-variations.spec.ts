@@ -27,6 +27,7 @@ test('PDV: escolher SKU e saldo da cor sem trocar o produto original', async ({ 
       return reply({ token: { access_token: token }, user: { id: userID,
         name: 'Gerente', email: 'loja@teste.local', roles: ['admin'] } })
     }
+    if (url.pathname === '/api/v1/auth/refresh') return reply({ access_token: token })
     if (url.pathname === '/api/v1/auth/me') {
       return reply({ id: userID, name: 'Gerente', roles: ['admin'], email: 'loja@teste.local',
         permissions: ['product:read', 'sale:write', 'cash:open'] })
