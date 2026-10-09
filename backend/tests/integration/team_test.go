@@ -51,6 +51,18 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 			t.Fatal(err)
 		}
 		tenants = append(tenants, id)
+		if _, err := db.Exec(ctx, `
+			INSERT INTO user_tenants(user_id,tenant_id,active)
+			VALUES($1,$2,true)
+		`, ownerID, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(ctx, `
+			INSERT INTO user_tenant_roles(user_id,tenant_id,role_id)
+			SELECT $1,$2,r.id FROM roles r WHERE r.name='admin'
+		`, ownerID, id); err != nil {
+			t.Fatal(err)
+		}
 	}
 	tenantA, tenantB := tenants[0], tenants[1]
 	var staffID string
@@ -77,7 +89,7 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 		t.Fatalf("creating private invite failed: %+v tokenLength=%d err=%v", invitation, len(token), err)
 	}
 	otherMembers, otherInvites, err := svc.List(ctx, tenantB)
-	if err != nil || len(otherInvites) != 0 || len(otherMembers) != 0 {
+	if err != nil || len(otherInvites) != 0 || len(otherMembers) != 1 || otherMembers[0].ID != ownerID {
 		t.Fatalf("tenant B saw tenant A invitation: %v %+v %+v", err, otherMembers, otherInvites)
 	}
 	if err := svc.Revoke(ctx, tenantB, ownerID, invitation.ID, "", "", ""); !errors.Is(err, common.ErrNotFound) {
@@ -91,12 +103,19 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 		t.Fatalf("same token must never activate twice: %v", err)
 	}
 	members, invites, err := svc.List(ctx, tenantA)
-	if err != nil || len(invites) != 0 || len(members) != 1 {
+	if err != nil || len(invites) != 0 || len(members) != 2 {
 		t.Fatalf("activated membership/consumed invite invalid: %+v %+v err=%v", members, invites, err)
 	}
-	staffID = members[0].ID
-	if !members[0].Active || members[0].Role != "cashier" {
-		t.Fatalf("invited staff role is wrong: %+v", members[0])
+	for _, member := range members {
+		if member.Email == email {
+			staffID = member.ID
+			if !member.Active || member.Role != "cashier" {
+				t.Fatalf("invited staff role is wrong: %+v", member)
+			}
+		}
+	}
+	if staffID == "" {
+		t.Fatalf("new employee missing after acceptance: %+v", members)
 	}
 	has, err := repo.UserHasTenant(ctx, staffID, tenantA)
 	if err != nil || !has {
@@ -111,6 +130,9 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 	}
 	if err := svc.UpdateMember(ctx, tenantA, ownerID, staffID, "admin", nil, "", "", ""); !errors.Is(err, common.ErrValidation) {
 		t.Fatalf("privilege escalation to admin was allowed: %v", err)
+	}
+	if err := svc.UpdateMember(ctx, tenantA, ownerID, ownerID, "cashier", nil, "", "", ""); !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("administrator must not change own role: %v", err)
 	}
 	if err := svc.UpdateMember(ctx, tenantA, staffID, staffID, "manager", nil, "", "", ""); !errors.Is(err, common.ErrValidation) {
 		t.Fatalf("self-promotion was allowed: %v", err)
