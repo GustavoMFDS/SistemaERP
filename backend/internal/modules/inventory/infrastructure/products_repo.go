@@ -172,6 +172,34 @@ func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, 
 	return id, err
 }
 
+// CreateVariation creates a separate SKU and links it to a root product in the
+// same transaction. No stock is transferred from the parent.
+func (r *ProductsRepo) CreateVariation(ctx context.Context, tx db.DBTX, tenantID, parentID, optionLabel string, p inv.Product) (string, error) {
+    var foundID string
+    if err := tx.QueryRow(ctx, `
+        SELECT id::text FROM products WHERE tenant_id=$1 AND id=$2 FOR UPDATE
+    `, tenantID, parentID).Scan(&foundID); err != nil {
+        if errors.Is(err, pgx.ErrNoRows) { return "", common.ErrNotFound }
+        return "", err
+    }
+    var isChild bool
+    if err := tx.QueryRow(ctx, `
+        SELECT EXISTS(SELECT 1 FROM product_variations
+          WHERE tenant_id=$1 AND variant_product_id=$2)
+    `, tenantID, parentID).Scan(&isChild); err != nil { return "", err }
+    if isChild { return "", common.ErrConflict }
+
+    id, err := r.Create(ctx, tx, tenantID, p)
+    if err != nil { return "", err }
+    if _, err = tx.Exec(ctx, `
+        INSERT INTO product_variations(tenant_id,parent_product_id,variant_product_id,option_label)
+        VALUES($1,$2,$3,$4)
+    `, tenantID, parentID, id, optionLabel); err != nil {
+        return "", mapProductWriteError(err)
+    }
+    return id, nil
+}
+
 func (r *ProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error {
 	tag, err := tx.Exec(ctx, `
 		UPDATE products
