@@ -229,6 +229,18 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	}
 	// Global stock report must include all tenant products, including those
 	// not in the low-stock page. No tenant selector is accepted from clients.
+	// The movements timeline must join names and SKUs only through the
+	// authenticated company's products.
+	movementRows, movementTotal, err := stockSvc.ListMovements(ctx, tenantA, "", 10, 0)
+	if err != nil || movementTotal != 1 || len(movementRows) != 1 ||
+		movementRows[0].ProductSKU != sku1 || movementRows[0].ProductName != "Produto em lote" {
+		t.Fatalf("tenant-scoped product labels missing from movements: %+v total=%d err=%v", movementRows, movementTotal, err)
+	}
+	otherRows, otherTotal, err := stockSvc.ListMovements(ctx, tenantB, "", 10, 0)
+	if err != nil || otherTotal != 1 || len(otherRows) != 1 || otherRows[0].ProductSKU != sku1 {
+		t.Fatalf("other tenant's movement timeline incorrect: %+v total=%d err=%v", otherRows, otherTotal, err)
+	}
+
 	stockReportA, err := stockSvc.StockReport(ctx, tenantA)
 	if err != nil || len(stockReportA) != 3 {
 		t.Fatalf("tenant A report must list three catalog products: %+v err=%v", stockReportA, err)
