@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { APIError, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
+import ImportBatchHistory from '../components/ImportBatchHistory'
 import { clearPendingOpeningStock, fingerprintOpeningStock, readPendingOpeningStock, savePendingOpeningStock, type PendingOpeningStock } from '../lib/openingStockRecovery'
 import { OPENING_STOCK_EXAMPLE, parseOpeningStockCSV, type OpeningStockPreview } from '../lib/openingStockImport'
 
@@ -33,6 +34,7 @@ export default function InventoryPage() {
   const [openingKey, setOpeningKey] = useState('')
   const [openingDigest, setOpeningDigest] = useState('')
   const [pendingOpening, setPendingOpening] = useState<PendingOpeningStock | null>(null)
+  const [historyRefresh, setHistoryRefresh] = useState(0)
   const [openingConfirmed, setOpeningConfirmed] = useState(false)
   const [openingLoading, setOpeningLoading] = useState(false)
   const [openingMessage, setOpeningMessage] = useState('')
@@ -191,6 +193,7 @@ export default function InventoryPage() {
       if (scope !== getSessionScope()) return
       clearPendingOpeningStock(openingKey)
       setPendingOpening(null)
+      setHistoryRefresh((version) => version + 1)
       setOpeningMessage(
         result.replayed
           ? `Lote ${result.batch_id} já havia sido aplicado. Nenhum estoque foi lançado novamente.`
@@ -233,6 +236,7 @@ export default function InventoryPage() {
       setOpeningKey('')
       setOpeningDigest('')
       setOpeningConfirmed(false)
+      setHistoryRefresh((version) => version + 1)
       setOpeningMessage(`O servidor confirmou o lote ${result.batch_id} com ${result.item_count} produto(s). Não é necessário importar novamente.`)
       await load()
     } catch (e: unknown) {
@@ -405,6 +409,7 @@ export default function InventoryPage() {
             </div>
           ) : null}
           {openingMessage ? <p role="status" className="mt-3 text-sm text-green-800">{openingMessage}</p> : null}
+          <ImportBatchHistory kind="opening-stock" refreshVersion={historyRefresh} />
         </section>
       ) : null}
 
