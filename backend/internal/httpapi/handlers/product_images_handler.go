@@ -7,6 +7,7 @@ import (
     "errors"
     "image/jpeg"
     "net/http"
+    "unicode/utf8"
     "strings"
 
     "github.com/example/sistemaemgo/internal/httpapi/middleware"
@@ -39,6 +40,7 @@ type productImage struct {
     DataURL string `json:"data_url"`
     ThumbnailURL string `json:"thumbnail_url"`
     Principal bool `json:"principal"`
+    Caption string `json:"caption"`
 }
 
 func photoError(w http.ResponseWriter, r *http.Request, status int, msg string) {
@@ -109,7 +111,7 @@ func (h *ProductImagesHandler) List(w http.ResponseWriter, r *http.Request) {
         return
     }
     rows, err := h.pool.Query(r.Context(), `
-        SELECT id::text, encode(image_data,'base64'), encode(thumb_data,'base64')
+        SELECT id::text, encode(image_data,'base64'), encode(thumb_data,'base64'), caption
         FROM product_images WHERE tenant_id=$1 AND product_id=$2
         ORDER BY created_at, id
     `, tenantID, productID)
@@ -121,7 +123,7 @@ func (h *ProductImagesHandler) List(w http.ResponseWriter, r *http.Request) {
     for rows.Next() {
         var item productImage
         var imageText, thumbText string
-        if err := rows.Scan(&item.ID, &imageText, &thumbText); err != nil {
+        if err := rows.Scan(&item.ID, &imageText, &thumbText, &item.Caption); err != nil {
             rows.Close()
             photoError(w, r, http.StatusInternalServerError, "Não foi possível ler as fotos")
             return
@@ -349,4 +351,77 @@ func (h *ProductImagesHandler) Delete(w http.ResponseWriter, r *http.Request) {
         return
     }
     w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *ProductImagesHandler) SetCaption(w http.ResponseWriter, r *http.Request) {
+    tenantID, productID, actorID, valid := catalogProductAndTenant(r)
+    if !valid {
+        photoError(w, r, http.StatusBadRequest, "Produto inválido")
+        return
+    }
+    photoID, err := uuid.Parse(chi.URLParam(r, "photoID"))
+    if err != nil || photoID == uuid.Nil {
+        photoError(w, r, http.StatusUnprocessableEntity, "Foto inválida")
+        return
+    }
+    var req struct {
+        Caption string `json:"caption"`
+    }
+    if err := readJSON(w, r, &req); err != nil {
+        photoError(w, r, http.StatusBadRequest, "Nome da cor inválido")
+        return
+    }
+    caption := strings.TrimSpace(req.Caption)
+    if !utf8.ValidString(caption) || utf8.RuneCountInString(caption) > 40 {
+        photoError(w, r, http.StatusUnprocessableEntity, "Use até 40 caracteres para identificar a foto")
+        return
+    }
+
+    tx, err := h.pool.Begin(r.Context())
+    if err != nil {
+        photoError(w, r, http.StatusInternalServerError, "Não foi possível alterar a foto")
+        return
+    }
+    defer func() { _ = tx.Rollback(r.Context()) }()
+    // Lock the parent product just like uploads/removals so image operations
+    // for a single tenant/product cannot race with each other.
+    var id string
+    err = tx.QueryRow(r.Context(),
+        "SELECT id::text FROM products WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+        tenantID, productID).Scan(&id)
+    if err != nil {
+        if errors.Is(err, pgx.ErrNoRows) {
+            photoError(w, r, http.StatusNotFound, "Produto não encontrado nesta loja")
+        } else {
+            photoError(w, r, http.StatusInternalServerError, "Não foi possível acessar o produto")
+        }
+        return
+    }
+    err = tx.QueryRow(r.Context(), `
+        UPDATE product_images SET caption=$4
+        WHERE tenant_id=$1 AND product_id=$2 AND id=$3
+        RETURNING id::text
+    `, tenantID, productID, photoID, caption).Scan(&id)
+    if err != nil {
+        if errors.Is(err, pgx.ErrNoRows) {
+            photoError(w, r, http.StatusNotFound, "Foto não encontrada nesta loja")
+        } else {
+            photoError(w, r, http.StatusInternalServerError, "Não foi possível alterar a legenda")
+        }
+        return
+    }
+    if err := h.audit.RecordTx(r.Context(), tx, audit.Event{
+        TenantID: tenantID, ActorUserID: actorID,
+        Action: "product.image.caption",
+        ResourceType: "product", ResourceID: productID, Outcome: "success",
+        Metadata: map[string]any{"image_id": id},
+    }); err != nil {
+        photoError(w, r, http.StatusInternalServerError, "Não foi possível registrar a alteração")
+        return
+    }
+    if err := tx.Commit(r.Context()); err != nil {
+        photoError(w, r, http.StatusInternalServerError, "Não foi possível confirmar a legenda")
+        return
+    }
+    writeJSON(w, http.StatusOK, map[string]any{"id": id, "caption": caption})
 }
