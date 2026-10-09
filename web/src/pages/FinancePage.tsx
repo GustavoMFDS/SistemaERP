@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
+import TopProductsReport from '../components/TopProductsReport'
 
 type Payment = {
   id: string
@@ -344,6 +345,8 @@ export default function FinancePage() {
           {error}
         </div>
       ) : null}
+
+      <TopProductsReport />
 
       <form onSubmit={loadAll} className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-6">
         <label className="block">
