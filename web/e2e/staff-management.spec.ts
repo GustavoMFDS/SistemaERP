@@ -101,15 +101,15 @@ test('operador de caixa não acessa administração da equipe', async ({ page })
   await expect(page.getByText(/não pode administrar funcionários/)).toBeVisible()
   const results = await page.evaluate(async () => {
     const { apiJson, APIError } = await import('/src/lib/api.ts')
-    const status = async (path: string) => {
+    const status = async (path: string, init?: { method: string; body: unknown }) => {
       try {
-        await apiJson(path)
+        await apiJson(path, init)
         return 200
       } catch (error) {
         return error instanceof APIError ? error.status : 0
       }
     }
-    return [await status('/api/v1/staff'), await status('/api/v1/staff/invitations')]
+    return [await status('/api/v1/staff'), await status('/api/v1/staff/invitations', { method: 'POST', body: { name: 'Teste', email: 'test@example.test', role: 'cashier' } })]
   })
   expect(results).toEqual([403, 403])
 })
