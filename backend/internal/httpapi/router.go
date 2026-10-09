@@ -85,6 +85,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 			pr.Route("/inventory", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("inventory:read")).Get("/low-stock", h.Inventory.LowStock)
+				rr.With(middleware.RequirePermission("inventory:read"), productImportLimit).Get("/stock-report.csv", h.Inventory.ExportStockReport)
 				rr.With(middleware.RequirePermission("inventory:read")).Get("/movements", h.Inventory.ListMovements)
 				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/adjust", h.Inventory.Adjust)
 				rr.With(middleware.RequirePermission("inventory:adjust")).Post("/opening-stock", h.Inventory.ImportOpeningStock)
