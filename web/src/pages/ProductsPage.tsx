@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { APIError, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
+import ImportBatchHistory from '../components/ImportBatchHistory'
 import { clearPendingProductImport, fingerprintProducts, readPendingProductImport, savePendingProductImport, type PendingProductImport } from '../lib/productImportRecovery'
 import { parseProductCSV, PRODUCT_IMPORT_EXAMPLE, type ProductImportPreview } from '../lib/productImport'
 
@@ -59,6 +60,7 @@ export default function ProductsPage() {
   const [importDigest, setImportDigest] = useState('')
   const [importScope, setImportScope] = useState('')
   const [pendingImport, setPendingImport] = useState<PendingProductImport | null>(null)
+  const [historyRefresh, setHistoryRefresh] = useState(0)
 
   const [sku, setSku] = useState('')
   const [barcode, setBarcode] = useState('')
@@ -284,6 +286,7 @@ export default function ProductsPage() {
       if (scope !== getSessionScope()) return
       clearPendingProductImport(importKey)
       setPendingImport(null)
+      setHistoryRefresh((version) => version + 1)
       setImportResult(result.replayed
         ? `Lote ${result.batch_id} confirmado anteriormente. Nenhum produto foi duplicado.`
         : `Todos os ${result.item_count} produto(s) foram cadastrados. Lote ${result.batch_id}.`)
@@ -324,6 +327,7 @@ export default function ProductsPage() {
       setImportKey('')
       setImportDigest('')
       setImportScope('')
+      setHistoryRefresh((version) => version + 1)
       setImportResult(`O servidor confirmou o lote ${result.batch_id} com ${result.item_count} produto(s). Nenhuma nova gravação é necessária.`)
       await load()
     } catch (e: unknown) {
@@ -552,6 +556,7 @@ export default function ProductsPage() {
             </div>
           ) : null}
           {importResult ? <p role="status" className="mt-3 text-sm">{importResult}</p> : null}
+          <ImportBatchHistory kind="products" refreshVersion={historyRefresh} />
         </section>
       ) : null}
 
