@@ -104,8 +104,6 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 		t.Fatal("database unexpectedly accepted a cross-tenant supplier on accounts payable")
 	}
 
-
-
 	listA, totalA, err := repo.ListSuppliers(ctx, tenantA, namePrefix, 50, 0)
 	if err != nil {
 		t.Fatalf("list tenant A suppliers: %v", err)
