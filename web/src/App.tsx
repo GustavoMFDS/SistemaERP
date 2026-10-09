@@ -5,6 +5,7 @@ import FinancePage from './pages/FinancePage'
 import HomePage from './pages/HomePage'
 import FiscalPage from './pages/FiscalPage'
 import InventoryPage from './pages/InventoryPage'
+import UnifiedImportHistoryPage from './pages/UnifiedImportHistoryPage'
 import LoginPage from './pages/LoginPage'
 import PDVPage from './pages/PDVPage'
 import ProductsPage from './pages/ProductsPage'
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
+          <Route path="/imports" element={<UnifiedImportHistoryPage />} />
           <Route path="/purchases" element={<PurchasesPage />} />
           <Route path="/returns" element={<ReturnsPage />} />
           <Route path="/pdv" element={<PDVPage />} />
