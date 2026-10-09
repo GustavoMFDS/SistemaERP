@@ -47,10 +47,10 @@ test('catálogo: foto opcional, miniatura e exclusão sem afetar estoque', async
     }
     if (path === '/api/v1/products/' + productId + '/images' && method === 'POST') {
       const key = route.request().headers()['idempotency-key']
-      const body = route.request().postDataJSON() as { image_base64: string; thumbnail_base64: string }
+      const body = route.request().postDataJSON() as { image_base64: string }
       expect(key).toMatch(/^[0-9a-f-]{36}$/)
       expect(body.image_base64.length).toBeGreaterThan(50)
-      expect(body.thumbnail_base64.length).toBeGreaterThan(50)
+      expect('thumbnail_base64' in body).toBe(false)
       attempts += 1
       photoBase64 = body.image_base64
       return reply({ id: imageId, replayed: false }, 201)
