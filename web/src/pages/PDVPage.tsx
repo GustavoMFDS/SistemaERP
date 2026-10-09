@@ -1325,10 +1325,13 @@ export default function PDVPage() {
             </p>
           </section>
         {saleId ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <div role="status" className={saleId.startsWith('offline:')
+            ? 'rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'
+            : 'rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900'}>
             {saleId.startsWith('offline:') ? (
               <>
                 Venda registrada offline (pendente sync): <span className="font-mono text-xs">{saleId.replace('offline:', '')}</span> • Total R$ {saleTotal.toFixed(2)}
+                <span className="mt-2 block font-semibold">Aguardando confirmação no servidor. Confira as pendências antes de encerrar o caixa.</span>
               </>
             ) : (
               <>

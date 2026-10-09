@@ -27,6 +27,8 @@ O operador precisava percorrer muitos formulários sem distinção clara da tare
   esses formulários na página.
 - Nota explícita de que registrar Pix/cartão **não** significa confirmação real
   do PSP/adquirente. A interface fiscal continua separada.
+- Venda offline usa aviso **âmbar** e mensagem de confirmação pendente, não
+  uma indicação verde de venda sincronizada. O fluxo de replay segue igual.
 - Em telas menores, o fluxo passa para uma coluna e a tabela do carrinho rola
   dentro do próprio componente, sem estourar a largura da página.
 
