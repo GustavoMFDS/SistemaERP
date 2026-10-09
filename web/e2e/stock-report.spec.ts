@@ -41,7 +41,7 @@ test('limite do relatório não permite arquivo truncado', async ({ page }) => {
   await expect(page.getByText(/mais de 5000 produtos/)).toBeVisible()
 })
 
-test('operador sem permissão inventory:read não pode consultar estoque', async ({ page }) => {
+test('API não aceita parâmetro de seleção de outro CNPJ', async ({ page }) => {
   await login(page)
   const result = await page.evaluate(async () => {
     const { apiJson, APIError } = await import('/src/lib/api.ts')
