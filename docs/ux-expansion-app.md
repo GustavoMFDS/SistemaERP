@@ -320,10 +320,46 @@ injeção de fórmulas; integração cobre filtragem e isolamento por empresa,
 e E2E cobre seleção de datas, download e o limite. **Ainda dependem de
 execução real em runner funcional antes do uso em produção.**
 
+### 10. Histórico consolidado por empresa e permissão
+
+Uma página de **Histórico de importações** acessível pelo menu
+(`/imports`) e pelo Início reúne, em uma só linha do tempo, os
+recibos de importação de produtos e de contagem inicial de estoque.
+O usuário vê apenas os tipos autorizados por `product:write` e
+`inventory:adjust`, respectivamente. A autorização real é aplicada
+pela API no servidor — não basta esconder o link na interface.
+
+`GET /api/v1/imports/history` usa o CNPJ/tenant **da sessão**,
+consulta somente lotes confirmados e pagina a união completa em uma
+única consulta SQL, por `created_at DESC, kind ASC, batch_id DESC`.
+A resposta inclui tipo, data/hora, responsável, quantidade de itens
+e ID do lote; não contém CSV, SKU, preço, dados fiscais, hash nem
+chave de idempotência. Não revela nada de outro CNPJ nem de uma área
+sem permissão. O endpoint exige ao menos uma das duas permissões,
+retorna 403 para o operador sem acesso e não permite parâmetro de
+CNPJ fornecido pela interface.
+
+Os filtros por data seguem o calendário de Brasília, e a
+navegação usa páginas de 10 lotes (limites de API: 1–50 por página,
+offset 0–5000). Os botões de cada registro direcionam à tela
+do respectivo módulo; exportações CSV permanecem somente nos
+históricos específicos para não misturar permissões.
+A tela não autoriza edição, ajuste de estoque, importação nem
+emissão fiscal. Não confundir lotes confirmados com tentativas
+interrompidas ou não concluídas.
+
+Testes de integração abrangem cronologia e paginação dos dois
+tipos, permissões independentes e isolamento entre dois CNPJs.
+E2E cobre navegação, período, paginação, negativa ao caixa e
+consulta inválida. A aceitação operacional depende de build e
+testes efetivamente executados, não só de commits no repositório.
+
 ## Próximas expansões
 
-- Acrescentar uma visão unificada de movimentações e histórico fiscal
-  (somente leitura, com RBAC), sem transformar recibo em prova de emissão.
+- Acrescentar visão de movimentações e histórico fiscal em módulos próprios
+  (somente leitura e RBAC), sem transformar recibo em prova de emissão.
+- Planejar relatórios por período para gestores, sem misturar dados de CNPJs
+  distintos ou elevar permissões do usuário.
 - Oferecer conciliação assistida de lotes sem referência local e um histórico
   separado de **tentativas não confirmadas**, sem inferir commit a partir de
   erros de rede.
