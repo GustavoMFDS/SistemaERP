@@ -458,6 +458,33 @@ custo individual é incluída. Há testes de validação de datas e
 Playwright de filtros, RBAC e renderização, ainda por executar
 em um runner funcional.
 
+### 15. Agenda simples de clientes (sem crediário)
+
+A tela `/customers` permite a administradores e gerentes
+consultar, pesquisar, cadastrar e corrigir contatos de clientes da
+**empresa/CNPJ selecionado na sessão**. A API aceita só nome, e-mail
+e telefone (os últimos opcionais), com lista paginada e ordenada
+estavelmente por criação/identificador. Custos, CPF, documentos
+fiscais, limite de crédito e transações não aparecem nesse cadastro.
+
+A migration `0034_customer_directory_rbac` concede
+`customer:read` e `customer:write` aos papéis admin/manager,
+não ao caixa. A escrita autentica a empresa pelo token e grava
+auditoria na mesma transação, sem registrar dados de contato nos
+metadados do evento. A API recusa `tenant_id` nos filtros e
+nunca atualiza registros de CNPJs diferentes.
+
+Os testes cobrem validação de e-mail/telefone, criação e edição
+auditadas, negativa de update de outra empresa, RBAC do caixa,
+limites e busca. A migration v34 possui teste de upgrade,
+rollback e reapply. Esses testes ainda precisam de runner
+funcional; nenhum campo de crédito foi ativado.
+
+**Ainda por construir:** vínculo opcional de clientes às vendas,
+crediário real, contas a receber, juros/multas, liquidação
+idempotente e relatórios de inadimplência. Esse módulo futuro
+precisa de regras de cobrança, privacidade e auditoria próprias.
+
 ## Próximas expansões
 
 - Acrescentar visão de movimentações e histórico fiscal em módulos próprios
