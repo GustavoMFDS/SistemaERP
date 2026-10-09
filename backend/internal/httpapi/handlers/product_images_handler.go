@@ -61,10 +61,22 @@ func catalogJPEG(encoded string, maxBytes, maxDimension int) ([]byte, error) {
         config.Width > maxDimension || config.Height > maxDimension {
         return nil, ErrValidation
     }
-    if _, err := jpeg.Decode(bytes.NewReader(raw)); err != nil {
+    decoded, err := jpeg.Decode(bytes.NewReader(raw))
+    if err != nil {
         return nil, ErrValidation
     }
-    return raw, nil
+    // Never trust arbitrary JPEG metadata from clients: decode and recompress
+    // server-side so the stored payload is image pixels, not an upload polyglot.
+    for _, quality := range []int{85, 72, 58, 42} {
+        var normalized bytes.Buffer
+        if err := jpeg.Encode(&normalized, decoded, &jpeg.Options{Quality: quality}); err != nil {
+            return nil, ErrValidation
+        }
+        if normalized.Len() <= maxBytes {
+            return normalized.Bytes(), nil
+        }
+    }
+    return nil, ErrValidation
 }
 
 func catalogProductAndTenant(r *http.Request) (tenantID, productID, actorID string, valid bool) {
