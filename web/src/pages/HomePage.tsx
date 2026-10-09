@@ -41,6 +41,7 @@ const quickLinks = [
   { to: '/pdv', label: 'Abrir o caixa', permission: 'sale:write', detail: 'Registrar vendas e receber pagamentos' },
   { to: '/products', label: 'Cadastrar produtos', permission: 'product:write', detail: 'Adicionar um produto ou importar uma planilha' },
   { to: '/inventory', label: 'Conferir estoque', permission: 'inventory:read', detail: 'Ver itens em falta e entradas ou ajustes' },
+  { to: '/stock-movements', label: 'Histórico do estoque', permission: 'inventory:read', detail: 'Acompanhar entradas, saídas, perdas e ajustes por produto' }
   { to: '/imports', label: 'Ver histórico das importações', permission: 'imports:history', detail: 'Lotes confirmados de produtos e estoque em ordem de data' }
   { to: '/purchases', label: 'Registrar compras', permission: 'procurement:read', detail: 'Acompanhar fornecedores e recebimentos' },
   { to: '/finance', label: 'Conferir pagamentos', permission: 'finance:read', detail: 'Ver divergências e conciliações' },
