@@ -459,19 +459,26 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	service.SetNFCeInutilizationSchemaValidator(fakeCancellationValidator{})
 	service.SetNFCeRemoteInutilizationClient(remoteStack)
 
-	// A fully wired provider still must not enable production while the
-	// existing active seed item lacks its fiscal profile.
+	// Create our own active product without a fiscal profile rather than
+	// assume the shared demo seed has never been updated by another test.
+	// The gap and its subsequent profile are removed regardless of outcome.
+	var seedProductID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO products(tenant_id, sku, name, unit, price_cash, active, ncm)
+		VALUES ($1, $2, 'Lacuna fiscal de teste', 'UN', 10, true, '61091000')
+		RETURNING id::text
+	`, tenantID, "FISCAL-GAP-"+time.Now().Format("150405.000000000")).Scan(&seedProductID); err != nil {
+		t.Fatalf("create fiscal profile gap: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product_fiscal_profiles WHERE tenant_id=$1 AND product_id=$2`, tenantID, seedProductID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM products WHERE tenant_id=$1 AND id=$2`, tenantID, seedProductID)
+	})
+	// A fully wired provider must not enable production with this explicit gap.
 	if _, err := service.SetNFCeProductionTransmission(
 		ctx, tenantID, actorUserID, true,
 	); !errors.Is(err, common.ErrFiscalNotReady) {
 		t.Fatalf("active product without fiscal profile must block production: %v", err)
-	}
-	var seedProductID string
-	if err := pool.QueryRow(ctx, `
-		SELECT id::text FROM products
-		WHERE tenant_id=$1 AND sku='SKU-COCA-2L' AND active=true
-	`, tenantID).Scan(&seedProductID); err != nil {
-		t.Fatalf("seeded active product required for fiscal readiness: %v", err)
 	}
 	tx, err = uow.Begin(ctx)
 	if err != nil {
@@ -494,12 +501,6 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit seeded fiscal profile: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `
-			DELETE FROM product_fiscal_profiles
-			WHERE tenant_id=$1 AND product_id=$2
-		`, tenantID, seedProductID)
-	})
 	productionCfg, err := service.SetNFCeProductionTransmission(
 		ctx, tenantID, actorUserID, true,
 	)
