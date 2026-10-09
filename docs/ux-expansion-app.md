@@ -354,6 +354,52 @@ E2E cobre navegação, período, paginação, negativa ao caixa e
 consulta inválida. A aceitação operacional depende de build e
 testes efetivamente executados, não só de commits no repositório.
 
+### 11. Gestão de funcionários por empresa
+
+Em **Funcionários** (`/staff`), exclusivamente com a permissão
+`team:manage` do administrador da loja:
+
+- Acompanhar a equipe desta empresa, função e vínculo ativo.
+- Criar convite para **gerente** ou **caixa** sem inventar senha provisória.
+- Entregar o link de uso único por um canal confiável; válido por 48h.
+- Permitir que o funcionário defina senha própria antes do primeiro login.
+- Promover/reduzir os papéis entre gerente e caixa com confirmação.
+- Suspender/reativar o acesso **somente deste CNPJ**, preservando o
+  histórico de vendas, estoque e auditoria e eventuais vínculos com
+  outras empresas.
+- Cancelar convites não utilizados. Não exibir novamente o segredo
+  após a criação do convite.
+
+A migration `0033_staff_invitations` cria o status
+`user_tenants.active` e a tabela de convites com SHA-256 do token;
+a API mantém `users.active` global inalterado. Autenticação,
+refresh e leitura de permissões verificam o vínculo ativo na empresa
+do JWT; funcionários desativados não seguem usando esse CNPJ só porque
+o token ainda não expirou.
+
+Nenhum gerente/caixa recebe `team:manage`. A interface impede
+mudar a conta do próprio administrador, e o backend protege todos
+os papéis `admin` independentemente de artifícios da UI. A aceitação
+cria conta, vínculo, permissão e auditoria em uma única transação
+PostgreSQL. O token só trafega no corpo do POST de ativação e não
+é guardado em texto puro no banco; a interface recebe o token num
+fragmento da URL e remove o fragmento do histórico imediatamente.
+
+**Limitações conscientes:** não há envio automático de e-mail,
+suporte a reutilizar automaticamente um e-mail que já possui conta
+global em outro CNPJ, nem interface para criar/remover
+administradores. A vinculação de identidade existente e o bootstrap
+de um novo dono de loja continuam procedimentos controlados.
+A listagem inicial é limitada a 200 membros e 200 convites.
+A etapa do assistente continua marcada como revisão humana,
+não como concluída só porque existem contas.
+
+Testes adicionados: restrições dos papéis e e-mails, uso único
+do token, isolamento de 2 CNPJs, revogação imediata em RBAC,
+autorização do caixa negada, navegação/aceitação E2E,
+upgrade/rollback/reapply da migration v33.
+**Tudo isso depende de validação dinâmica real no commit final.**
+
 ## Próximas expansões
 
 - Acrescentar visão de movimentações e histórico fiscal em módulos próprios
@@ -367,8 +413,9 @@ testes efetivamente executados, não só de commits no repositório.
   é computado globalmente, mas a listagem está limitada a 500 itens.
 - Relatórios gerenciais mais profundos (venda por item, período e custo),
   preservando a autorização de custo e margem.
-- Ampliar o onboarding com evidências automáticas versionadas (sem
-  armazenar segredos) e um fluxo administrativo de funcionários com RBAC.
+- Ampliar o onboarding com evidências automáticas versionadas e adicionar
+  vinculação verificada de uma mesma identidade a outros CNPJs, sem
+  mistura de permissões nem elevação automática a administrador.
 
 ## Próxima fase: operação
 
