@@ -77,7 +77,7 @@ func (r *CachedProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID st
 // transaction-only capability when a product family is created. Without it,
 // stores configured with Redis reject every variant despite PostgreSQL support.
 func (r *CachedProductsRepo) CreateVariation(ctx context.Context, tx db.DBTX, tenantID, parentID, optionLabel string, p inv.Product) (string, error) {
-    return r.base.CreateVariation(ctx, tx, tenantID, parentID, optionLabel, p)
+	return r.base.CreateVariation(ctx, tx, tenantID, parentID, optionLabel, p)
 }
 
 func (r *CachedProductsRepo) Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error {
