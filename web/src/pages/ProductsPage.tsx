@@ -383,15 +383,10 @@ export default function ProductsPage() {
           aria-label="Buscar produto"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar por nome, SKU ou código"
+          placeholder="Digite o nome, código do produto ou código de barras"
           className="w-full rounded-md border px-3 py-2 text-sm"
         />
-        <button
-          onClick={() => void load()}
-          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white"
-        >
-          Buscar
-        </button>
+
       </div>
 
       {error ? (
@@ -417,17 +412,17 @@ export default function ProductsPage() {
         <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
-              <th className="px-3 py-2">SKU</th>
+              <th className="px-3 py-2">Código (SKU)</th>
               {showTechnical ? (<>
               <th className="px-3 py-2">Código de barras</th>
-              <th className="px-3 py-2">NCM</th>
-              <th className="px-3 py-2">CEST</th>
+              <th className="px-3 py-2">Classificação (NCM)</th>
+              <th className="px-3 py-2">Tributação (CEST)</th>
               </>) : null}
               <th className="px-3 py-2">Nome</th>
-              <th className="px-3 py-2">Un</th>
+              <th className="px-3 py-2">Unidade</th>
               <th className="px-3 py-2">Preço</th>
-              <th className="px-3 py-2">Qtd</th>
-              <th className="px-3 py-2">Min</th>
+              <th className="px-3 py-2">Em estoque</th>
+              <th className="px-3 py-2">Mínimo</th>
               <th className="px-3 py-2">Ativo</th>
             </tr>
           </thead>
@@ -520,9 +515,8 @@ export default function ProductsPage() {
           <summary className="cursor-pointer text-base font-bold">Importar uma planilha de produtos</summary>
           <div className="mt-4">
           <p className="mt-1 text-xs text-gray-600">
-            Baixe o modelo, preencha no Excel ou LibreOffice e salve como CSV. Os produtos serão
-            cadastrados somente na loja em que você está conectado, em uma única transação.
-            Se uma linha falhar, nenhuma será cadastrada. Não altera o estoque atual.
+            Para cadastrar muitos produtos, baixe o modelo, preencha a planilha e escolha o arquivo CSV.
+            Confira os dados antes de confirmar. O estoque não muda nesta etapa.
           </p>
           {pendingImport ? (
             <div role="region" aria-label="Importação de produtos pendente" className="mt-3 rounded-md border border-amber-300 p-3 text-sm">
@@ -579,10 +573,11 @@ export default function ProductsPage() {
 
       {canWrite ? (
         <details className="mt-5 rounded-2xl border border-slate-200 p-5">
-          <summary className="cursor-pointer text-base font-bold">Cadastrar novo produto</summary>
-        <form onSubmit={onCreate} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-8">
-          <label className="block md:col-span-1">
-            <span className="text-xs text-gray-600">SKU</span>
+          <summary className="cursor-pointer text-base font-bold">Adicionar produto manualmente</summary>
+        <form onSubmit={onCreate} className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-8">
+          <p className="text-sm text-slate-600 md:col-span-8">Preencha o nome, o código e o preço. Os dados fiscais podem ser preenchidos depois, com ajuda do contador.</p>
+          <label className="block md:col-span-2">
+            <span className="text-xs text-gray-600">Código do produto (SKU)</span>
             <input
               value={sku}
               onChange={(e) => setSku(e.target.value)}
@@ -600,30 +595,8 @@ export default function ProductsPage() {
               className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
             />
           </label>
-          <label className="block">
-            <span className="text-xs text-gray-600">NCM</span>
-            <input
-              value={ncm}
-              onChange={(e) => setNcm(e.target.value)}
-              placeholder="8 dígitos"
-              inputMode="numeric"
-              maxLength={8}
-              className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs text-gray-600">CEST</span>
-            <input
-              value={cest}
-              onChange={(e) => setCest(e.target.value)}
-              placeholder="7 dígitos"
-              inputMode="numeric"
-              maxLength={7}
-              className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
-            />
-          </label>
           <label className="block md:col-span-2">
-            <span className="text-xs text-gray-600">Nome</span>
+            <span className="text-xs text-gray-600">Nome do produto</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -652,7 +625,7 @@ export default function ProductsPage() {
             />
           </label>
           <label className="block">
-            <span className="text-xs text-gray-600">Estoque mín.</span>
+            <span className="text-xs text-gray-600">Avisar quando restarem menos de</span>
             <input
               value={String(minStock)}
               onChange={(e) => setMinStock(Number(e.target.value))}
@@ -662,6 +635,35 @@ export default function ProductsPage() {
             />
           </label>
 
+          <details className="rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-8">
+            <summary className="cursor-pointer font-medium text-slate-700">Dados fiscais (se precisar emitir nota)</summary>
+            <p className="mt-2 text-xs text-slate-600">O contador pode informar estes códigos. Não invente um código fiscal.</p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="text-xs text-gray-600">Classificação fiscal (NCM)</span>
+            <input
+              value={ncm}
+              onChange={(e) => setNcm(e.target.value)}
+              placeholder="8 dígitos"
+              inputMode="numeric"
+              maxLength={8}
+              className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-600">Código tributário (CEST)</span>
+            <input
+              value={cest}
+              onChange={(e) => setCest(e.target.value)}
+              placeholder="7 dígitos"
+              inputMode="numeric"
+              maxLength={7}
+              className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
+            />
+          </label>
+
+            </div>
+          </details>
           <div className="md:col-span-8">
             <button
               disabled={!canCreate}

@@ -13,9 +13,9 @@ async function openPDV(page: import('@playwright/test').Page) {
 test('PDV desktop prioriza venda, pagamento e separa encerramento', async ({ page }) => {
   await page.setViewportSize({ width: 1500, height: 900 })
   await openPDV(page)
-  const cash = page.getByRole('region', { name: 'Sessão de caixa' })
-  const cart = page.getByRole('region', { name: 'Itens' })
-  const payment = page.getByRole('region', { name: 'Conferir e receber' })
+  const cash = page.locator('section[aria-labelledby="pdv-cash-title"]')
+  const cart = page.getByRole('region', { name: 'Produtos da venda' })
+  const payment = page.getByRole('region', { name: 'Pagamento' })
   await expect(cash).toBeVisible()
   await expect(cart).toBeVisible()
   await expect(payment).toBeVisible()
@@ -42,8 +42,8 @@ test('PDV desktop prioriza venda, pagamento e separa encerramento', async ({ pag
 test('PDV no celular organiza as tarefas na vertical sem rolagem horizontal geral', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openPDV(page)
-  const cart = page.getByRole('region', { name: 'Itens' })
-  const payment = page.getByRole('region', { name: 'Conferir e receber' })
+  const cart = page.getByRole('region', { name: 'Produtos da venda' })
+  const payment = page.getByRole('region', { name: 'Pagamento' })
   await expect(cart).toBeVisible()
   await expect(payment).toBeVisible()
   const cartBox = await cart.boundingBox()

@@ -165,8 +165,8 @@ export default function StaffPage() {
     <div>
       <h2 className="text-lg font-semibold">Funcionários e permissões</h2>
       <p className="mt-1 text-sm text-gray-600">
-        Gerencie apenas a equipe da empresa em que você está conectado.
-        O acesso de outra loja/CNPJ não será alterado.
+        Veja quem pode usar o sistema e altere o perfil de cada pessoa nesta loja.
+        Em um único computador, cada funcionário ainda precisa entrar com seu acesso.
       </p>
       {error ? <p role="alert" className="mt-3 rounded-md border p-3 text-sm text-red-700">{error}</p> : null}
       {message ? <p role="status" className="mt-3 rounded-md border p-3 text-sm">{message}</p> : null}
@@ -175,52 +175,7 @@ export default function StaffPage() {
       ) : null}
       {canManage ? (
         <>
-          <section className="mt-5 rounded-md border p-4" aria-label="Convidar funcionário">
-            <h3 className="font-semibold">Convidar funcionário</h3>
-            <p className="mt-1 text-xs text-gray-600">
-              Não é preciso criar senha para outra pessoa. O funcionário escolherá a própria senha
-              ao aceitar o link individual, válido por 48 horas.
-            </p>
-            <form onSubmit={(event) => void invite(event)} className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="text-sm">Nome completo
-                <input type="text" value={name} minLength={2} maxLength={120} required
-                  onChange={(event) => setName(event.target.value)}
-                  className="mt-1 block w-full rounded-md border px-3 py-2" />
-              </label>
-              <label className="text-sm">E-mail do funcionário
-                <input type="email" value={email} maxLength={254} required
-                  onChange={(event) => setEmail(event.target.value)}
-                  className="mt-1 block w-full rounded-md border px-3 py-2" />
-              </label>
-              <label className="text-sm">Função inicial
-                <select value={role} onChange={(event) => setRole(event.target.value as 'manager' | 'cashier')}
-                  className="mt-1 block w-full rounded-md border px-3 py-2">
-                  <option value="cashier">Caixa — vendas e operações permitidas</option>
-                  <option value="manager">Gerente — gestão operacional</option>
-                </select>
-              </label>
-              <button type="submit" disabled={working || loading}
-                className="self-end rounded-md bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50">
-                {working ? 'Processando…' : 'Criar convite seguro'}
-              </button>
-            </form>
-            {inviteLink ? (
-              <div className="mt-3 rounded-md border p-3">
-                <label className="block text-xs font-semibold">Link de ativação — cópia única
-                  <input aria-label="Link de ativação" readOnly value={inviteLink}
-                    onFocus={(event) => event.target.select()}
-                    className="mt-2 block w-full rounded-md border px-2 py-2 text-xs" />
-                </label>
-                <button type="button" onClick={() => void copyLink()}
-                  className="mt-2 rounded-md border px-3 py-2 text-xs">Copiar link</button>
-                <p className="mt-2 text-xs text-amber-800">
-                  Quem possuir este link poderá criar a conta. Não publique nem compartilhe em grupos.
-                  Ele deixa de aparecer após sair desta tela.
-                </p>
-              </div>
-            ) : null}
-          </section>
-          <section className="mt-5 rounded-md border p-4" aria-label="Equipe da loja">
+          <section className="mt-5 rounded-2xl border border-slate-200 p-5" aria-label="Equipe da loja">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-semibold">Equipe da loja</h3>
               <button type="button" onClick={() => void reload()} disabled={loading || working}
@@ -267,8 +222,54 @@ export default function StaffPage() {
               {!loading && members.length === 0 ? <p className="py-3 text-xs">Nenhum membro listado.</p> : null}
             </div>
           </section>
-          <section className="mt-5 rounded-md border p-4" aria-label="Convites pendentes">
-            <h3 className="font-semibold">Convites pendentes</h3>
+          <details className="mt-6 rounded-2xl border border-slate-200 p-5" aria-label="Adicionar novo acesso">
+            <summary className="cursor-pointer font-semibold">Adicionar outro funcionário</summary>
+            <p className="mt-1 text-xs text-gray-600">
+              Mesmo usando um único computador, cada pessoa deve acessar a própria conta para manter
+              os registros corretos. Crie um acesso individual e abra o link neste computador
+              para a pessoa escolher sua senha. O link vence em 48 horas.
+            </p>
+            <form onSubmit={(event) => void invite(event)} className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">Nome completo
+                <input type="text" value={name} minLength={2} maxLength={120} required
+                  onChange={(event) => setName(event.target.value)}
+                  className="mt-1 block w-full rounded-md border px-3 py-2" />
+              </label>
+              <label className="text-sm">E-mail do funcionário
+                <input type="email" value={email} maxLength={254} required
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="mt-1 block w-full rounded-md border px-3 py-2" />
+              </label>
+              <label className="text-sm">Função inicial
+                <select value={role} onChange={(event) => setRole(event.target.value as 'manager' | 'cashier')}
+                  className="mt-1 block w-full rounded-md border px-3 py-2">
+                  <option value="cashier">Caixa — vendas e operações permitidas</option>
+                  <option value="manager">Gerente — gestão operacional</option>
+                </select>
+              </label>
+              <button type="submit" disabled={working || loading}
+                className="self-end rounded-md bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50">
+                {working ? 'Processando…' : 'Criar acesso individual'}
+              </button>
+            </form>
+            {inviteLink ? (
+              <div className="mt-3 rounded-md border p-3">
+                <label className="block text-xs font-semibold">Link de ativação — cópia única
+                  <input aria-label="Link de ativação" readOnly value={inviteLink}
+                    onFocus={(event) => event.target.select()}
+                    className="mt-2 block w-full rounded-md border px-2 py-2 text-xs" />
+                </label>
+                <button type="button" onClick={() => void copyLink()}
+                  className="mt-2 rounded-md border px-3 py-2 text-xs">Copiar link</button>
+                <p className="mt-2 text-xs text-amber-800">
+                  Quem possuir este link poderá criar a conta. Não publique nem compartilhe em grupos.
+                  Ele deixa de aparecer após sair desta tela.
+                </p>
+              </div>
+            ) : null}
+          </details>
+          <details className="mt-5 rounded-2xl border border-slate-200 p-5" aria-label="Convites pendentes">
+            <summary className="cursor-pointer font-semibold">Acessos aguardando ativação ({invitations.length})</summary>
             {invitations.length ? (
               <ul className="mt-3 space-y-2">
                 {invitations.map((item) => (
@@ -281,7 +282,7 @@ export default function StaffPage() {
                 ))}
               </ul>
             ) : <p className="mt-2 text-xs text-gray-600">Nenhum convite pendente.</p>}
-          </section>
+          </details>
           <p className="mt-4 text-xs text-gray-600">
             Por segurança, a função de administrador não pode ser concedida nem alterada por esta página.
             Contas que já existem em outro CNPJ precisam de provisionamento controlado;

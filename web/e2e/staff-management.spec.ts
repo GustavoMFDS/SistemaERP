@@ -50,11 +50,12 @@ test('administrador convida, altera papel e suspende funcionário somente da loj
   await login(page)
   await page.getByRole('link', { name: 'Funcionários', exact: true }).click()
   await expect(page).toHaveURL(/\/staff$/)
-  const form = page.getByRole('region', { name: 'Convidar funcionário' })
+  const form = page.locator('details[aria-label="Adicionar novo acesso"]')
+  await form.locator('summary').click()
   await form.getByLabel('Nome completo').fill('Pedro Novo')
   await form.getByLabel('E-mail do funcionário').fill('pedro@example.test')
   await form.getByLabel('Função inicial').selectOption('cashier')
-  await form.getByRole('button', { name: 'Criar convite seguro' }).click()
+  await form.getByRole('button', { name: 'Criar acesso individual' }).click()
   await expect(form.getByLabel('Link de ativação')).toHaveValue(/\/accept-invite#token=1{64}$/)
   expect(sent[0].payload).toMatchObject({
     name: 'Pedro Novo', email: 'pedro@example.test', role: 'cashier',

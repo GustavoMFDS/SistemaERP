@@ -968,60 +968,19 @@ export default function PDVPage() {
           <p className="mt-1 max-w-xl text-sm text-slate-600">
             Prepare a venda, confira o valor e só então finalize o pagamento.
           </p>
-          <p className="mt-2 text-xs text-slate-500">
-            Atalhos: F2 scanner • F4 busca rápida • F8 finalizar venda
+          <p className="mt-2 text-sm font-medium text-slate-700">
+            {cashSessionId ? 'Caixa pronto para atender.' : 'Abra o caixa para começar.'}
           </p>
         </div>
-        <details className="self-start rounded-xl border border-slate-200 bg-white p-2 text-sm text-slate-700">
-          <summary className="cursor-pointer select-none px-2 py-1 font-medium">Outras ações</summary>
-          <div className="mt-2 border-t border-slate-100 p-2">
-            <button
-              type="button"
-              onClick={() => void loadProducts()}
-              className="rounded-lg bg-slate-100 px-4 py-2 font-medium hover:bg-slate-200 disabled:opacity-50"
-              disabled={loading}
-            >
-              {loading ? 'Atualizando…' : 'Atualizar produtos'}
-            </button>
-            <p className="mt-2 max-w-48 text-xs text-slate-500">Recarregue os preços e produtos quando precisar.</p>
-          </div>
-        </details>
       </header>
 
-      <div aria-label="Condição do PDV" className="flex flex-wrap gap-2 text-xs font-semibold">
-        <span className={online
-          ? 'rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-800'
-          : 'rounded-full bg-amber-100 px-3 py-1.5 text-amber-900'}>
-          Status: {online ? 'online' : 'offline'}
-        </span>
-        <span className={cashSessionId
-          ? 'rounded-full bg-blue-50 px-3 py-1.5 text-blue-800'
-          : 'rounded-full bg-slate-100 px-3 py-1.5 text-slate-700'}>
-          {cashSessionId ? 'Caixa aberto' : 'Caixa fechado'}
-        </span>
-        <span className={pendingSync > 0 ? 'rounded-full bg-amber-100 px-3 py-1.5 text-amber-900' : 'rounded-full bg-slate-100 px-3 py-1.5 text-slate-700'}>
-          Pendências: {pendingSync}
-        </span>
-        {attentionSync > 0 ? (
-          <span className="rounded-full bg-red-100 px-3 py-1.5 text-red-800">Atenção: {attentionSync}</span>
-        ) : (
-          <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">Atenção: 0</span>
-        )}
-      </div>
-
-      <nav aria-label="Etapas da operação" className="flex flex-wrap items-center gap-2">
-        <a href="#pdv-items-title" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-2">
-          1. Produtos
-        </a>
-        <a href="#pdv-payment-title" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-2">
-          2. Pagamento
-        </a>
-        {cashSessionId ? (
-          <a href="#pdv-close-title" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-2">
-            3. Fechamento
-          </a>
-        ) : null}
-      </nav>
+      {(!online || pendingSync > 0 || attentionSync > 0) ? (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {!online ? 'Sem internet. Vendas pendentes precisam ser sincronizadas. ' : ''}
+          {pendingSync > 0 ? `${pendingSync} venda(s) aguardando sincronização. ` : ''}
+          {attentionSync > 0 ? `${attentionSync} operação(ões) precisam de revisão.` : ''}
+        </div>
+      ) : null}
 
       {error ? (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -1029,19 +988,18 @@ export default function PDVPage() {
         </div>
       ) : null}
 
-      <section aria-labelledby="pdv-cash-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="mb-4">
-          <h3 id="pdv-cash-title" className="text-base font-bold text-slate-900">Sessão de caixa</h3>
+      <section aria-labelledby="pdv-cash-title" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="mb-2">
+          <h3 id="pdv-cash-title" className="text-base font-bold text-slate-900">{cashSessionId ? "Caixa aberto" : "Abrir caixa"}</h3>
           <p className="mt-1 text-sm text-slate-600">
             {cashSessionId ? 'O caixa está aberto. Você já pode registrar vendas.' : 'Informe o valor inicial em dinheiro para começar o turno.'}
           </p>
         </div>
         {cashSessionId ? (
           <div className="space-y-4">
-            <p className="min-w-0 break-all rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-600">
-              cash_session_id: {cashSessionId}
-            </p>
-            <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-end">
+            <details className="rounded-xl bg-slate-50 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">Movimentar dinheiro (entrada ou retirada)</summary>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="block max-w-xs flex-1 text-sm font-medium text-slate-700">
                 <span>Movimento (R$)</span>
                 <input
@@ -1064,7 +1022,8 @@ export default function PDVPage() {
                 </button>
               </div>
             </div>
-            <p className="text-xs text-slate-500">Suprimento: entrada de dinheiro no caixa. Sangria: retirada de dinheiro.</p>
+              <p className="mt-3 text-xs text-slate-500">Suprimento: entrada de dinheiro no caixa. Sangria: retirada de dinheiro.</p>
+            </details>
           </div>
         ) : (
           <form onSubmit={openCash} className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -1087,13 +1046,12 @@ export default function PDVPage() {
         )}
       </section>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,1fr)]">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(380px,1fr)]">
         <div className="min-w-0 space-y-5">
           <section aria-labelledby="pdv-items-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex items-center gap-3">
-              <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">1</span>
               <div>
-                <h3 id="pdv-items-title" className="text-base font-bold text-slate-900">Itens</h3>
+                <h3 id="pdv-items-title" className="text-lg font-bold text-slate-900">Produtos da venda</h3>
                 <p className="text-sm text-slate-500">Leia o código ou busque o produto para montar a venda.</p>
               </div>
             </div>
@@ -1172,7 +1130,7 @@ export default function PDVPage() {
 
         <div aria-label="Produtos para adicionar" className="mt-5">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h4 className="text-sm font-semibold text-slate-800">Escolha um produto</h4>
+            <h4 className="text-sm font-semibold text-slate-800">{loading ? 'Carregando produtos…' : 'Escolha um produto'}</h4>
             <p className="text-xs text-slate-500">{productQuery ? 'Resultados da busca' : 'Catálogo carregado'} • até 8 opções rápidas</p>
           </div>
           {filteredProducts.length > 0 ? (
@@ -1308,18 +1266,17 @@ export default function PDVPage() {
         </div>
         <aside className="min-w-0 space-y-5 xl:sticky xl:top-5">
           <section aria-labelledby="pdv-payment-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex items-center gap-3">
-              <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">2</span>
+            <div className="mb-6">
               <div>
-                <h3 id="pdv-payment-title" className="text-base font-bold text-slate-900">Conferir e receber</h3>
+                <h3 id="pdv-payment-title" className="text-lg font-bold text-slate-900">Pagamento</h3>
                 <p className="text-sm text-slate-500">Revise o total e escolha a forma de pagamento.</p>
               </div>
             </div>
         <div className="mt-5 flex flex-col gap-5">
-          <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="flex flex-col gap-5 rounded-xl bg-slate-50 p-4">
             <div className="text-sm">
               <div className="text-xs text-gray-600">Total</div>
-              <div className="text-3xl font-bold tracking-tight text-slate-900">R$ {computedTotal.toFixed(2)}</div>
+              <div className="text-4xl font-bold tracking-tight text-slate-900">R$ {computedTotal.toFixed(2)}</div>
             </div>
             {canDiscount ? (
               <label className="block">
@@ -1330,7 +1287,7 @@ export default function PDVPage() {
                   step="0.01"
                   value={String(saleDiscount)}
                   onChange={(e) => setSaleDiscount(Math.max(0, Number(e.target.value) || 0))}
-                  className="mt-1 w-32 rounded-md border px-2 py-2 text-sm"
+                  className="mt-1 w-full rounded-md border px-3 py-3 text-sm"
                 />
               </label>
             ) : (
@@ -1338,7 +1295,7 @@ export default function PDVPage() {
             )}
           </div>
 
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-4">
             <button
               type="button"
               onClick={suspendCurrentCart}
@@ -1347,12 +1304,12 @@ export default function PDVPage() {
             >
               Suspender
             </button>
-            <label className="block">
-              <span className="text-xs text-gray-600">Pagamento</span>
+            <label className="block w-full">
+              <span className="text-sm font-semibold text-slate-700">Forma de pagamento</span>
               <select
                 value={payMethod}
                 onChange={(e) => setPayMethod(e.target.value)}
-                className="mt-1 rounded-md border px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-lg border px-4 py-3 text-base"
               >
                 <option value="cash">Dinheiro</option>
                 <option value="pix">Pix</option>
@@ -1367,7 +1324,7 @@ export default function PDVPage() {
               type="button"
               onClick={() => void finalizeSale()}
               disabled={!canFinalize || finalizing}
-              className="min-h-11 flex-1 rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-12 w-full rounded-lg bg-slate-900 px-5 py-3 text-base font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {finalizing ? 'Finalizando…' : 'Finalizar'}
             </button>
@@ -1477,7 +1434,6 @@ export default function PDVPage() {
         <section aria-labelledby="pdv-close-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="mb-5 border-b border-slate-100 pb-4">
             <div className="flex items-center gap-3">
-              <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-700">3</span>
               <h3 id="pdv-close-title" className="text-base font-bold text-slate-900">Encerrar turno</h3>
             </div>
             <p className="mt-2 text-sm text-slate-600">

@@ -7,7 +7,7 @@ test('fiscal page rendering diagnostic',async({page})=>{
  await page.getByLabel('Senha').fill('admin123');
  await page.getByRole('button',{name:'Entrar'}).click();
  await page.getByRole('link',{name:/Fiscal/}).click();
- await expect(page.getByRole('heading',{name:/Fiscal/})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Nota fiscal da loja'})).toBeVisible();
  await expect(page.getByText('Prontidão para homologação')).toBeVisible();
  expect(errors).toEqual([]);
 });

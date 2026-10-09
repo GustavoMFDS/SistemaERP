@@ -35,6 +35,8 @@ type ReturnsList = {
   total: number
 }
 
+type RecentSales = { items: Array<{ id: string; total: number; status: string }> }
+
 type ReturnCreateResponse = {
   id: string
   refund_due: number
@@ -44,6 +46,7 @@ type ReturnCreateResponse = {
 
 export default function ReturnsPage() {
   const [saleId, setSaleId] = useState('')
+  const [recentSales, setRecentSales] = useState<RecentSales['items']>([])
   const [detail, setDetail] = useState<SaleDetail | null>(null)
   const [kind, setKind] = useState<'return' | 'exchange'>('return')
   const [reason, setReason] = useState('')
@@ -68,6 +71,9 @@ export default function ReturnsPage() {
 
   useEffect(() => {
     void loadReturns()
+    void apiJson<RecentSales>('/api/v1/sales?limit=30&offset=0')
+      .then((data) => setRecentSales(data.items ?? []))
+      .catch(() => { /* The manual sale lookup remains available. */ })
   }, [])
 
   async function loadSale() {
@@ -157,10 +163,10 @@ export default function ReturnsPage() {
 
   return (
     <div>
-      <h2 className="text-base font-semibold">Devoluções e trocas</h2>
+      <h2 className="text-2xl font-bold tracking-tight">Devoluções e trocas</h2>
       <p className="mt-1 text-sm text-gray-600">
-        Registre itens devolvidos. O sistema calcula o valor devido, mas a liquidação do reembolso
-        é feita separadamente no fluxo financeiro.
+        Procure a venda, escolha os itens que voltaram e registre o motivo.
+        Se houver reembolso, ele será conferido separadamente no Financeiro.
       </p>
 
       {error ? (
@@ -169,15 +175,31 @@ export default function ReturnsPage() {
         </div>
       ) : null}
 
-      <div className="mt-4 rounded-md border p-3">
-        <label className="block">
-          <span className="text-xs text-gray-600">ID da venda</span>
+      <div className="mt-5 rounded-2xl border border-slate-200 p-5">
+        <label className="block text-sm font-medium">
+          <span>Selecione uma venda recente</span>
+          <select
+            aria-label="Vendas recentes"
+            className="mt-2 w-full rounded-lg border px-3 py-3 text-sm"
+            value={recentSales.some((sale) => sale.id === saleId) ? saleId : ''}
+            onChange={(e) => {setSaleId(e.target.value);setDetail(null);setResult(null)}}
+          >
+            <option value="">Escolha uma venda ou digite o número abaixo</option>
+            {recentSales.map((sale) => (
+              <option key={sale.id} value={sale.id}>
+                Venda {sale.id.slice(0, 8)} — R$ {sale.total.toFixed(2)} — {sale.status === 'finalized' ? 'Concluída' : sale.status}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-4 block">
+          <span className="text-xs text-gray-600">Ou procure pelo código completo da venda</span>
           <div className="mt-1 flex gap-2">
             <input
               value={saleId}
               onChange={(e) => setSaleId(e.target.value)}
               className="min-w-0 flex-1 rounded-md border px-3 py-2 font-mono text-sm"
-              placeholder="Cole o ID da venda"
+              placeholder="Cole o código do comprovante, se não estiver na lista"
             />
             <button
               type="button"
@@ -211,7 +233,7 @@ export default function ReturnsPage() {
                 <tbody className="divide-y">
                   {detail.items.map((item) => (
                     <tr key={item.id}>
-                      <td className="px-3 py-2 font-mono text-xs">{item.product_id}</td>
+                      <td className="px-3 py-2 text-xs" title={item.product_id}>Produto {item.product_id.slice(0, 8)}…</td>
                       <td className="px-3 py-2">{item.qty.toFixed(3)}</td>
                       <td className="px-3 py-2">
                         {Math.max(0, item.qty - (returnedByItem[item.id] ?? 0)).toFixed(3)}
@@ -310,8 +332,8 @@ export default function ReturnsPage() {
         ) : null}
       </div>
 
-      <div className="mt-4 rounded-md border p-3">
-        <h3 className="text-sm font-semibold">Últimas devoluções/trocas</h3>
+      <div className="mt-6 rounded-2xl border border-slate-200 p-5">
+        <h3 className="text-base font-semibold">Últimas devoluções e trocas</h3>
         <div className="mt-2 overflow-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="text-xs text-gray-600">
@@ -325,7 +347,7 @@ export default function ReturnsPage() {
             <tbody className="divide-y">
               {returns.map((item) => (
                 <tr key={item.id}>
-                  <td className="px-2 py-2 font-mono text-xs">{item.sale_id}</td>
+                  <td className="px-2 py-2 font-mono text-xs" title={item.sale_id}>{item.sale_id.slice(0, 8)}…</td>
                   <td className="px-2 py-2">{item.kind === 'exchange' ? 'Troca' : 'Devolução'}</td>
                   <td className="px-2 py-2">{item.reason}</td>
                   <td className="px-2 py-2">R$ {item.refund_due.toFixed(2)}</td>

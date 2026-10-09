@@ -8,6 +8,8 @@
 >
 > **Nova rodada de UX e financeiro (2026-10-09):** telas Fiscal (correção de branco), Configurar loja, Início, Produtos, Estoque e PDV revisitadas. Contas a pagar/receber e gráfico por lançamentos reais implementados na migration 0035 como **fase inicial**, não contabilidade ou integração bancária completa. Testes locais selecionados aprovados; suíte E2E integral ainda pendente. [Relatório e limites](ux-financeiro-fiscal-20261009.md).
 >
+> **Simplificação de balcão e correção de saldos (2026-10-09):** reorganização do PDV, cadastro de produtos, busca global no ajuste de estoque, Fiscal, Configurar loja, Funcionários e Devoluções. Contas financeiras agora paginam e calculam saldos globais no banco. [Resultados e pendências](simplificacao-operacional-20261009.md). Ainda não homologado para produção.
+>
 > **Regra estrutural:** cada loja/CNPJ pertence a uma empresa **independente**, ainda que familiares sejam proprietários. Não modelar as lojas como filiais de uma única pessoa jurídica; contas compartilhadas entre CNPJs precisam de vínculos e autorizações separadas.
 
 ## Como ler e atualizar esta checklist

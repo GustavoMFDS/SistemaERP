@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
 
 type XMLFile = {
@@ -242,9 +241,9 @@ export default function FiscalPage() {
     <div>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold">Fiscal — preparação NFC-e</h2>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Nota fiscal da loja</h2>
           <p className="text-sm text-gray-600">
-            Modelo 65. Esta tela não transmite nem autoriza documentos na SEFAZ.
+            Veja o que falta para preparar a emissão de notas. Esta tela não transmite notas para a SEFAZ.
           </p>
         </div>
         <button
@@ -256,32 +255,13 @@ export default function FiscalPage() {
         </button>
       </div>
 
-      <section className="mt-4 rounded-md border bg-slate-50 p-4">
-        <h3 className="text-sm font-semibold">Configurar a nota fiscal — passo a passo</h3>
-        <p className="mt-1 text-sm text-gray-700">
-          Você informa os dados uma vez por loja. O sistema verifica o que está faltando,
-          mas só libera emissão real depois da validação fiscal e da homologação do ambiente.
+      <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-950">
+        <p className="font-semibold">Comece pelos dados da sua loja</p>
+        <p className="mt-1 text-blue-900">
+          Confira a situação abaixo. Se faltar algo, abra a seção correspondente e preencha os campos.
+          Um contador ou suporte técnico deve conferir os dados fiscais antes de qualquer emissão real.
         </p>
-        <ol className="mt-3 grid gap-3 text-sm md:grid-cols-3">
-          <li>
-            <a href="#fiscal-issuer" className="font-semibold text-blue-700 hover:underline">1. Dados da loja</a>
-            <p className="text-xs text-gray-600">CNPJ cadastrado, inscrição estadual, regime e endereço.</p>
-          </li>
-          <li>
-            <a href="#fiscal-certificate" className="font-semibold text-blue-700 hover:underline">2. Certificado digital</a>
-            <p className="text-xs text-gray-600">Seu responsável técnico vincula o certificado A1 de forma segura.</p>
-          </li>
-          <li>
-            <a href="#fiscal-readiness" className="font-semibold text-blue-700 hover:underline">3. Conferir pendências</a>
-            <p className="text-xs text-gray-600">Veja o que falta antes dos testes de homologação.</p>
-          </li>
-        </ol>
-        <div className="mt-3 rounded-md border bg-white px-3 py-2 text-xs text-gray-700">
-          Ainda não cadastrou os produtos? <Link to="/products" className="text-blue-700 underline">Abra Produtos e importe uma planilha</Link>.
-          Para NFC-e, NCM, regras fiscais e tributação precisam ser conferidos pelo contador.
-          A instalação como aplicativo não substitui o servidor nem a autorização da SEFAZ.
-        </div>
-      </section>
+      </div>
 
       {message ? (
         <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-2 text-sm text-green-700">
@@ -316,7 +296,9 @@ export default function FiscalPage() {
             </span>
           </div>
 
-          <div className="mt-3 grid gap-2 text-xs md:grid-cols-3">
+          <details className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
+            <summary className="cursor-pointer font-medium text-slate-700">Ver detalhes técnicos da preparação</summary>
+            <div className="mt-3 grid gap-3 text-xs sm:grid-cols-3">
             <div>Emitente: {readiness.issuer_identity_configured ? 'OK' : 'Pendente'}</div>
             <div>Endereço: {readiness.issuer_address_configured ? 'OK' : 'Pendente'}</div>
             <div>Município IBGE: {readiness.municipality_code_configured ? 'OK' : 'Pendente'}</div>
@@ -325,7 +307,8 @@ export default function FiscalPage() {
             </div>
             <div>Certificado ref.: {readiness.certificate_reference_configured ? 'OK' : 'Pendente'}</div>
             <div>NCM ausente: {readiness.products_missing_ncm}</div>
-          </div>
+            </div>
+          </details>
 
           {(readiness.blocking_reasons ?? []).length > 0 ? (
             <ul className="mt-3 list-disc pl-5 text-xs text-amber-800">
@@ -344,8 +327,8 @@ export default function FiscalPage() {
       ) : null}
 
       {issuer ? (
-        <section id="fiscal-issuer" className="mt-4 rounded-md border p-4">
-          <h3 className="text-sm font-semibold">1. Dados da loja para a NFC-e</h3>
+        <details id="fiscal-issuer" className="mt-4 rounded-2xl border border-slate-200 p-5">
+          <summary className="cursor-pointer text-base font-bold text-slate-900">Preencher dados da loja</summary>
           <p className="mt-1 text-xs text-gray-600">Preencha conforme o cadastro oficial da empresa e confirme com o contador.</p>
           <p className="mt-1 text-xs text-gray-600">
             {issuer.legal_name} · CNPJ {issuer.cnpj}
@@ -356,7 +339,7 @@ export default function FiscalPage() {
               <input value={ie} onChange={(e) => setIE(e.target.value)} className="mt-1 w-full rounded-md border px-3 py-2 text-sm" disabled={!canPrepare} />
             </label>
             <label>
-              <span className="text-xs text-gray-600">CRT</span>
+              <span className="text-xs text-gray-600">Regime tributário</span>
               <select value={crt} onChange={(e) => setCRT(e.target.value)} className="mt-1 w-full rounded-md border px-3 py-2 text-sm" disabled={!canPrepare}>
                 <option value="">Selecione</option>
                 <option value="1">1 — Simples Nacional</option>
@@ -366,7 +349,7 @@ export default function FiscalPage() {
               </select>
             </label>
             <label className="md:col-span-2">
-              <span className="text-xs text-gray-600">Logradouro</span>
+              <span className="text-xs text-gray-600">Rua ou avenida</span>
               <input value={street} onChange={(e) => setStreet(e.target.value)} className="mt-1 w-full rounded-md border px-3 py-2 text-sm" disabled={!canPrepare} />
             </label>
             <label>
@@ -386,11 +369,11 @@ export default function FiscalPage() {
               <input value={city} onChange={(e) => setCity(e.target.value)} className="mt-1 w-full rounded-md border px-3 py-2 text-sm" disabled={!canPrepare} />
             </label>
             <label>
-              <span className="text-xs text-gray-600">Código IBGE</span>
+              <span className="text-xs text-gray-600">Código da cidade (IBGE)</span>
               <input value={cityCode} onChange={(e) => setCityCode(e.target.value)} inputMode="numeric" maxLength={7} className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm" disabled={!canPrepare} />
             </label>
             <label>
-              <span className="text-xs text-gray-600">UF</span>
+              <span className="text-xs text-gray-600">Estado (UF)</span>
               <input value={state} onChange={(e) => setState(e.target.value.toUpperCase())} maxLength={2} className="mt-1 w-full rounded-md border px-3 py-2 text-sm uppercase" disabled={!canPrepare} />
             </label>
             <label>
@@ -405,11 +388,11 @@ export default function FiscalPage() {
               </div>
             ) : null}
           </form>
-        </section>
+        </details>
       ) : null}
 
-      <section id="fiscal-certificate" className="mt-4 rounded-md border p-4">
-        <h3 className="text-sm font-semibold">2. Certificado e ambiente da NFC-e</h3>
+      <details id="fiscal-certificate" className="mt-4 rounded-md border p-4">
+        <summary className="cursor-pointer text-base font-bold text-slate-900">Certificado digital e configurações avançadas</summary>
         <p className="mt-1 text-xs text-gray-600">
           Use primeiro o ambiente de testes (homologação). O certificado A1 deve ficar
           no gerenciador seguro do servidor; nunca envie o arquivo PFX, a senha ou a chave privada
@@ -443,12 +426,12 @@ export default function FiscalPage() {
             </div>
           ) : null}
         </form>
-      </section>
+      </details>
 
-      <section className="mt-4">
+      <details className="mt-4 rounded-2xl border border-slate-200 p-5">
         <div className="flex items-baseline justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold">XMLs históricos / previews</h3>
+            <summary className="cursor-pointer text-base font-bold text-slate-900">Notas preparadas e arquivos anteriores</summary>
             <p className="text-xs text-gray-600">Total: {total}</p>
           </div>
         </div>
@@ -457,7 +440,7 @@ export default function FiscalPage() {
             <thead className="bg-gray-50 text-xs text-gray-600">
               <tr>
                 <th className="px-3 py-2">Arquivo</th>
-                <th className="px-3 py-2">SHA256</th>
+
                 <th className="px-3 py-2">Criado</th>
                 <th className="px-3 py-2"></th>
               </tr>
@@ -466,7 +449,7 @@ export default function FiscalPage() {
               {items.map((x) => (
                 <tr key={x.id}>
                   <td className="px-3 py-2 font-mono text-xs">{x.file_name}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{x.sha256}</td>
+
                   <td className="px-3 py-2 font-mono text-xs">{x.created_at}</td>
                   <td className="px-3 py-2">
                     <div className="flex gap-3">
@@ -484,7 +467,7 @@ export default function FiscalPage() {
               ))}
               {items.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={4}>
+                  <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={3}>
                     Nenhum XML gerado.
                   </td>
                 </tr>
@@ -492,7 +475,7 @@ export default function FiscalPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </details>
     </div>
   )
 }

@@ -232,9 +232,9 @@ export default function SetupPage() {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Prepare sua loja em poucos passos</h2>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Vamos preparar sua loja</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Comece pelo básico. Veja o que já está pronto e termine uma etapa de cada vez.
+            Preencha o que falta, no seu ritmo. Os dados são salvos apenas para esta loja.
           </p>
         </div>
         <button type="button" disabled={loading || saving} onClick={() => void refresh()}
@@ -265,12 +265,13 @@ export default function SetupPage() {
           <section aria-label="Resumo da configuração" className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm">
             <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-base font-bold text-slate-900">Seu progresso</h3><span className="font-bold text-slate-800">{overview.verified} de {steps.length} etapas</span></div>
             <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{width: `${Math.round(overview.verified / Math.max(1,steps.length)*100)}%`}} /></div>
-            <p><strong>{overview.verified}</strong> etapa(s) com dados básicos verificados;
-              {' '}<strong>{overview.attention}</strong> para preencher, verificar ou revisar;
-              {' '}<strong>{overview.restricted}</strong> sem permissão de acesso.</p>
-            <p className="mt-1 text-xs text-gray-600">
-              Esta contagem não confirma estoque conferido, equipe revisada nem emissão fiscal liberada.
+            <p className="text-sm text-slate-700">
+              {overview.attention > 0 ? `Ainda existem ${overview.attention} etapa(s) que precisam da sua atenção.` : 'Todos os dados básicos foram conferidos.'}
             </p>
+            <details className="mt-3 text-xs text-slate-600">
+              <summary className="cursor-pointer">Sobre a verificação</summary>
+              <p className="mt-1">Esta conferência não substitui a contagem física do estoque nem a homologação da nota fiscal. Etapas sem sua permissão: {overview.restricted}.</p>
+            </details>
             {nextAttention && nextAttention !== active ? (
               <button type="button" disabled={loading || saving}
                 onClick={() => setActive(nextAttention)}
@@ -320,14 +321,14 @@ export default function SetupPage() {
                       </select>
                     </label>
                     {([
-                      ['address_street', 'Rua / logradouro'],
+                      ['address_street', 'Rua ou avenida'],
                       ['address_number', 'Número'],
                       ['address_complement', 'Complemento (opcional)'],
                       ['address_neighborhood', 'Bairro'],
-                      ['address_city', 'Município'],
-                      ['address_city_code', 'Código IBGE do município (7 números)'],
-                      ['address_state', 'UF (2 letras)'],
-                      ['address_zip', 'CEP (8 números)'],
+                      ['address_city', 'Cidade'],
+                      ['address_city_code', 'Código da cidade (IBGE) — 7 números'],
+                      ['address_state', 'Estado (UF)'],
+                      ['address_zip', 'CEP'],
                     ] as Array<[keyof IssuerFields, string]>).map(([key, label]) => (
                       <label key={key} className="text-sm">{label}
                         <input className="mt-1 block w-full rounded-md border px-3 py-2" value={fields[key]}
@@ -383,9 +384,11 @@ export default function SetupPage() {
 
             {active === 'team' ? (
               <div className="mt-4 space-y-3 text-sm">
-                <p><strong>Seu acesso:</strong> {me.name} ({me.email})</p>
-                <p><strong>Perfil:</strong> {me.roles.length ? me.roles.join(', ') : 'Sem perfil atribuído'}</p>
-                <p><strong>Permissões atuais:</strong> {me.permissions.length}.</p>
+                <p>Veja quem trabalha na loja e confira se cada pessoa tem acesso apenas às tarefas necessárias.</p>
+                <details className="rounded-lg bg-slate-50 p-3 text-xs">
+                  <summary className="cursor-pointer">Meu acesso</summary>
+                  <p className="mt-2">{me.name} ({me.email}) — {me.roles.length ? me.roles.join(', ') : 'Perfil não definido'}.</p>
+                </details>
                 {me.permissions.includes('team:manage') ? (
                   <Link to="/staff" className="block rounded-md border border-blue-300 p-3 text-blue-700 underline">
                     Abrir administração de funcionários e permissões →
@@ -395,9 +398,8 @@ export default function SetupPage() {
                     Para convidar ou suspender funcionários, peça acesso ao administrador da loja.
                   </p>
                 )}
-                <p className="rounded-md bg-amber-50 p-3 text-amber-900">
-                  Cada funcionário deve ter a própria senha. Convites e papéis são auditados por empresa.
-                  Esta etapa requer revisão humana mesmo com a equipe cadastrada.
+                <p className="rounded-md bg-slate-50 p-3 text-slate-700">
+                  Mesmo em um único computador, cada pessoa deve usar sua própria conta para identificar quem realizou as operações.
                 </p>
               </div>
             ) : null}

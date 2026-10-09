@@ -1,0 +1,20 @@
+import { expect, test } from '@playwright/test'
+
+test('devoluções: escolha de venda recente e consulta sem digitar UUID', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/products$/)
+  await page.getByRole('link', { name: /Devoluções/ }).click()
+  await expect(page.getByRole('heading', { name: 'Devoluções e trocas', exact: true })).toBeVisible()
+  const selector = page.getByRole('combobox', { name: 'Vendas recentes' })
+  await expect(selector.locator('option')).not.toHaveCount(1)
+  const firstValue = await selector.locator('option').nth(1).getAttribute('value')
+  expect(firstValue).toMatch(/^[0-9a-f-]{36}$/i)
+  await selector.selectOption(firstValue!)
+  await page.getByRole('button', { name: 'Buscar' }).click()
+  await expect(page.getByText(/status/, { exact: false })).toBeVisible()
+  await expect(page.getByText('Restante', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Registrar devolução' })).toBeDisabled()
+})

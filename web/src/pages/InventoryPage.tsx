@@ -48,9 +48,21 @@ export default function InventoryPage() {
   const [canAdjustPermission, setCanAdjustPermission] = useState(false)
 
   const [productId, setProductId] = useState('')
+  const [adjustSearch, setAdjustSearch] = useState('')
+  const [adjustMatches, setAdjustMatches] = useState<Product[]>([])
+  const [searchingProduct, setSearchingProduct] = useState(false)
   const [delta, setDelta] = useState<number>(0)
   const [reason, setReason] = useState('')
   const [type, setType] = useState<AdjustRequest['type']>('adjustment')
+  const adjustOptions = useMemo(() => {
+    const list = adjustSearch.trim().length >= 2
+      ? adjustMatches
+      : products.slice(0, 30)
+    const selected = [...products, ...adjustMatches].find((item) => item.id === productId)
+    if (selected && !list.some((item) => item.id === selected.id)) return [selected, ...list]
+    return list
+  }, [products, adjustMatches, adjustSearch, productId])
+
   const canAdjust = useMemo(
     () => productId && delta !== 0 && reason.trim().length >= 3,
     [productId, delta, reason],
@@ -77,6 +89,30 @@ export default function InventoryPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    const query = adjustSearch.trim()
+    if (query.length < 2) {
+      setAdjustMatches([])
+      setSearchingProduct(false)
+      return
+    }
+    let active = true
+    const timer = window.setTimeout(async () => {
+      setSearchingProduct(true)
+      try {
+        const result = await apiJson<ProductsListResponse>(
+          `/api/v1/products?query=${encodeURIComponent(query)}&limit=80`,
+        )
+        if (active) setAdjustMatches(result.items ?? [])
+      } catch (error: unknown) {
+        if (active) setError('Não foi possível procurar o produto: ' + errorMessage(error))
+      } finally {
+        if (active) setSearchingProduct(false)
+      }
+    }, 300)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [adjustSearch])
 
   useEffect(() => {
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
@@ -327,7 +363,7 @@ export default function InventoryPage() {
           <table className="min-w-full text-left text-sm">
             <thead className="bg-gray-50 text-xs text-gray-600">
               <tr>
-                <th className="px-3 py-2">SKU</th>
+                <th className="px-3 py-2">Código (SKU)</th>
                 <th className="px-3 py-2">Produto</th>
                 <th className="px-3 py-2">Qtd</th>
                 <th className="px-3 py-2">Min</th>
@@ -362,10 +398,9 @@ export default function InventoryPage() {
             Ideal para configurar uma loja nova: informe somente o SKU do produto e a quantidade
             contada na prateleira. A planilha não cria produtos nem altera preços.
           </p>
-          <p className="mt-2 rounded-md bg-amber-50 p-2 text-xs text-amber-900">
-            Esta opção aceita somente produtos sem saldo anterior e sem qualquer movimentação.
-            Para corrigir estoque existente, use o ajuste auditado abaixo. Não repita a
-            importação mudando o arquivo após erro de conexão.
+          <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+            Use esta planilha só na primeira contagem da loja. Para alterar um produto já movimentado,
+            escolha “Ajustar quantidade”. Se houver falha de conexão, confira a tentativa antes de enviar novamente.
           </p>
           {pendingOpening ? (
             <div className="mt-3 space-y-2 rounded-md border border-amber-300 p-3 text-sm" role="region" aria-label="Importação pendente de confirmação">
@@ -446,15 +481,27 @@ export default function InventoryPage() {
           <p className="mt-3 text-xs text-slate-600">Use somente para correções justificadas. Entradas de compras e devoluções possuem fluxos próprios.</p>
         <form onSubmit={onAdjust} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-4">
           <label className="block md:col-span-2">
-            <span className="text-xs text-gray-600">Produto</span>
+            <span className="text-sm font-semibold text-slate-700">Procure o produto pelo nome ou código</span>
+            <input
+              aria-label="Buscar produto para ajuste de estoque"
+              type="search"
+              value={adjustSearch}
+              onChange={(e) => setAdjustSearch(e.target.value)}
+              placeholder="Digite pelo menos 2 letras para procurar em todo o cadastro"
+              className="mt-2 w-full rounded-lg border px-3 py-3 text-sm"
+            />
+            <span className="mt-2 block text-xs text-slate-600">
+              {searchingProduct ? 'Procurando…' : adjustSearch.trim().length < 2 ? 'Mostrando 30 opções iniciais. Digite para encontrar outros produtos.' : `${adjustMatches.length} resultado(s) encontrados.`}
+            </span>
             <select
+              aria-label="Produto para ajustar"
               value={productId}
               onChange={(e) => setProductId(e.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               required
             >
               <option value="">Selecione…</option>
-              {products.map((p) => (
+              {adjustOptions.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.sku} — {p.name}
                 </option>
@@ -469,15 +516,16 @@ export default function InventoryPage() {
               onChange={(e) => setType(e.target.value as AdjustRequest['type'])}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             >
-              <option value="adjustment">Ajuste</option>
-              <option value="loss">Perda</option>
-              <option value="damage">Avaria</option>
+              <option value="adjustment">Correção da contagem</option>
+              <option value="loss">Produto perdido</option>
+              <option value="damage">Produto danificado</option>
             </select>
           </label>
 
           <label className="block">
-            <span className="text-xs text-gray-600">Delta</span>
+            <span className="text-xs text-gray-600">Quanto adicionar ou retirar?</span>
             <input
+              aria-label="Variação do estoque (positiva para adicionar, negativa para retirar)"
               value={String(delta)}
               onChange={(e) => setDelta(Number(e.target.value))}
               type="number"
