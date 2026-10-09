@@ -47,11 +47,21 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 		api.With(authLoginLimit).Post("/auth/login", h.Auth.Login)
 		api.With(authRefreshLimit, trustedOrigin).Post("/auth/refresh", h.Auth.Refresh)
 		api.With(authLogoutLimit, trustedOrigin).Post("/auth/logout", h.Auth.Logout)
+		api.With(authLoginLimit, trustedOrigin).Post("/staff/accept-invite", h.Team.Accept)
 		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/auth/me", h.Auth.Me)
 
 		api.Group(func(pr chi.Router) {
 			pr.Use(middleware.AuthJWT(cfg, mods.Auth, logger))
 			pr.Use(middleware.LoadPermissions(mods.Auth, logger))
+
+			pr.Route("/staff", func(rr chi.Router) {
+				rr.Use(middleware.RequirePermission("team:manage"))
+				rr.Get("/", h.Team.List)
+				rr.With(trustedOrigin, productImportLimit).Post("/invitations", h.Team.Invite)
+				rr.With(trustedOrigin).Delete("/invitations/{id}", h.Team.Revoke)
+				rr.With(trustedOrigin).Put("/{id}/role", h.Team.SetRole)
+				rr.With(trustedOrigin).Put("/{id}/status", h.Team.SetStatus)
+			})
 
 			// Only fiscal managers may record non-authoritative setup reviews.
 			pr.Route("/setup", func(rr chi.Router) {
