@@ -44,6 +44,7 @@ const quickLinks = [
   { to: '/stock-movements', label: 'Histórico do estoque', permission: 'inventory:read', detail: 'Acompanhar entradas, saídas, perdas e ajustes por produto' }
   { to: '/imports', label: 'Ver histórico das importações', permission: 'imports:history', detail: 'Lotes confirmados de produtos e estoque em ordem de data' }
   { to: '/purchases', label: 'Registrar compras', permission: 'procurement:read', detail: 'Acompanhar fornecedores e recebimentos' },
+  { to: '/customers', label: 'Cadastrar clientes', permission: 'customer:read', detail: 'Guardar contatos de clientes desta loja com privacidade' }
   { to: '/finance', label: 'Conferir pagamentos', permission: 'finance:read', detail: 'Ver divergências e conciliações' },
   { to: '/fiscal', label: 'Configurar nota fiscal', permission: 'invoice:read', detail: 'Seguir o passo a passo da NFC-e' },
 ]
