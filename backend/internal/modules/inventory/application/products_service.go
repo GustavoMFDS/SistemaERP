@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
@@ -11,6 +12,7 @@ import (
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 )
 
 type ProductsService struct {
@@ -100,6 +102,22 @@ func validateProductPricing(req ProductCreateRequest) error {
 }
 
 func (s *ProductsService) Create(ctx context.Context, tenantID, actorUserID string, req ProductCreateRequest) (string, error) {
+	return s.create(ctx, tenantID, actorUserID, "", "", req)
+}
+
+// CreateVariation is atomic: a failed link cannot leave an ungrouped product.
+// The new SKU starts at zero and uses the existing stock/sales/return pipeline.
+func (s *ProductsService) CreateVariation(ctx context.Context, tenantID, actorUserID, parentID, label string, req ProductCreateRequest) (string, error) {
+	label = strings.TrimSpace(label)
+	parent, err := uuid.Parse(parentID)
+	if err != nil || parent == uuid.Nil || !utf8.ValidString(label) ||
+		utf8.RuneCountInString(label) == 0 || utf8.RuneCountInString(label) > 40 {
+		return "", common.ErrValidation
+	}
+	return s.create(ctx, tenantID, actorUserID, parent.String(), label, req)
+}
+
+func (s *ProductsService) create(ctx context.Context, tenantID, actorUserID, parentID, label string, req ProductCreateRequest) (string, error) {
 	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
@@ -127,17 +145,30 @@ func (s *ProductsService) Create(ctx context.Context, tenantID, actorUserID stri
 		MinStock:    req.MinStock,
 		Active:      req.Active,
 	}
-	id, err := s.repo.Create(ctx, tx, tenantID, p)
+	var id string
+	if parentID != "" {
+		repo, ok := s.repo.(interface {
+			CreateVariation(context.Context, db.DBTX, string, string, string, inv.Product) (string, error)
+		})
+		if !ok { return "", common.ErrValidation }
+		id, err = repo.CreateVariation(ctx, tx, tenantID, parentID, label, p)
+	} else {
+		id, err = s.repo.Create(ctx, tx, tenantID, p)
+	}
 	if err != nil {
 		return "", err
 	}
+	action := "product.create"
+	meta := map[string]any{"sku": p.SKU, "price_cash": p.PriceCash.String()}
+	if parentID != "" {
+		action = "product.variation.create"
+		meta["parent_product_id"] = parentID
+		meta["option_label"] = label
+	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
-		TenantID: tenantID, ActorUserID: actorUserID, Action: "product.create",
+		TenantID: tenantID, ActorUserID: actorUserID, Action: action,
 		ResourceType: "product", ResourceID: id, Outcome: "success",
-		Metadata: map[string]any{
-			"sku":        p.SKU,
-			"price_cash": p.PriceCash.String(),
-		},
+		Metadata: meta,
 	}); err != nil {
 		return "", err
 	}
