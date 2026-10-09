@@ -52,6 +52,8 @@ export default function ProductsPage() {
   const manualFormRef = useRef<HTMLDetailsElement>(null)
   const skuInputRef = useRef<HTMLInputElement>(null)
   const [variationSource, setVariationSource] = useState('')
+  const [variationParentId, setVariationParentId] = useState('')
+  const [variationOptionLabel, setVariationOptionLabel] = useState('')
   const [photoVersion, setPhotoVersion] = useState(0)
   const [items, setItems] = useState<Product[]>([])
   const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
@@ -186,10 +188,12 @@ export default function ProductsPage() {
         min_stock: Number(minStock) || 0,
         active: true,
       }
-      const created = await apiJson<{ id: string }>('/api/v1/products', {
-        method: 'POST',
-        body: payload,
-      })
+      const created = await apiJson<{ id: string }>(
+        variationParentId ? '/api/v1/products/' + encodeURIComponent(variationParentId) + '/variations' : '/api/v1/products', {
+          method: 'POST',
+          body: variationParentId ? { option_label: variationOptionLabel, product: payload } : payload,
+        },
+      )
       setSku('')
       setBarcode('')
       setNcm('')
@@ -198,6 +202,8 @@ export default function ProductsPage() {
       setPriceCash(0)
       setMinStock(0)
       setVariationSource('')
+      setVariationParentId('')
+      setVariationOptionLabel('')
       setQuery(payload.name)
       setPhotoProductId(created.id)
       await load(payload.name)
@@ -226,6 +232,8 @@ export default function ProductsPage() {
     setPriceCash(product.price_cash)
     setMinStock(product.min_stock)
     setVariationSource(product.name + ' — ' + option)
+    setVariationParentId(product.id)
+    setVariationOptionLabel(option)
     setError('')
     if (manualFormRef.current) {
       manualFormRef.current.open = true
@@ -639,7 +647,7 @@ export default function ProductsPage() {
         <form onSubmit={onCreate} className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-8">
           <p className="text-sm text-slate-600 md:col-span-8">Preencha o nome, o código e o preço. Os dados fiscais podem ser preenchidos depois, com ajuda do contador.</p>
           {variationSource ? <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 md:col-span-8">
-            Nova opção de {variationSource}: ela terá código próprio e estoque independente. Informe um código (SKU) diferente do original. O saldo começa zerado; ajuste-o na aba Estoque após cadastrar. Os dados fiscais e código de barras não são copiados automaticamente.
+            Nova opção de {variationSource}: ela ficará vinculada ao produto original, mas terá código e estoque independentes. Informe um SKU diferente. O saldo começa zerado; ajuste-o na aba Estoque após cadastrar. Os dados fiscais e código de barras não são copiados automaticamente.
           </p> : null}
           <label className="block md:col-span-2">
             <span className="text-xs text-gray-600">Código do produto (SKU)</span>
