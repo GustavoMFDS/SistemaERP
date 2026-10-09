@@ -10,6 +10,7 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 type InventoryHandler struct {
@@ -46,15 +47,51 @@ func (h *InventoryHandler) LowStock(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
 }
 
+// readMovementsQuery bounds pagination and rejects malformed product IDs,
+// duplicate parameters and tenant selectors before reaching PostgreSQL.
+func readMovementsQuery(r *http.Request) (productID string, limit, offset int, err error) {
+	query := r.URL.Query()
+	for key, values := range query {
+		if (key != "product_id" && key != "limit" && key != "offset") || len(values) != 1 {
+			return "", 0, 0, common.ErrValidation
+		}
+	}
+	productID = query.Get("product_id")
+	if productID != "" {
+		if _, parseErr := uuid.Parse(productID); parseErr != nil {
+			return "", 0, 0, common.ErrValidation
+		}
+	}
+	limit, offset = 100, 0
+	if _, present := query["limit"]; present {
+		parsed, parseErr := strconv.Atoi(query.Get("limit"))
+		if parseErr != nil || parsed < 1 || parsed > 500 {
+			return "", 0, 0, common.ErrValidation
+		}
+		limit = parsed
+	}
+	if _, present := query["offset"]; present {
+		parsed, parseErr := strconv.Atoi(query.Get("offset"))
+		if parseErr != nil || parsed < 0 || parsed > 5000 {
+			return "", 0, 0, common.ErrValidation
+		}
+		offset = parsed
+	}
+	return productID, limit, offset, nil
+}
+
 func (h *InventoryHandler) ListMovements(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	productID := r.URL.Query().Get("product_id")
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	productID, limit, offset, err := readMovementsQuery(r)
+	if err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "consulta de movimentacoes invalida", nil)
+		return
+	}
 	items, total, err := h.svc.ListMovements(r.Context(), au.TenantID, productID, limit, offset)
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao listar movimentacoes", nil)
