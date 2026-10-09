@@ -9,6 +9,7 @@ import StockMovementsPage from './pages/StockMovementsPage'
 import UnifiedImportHistoryPage from './pages/UnifiedImportHistoryPage'
 import LoginPage from './pages/LoginPage'
 import StaffPage from './pages/StaffPage'
+import CustomersPage from './pages/CustomersPage'
 import AcceptStaffInvitePage from './pages/AcceptStaffInvitePage'
 import PDVPage from './pages/PDVPage'
 import ProductsPage from './pages/ProductsPage'
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/stock-movements" element={<StockMovementsPage />} />
           <Route path="/imports" element={<UnifiedImportHistoryPage />} />
           <Route path="/purchases" element={<PurchasesPage />} />
+          <Route path="/customers" element={<CustomersPage />} />
           <Route path="/returns" element={<ReturnsPage />} />
           <Route path="/pdv" element={<PDVPage />} />
           <Route path="/finance" element={<FinancePage />} />
