@@ -184,6 +184,16 @@ func TestOpeningStockBatchIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	if err != nil || len(emptyPage.Items) != 0 || emptyPage.HasMore {
 		t.Fatalf("opening-stock history pagination failed: %+v err=%v", emptyPage, err)
 	}
+	exportItems, err := service.ExportOpeningStockHistory(ctx, tenantA, invapp.ImportHistoryFilter{})
+	if err != nil || len(exportItems) != 1 || exportItems[0].BatchID != result.BatchID {
+		t.Fatalf("stock export leaked or lost tenant A receipt: %+v err=%v", exportItems, err)
+	}
+	old, err := service.ListOpeningStockHistory(ctx, tenantA, 10, 0, invapp.ImportHistoryFilter{
+		From: "2000-01-01", To: "2000-01-02",
+	})
+	if err != nil || len(old.Items) != 0 {
+		t.Fatalf("stock history time filter included current receipt: %+v err=%v", old, err)
+	}
 	if _, err := service.ListOpeningStockHistory(ctx, tenantA, 10, 5001, invapp.ImportHistoryFilter{}); !errors.Is(err, common.ErrValidation) {
 		t.Fatalf("offset beyond allowed range must fail: %v", err)
 	}
