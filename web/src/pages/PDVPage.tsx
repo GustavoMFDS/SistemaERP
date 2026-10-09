@@ -18,6 +18,7 @@ import {
   type QueuedRequest,
 } from '../lib/offlineQueue'
 import {
+  getSessionScope,
   clearCashSessionId,
   getCashSessionId,
   setCashSessionId,
@@ -47,6 +48,8 @@ type MeResponse = {
 }
 
 type ProductsListResponse = { items: Product[]; total: number }
+type ProductVariant = Product & { option_label: string; is_base: boolean }
+type ProductFamilyResponse = { parent_id: string; items: ProductVariant[] }
 type ProductCache = { savedAt: number; items: Product[] }
 
 type CashMovementAttempt = {
@@ -193,6 +196,7 @@ export default function PDVPage() {
   const productSearchRef = useRef<HTMLInputElement>(null)
   const [productQuery, setProductQuery] = useState('')
   const [itemProductId, setItemProductId] = useState('')
+  const [selectedFamily, setSelectedFamily] = useState<ProductFamilyResponse | null>(null)
   const [itemQty, setItemQty] = useState<number>(1)
   const [items, setItems] = useState<SaleItem[]>([])
   const [saleDiscount, setSaleDiscount] = useState(0)
@@ -256,6 +260,31 @@ export default function PDVPage() {
     }, 300)
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [productQuery, online])
+
+  useEffect(() => {
+    if (!itemProductId || !online) {
+      setSelectedFamily(null)
+      return
+    }
+    let cancelled = false
+    const scope = getSessionScope()
+    setSelectedFamily(null)
+    apiJson<ProductFamilyResponse>('/api/v1/products/' + encodeURIComponent(itemProductId) + '/variations')
+      .then((family) => {
+        if (cancelled || scope !== getSessionScope()) return
+        if (family.items.length < 2) return
+        setSelectedFamily(family)
+        // Some family options may be beyond the first 200 catalog rows;
+        // merge them without discarding cart item metadata or offline hints.
+        setProducts((previous) => {
+          const next = new Map(previous.map((item) => [item.id, item]))
+          for (const item of family.items) if (item.active) next.set(item.id, item)
+          return Array.from(next.values())
+        })
+      })
+      .catch(() => { if (!cancelled) setSelectedFamily(null) })
+    return () => { cancelled = true }
+  }, [itemProductId, online])
 
   const computedTotal = useMemo(() => {
     let t = 0
@@ -1110,6 +1139,26 @@ export default function PDVPage() {
               ))}
             </select>
           </label>
+          {selectedFamily && selectedFamily.items.length > 1 ? (
+            <label className="block md:col-span-8">
+              <span className="text-xs font-medium text-slate-700">Cor ou tamanho deste produto</span>
+              <select
+                value={itemProductId}
+                onChange={(e) => setItemProductId(e.target.value)}
+                aria-label="Cor ou tamanho para vender"
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              >
+                {selectedFamily.items.map((option) => (
+                  <option key={option.id} value={option.id} disabled={!option.active}>
+                    {option.is_base ? 'Padrão' : option.option_label} — {option.sku} • estoque {option.qty_on_hand}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-slate-600">
+                Cada opção tem seu próprio saldo. Selecione a correta antes de adicionar.
+              </span>
+            </label>
+          ) : null}
           <label className="block md:col-span-1">
             <span className="text-xs text-gray-600">Qtd</span>
             <input
