@@ -238,15 +238,15 @@ func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, prod
 	if offset < 0 {
 		offset = 0
 	}
-	where := "WHERE tenant_id=$1"
+	where := "WHERE m.tenant_id=$1"
 	args := []any{tenantID}
 	if productID != "" {
-		where += " AND product_id=$2"
+		where += " AND m.product_id=$2"
 		args = append(args, productID)
 	}
 
 	var total int
-	if err := r.db.QueryRow(ctx, "SELECT count(*) FROM inventory_movements "+where, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, "SELECT count(*) FROM inventory_movements m "+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -255,11 +255,14 @@ func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, prod
 	args = append(args, limit, offset)
 
 	rows, err := r.db.Query(ctx, `
-		SELECT id::text, product_id::text, movement_type, delta::text, qty_before::text, qty_after::text,
-		       reason, reference_type, reference_id::text, actor_user_id::text, created_at::text
-		FROM inventory_movements
+		SELECT m.id::text, m.product_id::text, p.sku, p.name, m.movement_type,
+		       m.delta::text, m.qty_before::text, m.qty_after::text,
+		       m.reason, m.reference_type, m.reference_id::text,
+		       m.actor_user_id::text, m.created_at::text
+		FROM inventory_movements m
+		JOIN products p ON p.id=m.product_id AND p.tenant_id=m.tenant_id
 		`+where+`
-		ORDER BY created_at DESC
+		ORDER BY m.created_at DESC, m.id DESC
 		LIMIT $`+fmt.Sprint(limitArg)+` OFFSET $`+fmt.Sprint(offsetArg)+`
 	`, args...)
 	if err != nil {
@@ -273,7 +276,7 @@ func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, prod
 		var refID *string
 		var actor *string
 		var delta, qtyBefore, qtyAfter string
-		if err := rows.Scan(&m.ID, &m.ProductID, &m.MovementType, &delta, &qtyBefore, &qtyAfter, &m.Reason, &m.ReferenceType, &refID, &actor, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ProductID, &m.ProductSKU, &m.ProductName, &m.MovementType, &delta, &qtyBefore, &qtyAfter, &m.Reason, &m.ReferenceType, &refID, &actor, &m.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		var err error
