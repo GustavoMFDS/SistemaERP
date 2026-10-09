@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/config"
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
