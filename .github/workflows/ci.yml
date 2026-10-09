@@ -1209,6 +1209,11 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             up 1
 
+      - name: Verify product gallery tenant isolation at DB level
+        run: |
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 \
+            < backend/tests/integration/product_images_isolation.sql
+
       - name: Run tagged integration tests
         working-directory: backend
         env:
