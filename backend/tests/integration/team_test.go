@@ -169,6 +169,20 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 	if err := svc.UpdateMember(ctx, tenantA, ownerID, staffID, "manager", nil, "", "", ""); err != nil {
 		t.Fatalf("role change: %v", err)
 	}
+	// A manager has operational permissions but must not be able to mutate
+	// staff through direct service callers, even if a route guard regresses.
+	if _, _, err := svc.Invite(ctx, tenantA, staffID, "Privilegio Indevido",
+		fmt.Sprintf("escalation-%d@example.test", time.Now().UnixNano()),
+		"cashier", "", "", ""); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("manager created invitation without admin rights: %v", err)
+	}
+	if err := svc.Revoke(ctx, tenantA, staffID, expired.ID, "", "", ""); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("manager revoked invitation without admin rights: %v", err)
+	}
+	if err := svc.UpdateMember(ctx, tenantA, staffID, ownerID, "cashier", nil, "", "", ""); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("manager changed admin role without privileges: %v", err)
+	}
+
 	perms, err := repo.ListUserPermissions(ctx, staffID, tenantA)
 	if err != nil {
 		t.Fatal(err)
