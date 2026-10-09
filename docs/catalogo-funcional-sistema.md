@@ -402,3 +402,11 @@ Um item só pode ser apresentado como **validado** quando existirem, no mínimo:
 - [PR #25 — fotos e miniaturas](https://github.com/GustavoMFDS/SistemaERP/pull/25) foi aberto como *draft* contra a branch do PR #15, sem merge.
 - **CI da branch:** runs recentes continuam sem executar steps (jobs runner_id=0, steps=[]), inclusive o run 37958899385; não há evidência de go test, build, lint, integração, E2E ou upgrade/rollback de 0036 aprovado. A etapa de verificação de migration foi adicionada ao workflow, não executada com sucesso.
 - **Gate para merge:** validar testes Go, build/lint, migração v36 com rollback/reapply, controle de acesso de duas lojas e E2E de galeria, seleção no PDV, devoluções e estoque. O PR #15 e a homologação fiscal continuam gates independentes.
+
+### Resultado complementar v37 — identificação visual por cor (09/10/2026)
+
+- A galeria agora oferece **nome opcional por foto** (ex.: Azul, Rosa ou Verde; até 40 caracteres), com gravação via rota protegida por CNPJ, auditoria e verificação de formato e tamanho. **Isto não cria SKU ou estoque por cor.** A escolha de controle de saldo por variação comercial segue na issue #24.
+- Migração 0037 acrescenta `caption` e limite em banco. O ambiente PostgreSQL isolado foi atualizado até `schema_migrations=37, dirty=false` e a coluna foi confirmada. O workflow tem procedimento de upgrade/rollback/reapply; **o rollback ainda não foi executado localmente**.
+- Banco real: `backend/tests/integration/product_images_isolation.sql` aprovado (DO, seguido de ROLLBACK), testando duas empresas independentes, associação entre CNPJs rejeitada, chave repetida rejeitada, legenda persistida, limite de 40 caracteres e impedimento de editar legenda usando tenant incorreto. O script entrou no job de integração.
+- Após a mudança: `go test ./...` aprovado, `npm run build` aprovado; teste Playwright Chromium com API simulada `web/e2e/product-photos.spec.ts` passou 1/1, incluindo salvar "Azul" e preservar o saldo. Não equivale a validação E2E com API/DB conectados.
+- Os jobs GitHub-hosted do PR #25 continuam falhando antes de iniciar (`runner_id=0, steps=[]`); dependência externa registrada na issue #28. Não fazer merge, nem liberar a funcionalidade/fiscal para produção, até integração e gates passarem.
