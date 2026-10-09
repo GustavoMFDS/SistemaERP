@@ -24,6 +24,7 @@ import (
 	retapp "github.com/example/sistemaemgo/internal/modules/returns/application"
 	retinfra "github.com/example/sistemaemgo/internal/modules/returns/infrastructure"
 	"github.com/example/sistemaemgo/internal/modules/setup"
+	"github.com/example/sistemaemgo/internal/modules/team"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
 	"github.com/example/sistemaemgo/internal/platform/db"
@@ -45,6 +46,7 @@ type Modules struct {
 	Procurement *procapp.Service
 	Returns     *retapp.Service
 	Setup       *setup.Service
+	Team        *team.Service
 	Events      *events.Bus
 	DB          *pgxpool.Pool
 	Redis       *redis.Client
@@ -188,6 +190,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 		Procurement: procurementSvc,
 		Returns:     returnsSvc,
 		Setup:       setupSvc,
+		Team:        team.New(pool, auditSvc),
 		Events:      bus,
 		DB:          pool,
 		Redis:       rdb,
