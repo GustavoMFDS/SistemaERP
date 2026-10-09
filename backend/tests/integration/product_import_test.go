@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/example/sistemaemgo/internal/modules/audit"
+	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
@@ -64,6 +65,8 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 		defer stop()
 		for _, tenant := range companies {
 			_, _ = pool.Exec(cleanupCtx, `DELETE FROM audit_logs WHERE tenant_id=$1`, tenant)
+			_, _ = pool.Exec(cleanupCtx, `DELETE FROM inventory_movements WHERE tenant_id=$1`, tenant)
+			_, _ = pool.Exec(cleanupCtx, `DELETE FROM opening_stock_batches WHERE tenant_id=$1`, tenant)
 			_, _ = pool.Exec(cleanupCtx, `DELETE FROM inventory_balances WHERE tenant_id=$1`, tenant)
 			_, _ = pool.Exec(cleanupCtx, `DELETE FROM products WHERE tenant_id=$1`, tenant)
 			_, _ = pool.Exec(cleanupCtx, `DELETE FROM product_import_batches WHERE tenant_id=$1`, tenant)
@@ -204,6 +207,71 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	otherExport, err := svc.ExportImportHistory(ctx, tenantB, invapp.ImportHistoryFilter{})
 	if err != nil || len(otherExport) != 1 || otherExport[0].BatchID != other.BatchID {
 		t.Fatalf("export leaked receipt from another company: %+v err=%v", otherExport, err)
+	}
+
+	// Reconcile both streams in one global chronology, never by joining
+	// independently paginated lists. Opening stock commits after products.
+	stockSvc := invapp.NewInventoryService(
+		config.Config{}, db.NewPgxUnitOfWork(pool),
+		invinfra.NewInventoryRepo(pool), invinfra.NewProductsRepo(pool),
+		audit.New(pool, logger), validator.New(), logger,
+	)
+	openingReq := invapp.OpeningStockRequest{Items: []invapp.OpeningStockItem{{
+		SKU: sku1, Quantity: platform.NewQuantityMilli(1000),
+	}}}
+	openingA, err := stockSvc.ImportOpeningStock(ctx, tenantA, actor, key+"-stock-a", openingReq)
+	if err != nil {
+		t.Fatalf("tenant A stock batch: %v", err)
+	}
+	openingB, err := stockSvc.ImportOpeningStock(ctx, tenantB, actor, key+"-stock-b", openingReq)
+	if err != nil {
+		t.Fatalf("tenant B stock batch: %v", err)
+	}
+	allHistory, err := svc.ListUnifiedImportHistory(ctx, tenantA, true, true, 10, 0, invapp.ImportHistoryFilter{})
+	if err != nil || len(allHistory.Items) != 3 || allHistory.HasMore ||
+		allHistory.Items[0].Kind != "opening-stock" || allHistory.Items[0].BatchID != openingA.BatchID {
+		t.Fatalf("unified chronology must lead with stock batch: %+v err=%v", allHistory, err)
+	}
+	if allHistory.Items[1].Kind != "products" || allHistory.Items[2].Kind != "products" {
+		t.Fatalf("unified chronology missed product batches: %+v", allHistory.Items)
+	}
+	paged, err := svc.ListUnifiedImportHistory(ctx, tenantA, true, true, 1, 1, invapp.ImportHistoryFilter{})
+	if err != nil || !paged.HasMore || len(paged.Items) != 1 ||
+		paged.Items[0].BatchID != secondReceipt.BatchID {
+		t.Fatalf("global pagination of mixed streams failed: %+v err=%v", paged, err)
+	}
+	productsOnly, err := svc.ListUnifiedImportHistory(ctx, tenantA, true, false, 10, 0, invapp.ImportHistoryFilter{})
+	if err != nil || len(productsOnly.Items) != 2 {
+		t.Fatalf("product-only permission returned wrong rows: %+v err=%v", productsOnly, err)
+	}
+	for _, item := range productsOnly.Items {
+		if item.Kind != "products" {
+			t.Fatalf("stock batch leaked into product-only history: %+v", item)
+		}
+	}
+	stockOnly, err := svc.ListUnifiedImportHistory(ctx, tenantA, false, true, 10, 0, invapp.ImportHistoryFilter{})
+	if err != nil || len(stockOnly.Items) != 1 ||
+		stockOnly.Items[0].BatchID != openingA.BatchID {
+		t.Fatalf("stock-only permission leaked products: %+v err=%v", stockOnly, err)
+	}
+	companyB, err := svc.ListUnifiedImportHistory(ctx, tenantB, true, true, 10, 0, invapp.ImportHistoryFilter{})
+	if err != nil || len(companyB.Items) != 2 || companyB.Items[0].BatchID != openingB.BatchID {
+		t.Fatalf("combined history crossed independent CNPJ: %+v err=%v", companyB, err)
+	}
+	if _, err := svc.ListUnifiedImportHistory(ctx, tenantA, false, false, 10, 0, invapp.ImportHistoryFilter{}); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("no permissions must fail closed: %v", err)
+	}
+	filteredMixed, err := svc.ListUnifiedImportHistory(ctx, tenantA, true, true, 10, 0, invapp.ImportHistoryFilter{
+		From: businessDay, To: businessDay,
+	})
+	if err != nil || len(filteredMixed.Items) != 3 {
+		t.Fatalf("business calendar filter missed committed batches: %+v err=%v", filteredMixed, err)
+	}
+	oldMixed, err := svc.ListUnifiedImportHistory(ctx, tenantA, true, true, 10, 0, invapp.ImportHistoryFilter{
+		From: "2001-01-01", To: "2001-01-01",
+	})
+	if err != nil || len(oldMixed.Items) != 0 {
+		t.Fatalf("date filter included recent history: %+v err=%v", oldMixed, err)
 	}
 
 	// A bad actor relationship must roll back even after row insertion.
