@@ -22,6 +22,7 @@ type Props = {
 }
 
 const pageSize = 10
+const maxOffset = 5000
 
 export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) {
   const [offset, setOffset] = useState(0)
@@ -117,11 +118,14 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
           Página anterior
         </button>
         <span>Página {Math.floor(offset / pageSize) + 1}</span>
-        <button type="button" disabled={loading || !page?.has_more}
+        <button type="button" disabled={loading || !page?.has_more || offset + pageSize > maxOffset}
           onClick={() => setOffset((value) => value + pageSize)}
           className="rounded-md border px-3 py-2 disabled:opacity-50">
           Próxima página
         </button>
+        {offset >= maxOffset ? (
+          <span className="text-amber-800">Limite da consulta atingido; solicite um relatório para lotes mais antigos.</span>
+        ) : null}
       </div>
     </section>
   )
