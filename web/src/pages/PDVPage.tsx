@@ -166,6 +166,27 @@ function productSalePrice(product: Product): number {
   return Number(product.price_cash) || 0
 }
 
+// Newly discovered SKUs may fall outside the first 200 catalog rows. Preserve
+// them in the *existing*, tenant/user-scoped offline snapshot without extending
+// its age or creating an untrusted partial catalog from scratch.
+function cacheOnlineFamilyForOffline(items: Product[]): void {
+  const key = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
+  if (!key) return
+  const raw = localStorage.getItem(key)
+  if (!raw) return
+  const saved = JSON.parse(raw) as ProductCache
+  if (!saved || !Array.isArray(saved.items) ||
+      !Number.isFinite(saved.savedAt) ||
+      Date.now() - saved.savedAt > PRODUCTS_CACHE_MAX_AGE_MS) return
+  const combined = new Map(saved.items.map((product) => [product.id, product]))
+  for (const product of items) {
+    if (product.active) combined.set(product.id, product)
+  }
+  localStorage.setItem(key, JSON.stringify({
+    savedAt: saved.savedAt, items: Array.from(combined.values()),
+  } satisfies ProductCache))
+}
+
 export default function PDVPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
@@ -274,6 +295,13 @@ export default function PDVPage() {
         if (cancelled || scope !== getSessionScope()) return
         if (family.items.length < 2) return
         setSelectedFamily(family)
+        try {
+          cacheOnlineFamilyForOffline(family.items)
+        } catch {
+          // Failure to persist an optional cache must never prevent an online
+          // checkout. The server remains the authority on stock.
+          setError('Opções carregadas, mas não foi possível salvá-las para uso offline neste dispositivo.')
+        }
         // Some family options may be beyond the first 200 catalog rows;
         // merge them without discarding cart item metadata or offline hints.
         setProducts((previous) => {
@@ -325,7 +353,13 @@ export default function PDVPage() {
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
       if (cacheKey) {
         const cache: ProductCache = { savedAt: Date.now(), items: active }
-        localStorage.setItem(cacheKey, JSON.stringify(cache))
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(cache))
+        } catch {
+          // A storage quota/privacy failure must not masquerade as an API
+          // outage or discard a successfully loaded live product catalog.
+          setError('Catálogo online carregado, mas o cache offline não pôde ser atualizado neste navegador.')
+        }
       }
     } catch (e: unknown) {
       const canUseOfflineCache =
@@ -352,7 +386,7 @@ export default function PDVPage() {
             Date.now() - parsed.savedAt <= PRODUCTS_CACHE_MAX_AGE_MS
           ) {
             setProducts(parsed.items.filter((product) => product.active))
-            setError('Catálogo carregado do cache local porque o servidor está indisponível.')
+            setError('Catálogo carregado do cache local. Saldos e preços podem estar desatualizados; as vendas serão revalidadas pelo servidor ao sincronizar.')
             return
           }
           setError('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.')
