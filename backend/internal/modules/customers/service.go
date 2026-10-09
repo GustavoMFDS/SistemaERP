@@ -80,6 +80,30 @@ func normalize(input CustomerInput) (CustomerInput, error) {
 	return input, nil
 }
 
+// requireCustomerWrite repeats the RBAC check inside the write transaction.
+// It prevents accidental bypass by non-HTTP/internal callers and rejects
+// suspended memberships even if the request began before suspension.
+func requireCustomerWrite(ctx context.Context, tx pgx.Tx, tenantID, actorID string) error {
+	var allowed bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM user_tenants ut
+			JOIN users u ON u.id=ut.user_id AND u.active=true
+			JOIN user_tenant_roles ur ON ur.tenant_id=ut.tenant_id AND ur.user_id=ut.user_id
+			JOIN role_permissions rp ON rp.role_id=ur.role_id
+			JOIN permissions p ON p.id=rp.permission_id AND p.code='customer:write'
+			WHERE ut.tenant_id=$1 AND ut.user_id=$2 AND ut.active=true
+		)
+	`, tenantID, actorID).Scan(&allowed)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return common.ErrForbidden
+	}
+	return nil
+}
+
 func (s *Service) List(ctx context.Context, tenantID, query string, limit, offset int) (ListPage, error) {
 	query = strings.TrimSpace(query)
 	if limit < 1 || limit > 50 || offset < 0 || offset > 5000 || len(query) > 100 {
@@ -88,14 +112,14 @@ func (s *Service) List(ctx context.Context, tenantID, query string, limit, offse
 	var total int
 	if err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM customers
-		WHERE tenant_id=$1 AND ($2='' OR name ILIKE '%' || $2 || '%')
+		WHERE tenant_id=$1 AND ($2='' OR strpos(lower(name), lower($2)) > 0)
 	`, tenantID, query).Scan(&total); err != nil {
 		return ListPage{}, err
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT id::text, name, email::text, phone
 		FROM customers
-		WHERE tenant_id=$1 AND ($2='' OR name ILIKE '%' || $2 || '%')
+		WHERE tenant_id=$1 AND ($2='' OR strpos(lower(name), lower($2)) > 0)
 		ORDER BY created_at DESC, id DESC
 		LIMIT $3 OFFSET $4
 	`, tenantID, query, limit, offset)
@@ -129,6 +153,9 @@ func (s *Service) Create(ctx context.Context, tenantID, actorID string, input Cu
 		return Customer{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := requireCustomerWrite(ctx, tx, tenantID, actorID); err != nil {
+		return Customer{}, err
+	}
 	var item Customer
 	err = tx.QueryRow(ctx, `
 		INSERT INTO customers(tenant_id,name,email,phone)
@@ -167,6 +194,9 @@ func (s *Service) Update(ctx context.Context, tenantID, actorID, customerID stri
 		return Customer{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := requireCustomerWrite(ctx, tx, tenantID, actorID); err != nil {
+		return Customer{}, err
+	}
 	var item Customer
 	err = tx.QueryRow(ctx, `
 		UPDATE customers SET name=$3,email=$4,phone=$5,updated_at=now()
