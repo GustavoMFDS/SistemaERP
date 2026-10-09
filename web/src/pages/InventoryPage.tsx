@@ -4,6 +4,7 @@ import type { ChangeEvent, FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 import ImportBatchHistory from '../components/ImportBatchHistory'
+import { useProductThumbnails } from '../lib/productThumbnails'
 import { clearPendingOpeningStock, fingerprintOpeningStock, readPendingOpeningStock, savePendingOpeningStock, type PendingOpeningStock } from '../lib/openingStockRecovery'
 import { OPENING_STOCK_EXAMPLE, parseOpeningStockCSV, type OpeningStockPreview } from '../lib/openingStockImport'
 
@@ -31,6 +32,7 @@ type AdjustRequest = {
 
 export default function InventoryPage() {
   const [low, setLow] = useState<Product[]>([])
+  const lowThumbnails = useProductThumbnails(low.slice(0, 200).map((p) => p.id))
   const [openingPreview, setOpeningPreview] = useState<OpeningStockPreview | null>(null)
   const [openingKey, setOpeningKey] = useState('')
   const [openingDigest, setOpeningDigest] = useState('')
@@ -363,6 +365,7 @@ export default function InventoryPage() {
           <table className="min-w-full text-left text-sm">
             <thead className="bg-gray-50 text-xs text-gray-600">
               <tr>
+                <th className="px-3 py-2">Foto</th>
                 <th className="px-3 py-2">Código (SKU)</th>
                 <th className="px-3 py-2">Produto</th>
                 <th className="px-3 py-2">Qtd</th>
@@ -372,6 +375,7 @@ export default function InventoryPage() {
             <tbody className="divide-y">
               {low.map((p) => (
                 <tr key={p.id}>
+                  <td className="px-3 py-2">{lowThumbnails[p.id] ? <img src={lowThumbnails[p.id]} alt={p.name} className="h-10 w-10 rounded-md object-cover" /> : <span className="text-xs text-slate-500">—</span>}</td>
                   <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
                   <td className="px-3 py-2">{p.name}</td>
                   <td className="px-3 py-2">{p.qty_on_hand.toFixed(2)}</td>
@@ -380,7 +384,7 @@ export default function InventoryPage() {
               ))}
               {low.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={4}>
+                  <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={5}>
                     Nenhum item com baixo estoque.
                   </td>
                 </tr>
