@@ -77,7 +77,9 @@ test('API valida datas e tamanho da lista de ranking', async ({ page }) => {
       await status('from=2026-10-01&to=2026-10-08&limit=51'),
       await status('to=2026-10-08'),
       await status('from=2026-10-08&from=2026-10-07&to=2026-10-08'),
+      await status('from=2026-10-08&to=2026-10-08&tenant_id=other-company'),
+      await status('from=2026-10-08&to=2026-10-08&limit=1&limit=2'),
     ]
   })
-  expect(errors).toEqual([422, 422, 422, 422, 422])
+  expect(errors).toEqual([422, 422, 422, 422, 422, 422, 422])
 })
