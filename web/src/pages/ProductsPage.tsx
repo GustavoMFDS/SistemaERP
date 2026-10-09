@@ -4,6 +4,7 @@ import { APIError, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 import ImportBatchHistory from '../components/ImportBatchHistory'
 import ProductPhotos from '../components/ProductPhotos'
+import ProductFamily from '../components/ProductFamily'
 import { useProductThumbnails } from '../lib/productThumbnails'
 import { clearPendingProductImport, fingerprintProducts, readPendingProductImport, savePendingProductImport, type PendingProductImport } from '../lib/productImportRecovery'
 import { parseProductCSV, PRODUCT_IMPORT_EXAMPLE, type ProductImportPreview } from '../lib/productImport'
@@ -49,6 +50,7 @@ export default function ProductsPage() {
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
   const [photoProductId, setPhotoProductId] = useState('')
+  const [familyProductId, setFamilyProductId] = useState('')
   const manualFormRef = useRef<HTMLDetailsElement>(null)
   const skuInputRef = useRef<HTMLInputElement>(null)
   const [variationSource, setVariationSource] = useState('')
@@ -547,6 +549,10 @@ export default function ProductsPage() {
                 </>) : null}
                 <td className="px-3 py-2">
                   <div>{p.name}</div>
+                  <button type="button" onClick={() => setFamilyProductId(familyProductId === p.id ? "" : p.id)}
+                    className="mt-1 mr-3 text-xs font-medium text-blue-700 underline hover:text-blue-900">
+                    {familyProductId === p.id ? "Ocultar cores/tamanhos" : "Ver cores/tamanhos"}
+                  </button>
                   {canWrite ? <button type="button" onClick={() => prepareNewVariation(p)}
                     className="mt-1 text-xs font-medium text-blue-700 underline hover:text-blue-900">
                     Nova cor/tamanho com estoque próprio
@@ -563,6 +569,11 @@ export default function ProductsPage() {
                 <td className="px-3 py-2">{p.min_stock.toFixed(2)}</td>
                 <td className="px-3 py-2">{p.active ? 'Sim' : 'Não'}</td>
               </tr>
+              {familyProductId === p.id ? (
+                <tr><td colSpan={showTechnical ? 11 : 8} className="p-3">
+                  <ProductFamily productId={p.id} />
+                </td></tr>
+              ) : null}
               {photoProductId === p.id ? (
                 <tr><td colSpan={showTechnical ? 11 : 8} className="p-3">
                   <ProductPhotos productId={p.id} productName={p.name} canWrite={canWrite}
