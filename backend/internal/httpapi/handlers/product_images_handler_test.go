@@ -54,3 +54,17 @@ func TestCatalogJPEGRejectsOversizedEncodedInput(t *testing.T) {
         t.Fatal("overlarge base64 data accepted")
     }
 }
+
+func TestCatalogJPEGRemovesAppendedNonImagePayload(t *testing.T) {
+    raw, err := base64.StdEncoding.DecodeString(catalogTestJPEG(t, 32, 32))
+    if err != nil { t.Fatal(err) }
+    suffix := []byte("<svg onload=alert(1)>")
+    raw = append(raw, suffix...)
+    clean, err := catalogJPEG(base64.StdEncoding.EncodeToString(raw), maxCatalogPhotoBytes, 1600)
+    if err != nil {
+        t.Fatalf("valid jpeg with trailing metadata rejected: %v", err)
+    }
+    if bytes.Contains(clean, suffix) {
+        t.Fatal("untrusted suffix survived JPEG recompression")
+    }
+}
