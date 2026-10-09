@@ -4,6 +4,18 @@ SistemaEmGo is a multi-tenant ERP/POS and backoffice system for sales, inventory
 
 The project is currently a pre-production / staging candidate. It implements technical controls that support LGPD compliance, but final legal, accounting, DPO, infrastructure, and operational validation is required before real production use.
 
+## Catálogo funcional e pendências
+
+O inventário **mais atual de funcionalidades, pendências e melhorias** está no
+[Catálogo funcional do SistemaEmGo](docs/catalogo-funcional-sistema.md):
+checklist por módulo com distinção entre **implementação localizada no
+código**, **funcionalidade parcial**, **pendência** e **validação efetiva**.
+A matriz de prioridades P0–P3 ajuda a planejar as próximas entregas.
+
+**Não interpretar itens marcados como implementados como CI aprovado:**
+o PR de integração #15 continua dependente de execução real do pipeline.
+A emissão de NFC-e em produção não foi homologada.
+
 ## Features
 
 - Multi-tenant POS/backoffice with tenant-scoped RBAC.
@@ -197,7 +209,7 @@ Use [docs/smoke-test.md](docs/smoke-test.md) for critical functional validation 
 - CI is green for backend and frontend.
 - Frontend production build has been validated with `npm run build`; run `npm ci`, lint, and build again after frontend dependency or source changes.
 - Backend `gofmt`, tests, and vet pass with Go `1.25.x`.
-- Clean database migrations through schema 23 must be validated.
+- Clean database migrations through schema 34 (including staff/customer changes) must be validated on the final integration PR head; this is pending runner-backed evidence.
 - Production secrets are strong and not placeholders.
 - CORS origins are explicit.
 - Metrics are protected.
