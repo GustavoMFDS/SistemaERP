@@ -42,7 +42,7 @@ test('administrador cadastra, pesquisa e edita cliente sem selecionar CNPJ', asy
   await login(page, 'admin@sistema.local')
   await page.getByRole('link', { name: 'Clientes', exact: true }).click()
   await expect(page).toHaveURL(/\/customers$/)
-  const form = page.getByRole('region', { name: 'Cadastro de cliente' })
+  const form = page.getByRole('form', { name: 'Cadastro de cliente' })
   await form.getByLabel('Nome').fill('Joana Silva')
   await form.getByLabel('E-mail (opcional)').fill('joana@example.test')
   await form.getByLabel('Telefone (opcional)').fill('11999998888')
