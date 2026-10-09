@@ -492,6 +492,23 @@ an IP/user/tenant rate limit. A catalog larger than 5,000 items
 returns 422 **without a partial CSV**; full streaming/filtered export
 for larger stores remains planned.
 
+### GET `/finance/products-ranking`
+
+Requires `finance:read`; `from=YYYY-MM-DD` and `to=YYYY-MM-DD`
+are mandatory calendar dates in Brazil/Sao_Paulo and must be ordered
+within 366 days. `limit` defaults to 10, max 50, with strict 422
+for invalid dates/duplicates/range/limit. The authenticated company
+is taken exclusively from the JWT, never from query params.
+
+The result lists products of **finalized** sales ordered by the
+recorded sum of sale-item subtotals, with product ID, SKU, name, number
+of distinct finalized sales, summed units and item-level sale amount
+(both as exact decimal strings, not float accounting values).
+Cancelled sales are excluded. Does **not** offset partial returns,
+refunds, fees, taxes or operating expenses and is **not net profit**.
+No cost/margin fields or other CNPJs are exposed; response is
+`Cache-Control: no-store`.
+
 ## Cash / PDV
 
 
