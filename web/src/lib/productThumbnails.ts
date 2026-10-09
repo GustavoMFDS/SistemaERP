@@ -16,7 +16,7 @@ export function useProductThumbnails(productIDs: string[], refresh = 0): Record<
     async function load() {
       try {
         const merged: Record<string, string> = {}
-        for (let index = 0; index < ids.length; index += 200) {
+        for (let index = 0; index < ids.length; index += 70) {
           const params = new URLSearchParams()
           for (const id of ids.slice(index, index + 200)) params.append('id', id)
           const response = await apiJson<{ items: Record<string, string> }>(
