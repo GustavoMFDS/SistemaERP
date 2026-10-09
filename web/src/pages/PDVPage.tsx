@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiJson, errorMessage } from '../lib/api'
+import { useProductThumbnails } from '../lib/productThumbnails'
 import {
   claimLegacyQueue,
   discardLegacyQueue,
@@ -220,6 +221,8 @@ export default function PDVPage() {
     }
     return map
   }, [products])
+
+  const productThumbnails = useProductThumbnails(products.map((product) => product.id))
 
   const filteredProducts = useMemo(() => {
     const q = productQuery.trim().toLowerCase()
@@ -1139,6 +1142,9 @@ export default function PDVPage() {
                 <button key={product.id} type="button" onClick={() => addProductToCart(product)}
                   aria-label={`Adicionar ${product.name} à venda`}
                   className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:border-slate-500 hover:bg-white focus-visible:outline-2">
+                  {productThumbnails[product.id] ? (
+                    <img src={productThumbnails[product.id]} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
+                  ) : null}
                   <span className="min-w-0"><strong className="block truncate text-sm text-slate-900">{product.name}</strong>
                     <span className="text-xs text-slate-500">{product.sku} • saldo {product.qty_on_hand ?? '—'}</span></span>
                   <span className="shrink-0 text-sm font-bold text-slate-900">R$ {productSalePrice(product).toFixed(2)} <span aria-hidden="true">+</span></span>
