@@ -400,6 +400,26 @@ autorização do caixa negada, navegação/aceitação E2E,
 upgrade/rollback/reapply da migration v33.
 **Tudo isso depende de validação dinâmica real no commit final.**
 
+### 12. CSV de estoque completo para conferência
+
+Na página **Estoque**, `Exportar estoque CSV` gera um relatório
+global da loja atual (não apenas os 50/500 produtos exibidos em
+baixo estoque). A API consulta por `tenant_id` autenticado e
+usa `inventory:read`, sem permitir que a interface escolha outro
+CNPJ. O relatório contém produto, SKU, unidade, saldo, estoque
+mínimo e sinalizador de estoque baixo, incluindo cadastro ativo/
+inativo. Não inclui preços, custo ou dados fiscais.
+
+O servidor limita a 5.000 produtos; acima desse teto recusa
+a exportação, sem truncar. CSV em UTF-8 com BOM e separador
+`;`, com proteção contra fórmula de planilha. A interface
+exibe mensagens claras para o erro de limite ou indisponibilidade.
+
+**Importante:** relatório de saldo não equivale à contagem física
+auditada. A implantação de um fluxo formal de inventário e ajuste
+com confirmação continua pendente. A validação funcional e
+o teste de limites dependem de ambiente executando CI.
+
 ## Próximas expansões
 
 - Acrescentar visão de movimentações e histórico fiscal em módulos próprios
