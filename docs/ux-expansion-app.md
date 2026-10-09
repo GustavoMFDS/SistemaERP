@@ -441,6 +441,23 @@ inventário físico reconciliado. Não cria operação de escrita.
 A validação E2E da navegação, dos filtros e da ordenação segue
 dependente de execução real do Playwright.
 
+### 14. Ranking gerencial de produtos
+
+Na tela **Financeiro**, a seção `Produtos com maior valor vendido`
+oferece pesquisa por período (até 366 dias) e lista até 20 produtos
+com quantidade, número de vendas finalizadas e subtotal dos itens.
+A API `GET /api/v1/finance/products-ranking` exige `finance:read`
+e filtra por empresa autenticada no SQL; **o operador caixa sem
+permissão financeira não pode chamar o endpoint**.
+
+Os valores são agregados apenas de vendas finalizadas, ordenados
+pelo subtotal. Vendas canceladas não entram, mas devoluções,
+reembolsos, taxas, despesas e tributos não são abatidos: o ranking
+**não representa receita líquida nem lucro**. Nenhuma informação de
+custo individual é incluída. Há testes de validação de datas e
+Playwright de filtros, RBAC e renderização, ainda por executar
+em um runner funcional.
+
 ## Próximas expansões
 
 - Acrescentar visão de movimentações e histórico fiscal em módulos próprios
