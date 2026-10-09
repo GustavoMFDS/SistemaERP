@@ -28,6 +28,7 @@ import (
     "github.com/go-playground/validator/v10"
     "github.com/google/uuid"
     "github.com/jackc/pgx/v5/pgxpool"
+    "github.com/redis/go-redis/v9"
 )
 
 // Exercises actual sales and returns services against PostgreSQL. No SEFAZ
@@ -109,7 +110,15 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
     v := validator.New()
     uow := db.NewPgxUnitOfWork(pool)
     aud := audit.New(pool, logger)
-    products := invinfra.NewProductsRepo(pool)
+    // Exercise the same Redis-backed repository decorator as the real API.
+    baseProducts := invinfra.NewProductsRepo(pool)
+    var products invapp.ProductsRepository = baseProducts
+    if addr := os.Getenv("TEST_REDIS_ADDR"); addr != "" {
+        rdb := redis.NewClient(&redis.Options{Addr: addr})
+        t.Cleanup(func() { _ = rdb.Close() })
+        if err := rdb.Ping(ctx).Err(); err != nil { t.Fatalf("test Redis unavailable: %v", err) }
+        products = invinfra.NewCachedProductsRepo(baseProducts, rdb)
+    }
     inventory := invinfra.NewInventoryRepo(pool)
     prodSvc := invapp.NewProductsService(uow, products, aud, v, logger)
     saleSvc := salesapp.NewSalesService(config.Config{AllowNegativeStock:false}, uow,
@@ -136,6 +145,11 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
         if _, err := pool.Exec(ctx, `
             UPDATE inventory_balances SET qty_on_hand=$3 WHERE tenant_id=$1 AND product_id=$2
         `, tenant, pair.id, pair.qty); err != nil { t.Fatal(err) }
+    }
+    // Populate product Get cache with the pre-sale stock. A sale must
+    // invalidate the exact variant rather than leave an outdated balance.
+    if cached, err := products.Get(ctx, tenant, blue); err != nil || cached.QtyOnHand != platform.NewQuantityMilli(5000) {
+        t.Fatalf("before sale cached stock invalid: %+v %v", cached, err)
     }
     check := func(wantBase,wantBlue,wantPink int) {
         t.Helper()
@@ -168,6 +182,9 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
         t.Fatalf("sell blue only: id=%s amount=%v created=%v err=%v",saleID,amount,created,err)
     }
     check(10,3,3)
+    if cached, err := products.Get(ctx, tenant, blue); err != nil || cached.QtyOnHand != platform.NewQuantityMilli(3000) {
+        t.Fatalf("sale cache invalidation failed: %+v %v", cached, err)
+    }
     replayID,replayTotal,replayCreated,err := saleSvc.CreateAndFinalize(ctx,tenant,actor,key,saleReq)
     if err != nil || replayID!=saleID || replayCreated || replayTotal!=amount {
         t.Fatalf("sale idempotency: id=%s created=%v err=%v",replayID,replayCreated,err)
@@ -198,6 +215,9 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
         t.Fatalf("restock one blue: id=%s refund=%v created=%v err=%v",returnID,refund,returnCreated,err)
     }
     check(10,4,3)
+    if cached, err := products.Get(ctx, tenant, blue); err != nil || cached.QtyOnHand != platform.NewQuantityMilli(4000) {
+        t.Fatalf("return cache invalidation failed: %+v %v", cached, err)
+    }
     repeatedID,repeatedRefund,repeatedCreated,err:=returnSvc.Create(ctx,tenant,actor,saleID,returnKey,returnReq)
     if err!=nil || repeatedCreated || repeatedID!=returnID || repeatedRefund!=refund {
         t.Fatalf("return idempotency failed: %v %v %v",repeatedID,repeatedCreated,err)
