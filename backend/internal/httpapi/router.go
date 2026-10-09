@@ -74,6 +74,8 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/products", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("product:read")).Get("/images/previews", h.ProductImages.Previews)
 				rr.With(middleware.RequirePermission("product:read")).Get("/{id}/images", h.ProductImages.List)
+				rr.With(middleware.RequirePermission("product:read")).Get("/{id}/variations", h.ProductVariations.List)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/{id}/variations", h.ProductVariations.Create)
 				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/{id}/images", h.ProductImages.Upload)
 				rr.With(middleware.RequirePermission("product:write"), trustedOrigin).Delete("/{id}/images/{photoID}", h.ProductImages.Delete)
 				rr.With(middleware.RequirePermission("product:write"), trustedOrigin).Patch("/{id}/images/{photoID}/caption", h.ProductImages.SetCaption)
