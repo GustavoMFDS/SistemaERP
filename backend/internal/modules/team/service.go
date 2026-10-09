@@ -65,6 +65,41 @@ func isUniqueError(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
+
+// lockAdminTenant serializes administrative changes and verifies the
+// actor's current active admin membership in the same transaction. Route RBAC
+// remains mandatory; this second check prevents an internal caller bypassing it.
+func lockAdminTenant(ctx context.Context, tx pgx.Tx, tenantID, actorID string) error {
+	var companyID string
+	err := tx.QueryRow(ctx, `
+		SELECT id::text FROM companies WHERE id=$1 FOR UPDATE
+	`, tenantID).Scan(&companyID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return common.ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	var allowed bool
+	err = tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM user_tenant_roles ur
+			JOIN roles role ON role.id=ur.role_id AND role.name='admin'
+			JOIN user_tenants ut ON ut.user_id=ur.user_id
+			  AND ut.tenant_id=ur.tenant_id AND ut.active=true
+			JOIN users u ON u.id=ur.user_id AND u.active=true
+			WHERE ur.tenant_id=$1 AND ur.user_id=$2
+		)
+	`, tenantID, actorID).Scan(&allowed)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return common.ErrForbidden
+	}
+	return nil
+}
+
 func (s *Service) List(ctx context.Context, tenantID string) ([]Member, []Invitation, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT u.id::text, u.name, u.email::text, ut.active,
@@ -141,7 +176,7 @@ func (s *Service) Invite(ctx context.Context, tenantID, actorID, name, email, ro
 	}
 	defer tx.Rollback(ctx)
 	// Serialize per-tenant invitation generation and role modifications.
-	if _, err := tx.Exec(ctx, `SELECT id FROM companies WHERE id=$1 FOR UPDATE`, tenantID); err != nil {
+	if err := lockAdminTenant(ctx, tx, tenantID, actorID); err != nil {
 		return Invitation{}, "", err
 	}
 	var exists bool
@@ -194,6 +229,9 @@ func (s *Service) Revoke(ctx context.Context, tenantID, actorID, inviteID, reque
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockAdminTenant(ctx, tx, tenantID, actorID); err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE staff_invitations SET revoked_at=now()
 		WHERE id=$1 AND tenant_id=$2 AND accepted_at IS NULL AND revoked_at IS NULL
@@ -310,7 +348,7 @@ func (s *Service) UpdateMember(ctx context.Context, tenantID, actorID, userID, r
 	}
 	defer tx.Rollback(ctx)
 	// Lock company to serialize all admin mutations within this tenant.
-	if _, err := tx.Exec(ctx, `SELECT id FROM companies WHERE id=$1 FOR UPDATE`, tenantID); err != nil {
+	if err := lockAdminTenant(ctx, tx, tenantID, actorID); err != nil {
 		return err
 	}
 	var isAdmin bool
