@@ -1136,6 +1136,35 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             up 1
 
+      - name: Verify customer directory v34 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.customers_tenant_created_id_idx') IS NULL THEN RAISE EXCEPTION 'customer directory index missing'; END IF; IF NOT EXISTS(SELECT 1 FROM permissions WHERE code='customer:write') THEN RAISE EXCEPTION 'customer RBAC permission missing'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.customers_tenant_created_id_idx') IS NOT NULL THEN RAISE EXCEPTION 'customer index rollback failed'; END IF; IF EXISTS(SELECT 1 FROM permissions WHERE code='customer:write') THEN RAISE EXCEPTION 'customer role rollback failed'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
       - name: Run tagged integration tests
         working-directory: backend
         env:
