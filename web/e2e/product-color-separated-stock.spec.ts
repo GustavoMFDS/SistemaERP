@@ -90,6 +90,11 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
   await expect(family).toContainText('CAD-AZUL')
   await expect(family).toContainText('15.00')
   await expect(family).toContainText('0.00')
+  // Clicking an existing color must resolve the base, not create a nested family.
+  page.once('dialog', async (dialog) => { await dialog.accept('Verde') })
+  await page.getByRole('row', { name: /CAD-AZUL/ }).first()
+    .getByRole('button', { name: 'Nova cor/tamanho com estoque próprio' }).click()
+  await expect(page.getByLabel('Nome do produto')).toHaveValue('Caderno Brochurão — Verde')
   // Only one POST must atomically commit both new SKU and family relationship.
   expect(createdPayload).not.toBeNull()
 })
