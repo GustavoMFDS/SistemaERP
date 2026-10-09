@@ -12,5 +12,6 @@ test('authenticated shell and PDV render across browser engines', async ({ page 
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page.getByRole('heading', { name: 'PDV' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Abrir' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Sessão de caixa' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Abrir' }).or(page.getByText('Caixa aberto', { exact: true }))).toBeVisible()
 })

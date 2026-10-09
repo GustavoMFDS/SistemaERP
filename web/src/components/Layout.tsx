@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
 import { getLegacyQueueCount, getQueueCount } from '../lib/offlineQueue'
@@ -21,6 +21,8 @@ function classNames(...xs: Array<string | false | undefined>): string {
 
 export default function Layout() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const isPDV = location.pathname === '/pdv'
   const appInstall = useInstallApp()
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meError, setMeError] = useState<string>('')
@@ -43,23 +45,24 @@ export default function Layout() {
 
   const permissionSet = new Set(me?.permissions ?? [])
   const nav = [
-    { to: '/home', label: 'Início', permission: null },
-    { to: '/setup', label: 'Configurar loja', permission: null },
-    { to: '/staff', label: 'Funcionários', permission: 'team:manage' },
-    { to: '/products', label: 'Produtos', permission: 'product:read' },
-    { to: '/inventory', label: 'Estoque', permission: 'inventory:read' },
-    { to: '/stock-movements', label: 'Movimentações', permission: 'inventory:read' },
-    { to: '/imports', label: 'Histórico de importações', permission: 'imports:history' },
-    { to: '/purchases', label: 'Compras', permission: 'procurement:read' },
-    { to: '/customers', label: 'Clientes', permission: 'customer:read' },
-    { to: '/returns', label: 'Devoluções/Trocas', permission: 'sale:return' },
-    { to: '/pdv', label: 'PDV', permission: 'sale:write' },
-    { to: '/finance', label: 'Financeiro', permission: 'finance:read' },
-    { to: '/fiscal', label: 'Fiscal (XML)', permission: 'invoice:read' },
+    { to: '/home', label: 'Início', section: 'Principal', permission: null },
+    { to: '/pdv', label: 'PDV', section: 'Vendas e clientes', permission: 'sale:write' },
+    { to: '/customers', label: 'Clientes', section: 'Vendas e clientes', permission: 'customer:read' },
+    { to: '/returns', label: 'Devoluções/Trocas', section: 'Vendas e clientes', permission: 'sale:return' },
+    { to: '/products', label: 'Produtos', section: 'Produtos e estoque', permission: 'product:read' },
+    { to: '/inventory', label: 'Estoque', section: 'Produtos e estoque', permission: 'inventory:read' },
+    { to: '/stock-movements', label: 'Movimentações', section: 'Produtos e estoque', permission: 'inventory:read' },
+    { to: '/imports', label: 'Histórico de importações', section: 'Produtos e estoque', permission: 'imports:history' },
+    { to: '/purchases', label: 'Compras', section: 'Produtos e estoque', permission: 'procurement:read' },
+    { to: '/finance', label: 'Financeiro', section: 'Administração', permission: 'finance:read' },
+    { to: '/staff', label: 'Funcionários', section: 'Administração', permission: 'team:manage' },
+    { to: '/fiscal', label: 'Fiscal (XML)', section: 'Administração', permission: 'invoice:read' },
+    { to: '/setup', label: 'Configurar loja', section: 'Administração', permission: null },
   ].filter((item) => item.permission === null ||
     (item.permission === 'imports:history'
       ? permissionSet.has('product:write') || permissionSet.has('inventory:adjust')
       : permissionSet.has(item.permission)))
+  const navSections = ['Principal', 'Vendas e clientes', 'Produtos e estoque', 'Administração']
 
   async function logout() {
     if (loggingOut) return
@@ -106,7 +109,7 @@ export default function Layout() {
   return (
     <div className="min-h-full">
       <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3">
+        <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
           <Link to="/home" className="text-sm font-semibold">
             SistemaEmGo
           </Link>
@@ -157,27 +160,48 @@ export default function Layout() {
         </div>
       ) : null}
 
-      <div className="mx-auto grid max-w-6xl grid-cols-12 gap-4 px-4 py-4">
-        <aside className="col-span-12 md:col-span-3">
-          <nav className="flex gap-1 overflow-x-auto rounded-lg border bg-white p-2 md:block">
-            {nav.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  classNames(
-                    'block shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-sm',
-                    isActive ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50',
-                  )
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
+      <div className={classNames(
+        'mx-auto grid max-w-[1680px] grid-cols-1 items-start gap-5 px-4 py-5 lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-6 lg:px-6',
+      )}>
+        <aside className="min-w-0 lg:sticky lg:top-5">
+          <nav aria-label="Navegação principal"
+            className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm lg:block lg:space-y-4 lg:overflow-visible lg:p-3">
+            {navSections.map((section) => {
+              const links = nav.filter((item) => item.section === section)
+              if (!links.length) return null
+              return (
+                <div key={section} className="flex shrink-0 gap-1 lg:block">
+                  <p className="hidden px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-500 lg:block">
+                    {section}
+                  </p>
+                  {links.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={({ isActive }) =>
+                        classNames(
+                          'block shrink-0 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 lg:my-0.5',
+                          isActive
+                            ? 'bg-slate-900 font-semibold text-white'
+                            : 'text-slate-700 hover:bg-slate-100',
+                        )
+                      }
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )
+            })}
           </nav>
+          <p className="mt-2 px-2 text-xs text-slate-500 lg:hidden">
+            Deslize o menu para ver mais áreas do sistema.
+          </p>
         </aside>
-        <main className="col-span-12 md:col-span-9">
-          <div className="rounded-lg border bg-white p-4">
+        <main className="min-w-0">
+          <div className={isPDV
+            ? 'min-w-0'
+            : 'min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6'}>
             <Outlet />
           </div>
         </main>

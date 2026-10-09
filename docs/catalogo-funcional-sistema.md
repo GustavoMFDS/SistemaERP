@@ -26,7 +26,7 @@
 | Assistente inicial e proprietário | 7 | 5 | Guias prontos no código; implantação ainda assistida |
 | Produtos | 10 | 5 | Catálogo e CSV; falta edição/exportação avançada |
 | Estoque | 11 | 7 | Movimentos e CSV; falta inventário físico formal |
-| PDV e caixa | 14 | 8 | Vendas e caixa; faltam integrações de hardware/pagamento |
+| PDV e caixa | 15 | 8 | Vendas e caixa; faltam integrações de hardware/pagamento |
 | Compras e fornecedores | 8 | 5 | Fluxo operacional; faltam automatizações |
 | Devoluções | 7 | 3 | Reembolso; falta troca inteiramente guiada |
 | Financeiro | 7 | 7 | Ledger/conciliação; faltam crediário e integrações reais |
@@ -35,7 +35,7 @@
 | Privacidade e segurança | 8 | 4 | APIs técnicas; validação externa e UX pendentes |
 | PWA/periféricos | 5 | 5 | PWA e impressão do navegador; hardware não integrado |
 | Infraestrutura e qualidade | 6 | 9 | Ferramentas prontas; evidências do SHA atual faltando |
-| **Total de linhas das seções 1–13** | **108** | **79** | **Não equivale a percentual de produção** |
+| **Total de linhas das seções 1–13** | **109** | **79** | **Não equivale a percentual de produção** |
 
 As seções P0–P3 contêm **22 linhas de ação adicionais**, que em
 parte **repetem e priorizam** as 79 pendências acima. Não somar essas
@@ -152,6 +152,7 @@ qualidade de código ou de progresso validado.
 - [x] Fila offline com idempotência, reconciliação manual, limites e proteção para não perder intencionalmente referências pendentes.
 - [x] Cache de catálogo offline por usuário/CNPJ, com validade controlada.
 - [x] Comprovante **não fiscal** usando impressão do navegador.
+- [x] Interface do PDV reorganizada por etapas (caixa, produtos, pagamento, fechamento), menu lateral categorizado e apresentação responsiva com testes de layout desktop e celular. [Detalhes](ux-pdv-operacao-guidada.md).
 - [ ] Integração certificada com impressora térmica ESC/POS e perfis de modelos/papel.
 - [ ] Acionamento de gaveta de dinheiro e teste físico do periférico.
 - [ ] Interface completa de teclado de caixa, atalhos configuráveis e acessibilidade testada em terminais reais.
