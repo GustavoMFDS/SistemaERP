@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
+import { BRAND_NAME } from '../lib/branding'
 
 // React StrictMode can call useState initializers twice during development.
 // Preserve the fragment value across that double render without writing the
@@ -26,7 +27,7 @@ export default function AcceptStaffInvitePage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    document.title = 'Ativar conta — SistemaEmGo'
+    document.title = 'Ativar conta — ' + BRAND_NAME
     return () => { initialInviteToken = '' }
   }, [])
 
