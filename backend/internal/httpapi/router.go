@@ -131,6 +131,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/finance", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("finance:read")).Get("/dashboard", h.Finance.Dashboard)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/overview", h.Finance.OwnerOverview)
+				rr.With(middleware.RequirePermission("finance:read")).Get("/products-ranking", h.Finance.ProductRanking)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/ledger", h.Finance.ListLedger)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/payments", h.Finance.ListPayments)
 				rr.With(middleware.RequirePermission("finance:reconcile")).Post("/payments/{id}/reconcile", h.Finance.ReconcilePayment)
