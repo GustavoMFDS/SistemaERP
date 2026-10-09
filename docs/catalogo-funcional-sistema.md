@@ -109,7 +109,9 @@ qualidade de código ou de progresso validado.
 - [ ] Catálogo de categorias/marcas e filtros completos com interface de gestão verificada ponta a ponta.
 - [ ] Exportação estruturada de todo o cadastro de produtos **com níveis explícitos de permissão para preço e custo**.
 - [ ] Etiquetas com código de barras/preço para prateleiras e balança, quando aplicável.
-- [ ] Fotos de produtos, variações/unidades de embalagem e kits/composições.
+- [ ] **Galeria opcional de fotos (prioridade P1):** até cinco fotos por produto, selecionadas no PC ou celular, com principal automática, prévias no estoque/PDV, compressão e exclusão; não exigir foto para cadastro ou venda.
+- [ ] **Variações opcionais (prioridade P1):** perguntar em linguagem simples se o produto tem cores/tamanhos/modelos e se a loja quer controlar saldo por opção; se sim, SKU/código de barras e saldo distintos para cada opção, com baixa, devolução, inventário e relatórios consistentes.
+- [ ] **Unidades de embalagem e kits (P2):** manter separados do cadastro de variações e definir conversão/estoque antes de liberar vendas.
 
 **Melhorias:** validação de preço/custo em telas simples, diagnóstico de CSV linha a linha, comparação antes/depois da importação, importação de atualização sem recriar produtos.
 
@@ -376,3 +378,18 @@ Um item só pode ser apresentado como **validado** quando existirem, no mínimo:
 | 2026-10-09 | Catálogo de estado do sistema | PR #15 / HEAD acima | Inventariado | **Não**: runner 0 / steps 0 | Não | CI, migrations 33–34, homologação fiscal e operação real |
 
 **Observação final:** nenhum item marcado `[x]` neste documento, isoladamente, autoriza emissão de documento fiscal, movimentação bancária real, merge ou implantação em produção.
+
+
+## Adição aprovada — fotos e variações no catálogo (09/10/2026)
+
+**Solicitação do proprietário:** cadastrar por exemplo um único "Caderno Brochurão 96 folhas" com três fotos (azul, rosa e verde), preservando um cadastro simples e permitindo controlar por cor **apenas quando a loja pedir**. Cada CNPJ permanece isolado.
+
+**Fluxo de loja:** clicar em "Adicionar fotos" (opcional); até cinco arquivos JPG/PNG/WebP, arrastar/reordenar a principal, excluir/substituir; visualizar miniaturas na busca do catálogo, tela de estoque e seleção no PDV. Escolher "Este produto tem cores ou tamanhos diferentes?" (não por padrão). Em caso afirmativo: "Quer acompanhar quantas unidades há de cada opção?" (não obrigatório).
+
+**Dois comportamentos, sem duplicação fiscal acidental:** (A) só fotos/cores ilustrativas com **um único estoque**; (B) variações comercializáveis com identificador próprio, estoque e código de barras por opção. Fotos nunca criam automaticamente nova linha de estoque. O modo B exige compatibilidade transacional com venda, devolução/troca, recebimentos, ajuste, carga inicial, estoque mínimo, CSV/relatórios e snapshot de venda; alterar depois de vender deve preservar histórico. Não deduzir quantidades de cores de uma foto.
+
+**Validações obrigatórias:** tenant/RBAC em todas as operações de fotos, tamanho/tipo de arquivo e contagem limite no backend, mídia privada (sem URLs públicas abertas entre lojas), prevenção de HTML/SVG/script, otimização e armazenamento escalável, auditoria de inclusão/remoção/seleção de principal, teste de permissões cruzadas, concorrência e idempotência de tentativas ambíguas, busca paginada sem carregar fotos originais, E2E desktop e celular, leitura com conexão instável/offline sem quebrar a venda. Não incluir imagens no XML fiscal como se fossem item tributário.
+
+**Ordem proposta:** 1) galeria persistente e miniaturas; 2) representação de variações sem estoque por opção; 3) fluxo de variações com controle de saldo e integração transacional; 4) testes, migração reversível, acessibilidade e homologação. Até essas provas, manter os itens acima [ ] e não declarar a funcionalidade pronta nem efetuar merge.
+
+**Bloqueios gerais preservados:** PR #15 continua sem merge; CI do SHA corrente não está validado, e fiscal/SEFAZ real continua condicionado a testes/homologação externos.
