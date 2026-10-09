@@ -16,10 +16,10 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fininfra "github.com/example/sistemaemgo/internal/modules/finance/infrastructure"
-	procapp "github.com/example/sistemaemgo/internal/modules/procurement/application"
-	procinfra "github.com/example/sistemaemgo/internal/modules/procurement/infrastructure"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
+	procapp "github.com/example/sistemaemgo/internal/modules/procurement/application"
+	procinfra "github.com/example/sistemaemgo/internal/modules/procurement/infrastructure"
 	retapp "github.com/example/sistemaemgo/internal/modules/returns/application"
 	ret "github.com/example/sistemaemgo/internal/modules/returns/domain"
 	retinfra "github.com/example/sistemaemgo/internal/modules/returns/infrastructure"
@@ -287,17 +287,23 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 	if err := stockSvc.Adjust(ctx, tenant, actor, invapp.InventoryAdjustRequest{
 		ProductID: pink, Delta: platform.NewQuantityMilli(1000),
 		Reason: "Contagem positiva de teste", Type: "adjustment",
-	}); err != nil { t.Fatalf("increase pink only: %v", err) }
+	}); err != nil {
+		t.Fatalf("increase pink only: %v", err)
+	}
 	check(10, 4, 4)
 	if err := stockSvc.Adjust(ctx, tenant, actor, invapp.InventoryAdjustRequest{
 		ProductID: pink, Delta: platform.NewQuantityMilli(-1000),
 		Reason: "Contagem negativa de teste", Type: "adjustment",
-	}); err != nil { t.Fatalf("decrease pink only: %v", err) }
+	}); err != nil {
+		t.Fatalf("decrease pink only: %v", err)
+	}
 	check(10, 4, 3)
 	if err := stockSvc.Adjust(ctx, tenant, actor, invapp.InventoryAdjustRequest{
 		ProductID: pink, Delta: platform.NewQuantityMilli(-100000),
 		Reason: "Saldo insuficiente teste", Type: "adjustment",
-	}); err == nil { t.Fatal("invalid negative adjustment unexpectedly accepted") }
+	}); err == nil {
+		t.Fatal("invalid negative adjustment unexpectedly accepted")
+	}
 	check(10, 4, 3)
 
 	// An actual supplier purchase/receipt must replenish the purchased SKU,
@@ -306,7 +312,9 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 		uuid.NewString(), procapp.SupplierRequest{
 			Name: "Fornecedor somente teste " + sku, Active: true,
 		})
-	if err != nil || !supplierCreated { t.Fatalf("create supplier: %v", err) }
+	if err != nil || !supplierCreated {
+		t.Fatalf("create supplier: %v", err)
+	}
 	purchaseID, purchaseCreated, err := procSvc.CreatePurchase(ctx, tenant, actor,
 		uuid.NewString(), procapp.PurchaseCreateRequest{
 			SupplierID: supplierID,
@@ -315,7 +323,9 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 				UnitCost: platform.NewMoneyCents(600),
 			}},
 		})
-	if err != nil || !purchaseCreated { t.Fatalf("purchase pink: %v", err) }
+	if err != nil || !purchaseCreated {
+		t.Fatalf("purchase pink: %v", err)
+	}
 	_, purchaseItems, _, err := procSvc.GetPurchase(ctx, tenant, purchaseID)
 	if err != nil || len(purchaseItems) != 1 || purchaseItems[0].ProductID != pink {
 		t.Fatalf("purchase item association incorrect: %+v err=%v", purchaseItems, err)
