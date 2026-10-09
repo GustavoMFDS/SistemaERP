@@ -153,6 +153,34 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	if err != nil || other.Replayed || other.BatchID == receipt.BatchID {
 		t.Fatalf("tenant B import not independent: %+v %v", other, err)
 	}
+	// A second receipt in A proves the history is paginated and not leaking B.
+	fourth := product(fmt.Sprintf("BATCH-%d-D", now))
+	secondReceipt, err := svc.ImportProducts(ctx, tenantA, actor, key+"-second",
+		invapp.ProductImportRequest{Items: []invapp.ProductCreateRequest{fourth}})
+	if err != nil {
+		t.Fatalf("second tenant A receipt: %v", err)
+	}
+	firstPage, err := svc.ListImportHistory(ctx, tenantA, 1, 0)
+	if err != nil || !firstPage.HasMore || len(firstPage.Items) != 1 ||
+		firstPage.Items[0].BatchID != secondReceipt.BatchID || firstPage.Items[0].ItemCount != 1 {
+		t.Fatalf("first history page must show newest receipt: %+v err=%v", firstPage, err)
+	}
+	secondPage, err := svc.ListImportHistory(ctx, tenantA, 1, 1)
+	if err != nil || secondPage.HasMore || len(secondPage.Items) != 1 ||
+		secondPage.Items[0].BatchID != receipt.BatchID || secondPage.Items[0].ActorName == "" {
+		t.Fatalf("second history page must show original receipt: %+v err=%v", secondPage, err)
+	}
+	otherHistory, err := svc.ListImportHistory(ctx, tenantB, 20, 0)
+	if err != nil || len(otherHistory.Items) != 1 || otherHistory.Items[0].BatchID != other.BatchID {
+		t.Fatalf("tenant B must see only its own history: %+v err=%v", otherHistory, err)
+	}
+	if _, err := svc.ListImportHistory(ctx, tenantA, 51, 0); !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("limit over 50 should fail-closed: %v", err)
+	}
+	if _, err := svc.ListImportHistory(ctx, tenantA, 20, -1); !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("negative offset should fail-closed: %v", err)
+	}
+
 	// A bad actor relationship must roll back even after row insertion.
 	_, err = svc.ImportProducts(ctx, tenantA,
 		"00000000-0000-4000-8000-000000000001", key+"-bad-actor",
