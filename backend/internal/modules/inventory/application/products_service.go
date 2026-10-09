@@ -150,7 +150,9 @@ func (s *ProductsService) create(ctx context.Context, tenantID, actorUserID, par
 		repo, ok := s.repo.(interface {
 			CreateVariation(context.Context, db.DBTX, string, string, string, inv.Product) (string, error)
 		})
-		if !ok { return "", common.ErrValidation }
+		if !ok {
+			return "", common.ErrValidation
+		}
 		id, err = repo.CreateVariation(ctx, tx, tenantID, parentID, label, p)
 	} else {
 		id, err = s.repo.Create(ctx, tx, tenantID, p)
