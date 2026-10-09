@@ -1,5 +1,17 @@
 # Etapa 8 — Roadmap (fases)
 
+> **Nota de manutenção (2026-10-09):** este roadmap é o plano
+> histórico inicial, não um inventário da implementação atual.
+> O catálogo de referência, com checklist detalhada de código,
+> pendências, validação e prioridades, fica em
+> [Catálogo funcional e checklist](catalogo-funcional-sistema.md).
+> Por exemplo, fornecedores/compras, gestão de funcionários,
+> agenda básica de clientes e a fundação técnica de NFC-e já
+> possuem código no PR #15, porém ainda faltam testes efetivamente
+> executados, integração operacional e homologação fiscal.
+> Não considerar o roadmap uma declaração de produção liberada.
+
+
 ## MVP (entregue aqui)
 - Login + RBAC
 - Produtos
