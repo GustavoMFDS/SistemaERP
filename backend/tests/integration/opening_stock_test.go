@@ -170,21 +170,21 @@ func TestOpeningStockBatchIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	if err != nil || other.Replayed || other.BatchID == result.BatchID {
 		t.Fatalf("other tenant must have independent opening batch: %+v, %v", other, err)
 	}
-	aHistory, err := service.ListOpeningStockHistory(ctx, tenantA, 10, 0)
+	aHistory, err := service.ListOpeningStockHistory(ctx, tenantA, 10, 0, invapp.ImportHistoryFilter{})
 	if err != nil || len(aHistory.Items) != 1 || aHistory.HasMore ||
 		aHistory.Items[0].BatchID != result.BatchID || aHistory.Items[0].ItemCount != 1 ||
 		aHistory.Items[0].ActorName == "" {
 		t.Fatalf("tenant A opening-stock history leaked or wrong: %+v err=%v", aHistory, err)
 	}
-	bHistory, err := service.ListOpeningStockHistory(ctx, tenantB, 10, 0)
+	bHistory, err := service.ListOpeningStockHistory(ctx, tenantB, 10, 0, invapp.ImportHistoryFilter{})
 	if err != nil || len(bHistory.Items) != 1 || bHistory.Items[0].BatchID != other.BatchID {
 		t.Fatalf("tenant B history must stay isolated: %+v err=%v", bHistory, err)
 	}
-	emptyPage, err := service.ListOpeningStockHistory(ctx, tenantA, 10, 1)
+	emptyPage, err := service.ListOpeningStockHistory(ctx, tenantA, 10, 1, invapp.ImportHistoryFilter{})
 	if err != nil || len(emptyPage.Items) != 0 || emptyPage.HasMore {
 		t.Fatalf("opening-stock history pagination failed: %+v err=%v", emptyPage, err)
 	}
-	if _, err := service.ListOpeningStockHistory(ctx, tenantA, 10, 5001); !errors.Is(err, common.ErrValidation) {
+	if _, err := service.ListOpeningStockHistory(ctx, tenantA, 10, 5001, invapp.ImportHistoryFilter{}); !errors.Is(err, common.ErrValidation) {
 		t.Fatalf("offset beyond allowed range must fail: %v", err)
 	}
 }
