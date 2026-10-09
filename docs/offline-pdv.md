@@ -110,6 +110,14 @@ Carrinho suspenso e fila offline são conceitos diferentes:
 - O preço efetivo do PDV segue a mesma regra do backend: `promo_price` positivo quando presente, caso contrário `price_cash`.
 
 
+### Cores e tamanhos descobertos depois do carregamento inicial
+
+- O catálogo inicial do PDV traz até 200 produtos; ao consultar uma família de cores/tamanhos, a resposta pode conter SKUs não presentes nessa primeira página.
+- Esses SKUs ativos descobertos online são adicionados ao cache do **mesmo tenant/usuário**, conservando o timestamp `savedAt` original. **Consultar mais uma opção não renova o limite de validade de 24 horas**.
+- Se `localStorage` estiver indisponível ou cheio, a venda **online** continua operando com os produtos recebidos do servidor, mas o navegador avisa que não conseguiu atualizar o cache offline.
+- Quando a API não pode ser consultada após recarregar, o operador pode encontrar no seletor os SKUs previamente conhecidos, inclusive variantes; todos os saldos/preços recuperados são apenas referências antigas. A transação continua sujeita à checagem do backend durante a sincronização.
+- Essa condição foi coberta por Playwright Chromium com API simulando indisponibilidade de catálogo e refresh normal de sessão. Isso não garante sobrevivência de dados locais após limpeza do navegador, perda do dispositivo ou indisponibilidade de armazenamento.
+
 ## Carrinhos suspensos e logout
 
 - Carrinho suspenso é apenas rascunho local, escopado por tenant+usuário; não cria venda nem reserva estoque.
