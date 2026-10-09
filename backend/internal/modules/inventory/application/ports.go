@@ -17,6 +17,7 @@ type ProductsRepository interface {
 	GetProductImportBatch(ctx context.Context, tx db.DBTX, tenantID, key string) (batchID, requestHash string, itemCount int, found bool, err error)
 	LookupProductImportBatch(ctx context.Context, tenantID, key string) (batchID string, itemCount int, found bool, err error)
 	ListProductImportHistory(ctx context.Context, tenantID string, limit, offset int, from, to string) ([]inv.ImportBatchEntry, bool, error)
+	ListUnifiedImportHistory(ctx context.Context, tenantID string, allowProducts, allowOpeningStock bool, limit, offset int, from, to string) ([]inv.UnifiedImportReceipt, bool, error)
 	CreateProductImportBatch(ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int) (string, error)
 	Update(ctx context.Context, tx db.DBTX, tenantID string, id string, p inv.Product, preserveCost bool) error
 	GetManyByIDs(ctx context.Context, tx db.DBTX, tenantID string, ids []string) (map[string]inv.Product, error)
