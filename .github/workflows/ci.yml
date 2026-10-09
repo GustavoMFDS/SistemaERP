@@ -1107,6 +1107,35 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             up 1
 
+      - name: Verify staff invitations v33 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.staff_invitations') IS NULL THEN RAISE EXCEPTION 'staff invitations missing'; END IF; IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='user_tenants' AND column_name='active') THEN RAISE EXCEPTION 'membership status missing'; END IF; IF NOT EXISTS(SELECT 1 FROM permissions p JOIN role_permissions rp ON rp.permission_id=p.id JOIN roles r ON r.id=rp.role_id WHERE p.code='team:manage' AND r.name='admin') THEN RAISE EXCEPTION 'team admin permission missing'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.staff_invitations') IS NOT NULL THEN RAISE EXCEPTION 'rollback staff invitations failed'; END IF; IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='user_tenants' AND column_name='active') THEN RAISE EXCEPTION 'rollback staff active failed'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
       - name: Run tagged integration tests
         working-directory: backend
         env:
