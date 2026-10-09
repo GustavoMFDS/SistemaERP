@@ -32,6 +32,17 @@ BEGIN
  IF n <> 1 THEN RAISE EXCEPTION 'A expected one photo, got %',n; END IF;
  SELECT count(*) INTO n FROM product_images WHERE tenant_id=b AND product_id=pa;
  IF n <> 0 THEN RAISE EXCEPTION 'Tenant B could see photo A'; END IF;
+ UPDATE product_images SET caption='Azul' WHERE tenant_id=a AND id=ia;
+ SELECT count(*) INTO n FROM product_images WHERE tenant_id=a AND id=ia AND caption='Azul';
+ IF n <> 1 THEN RAISE EXCEPTION 'Caption not persisted'; END IF;
+ UPDATE product_images SET caption='Cor incorreta' WHERE tenant_id=b AND id=ia;
+ GET DIAGNOSTICS n = ROW_COUNT;
+ IF n <> 0 THEN RAISE EXCEPTION 'Tenant B changed photo A'; END IF;
+ BEGIN
+   UPDATE product_images SET caption=repeat('x',41) WHERE tenant_id=a AND id=ia;
+   RAISE EXCEPTION 'Caption longer than 40 chars accepted';
+ EXCEPTION WHEN check_violation THEN NULL;
+ END;
  BEGIN
    INSERT INTO product_images(tenant_id,product_id,upload_key,content_sha256,image_data,thumb_data)
    VALUES (a,pa,key_a,base_hash,photo,photo);
