@@ -40,6 +40,7 @@ const quickLinks = [
   { to: '/pdv', label: 'Abrir o caixa', permission: 'sale:write', detail: 'Registrar vendas e receber pagamentos' },
   { to: '/products', label: 'Cadastrar produtos', permission: 'product:write', detail: 'Adicionar um produto ou importar uma planilha' },
   { to: '/inventory', label: 'Conferir estoque', permission: 'inventory:read', detail: 'Ver itens em falta e entradas ou ajustes' },
+  { to: '/imports', label: 'Ver histórico das importações', permission: 'imports:history', detail: 'Lotes confirmados de produtos e estoque em ordem de data' }
   { to: '/purchases', label: 'Registrar compras', permission: 'procurement:read', detail: 'Acompanhar fornecedores e recebimentos' },
   { to: '/finance', label: 'Conferir pagamentos', permission: 'finance:read', detail: 'Ver divergências e conciliações' },
   { to: '/fiscal', label: 'Configurar nota fiscal', permission: 'invoice:read', detail: 'Seguir o passo a passo da NFC-e' },
@@ -143,7 +144,9 @@ export default function HomePage() {
     { title: 'Vendas registradas', value: String(overview.sales_count), detail: `${overview.cancelled_count} cancelamento(s) lançado(s) no período` },
   ] : []
 
-  const allowedLinks = quickLinks.filter((link) => me?.permissions.includes(link.permission))
+  const allowedLinks = quickLinks.filter((link) => link.permission === 'imports:history'
+    ? (me?.permissions.includes('product:write') || me?.permissions.includes('inventory:adjust'))
+    : me?.permissions.includes(link.permission))
 
   return (
     <div>
