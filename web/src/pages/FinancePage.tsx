@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 import TopProductsReport from '../components/TopProductsReport'
+import FinancialOverview from '../components/FinancialOverview'
 
 type Payment = {
   id: string
@@ -335,18 +336,19 @@ export default function FinancePage() {
 
   return (
     <div>
-      <h2 className="text-base font-semibold">Financeiro e conciliação</h2>
-      <p className="mt-1 text-sm text-gray-600">
-        Concilie recebimentos por método e liquide reembolsos pendentes de devoluções.
-      </p>
+      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Finanças da loja</h2>
+      <p className="mt-2 text-sm text-slate-600">Acompanhe entradas e saídas, contas a pagar e receber e a conciliação das vendas.</p>
+      <div className="mt-6"><FinancialOverview /></div>
+      <div className="mt-6"><TopProductsReport /></div>
+      <details className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+        <summary className="cursor-pointer text-base font-bold text-slate-900">Conciliação avançada de pagamentos e devoluções</summary>
+        <p className="mt-2 text-sm text-slate-600">Abra apenas quando precisar conferir pagamentos, taxas ou reembolsos individualmente.</p>
 
       {error ? (
         <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
           {error}
         </div>
       ) : null}
-
-      <TopProductsReport />
 
       <form onSubmit={loadAll} className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-6">
         <label className="block">
@@ -645,6 +647,7 @@ export default function FinancePage() {
           </div>
         ) : null}
       </div>
+      </details>
     </div>
   )
 }

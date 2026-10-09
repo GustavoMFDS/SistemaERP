@@ -6,6 +6,8 @@
 >
 > **Revalidação local Docker/PDV (2026-10-09):** PostgreSQL e Redis saudáveis; migrations até v34; seed/RBAC e fluxos selecionados do PDV aprovados. O rollback v33 protegeu vínculo suspenso. **A suíte Chromium completa continua bloqueando o merge: 14 passaram, 12 falharam e 74 não rodaram.** Veja [Relatório de validação Docker e PDV](validacao-docker-pdv-20261009.md).
 >
+> **Nova rodada de UX e financeiro (2026-10-09):** telas Fiscal (correção de branco), Configurar loja, Início, Produtos, Estoque e PDV revisitadas. Contas a pagar/receber e gráfico por lançamentos reais implementados na migration 0035 como **fase inicial**, não contabilidade ou integração bancária completa. Testes locais selecionados aprovados; suíte E2E integral ainda pendente. [Relatório e limites](ux-financeiro-fiscal-20261009.md).
+>
 > **Regra estrutural:** cada loja/CNPJ pertence a uma empresa **independente**, ainda que familiares sejam proprietários. Não modelar as lojas como filiais de uma única pessoa jurídica; contas compartilhadas entre CNPJs precisam de vínculos e autorizações separadas.
 
 ## Como ler e atualizar esta checklist

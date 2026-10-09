@@ -270,8 +270,8 @@ export default function InventoryPage() {
     <div>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold">Estoque</h2>
-          <p className="text-sm text-gray-600">Ajuste manual e alerta de baixo estoque.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Estoque da loja</h2>
+          <p className="mt-1 text-sm text-slate-600">Veja o que precisa repor. Abra os ajustes apenas quando necessário.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link to="/stock-movements" className="rounded-md border px-3 py-2 text-sm text-blue-700">
@@ -311,8 +311,8 @@ export default function InventoryPage() {
         </div>
       ) : null}
 
-      <div className="mt-4">
-        <h3 className="text-sm font-semibold">Baixo estoque</h3>
+      <section aria-label="Produtos que precisam de reposição" className="mt-6 rounded-2xl border border-slate-200 p-5">
+        <h3 className="text-base font-bold text-slate-900">Precisa de reposição</h3>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-600">
           <span><strong>{lowTotal}</strong> produto(s) precisam de atenção. Mostrando {low.length}.</span>
           {low.length < lowTotal && lowLimit < 500 ? (
@@ -352,11 +352,12 @@ export default function InventoryPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
       {canAdjustPermission ? (
-        <section className="mt-6 rounded-lg border p-4">
-          <h3 className="text-base font-semibold">Cadastrar estoque inicial por planilha</h3>
+        <details open={Boolean(pendingOpening)} className="mt-5 rounded-2xl border border-slate-200 p-5">
+          <summary className="cursor-pointer text-base font-bold">Cadastrar estoque inicial por planilha</summary>
+          <div className="mt-4">
           <p className="mt-1 text-sm text-gray-600">
             Ideal para configurar uma loja nova: informe somente o SKU do produto e a quantidade
             contada na prateleira. A planilha não cria produtos nem altera preços.
@@ -435,12 +436,14 @@ export default function InventoryPage() {
           ) : null}
           {openingMessage ? <p role="status" className="mt-3 text-sm text-green-800">{openingMessage}</p> : null}
           <ImportBatchHistory kind="opening-stock" refreshVersion={historyRefresh} />
-        </section>
+          </div>
+        </details>
       ) : null}
 
       {canAdjustPermission ? (
-        <div className="mt-6">
-          <h3 className="text-sm font-semibold">Ajuste de estoque</h3>
+        <details className="mt-5 rounded-2xl border border-slate-200 p-5">
+          <summary className="cursor-pointer text-base font-bold">Ajustar quantidade no estoque</summary>
+          <p className="mt-3 text-xs text-slate-600">Use somente para correções justificadas. Entradas de compras e devoluções possuem fluxos próprios.</p>
         <form onSubmit={onAdjust} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-4">
           <label className="block md:col-span-2">
             <span className="text-xs text-gray-600">Produto</span>
@@ -504,7 +507,7 @@ export default function InventoryPage() {
             </button>
           </div>
         </form>
-        </div>
+        </details>
       ) : null}
     </div>
   )

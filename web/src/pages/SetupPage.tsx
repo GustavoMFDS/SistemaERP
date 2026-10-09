@@ -232,9 +232,9 @@ export default function SetupPage() {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Configurar minha loja</h2>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Prepare sua loja em poucos passos</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Confira as etapas uma por uma. O sistema consulta os cadastros da empresa em que você está conectado.
+            Comece pelo básico. Veja o que já está pronto e termine uma etapa de cada vez.
           </p>
         </div>
         <button type="button" disabled={loading || saving} onClick={() => void refresh()}
@@ -245,10 +245,12 @@ export default function SetupPage() {
       {issuer ? (
         <p className="mt-3 text-sm font-medium">{issuer.trade_name || issuer.legal_name} · CNPJ {issuer.cnpj}</p>
       ) : null}
-      <p className="mt-2 rounded-md border border-amber-200 p-3 text-xs text-amber-900">
-        A preparação da loja não libera notas fiscais automaticamente. A NFC-e exige certificado, regras tributárias
+      <details className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+        <summary className="cursor-pointer font-semibold">O que preciso saber sobre nota fiscal?</summary>
+        <p className="mt-2">A preparação da loja não libera notas fiscais automaticamente. A NFC-e exige certificado, regras tributárias
         conferidas, homologação e autorização da SEFAZ. Cada CNPJ mantém dados e permissões separados.
-      </p>
+        </p>
+      </details>
       {error ? <p role="alert" className="mt-3 rounded-md border border-red-200 p-3 text-sm text-red-700">{error}</p> : null}
       {message ? <p role="status" className="mt-3 rounded-md border border-green-200 p-3 text-sm text-green-700">{message}</p> : null}
       {warnings.length > 0 ? (
@@ -260,7 +262,9 @@ export default function SetupPage() {
 
       {me ? (
         <>
-          <section aria-label="Resumo da configuração" className="mt-5 rounded-lg border bg-slate-50 p-3 text-sm">
+          <section aria-label="Resumo da configuração" className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm">
+            <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-base font-bold text-slate-900">Seu progresso</h3><span className="font-bold text-slate-800">{overview.verified} de {steps.length} etapas</span></div>
+            <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{width: `${Math.round(overview.verified / Math.max(1,steps.length)*100)}%`}} /></div>
             <p><strong>{overview.verified}</strong> etapa(s) com dados básicos verificados;
               {' '}<strong>{overview.attention}</strong> para preencher, verificar ou revisar;
               {' '}<strong>{overview.restricted}</strong> sem permissão de acesso.</p>
@@ -275,18 +279,20 @@ export default function SetupPage() {
               </button>
             ) : null}
           </section>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {steps.map((step, index) => (
               <button type="button" key={step.key} disabled={loading || saving} onClick={() => setActive(step.key)}
                 aria-current={active === step.key ? 'step' : undefined}
-                className={`rounded-lg border p-3 text-left hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 ${active === step.key ? 'border-blue-500 bg-blue-50' : ''}`}>
+                className={`rounded-xl border p-4 text-left transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 ${active === step.key ? 'border-blue-600 bg-blue-50 shadow-sm' : 'border-slate-200 bg-white'}`}>
                 <span className="block text-sm font-semibold">{index + 1}. {step.title}</span>
                 <span className="mt-1 block text-xs text-gray-600">{statusLabels[step.status]}</span>
               </button>
             ))}
           </div>
-          <section className="mt-4 rounded-lg border p-4">
-            <p className="text-sm text-gray-600">{steps.find((step) => step.key === active)?.detail}</p>
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Etapa {activeIndex + 1} de {steps.length}</p>
+            <h3 className="text-lg font-bold text-slate-900">{steps.find((step) => step.key === active)?.title}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">{steps.find((step) => step.key === active)?.detail}</p>
 
             {active === 'company' ? (
               issuer ? (

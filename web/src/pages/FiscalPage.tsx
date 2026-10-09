@@ -128,10 +128,10 @@ export default function FiscalPage() {
         apiJson<XMLListResponse>('/api/v1/fiscal/nfe/xml?limit=50&offset=0'),
         apiJson<{ permissions: string[] }>('/api/v1/auth/me'),
       ])
-      setReadiness(readinessData)
+      setReadiness({ ...readinessData, blocking_reasons: Array.isArray(readinessData.blocking_reasons) ? readinessData.blocking_reasons : [] })
       applyIssuer(issuerData)
-      setItems(xmlData.items)
-      setTotal(xmlData.total)
+      setItems(Array.isArray(xmlData.items) ? xmlData.items : [])
+      setTotal(xmlData.total ?? 0)
       setCanPrepare(me.permissions.includes('invoice:generate'))
 
       try {
@@ -181,7 +181,7 @@ export default function FiscalPage() {
       setMessage('Dados da loja salvos. Próximo passo: configurar o certificado da NFC-e.')
       document.getElementById('fiscal-certificate')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       const next = await apiJson<NFCeReadiness>('/api/v1/fiscal/nfce/readiness')
-      setReadiness(next)
+      setReadiness({ ...next, blocking_reasons: Array.isArray(next.blocking_reasons) ? next.blocking_reasons : [] })
     } catch (e: unknown) {
       setError(errorMessage(e))
     } finally {
@@ -208,7 +208,7 @@ export default function FiscalPage() {
       setMessage('Preparação salva. Confira as pendências abaixo antes de pedir a homologação. O sistema não ativou a transmissão.')
       document.getElementById('fiscal-readiness')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       const readinessData = await apiJson<NFCeReadiness>('/api/v1/fiscal/nfce/readiness')
-      setReadiness(readinessData)
+      setReadiness({ ...readinessData, blocking_reasons: Array.isArray(readinessData.blocking_reasons) ? readinessData.blocking_reasons : [] })
     } catch (e: unknown) {
       setError(errorMessage(e))
     } finally {
@@ -327,9 +327,9 @@ export default function FiscalPage() {
             <div>NCM ausente: {readiness.products_missing_ncm}</div>
           </div>
 
-          {readiness.blocking_reasons.length > 0 ? (
+          {(readiness.blocking_reasons ?? []).length > 0 ? (
             <ul className="mt-3 list-disc pl-5 text-xs text-amber-800">
-              {readiness.blocking_reasons.map((reason) => (
+              {(readiness.blocking_reasons ?? []).map((reason) => (
                 <li key={reason}>{blockerLabels[reason] ?? reason}</li>
               ))}
             </ul>

@@ -151,96 +151,120 @@ export default function HomePage() {
     ? (me?.permissions.includes('product:write') || me?.permissions.includes('inventory:adjust'))
     : me?.permissions.includes(link.permission))
 
+  const mainActions = allowedLinks.filter((action) => ['/pdv', '/products', '/inventory', '/finance'].includes(action.to))
+  const otherActions = allowedLinks.filter((action) => !mainActions.some((main) => main.to === action.to))
+
   return (
-    <div>
-      <h2 className="text-lg font-semibold">Início — minha loja</h2>
-      <p className="mt-1 text-sm text-gray-600">
-        Olá{me?.name ? `, ${me.name}` : ''}. Escolha o que deseja fazer; o sistema mostra somente as áreas autorizadas para sua conta.
-      </p>
+    <div className="space-y-7">
+      <header className="relative overflow-hidden rounded-3xl bg-slate-900 p-7 text-white sm:p-9">
+        <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full border-[32px] border-white/10" aria-hidden="true" />
+        <div className="relative z-10">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Visão da sua loja</p>
+          <h2 className="mt-3 max-w-xl text-3xl font-bold tracking-tight sm:text-4xl">
+            Olá{me?.name ? `, ${me.name}` : ''}. Sua loja está em movimento.
+          </h2>
+          <p className="mt-3 max-w-lg text-sm leading-relaxed text-slate-300">
+            Vendas, produtos e o que merece sua atenção — sem precisar procurar em várias telas.
+          </p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            {me?.permissions.includes('sale:write') ? (
+              <Link to="/pdv" className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-300">
+                Ir para o caixa →
+              </Link>
+            ) : null}
+            {me?.permissions.includes('inventory:read') ? (
+              <Link to="/inventory" className="rounded-xl border border-white/30 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10">
+                Ver estoque
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      </header>
 
-      {error ? <p role="alert" className="mt-3 rounded-md border border-red-200 p-3 text-sm text-red-700">{error}</p> : null}
-
-      <h3 className="mt-5 text-sm font-semibold">O que deseja fazer?</h3>
-      <div className="mt-2 grid gap-3 sm:grid-cols-2">
-        {allowedLinks.map((action) => (
-          <Link key={action.to} to={action.to} className="rounded-lg border p-4 hover:border-blue-400 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400">
-            <span className="block text-sm font-semibold">{action.label} →</span>
-            <span className="mt-1 block text-xs text-gray-600">{action.detail}</span>
-          </Link>
-        ))}
-      </div>
-      {me && !allowedLinks.length ? <p className="mt-3 text-sm">Seu usuário ainda não possui permissões nesta loja. Peça acesso ao responsável.</p> : null}
+      {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p> : null}
 
       {me?.permissions.includes('finance:read') ? (
-        <section className="mt-7">
+        <section aria-label="Resumo da semana" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-base font-semibold">Resumo das vendas</h3>
-            <button type="button" onClick={exportSummary} disabled={!overview || loading}
-              className="rounded-md border px-3 py-2 text-xs disabled:opacity-50">Exportar CSV</button>
+            <div><h3 className="text-lg font-bold text-slate-900">O ritmo da loja</h3>
+              <p className="text-xs text-slate-500">Indicadores registrados no período selecionado; não são extrato bancário.</p></div>
+            <Link to="/finance" className="text-sm font-semibold text-blue-700 hover:underline">Abrir financeiro →</Link>
           </div>
-          <form onSubmit={(e) => void onFilter(e)} className="mt-3 flex flex-wrap items-end gap-3">
-            <label className="text-xs text-gray-700">De
-              <input type="date" required value={from} onChange={(e) => setFrom(e.target.value)}
-                className="mt-1 block rounded-md border px-2 py-2 text-sm" />
-            </label>
-            <label className="text-xs text-gray-700">Até
-              <input type="date" required value={to} onChange={(e) => setTo(e.target.value)}
-                className="mt-1 block rounded-md border px-2 py-2 text-sm" />
-            </label>
-            <button disabled={loading} className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
-              {loading ? 'Atualizando…' : 'Consultar período'}
-            </button>
-          </form>
-          {overviewError ? <p role="alert" className="mt-2 text-sm text-red-700">Não foi possível carregar as vendas: {overviewError}</p> : null}
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {reports.map((report) => (
-              <div key={report.title} className="rounded-lg border p-4">
-                <p className="text-xs text-gray-600">{report.title}</p>
-                <p className="mt-2 text-xl font-semibold">{report.value}</p>
-                <p className="mt-2 text-xs text-gray-600">{report.detail}</p>
+              <div key={report.title} className="rounded-2xl border border-slate-200 bg-white p-5">
+                <p className="text-xs font-medium text-slate-500">{report.title}</p>
+                <p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{report.value}</p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">{report.detail}</p>
               </div>
             ))}
+            {!overview && !overviewError ? <p className="text-sm text-slate-500">Carregando indicadores…</p> : null}
           </div>
-          <p className="mt-2 text-xs text-gray-500">
-            Os valores vêm do livro financeiro da loja, por data de lançamento. Lucro estimado não é lucro contábil nem saldo bancário.
-          </p>
+          {overviewError ? <p role="alert" className="text-sm text-red-700">Falha ao consultar vendas: {overviewError}</p> : null}
+          <details className="rounded-xl border border-slate-200 bg-white p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-700">Consultar outro período e exportar resumo</summary>
+            <form onSubmit={(e)=>void onFilter(e)} className="mt-4 flex flex-wrap items-end gap-3">
+              <label className="text-xs text-slate-600">De
+                <input type="date" required value={from} onChange={(e)=>setFrom(e.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label>
+              <label className="text-xs text-slate-600">Até
+                <input type="date" required value={to} onChange={(e)=>setTo(e.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label>
+              <button disabled={loading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">{loading ? 'Consultando…' : 'Consultar período'}</button>
+              <button type="button" onClick={exportSummary} disabled={!overview || loading}
+                className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50">Exportar CSV</button>
+            </form>
+          </details>
         </section>
       ) : null}
 
       {me?.permissions.includes('inventory:read') ? (
-        <section className="mt-7">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-base font-semibold">Produtos que precisam de atenção</h3>
-            <Link to="/inventory" className="text-xs text-blue-700 underline">Abrir estoque completo</Link>
-          </div>
-          {stockError ? <p role="alert" className="mt-2 text-sm text-red-700">Falha ao carregar estoque: {stockError}</p> : null}
-          {stock ? (
-            <>
-              <p className="mt-2 text-sm">
-                <strong>{stock.total}</strong> produto(s) ativos no estoque mínimo ou abaixo em toda esta loja.
-                {stock.total > stock.items.length ? ' Abaixo estão os primeiros itens prioritários.' : ''}
+        <section aria-label="Alertas de estoque" className="rounded-2xl border border-slate-200 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Precisa de atenção</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                {stock ? (stock.total === 0 ? 'Seu estoque está dentro dos mínimos cadastrados.' : `${stock.total} produto(s) com estoque baixo.`) : 'Conferindo estoque…'}
               </p>
-              <div className="mt-2 overflow-x-auto rounded-md border">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-xs"><tr>
-                    <th className="px-3 py-2">Produto</th><th className="px-3 py-2">Quantidade</th><th className="px-3 py-2">Mínimo</th>
-                  </tr></thead>
-                  <tbody className="divide-y">
-                    {stock.items.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-3 py-2">{item.name}<span className="block text-xs text-gray-500">{item.sku}</span></td>
-                        <td className="px-3 py-2">{item.qty_on_hand.toFixed(2)} {item.unit}</td>
-                        <td className="px-3 py-2">{item.min_stock.toFixed(2)} {item.unit}</td>
-                      </tr>
-                    ))}
-                    {!stock.items.length ? <tr><td colSpan={3} className="px-3 py-4 text-center text-gray-600">Nenhum produto com estoque baixo.</td></tr> : null}
-                  </tbody>
-                </table>
-              </div>
-            </>
+            </div>
+            <Link to="/inventory" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Abrir estoque →</Link>
+          </div>
+          {stockError ? <p role="alert" className="mt-3 text-sm text-red-700">{stockError}</p> : null}
+          {stock?.items?.length ? (
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {stock.items.slice(0,4).map((item)=>(
+                <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm">
+                  <div className="min-w-0"><p className="font-semibold text-slate-900">{item.name}</p><p className="text-xs text-slate-600">{item.sku}</p></div>
+                  <span className="shrink-0 text-xs font-bold text-amber-900">{item.qty_on_hand.toFixed(2)} / {item.min_stock.toFixed(2)} {item.unit}</span>
+                </div>
+              ))}
+            </div>
           ) : null}
         </section>
       ) : null}
+
+      <section aria-label="Acessos principais">
+        <h3 className="text-lg font-bold text-slate-900">O que vamos fazer agora?</h3>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {mainActions.map((action)=>(
+            <Link key={action.to} to={action.to} className="group rounded-2xl border border-slate-200 bg-white p-5 transition-colors hover:border-slate-400 hover:bg-slate-50">
+              <span className="text-base font-bold text-slate-900">{action.label} <span className="text-blue-700 group-hover:translate-x-1">→</span></span>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">{action.detail}</p>
+            </Link>
+          ))}
+        </div>
+        {otherActions.length > 0 ? (
+          <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-700">Outras áreas e configurações</summary>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {otherActions.map((action)=>(
+                <Link key={action.to} to={action.to} className="rounded-lg border p-3 text-sm hover:bg-slate-50">
+                  <span className="font-semibold">{action.label} →</span><span className="mt-1 block text-xs text-slate-500">{action.detail}</span>
+                </Link>
+              ))}
+            </div>
+          </details>
+        ) : null}
+        {me && allowedLinks.length===0 ? <p className="mt-3 text-sm">Sua conta ainda não tem áreas liberadas nesta loja. Peça acesso ao responsável.</p> : null}
+      </section>
     </div>
   )
 }

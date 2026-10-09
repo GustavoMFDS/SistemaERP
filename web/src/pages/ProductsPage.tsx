@@ -45,6 +45,7 @@ type ProductCreateRequest = {
 export default function ProductsPage() {
   const [query, setQuery] = useState('')
   const [onlyLowStock, setOnlyLowStock] = useState(false)
+  const [showTechnical, setShowTechnical] = useState(false)
   const [items, setItems] = useState<Product[]>([])
   const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
   const [ncmDrafts, setNcmDrafts] = useState<Record<string, string>>({})
@@ -97,7 +98,6 @@ export default function ProductsPage() {
   }
 
   useEffect(() => {
-    void load()
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
       .then((me) => {
         const writable = me.permissions.includes('product:write')
@@ -107,6 +107,13 @@ export default function ProductsPage() {
       .catch((e: unknown) => setError(errorMessage(e)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load() }, 300)
+    return () => window.clearTimeout(timer)
+    // Search by name, SKU or barcode without requiring a second click.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
 
   async function saveCatalogFiscal(product: Product) {
     setError('')
@@ -359,8 +366,8 @@ export default function ProductsPage() {
     <div>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold">Produtos</h2>
-          <p className="text-sm text-gray-600">Total: {total}</p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Produtos da loja</h2>
+          <p className="mt-1 text-sm text-slate-600">{total} resultado(s). Busque, confira preços e veja o saldo disponível.</p>
         </div>
         <button
           onClick={() => void load()}
@@ -371,8 +378,9 @@ export default function ProductsPage() {
         </button>
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
         <input
+          aria-label="Buscar produto"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Buscar por nome, SKU ou código"
@@ -392,7 +400,7 @@ export default function ProductsPage() {
         </div>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+      <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl bg-slate-50 p-4 text-sm">
         <span className={lowStockItems.length ? 'font-medium text-amber-800' : 'text-gray-600'}>
           {lowStockItems.length} produto(s) com estoque no mínimo ou abaixo, entre os resultados carregados.
         </span>
@@ -400,16 +408,21 @@ export default function ProductsPage() {
           <input type="checkbox" checked={onlyLowStock} onChange={(e) => setOnlyLowStock(e.target.checked)} />
           Mostrar somente estoque baixo
         </label>
+        <button type="button" onClick={() => setShowTechnical((value) => !value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium hover:bg-slate-100">
+          {showTechnical ? 'Ocultar códigos fiscais' : 'Editar códigos e dados fiscais'}
+        </button>
       </div>
 
-      <div className="mt-4 overflow-auto rounded-md border">
+      <div className="mt-4 overflow-auto rounded-xl border border-slate-200">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
               <th className="px-3 py-2">SKU</th>
+              {showTechnical ? (<>
               <th className="px-3 py-2">Código de barras</th>
               <th className="px-3 py-2">NCM</th>
               <th className="px-3 py-2">CEST</th>
+              </>) : null}
               <th className="px-3 py-2">Nome</th>
               <th className="px-3 py-2">Un</th>
               <th className="px-3 py-2">Preço</th>
@@ -422,6 +435,7 @@ export default function ProductsPage() {
             {visibleItems.map((p) => (
               <tr key={p.id}>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
+                {showTechnical ? (<>
                 <td className="px-3 py-2">
                   {canWrite ? (
                     <input
@@ -478,6 +492,7 @@ export default function ProductsPage() {
                     <span className="font-mono text-xs">{p.cest ?? '—'}</span>
                   )}
                 </td>
+                </>) : null}
                 <td className="px-3 py-2">{p.name}</td>
                 <td className="px-3 py-2">{p.unit}</td>
                 <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
@@ -492,7 +507,7 @@ export default function ProductsPage() {
               </tr>
             ))}
             {visibleItems.length === 0 ? (
-              <tr><td colSpan={10} className="px-3 py-6 text-center text-sm text-gray-500">
+              <tr><td colSpan={showTechnical ? 10 : 7} className="px-3 py-6 text-center text-sm text-gray-500">
                 {onlyLowStock ? 'Nenhum produto abaixo do mínimo entre os resultados carregados.' : 'Nenhum produto encontrado.'}
               </td></tr>
             ) : null}
@@ -501,8 +516,9 @@ export default function ProductsPage() {
       </div>
 
       {canWrite ? (
-        <section className="mt-6 rounded-md border p-4">
-          <h3 className="text-sm font-semibold">Importar produtos de uma planilha</h3>
+        <details open={Boolean(pendingImport)} className="mt-6 rounded-2xl border border-slate-200 p-5">
+          <summary className="cursor-pointer text-base font-bold">Importar uma planilha de produtos</summary>
+          <div className="mt-4">
           <p className="mt-1 text-xs text-gray-600">
             Baixe o modelo, preencha no Excel ou LibreOffice e salve como CSV. Os produtos serão
             cadastrados somente na loja em que você está conectado, em uma única transação.
@@ -557,12 +573,13 @@ export default function ProductsPage() {
           ) : null}
           {importResult ? <p role="status" className="mt-3 text-sm">{importResult}</p> : null}
           <ImportBatchHistory kind="products" refreshVersion={historyRefresh} />
-        </section>
+          </div>
+        </details>
       ) : null}
 
       {canWrite ? (
-        <div className="mt-6">
-          <h3 className="text-sm font-semibold">Cadastrar produto</h3>
+        <details className="mt-5 rounded-2xl border border-slate-200 p-5">
+          <summary className="cursor-pointer text-base font-bold">Cadastrar novo produto</summary>
         <form onSubmit={onCreate} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-8">
           <label className="block md:col-span-1">
             <span className="text-xs text-gray-600">SKU</span>
@@ -654,7 +671,7 @@ export default function ProductsPage() {
             </button>
           </div>
         </form>
-        </div>
+        </details>
       ) : null}
     </div>
   )

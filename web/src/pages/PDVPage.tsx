@@ -229,6 +229,31 @@ export default function PDVPage() {
     )
   }, [products, productQuery])
 
+  useEffect(() => {
+    const search = productQuery.trim()
+    if (search.length < 2 || !online) return
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await apiJson<ProductsListResponse>(
+          `/api/v1/products?query=${encodeURIComponent(search)}&limit=200&offset=0`,
+        )
+        if (cancelled) return
+        // Merge search results instead of dropping cart product metadata.
+        setProducts((previous) => {
+          const combined = new Map(previous.map((item) => [item.id, item]))
+          for (const product of result.items ?? []) {
+            if (product.active) combined.set(product.id, product)
+          }
+          return Array.from(combined.values())
+        })
+      } catch {
+        // Keep cached products available on intermittent connectivity errors.
+      }
+    }, 300)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [productQuery, online])
+
   const computedTotal = useMemo(() => {
     let t = 0
     for (const it of items) t += it.unit_price * it.qty - it.discount_value
@@ -947,14 +972,20 @@ export default function PDVPage() {
             Atalhos: F2 scanner • F4 busca rápida • F8 finalizar venda
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void loadProducts()}
-          className="self-start rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
-          disabled={loading}
-        >
-          {loading ? 'Atualizando…' : 'Atualizar produtos'}
-        </button>
+        <details className="self-start rounded-xl border border-slate-200 bg-white p-2 text-sm text-slate-700">
+          <summary className="cursor-pointer select-none px-2 py-1 font-medium">Outras ações</summary>
+          <div className="mt-2 border-t border-slate-100 p-2">
+            <button
+              type="button"
+              onClick={() => void loadProducts()}
+              className="rounded-lg bg-slate-100 px-4 py-2 font-medium hover:bg-slate-200 disabled:opacity-50"
+              disabled={loading}
+            >
+              {loading ? 'Atualizando…' : 'Atualizar produtos'}
+            </button>
+            <p className="mt-2 max-w-48 text-xs text-slate-500">Recarregue os preços e produtos quando precisar.</p>
+          </div>
+        </details>
       </header>
 
       <div aria-label="Condição do PDV" className="flex flex-wrap gap-2 text-xs font-semibold">
@@ -1137,6 +1168,28 @@ export default function PDVPage() {
               Adicionar
             </button>
           </div>
+        </div>
+
+        <div aria-label="Produtos para adicionar" className="mt-5">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold text-slate-800">Escolha um produto</h4>
+            <p className="text-xs text-slate-500">{productQuery ? 'Resultados da busca' : 'Catálogo carregado'} • até 8 opções rápidas</p>
+          </div>
+          {filteredProducts.length > 0 ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {filteredProducts.slice(0,8).map((product) => (
+                <button key={product.id} type="button" onClick={() => addProductToCart(product)}
+                  aria-label={`Adicionar ${product.name} à venda`}
+                  className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:border-slate-500 hover:bg-white focus-visible:outline-2">
+                  <span className="min-w-0"><strong className="block truncate text-sm text-slate-900">{product.name}</strong>
+                    <span className="text-xs text-slate-500">{product.sku} • saldo {product.qty_on_hand ?? '—'}</span></span>
+                  <span className="shrink-0 text-sm font-bold text-slate-900">R$ {productSalePrice(product).toFixed(2)} <span aria-hidden="true">+</span></span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Nenhum produto encontrado. Revise a busca ou atualize o catálogo.</p>
+          )}
         </div>
 
         <div className="mt-6 overflow-auto rounded-xl border border-slate-200">
@@ -1432,9 +1485,15 @@ export default function PDVPage() {
               Vendas offline pendentes precisam ser resolvidas primeiro.
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <label className="block text-sm font-medium text-slate-700">
-              <span>Dinheiro declarado</span>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+            <h4 className="text-sm font-bold text-slate-900">Conferência dos recebimentos</h4>
+            <p className="mt-1 mb-4 text-xs leading-relaxed text-slate-600">
+              Conte o dinheiro físico. Para Pix, cartão e outras formas, informe o total registrado nos respectivos comprovantes.
+              A conferência aqui não verifica o banco automaticamente.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <label className="block text-sm font-medium text-slate-700">
+                <span>Dinheiro declarado</span>
               <input type="number" min="0" step="0.01" value={String(closingAmount)}
                 onChange={(e) => setClosingAmount(Number(e.target.value))}
                 className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" />
@@ -1453,6 +1512,7 @@ export default function PDVPage() {
                 />
               </label>
             ))}
+            </div>
           </div>
           <div className="mt-5 flex justify-end border-t border-slate-100 pt-5">
             <button type="button" onClick={() => void closeCash()}
