@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import { APIError, apiJson, errorMessage } from '../lib/api'
+import { APIError, apiDownload, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 import ImportBatchHistory from '../components/ImportBatchHistory'
 import { clearPendingOpeningStock, fingerprintOpeningStock, readPendingOpeningStock, savePendingOpeningStock, type PendingOpeningStock } from '../lib/openingStockRecovery'
@@ -35,6 +35,7 @@ export default function InventoryPage() {
   const [openingDigest, setOpeningDigest] = useState('')
   const [pendingOpening, setPendingOpening] = useState<PendingOpeningStock | null>(null)
   const [historyRefresh, setHistoryRefresh] = useState(0)
+  const [downloadingStock, setDownloadingStock] = useState(false)
   const [openingConfirmed, setOpeningConfirmed] = useState(false)
   const [openingLoading, setOpeningLoading] = useState(false)
   const [openingMessage, setOpeningMessage] = useState('')
@@ -271,13 +272,33 @@ export default function InventoryPage() {
           <h2 className="text-base font-semibold">Estoque</h2>
           <p className="text-sm text-gray-600">Ajuste manual e alerta de baixo estoque.</p>
         </div>
-        <button
-          onClick={() => void load()}
-          className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-          disabled={loading}
-        >
-          {loading ? 'Atualizando…' : 'Atualizar'}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button"
+            onClick={async () => {
+              if (downloadingStock) return
+              setDownloadingStock(true)
+              setError('')
+              try {
+                await apiDownload('/api/v1/inventory/stock-report.csv',
+                  'relatorio-estoque-loja.csv', 'text/csv;charset=utf-8')
+              } catch (cause: unknown) {
+                setError('Não foi possível baixar o relatório: ' + errorMessage(cause))
+              } finally {
+                setDownloadingStock(false)
+              }
+            }}
+            className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+            disabled={downloadingStock}>
+            {downloadingStock ? 'Gerando CSV…' : 'Exportar estoque CSV'}
+          </button>
+          <button
+            onClick={() => void load()}
+            className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+            disabled={loading}
+          >
+            {loading ? 'Atualizando…' : 'Atualizar'}
+          </button>
+        </div>
       </div>
 
       {error ? (
