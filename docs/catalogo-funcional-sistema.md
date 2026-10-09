@@ -4,6 +4,8 @@
 >
 > **Maturidade:** candidato a **pré-produção**, **não liberado** para uso fiscal real ou implantação definitiva. O PR segue aberto, sem merge. No último CI verificado (`37879908966`), os jobs `backend`, `frontend`, `integration`, `security`, `e2e` e `e2e-prodlike` falharam **antes de iniciar**, todos com `runner_id=0` e `steps=0`. Nenhum teste dessa execução prova aprovação.
 >
+> **Revalidação local Docker/PDV (2026-10-09):** PostgreSQL e Redis saudáveis; migrations até v34; seed/RBAC e fluxos selecionados do PDV aprovados. O rollback v33 protegeu vínculo suspenso. **A suíte Chromium completa continua bloqueando o merge: 14 passaram, 12 falharam e 74 não rodaram.** Veja [Relatório de validação Docker e PDV](validacao-docker-pdv-20261009.md).
+>
 > **Regra estrutural:** cada loja/CNPJ pertence a uma empresa **independente**, ainda que familiares sejam proprietários. Não modelar as lojas como filiais de uma única pessoa jurídica; contas compartilhadas entre CNPJs precisam de vínculos e autorizações separadas.
 
 ## Como ler e atualizar esta checklist

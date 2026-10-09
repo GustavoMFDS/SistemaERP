@@ -84,7 +84,8 @@ JOIN permissions p ON p.code IN (
   'product:read','product:write','inventory:read','inventory:adjust',
   'procurement:read','procurement:write','procurement:receive',
   'cash:open','cash:move','cash:close','sale:read','sale:write','sale:cancel','sale:return','sale:discount',
-  'finance:read','finance:reconcile','invoice:generate','invoice:read'
+  'finance:read','finance:reconcile','invoice:generate','invoice:read',
+  'customer:read','customer:write'
 )
 WHERE r.name='manager'
 ON CONFLICT DO NOTHING;
