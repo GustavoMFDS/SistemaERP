@@ -183,6 +183,60 @@ senhas não são incluídos nos eventos. Essa etapa exige execução
 real de migrations, testes Go/integração, E2E e piloto operacional
 antes de uso de produção.
 
+## Clientes — diretório de contatos por CNPJ
+
+O diretório administrativo usa a tabela `customers` já vinculada
+por `tenant_id`. A migration **0034** concede `customer:read` e
+`customer:write` apenas aos papéis `admin` e `manager`
+existentes no provisionamento. O operador `cashier` não recebe
+automaticamente acesso a nomes, e-mails ou telefones.
+O endpoint rejeita parâmetros `tenant_id` externos; não permite
+acesso a clientes de outra pessoa jurídica.
+
+### GET `/customers?q=&limit=20&offset=0`
+
+Exige `customer:read`. Busca opcional por fragmento do nome
+(`q` até 100 caracteres). Página de 1 a 50, `offset` entre 0
+e 5000, com número total e ordenação estável por criação/id.
+Parâmetros desconhecidos, duplicados ou fora do intervalo retornam
+422. Resposta com `Cache-Control: no-store`:
+
+```json
+{
+  "items": [{
+    "id": "uuid",
+    "name": "Maria Silva",
+    "email": "maria@example.com",
+    "phone": "(11) 99999-0000"
+  }],
+  "total": 1, "limit": 20, "offset": 0
+}
+```
+
+### POST `/customers`
+
+Exige `customer:write` e origem confiável. Corpo:
+`{"name":"Maria Silva","email":"maria@example.com","phone":"(11) 99999-0000"}`.
+E-mail e telefone podem ser `null`; nome exige entre 2 e
+120 caracteres, e-mail válido até 254 bytes e telefone até 30 bytes.
+Não há campo de CPF/documento no formulário desta etapa.
+Retorna 201 com registro cadastrado, sob o tenant autenticado.
+
+### PUT `/customers/{id}`
+
+Exige `customer:write` e origem confiável. Mesmo corpo de
+cadastro. `id` deve ser UUID existente **na mesma empresa**;
+caso contrário, retorna 404. Todas as escritas são transacionais
+e gravam auditoria `customer.create` ou `customer.update`
+sem copiar nomes, e-mails ou telefones para os metadados de auditoria.
+Não há opção de exclusão nem de importação em massa nesta etapa.
+
+**Fora do escopo:** crediário, contas a receber, políticas de
+cobrança, CPF/CNPJ, autorização para envio comercial de mensagens,
+unificação de identidades entre empresas, retenção e exclusão LGPD
+automatizadas por essa tela. A equipe deve seguir as políticas de
+minimização e retenção documentadas e validar os fluxos em ambiente real.
+
 ## Products
 
 ### GET `/products?query=...&limit=...&offset=...`
