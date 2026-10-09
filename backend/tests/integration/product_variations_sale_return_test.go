@@ -16,6 +16,8 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fininfra "github.com/example/sistemaemgo/internal/modules/finance/infrastructure"
+	procapp "github.com/example/sistemaemgo/internal/modules/procurement/application"
+	procinfra "github.com/example/sistemaemgo/internal/modules/procurement/infrastructure"
 	invapp "github.com/example/sistemaemgo/internal/modules/inventory/application"
 	invinfra "github.com/example/sistemaemgo/internal/modules/inventory/infrastructure"
 	retapp "github.com/example/sistemaemgo/internal/modules/returns/application"
@@ -83,6 +85,13 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 			"DELETE FROM sale_items WHERE tenant_id=$1",
 			"DELETE FROM sales WHERE tenant_id=$1",
 			"DELETE FROM inventory_movements WHERE tenant_id=$1",
+			"DELETE FROM purchase_receipt_items WHERE tenant_id=$1",
+			"DELETE FROM purchase_receipts WHERE tenant_id=$1",
+			"DELETE FROM accounts_payable WHERE tenant_id=$1",
+			"DELETE FROM procurement_idempotency_keys WHERE tenant_id=$1",
+			"DELETE FROM purchase_items WHERE tenant_id=$1",
+			"DELETE FROM purchases WHERE tenant_id=$1",
+			"DELETE FROM suppliers WHERE tenant_id=$1",
 			"DELETE FROM product_variations WHERE tenant_id=$1",
 			"DELETE FROM products WHERE tenant_id=$1",
 			"DELETE FROM cash_sessions WHERE tenant_id=$1",
@@ -144,6 +153,10 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 		salesinfra.NewCashRepo(pool), products, aud, nil, v, logger)
 	returnSvc := retapp.NewService(uow, retinfra.NewRepo(pool),
 		inventory, products, aud, v, logger)
+	stockSvc := invapp.NewInventoryService(config.Config{AllowNegativeStock: false},
+		uow, inventory, products, aud, v, logger)
+	procSvc := procapp.NewService(uow, procinfra.NewRepo(pool),
+		products, inventory, aud, v, logger)
 
 	sku := uuid.NewString()
 	baseProduct := invapp.ProductCreateRequest{
@@ -269,4 +282,58 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 		t.Fatalf("overreturn did not fail closed: %v", err)
 	}
 	check(10, 4, 3)
+
+	// A counted adjustment must touch only the selected variant.
+	if err := stockSvc.Adjust(ctx, tenant, actor, invapp.InventoryAdjustRequest{
+		ProductID: pink, Delta: platform.NewQuantityMilli(1000),
+		Reason: "Contagem positiva de teste", Type: "adjustment",
+	}); err != nil { t.Fatalf("increase pink only: %v", err) }
+	check(10, 4, 4)
+	if err := stockSvc.Adjust(ctx, tenant, actor, invapp.InventoryAdjustRequest{
+		ProductID: pink, Delta: platform.NewQuantityMilli(-1000),
+		Reason: "Contagem negativa de teste", Type: "adjustment",
+	}); err != nil { t.Fatalf("decrease pink only: %v", err) }
+	check(10, 4, 3)
+	if err := stockSvc.Adjust(ctx, tenant, actor, invapp.InventoryAdjustRequest{
+		ProductID: pink, Delta: platform.NewQuantityMilli(-100000),
+		Reason: "Saldo insuficiente teste", Type: "adjustment",
+	}); err == nil { t.Fatal("invalid negative adjustment unexpectedly accepted") }
+	check(10, 4, 3)
+
+	// An actual supplier purchase/receipt must replenish the purchased SKU,
+	// never the parent nor another color. Same receipt key must be idempotent.
+	supplierID, supplierCreated, err := procSvc.CreateSupplier(ctx, tenant, actor,
+		uuid.NewString(), procapp.SupplierRequest{
+			Name: "Fornecedor somente teste " + sku, Active: true,
+		})
+	if err != nil || !supplierCreated { t.Fatalf("create supplier: %v", err) }
+	purchaseID, purchaseCreated, err := procSvc.CreatePurchase(ctx, tenant, actor,
+		uuid.NewString(), procapp.PurchaseCreateRequest{
+			SupplierID: supplierID,
+			Items: []procapp.PurchaseItemRequest{{
+				ProductID: pink, Qty: platform.NewQuantityMilli(2000),
+				UnitCost: platform.NewMoneyCents(600),
+			}},
+		})
+	if err != nil || !purchaseCreated { t.Fatalf("purchase pink: %v", err) }
+	_, purchaseItems, _, err := procSvc.GetPurchase(ctx, tenant, purchaseID)
+	if err != nil || len(purchaseItems) != 1 || purchaseItems[0].ProductID != pink {
+		t.Fatalf("purchase item association incorrect: %+v err=%v", purchaseItems, err)
+	}
+	receiptKey := uuid.NewString()
+	receiptReq := procapp.PurchaseReceiveRequest{Items: []procapp.PurchaseReceiveItemRequest{{
+		PurchaseItemID: purchaseItems[0].ID, Qty: platform.NewQuantityMilli(2000),
+	}}}
+	receiptID, receiptStatus, receiptCreated, err := procSvc.ReceivePurchase(
+		ctx, tenant, actor, purchaseID, receiptKey, receiptReq)
+	if err != nil || !receiptCreated {
+		t.Fatalf("receive pink: %s %v", receiptStatus, err)
+	}
+	check(10, 4, 5)
+	replayedReceiptID, _, replayedReceiptCreated, err := procSvc.ReceivePurchase(
+		ctx, tenant, actor, purchaseID, receiptKey, receiptReq)
+	if err != nil || replayedReceiptCreated || replayedReceiptID != receiptID {
+		t.Fatalf("receipt retry duplicated or failed: %s %v", replayedReceiptID, err)
+	}
+	check(10, 4, 5)
 }
