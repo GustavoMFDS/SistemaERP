@@ -19,6 +19,7 @@ test('PDV: escolher SKU e saldo da cor sem trocar o produto original', async ({ 
     barcode: null, price_cash: 12.5, promo_price: null,
     qty_on_hand: 4, active: true, option_label: 'Azul', is_base: false,
   }
+  let catalogUnavailable = false
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
     const reply = (json: unknown, status = 200) => route.fulfill({ status, json })
@@ -31,10 +32,12 @@ test('PDV: escolher SKU e saldo da cor sem trocar o produto original', async ({ 
         permissions: ['product:read', 'sale:write', 'cash:open'] })
     }
     if (url.pathname === '/api/v1/products') {
+      if (catalogUnavailable) return reply({ message: 'temporarily offline' }, 503)
       return reply({ items: [base], total: 1 })
     }
     if (url.pathname === '/api/v1/products/' + baseID + '/variations' ||
         url.pathname === '/api/v1/products/' + blueID + '/variations') {
+      if (catalogUnavailable) return reply({ message: 'temporarily offline' }, 503)
       return reply({ parent_id: baseID, items: [base, blue] })
     }
     if (url.pathname === '/api/v1/products/images/previews') return reply({ items: {} })
@@ -58,4 +61,25 @@ test('PDV: escolher SKU e saldo da cor sem trocar o produto original', async ({ 
   await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
   await expect(page.getByRole('row', { name: /CAD-AZUL — Caderno Brochurão/ })).toBeVisible()
   await expect(page.getByRole('row', { name: /CAD-BASE — Caderno Brochurão/ })).toHaveCount(0)
+  // Variants discovered after the initial catalog fetch must join the scoped
+  // 24-hour cache without changing its original freshness timestamp.
+  const cached = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((value) => value.includes('productsCache:v2'))
+    if (!key) return null
+    const value = JSON.parse(localStorage.getItem(key) || 'null') as {
+      savedAt: number; items: Array<{ sku: string; id: string }>
+    } | null
+    return value && { savedAt: value.savedAt, skus: value.items.map((p) => p.sku) }
+  })
+  expect(cached).not.toBeNull()
+  expect(cached?.skus).toContain('CAD-BASE')
+  expect(cached?.skus).toContain('CAD-AZUL')
+
+  // Simulate the catalog API becoming unavailable after a refresh. The
+  // browser must still find the previously discovered variant in its cache.
+  catalogUnavailable = true
+  await page.reload()
+  await expect(page.getByText(/Catálogo carregado do cache local/)).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Produto', exact: true })
+    .locator('option[value="' + blueID + '"]')).toHaveCount(1)
 })
