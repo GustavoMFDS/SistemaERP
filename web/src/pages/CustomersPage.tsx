@@ -29,29 +29,30 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const sequence = useRef(0)
+  const authSequence = useRef(0)
+  const listSequence = useRef(0)
   const scope = getSessionScope()
   const canRead = permissions?.includes('customer:read') ?? false
   const canWrite = permissions?.includes('customer:write') ?? false
 
   useEffect(() => {
-    const requestID = ++sequence.current
+    const requestID = ++authSequence.current
     const currentScope = getSessionScope()
     setPermissions(null)
     setItems([])
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me').then((data) => {
-      if (requestID !== sequence.current || currentScope !== getSessionScope()) return
+      if (requestID !== authSequence.current || currentScope !== getSessionScope()) return
       setPermissions(data.permissions)
     }).catch((cause: unknown) => {
-      if (requestID !== sequence.current || currentScope !== getSessionScope()) return
+      if (requestID !== authSequence.current || currentScope !== getSessionScope()) return
       setError(errorMessage(cause))
       setLoading(false)
     })
-    return () => { ++sequence.current }
+    return () => { ++authSequence.current }
   }, [scope])
 
   useEffect(() => {
-    const requestID = ++sequence.current
+    const requestID = ++listSequence.current
     const currentScope = getSessionScope()
     if (!canRead || !currentScope) {
       setItems([])
@@ -64,18 +65,18 @@ export default function CustomersPage() {
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) })
     if (query) params.set('q', query)
     void apiJson<CustomerPage>(`/api/v1/customers?${params.toString()}`).then((data) => {
-      if (requestID !== sequence.current || currentScope !== getSessionScope()) return
+      if (requestID !== listSequence.current || currentScope !== getSessionScope()) return
       setItems(data.items ?? [])
       setTotal(data.total)
       setLoading(false)
     }).catch((cause: unknown) => {
-      if (requestID !== sequence.current || currentScope !== getSessionScope()) return
+      if (requestID !== listSequence.current || currentScope !== getSessionScope()) return
       setError(errorMessage(cause))
       setItems([])
       setTotal(0)
       setLoading(false)
     })
-    return () => { ++sequence.current }
+    return () => { ++listSequence.current }
   }, [canRead, scope, offset, query, refresh])
 
   function startEdit(item: Customer) {
