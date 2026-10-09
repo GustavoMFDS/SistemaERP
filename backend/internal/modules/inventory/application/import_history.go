@@ -3,20 +3,20 @@ package application
 import (
 	"context"
 
-	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/modules/common"
+	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 )
 
 const (
-	maxImportHistoryPage = 50
+	maxImportHistoryPage   = 50
 	maxImportHistoryOffset = 5000
 )
 
 type ImportHistoryPage struct {
-	Items []inv.ImportBatchEntry `json:"items"`
-	Limit int `json:"limit"`
-	Offset int `json:"offset"`
-	HasMore bool `json:"has_more"`
+	Items   []inv.ImportBatchEntry `json:"items"`
+	Limit   int                    `json:"limit"`
+	Offset  int                    `json:"offset"`
+	HasMore bool                   `json:"has_more"`
 }
 
 func normalizedImportHistoryPage(limit, offset int) (int, int, error) {
