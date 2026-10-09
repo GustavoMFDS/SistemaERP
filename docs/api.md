@@ -366,6 +366,38 @@ new idempotency key automatically to retry.
 
 Requires `inventory:read`. Returns tenant-scoped active products with `qty_on_hand <= min_stock`, sorted by deficit. The response contains `items` (limited to at most 500) and `total` (the **full** tenant-wide count, not truncated to the list limit). The list can be empty even when other tenants have low stock. Product cost is hidden without `finance:read`.
 
+### GET `/inventory/movements`
+
+Requires `inventory:read`; returns tenant-scoped stock movements,
+with `limit`, `offset` and optional `product_id`. The response
+includes the existing movement quantities and references, now also
+`product_sku` and `product_name` via a tenant-safe SQL JOIN to
+the product catalog. Ordering is stable by `created_at DESC, id DESC`.
+
+```json
+{
+  "items": [{
+    "id": "uuid",
+    "product_id": "uuid",
+    "product_sku": "ARROZ-5",
+    "product_name": "Arroz 5kg",
+    "movement_type": "sale",
+    "delta": -1,
+    "qty_before": 12,
+    "qty_after": 11,
+    "reason": null,
+    "created_at": "2026-10-08T20:00:00Z"
+  }],
+  "total": 1
+}
+```
+
+The new `/stock-movements` page uses the existing API to display
+sale, return, purchase, adjustment, damage and loss events in a
+read-only timeline, and lets a user filter by an ID taken from a
+server-returned product. It **does not** authorize stock changes
+or prove that the physical stock has been counted.
+
 ### POST `/inventory/opening-stock`
 
 Requires `inventory:adjust`, authentication, and `Idempotency-Key` of 8–128 characters.
