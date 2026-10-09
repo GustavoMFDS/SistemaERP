@@ -3,15 +3,18 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 
-// Invite token is contained in the URL fragment, never the server request URL.
-// Immediately remove the fragment from browser history after parsing it.
+// React StrictMode can call useState initializers twice during development.
+// Preserve the fragment value across that double render without writing the
+// credential to localStorage, cookies, logs or the browser's URL history.
+let initialInviteToken = ''
 function takeInviteToken(): string {
   const hash = new URLSearchParams(window.location.hash.slice(1))
   const token = hash.get('token') ?? ''
+  if (token) initialInviteToken = token
   if (window.location.hash) {
     window.history.replaceState(null, '', window.location.pathname)
   }
-  return token
+  return initialInviteToken
 }
 
 export default function AcceptStaffInvitePage() {
@@ -24,6 +27,7 @@ export default function AcceptStaffInvitePage() {
 
   useEffect(() => {
     document.title = 'Ativar conta — SistemaEmGo'
+    return () => { initialInviteToken = '' }
   }, [])
 
   async function submit(event: FormEvent) {
