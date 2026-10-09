@@ -215,7 +215,7 @@ export default function ProductsPage() {
   }
 
 
-  function prepareNewVariation(product: Product) {
+  async function prepareNewVariation(product: Product) {
     if (!canWrite) return
     const option = window.prompt('Qual é a cor ou tamanho? Ex.: Azul, Verde, 42')?.trim()
     if (!option) return
@@ -223,18 +223,35 @@ export default function ProductsPage() {
       setError('Use no máximo 40 caracteres para a cor ou tamanho.')
       return
     }
-    // Reuse the existing per-product stock and sale/return paths, rather than
-    // create a second ledger or silently split quantities from the parent.
+    // A variant may be selected in the catalog. Resolve its real parent
+    // before creating a sibling, never attempt nested product families.
+    const scope = getSessionScope()
+    let parent = product
+    let parentId = product.id
+    try {
+      const family = await apiJson<{ parent_id: string; items: Array<{
+        id: string; name: string; unit: string; price_cash: number
+      }> }>('/api/v1/products/' + encodeURIComponent(product.id) + '/variations')
+      if (scope !== getSessionScope()) return
+      const resolved = family.items.find((item) => item.id === family.parent_id)
+      if (!resolved) throw new Error('O produto-base não foi encontrado nesta loja.')
+      parentId = family.parent_id
+      parent = { ...product, ...resolved }
+    } catch (e: unknown) {
+      if (scope === getSessionScope()) setError('Não foi possível consultar as opções do produto: ' + errorMessage(e))
+      return
+    }
+    // Reuse standard sale/return and inventory rules for the new SKU.
     setSku('')
     setBarcode('')
     setNcm('')
     setCest('')
-    setName(product.name + ' — ' + option)
-    setUnit(product.unit)
-    setPriceCash(product.price_cash)
-    setMinStock(product.min_stock)
-    setVariationSource(product.name + ' — ' + option)
-    setVariationParentId(product.id)
+    setName(parent.name + ' — ' + option)
+    setUnit(parent.unit)
+    setPriceCash(parent.price_cash)
+    setMinStock(parent.min_stock)
+    setVariationSource(parent.name + ' — ' + option)
+    setVariationParentId(parentId)
     setVariationOptionLabel(option)
     setError('')
     if (manualFormRef.current) {
@@ -553,7 +570,7 @@ export default function ProductsPage() {
                     className="mt-1 mr-3 text-xs font-medium text-blue-700 underline hover:text-blue-900">
                     {familyProductId === p.id ? "Ocultar cores/tamanhos" : "Ver cores/tamanhos"}
                   </button>
-                  {canWrite ? <button type="button" onClick={() => prepareNewVariation(p)}
+                  {canWrite ? <button type="button" onClick={() => void prepareNewVariation(p)}
                     className="mt-1 text-xs font-medium text-blue-700 underline hover:text-blue-900">
                     Nova cor/tamanho com estoque próprio
                   </button> : null}
