@@ -36,8 +36,8 @@ func TestRequireAnyPermissionAllowsOnlyAuthorizedRoles(t *testing.T) {
 		}),
 	)
 	for _, tc := range []struct {
-		name string
-		perms map[string]bool
+		name     string
+		perms    map[string]bool
 		expected int
 	}{
 		{name: "products only", perms: map[string]bool{"product:write": true}, expected: http.StatusNoContent},
