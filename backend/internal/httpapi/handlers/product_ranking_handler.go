@@ -15,6 +15,12 @@ func (h *FinanceHandler) ProductRanking(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	query := r.URL.Query()
+	for name, values := range query {
+		if (name != "from" && name != "to" && name != "limit") || len(values) != 1 {
+			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "parametro de ranking invalido", nil)
+			return
+		}
+	}
 	for _, name := range []string{"from", "to"} {
 		if values := query[name]; len(values) != 1 || values[0] == "" {
 			writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "informe o periodo", nil)
