@@ -24,6 +24,8 @@ func writeCustomerError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, common.ErrValidation):
 		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "dados ou consulta invalidos", nil)
+	case errors.Is(err, common.ErrForbidden):
+		writeError(w, r, http.StatusForbidden, "authorization_error", "acesso ao cadastro nao permitido para esta empresa", nil)
 	case errors.Is(err, common.ErrNotFound):
 		writeError(w, r, http.StatusNotFound, "not_found", "cliente nao encontrado nesta empresa", nil)
 	case errors.Is(err, common.ErrConflict):
