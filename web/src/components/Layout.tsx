@@ -48,6 +48,7 @@ export default function Layout() {
     { to: '/staff', label: 'Funcionários', permission: 'team:manage' }
     { to: '/products', label: 'Produtos', permission: 'product:read' },
     { to: '/inventory', label: 'Estoque', permission: 'inventory:read' },
+    { to: '/stock-movements', label: 'Movimentações', permission: 'inventory:read' }
     { to: '/imports', label: 'Histórico de importações', permission: 'imports:history' }
     { to: '/purchases', label: 'Compras', permission: 'procurement:read' },
     { to: '/returns', label: 'Devoluções/Trocas', permission: 'sale:return' },
