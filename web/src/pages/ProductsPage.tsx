@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { APIError, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 import ImportBatchHistory from '../components/ImportBatchHistory'
+import ProductPhotos from '../components/ProductPhotos'
+import { useProductThumbnails } from '../lib/productThumbnails'
 import { clearPendingProductImport, fingerprintProducts, readPendingProductImport, savePendingProductImport, type PendingProductImport } from '../lib/productImportRecovery'
 import { parseProductCSV, PRODUCT_IMPORT_EXAMPLE, type ProductImportPreview } from '../lib/productImport'
 
@@ -46,6 +48,8 @@ export default function ProductsPage() {
   const [query, setQuery] = useState('')
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
+  const [photoProductId, setPhotoProductId] = useState('')
+  const [photoVersion, setPhotoVersion] = useState(0)
   const [items, setItems] = useState<Product[]>([])
   const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
   const [ncmDrafts, setNcmDrafts] = useState<Record<string, string>>({})
@@ -74,6 +78,7 @@ export default function ProductsPage() {
 
   const lowStockItems = items.filter((p) => p.active && p.min_stock > 0 && p.qty_on_hand <= p.min_stock)
   const visibleItems = onlyLowStock ? lowStockItems : items
+  const thumbnails = useProductThumbnails(visibleItems.map((item) => item.id), photoVersion)
 
   const canCreate = useMemo(() => sku.trim() && name.trim() && priceCash > 0, [
     sku,
@@ -178,7 +183,7 @@ export default function ProductsPage() {
         min_stock: Number(minStock) || 0,
         active: true,
       }
-      await apiJson<{ id: string }>('/api/v1/products', {
+      const created = await apiJson<{ id: string }>('/api/v1/products', {
         method: 'POST',
         body: payload,
       })
@@ -189,6 +194,8 @@ export default function ProductsPage() {
       setName('')
       setPriceCash(0)
       setMinStock(0)
+      setQuery('')
+      setPhotoProductId(created.id)
       await load()
     } catch (e: unknown) {
       setError(errorMessage(e))
@@ -412,6 +419,7 @@ export default function ProductsPage() {
         <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
+              <th className="px-3 py-2">Foto</th>
               <th className="px-3 py-2">Código (SKU)</th>
               {showTechnical ? (<>
               <th className="px-3 py-2">Código de barras</th>
@@ -428,7 +436,16 @@ export default function ProductsPage() {
           </thead>
           <tbody className="divide-y">
             {visibleItems.map((p) => (
-              <tr key={p.id}>
+              <Fragment key={p.id}>
+              <tr>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    {thumbnails[p.id] ? (
+                      <img src={thumbnails[p.id]} alt={p.name} className="h-12 w-12 rounded-md object-cover" />
+                    ) : <span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-100 text-xs text-slate-500">Sem foto</span>}
+                    <button type="button" onClick={() => setPhotoProductId(photoProductId === p.id ? '' : p.id)} className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50">Fotos</button>
+                  </div>
+                </td>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
                 {showTechnical ? (<>
                 <td className="px-3 py-2">
@@ -500,9 +517,16 @@ export default function ProductsPage() {
                 <td className="px-3 py-2">{p.min_stock.toFixed(2)}</td>
                 <td className="px-3 py-2">{p.active ? 'Sim' : 'Não'}</td>
               </tr>
+              {photoProductId === p.id ? (
+                <tr><td colSpan={showTechnical ? 11 : 8} className="p-3">
+                  <ProductPhotos productId={p.id} productName={p.name} canWrite={canWrite}
+                    onChange={() => setPhotoVersion((value) => value + 1)} />
+                </td></tr>
+              ) : null}
+              </Fragment>
             ))}
             {visibleItems.length === 0 ? (
-              <tr><td colSpan={showTechnical ? 10 : 7} className="px-3 py-6 text-center text-sm text-gray-500">
+              <tr><td colSpan={showTechnical ? 11 : 8} className="px-3 py-6 text-center text-sm text-gray-500">
                 {onlyLowStock ? 'Nenhum produto abaixo do mínimo entre os resultados carregados.' : 'Nenhum produto encontrado.'}
               </td></tr>
             ) : null}
