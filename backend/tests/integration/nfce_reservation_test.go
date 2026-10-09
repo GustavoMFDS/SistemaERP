@@ -164,8 +164,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 
 	// Each run owns a fresh pair of valid NFC-e series. Never rely on a
 	// hard-coded fiscal number that may have been consumed in a prior run.
-	sequenceSeries := int(time.Now().UnixNano()%200) + 500
-	secondarySeries := sequenceSeries + 1
+	var sequenceSeries int
 
 	var tenantID, actorUserID string
 	if err := pool.QueryRow(ctx, `
@@ -177,6 +176,24 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	`).Scan(&tenantID, &actorUserID); err != nil {
 		t.Fatalf("seeded tenant/admin required: %v", err)
 	}
+
+	// Reserve a pair of unused series from the test database. Random selection
+	// can collide with stale rows from interrupted integration runs.
+	if err := pool.QueryRow(ctx, `
+		SELECT series FROM generate_series(400, 880) AS series
+		WHERE NOT EXISTS (
+			SELECT 1 FROM fiscal_document_sequences f
+			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=series
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM fiscal_document_sequences f
+			WHERE f.tenant_id=$1 AND f.model=65 AND f.series=series+1
+		)
+		ORDER BY series LIMIT 1
+	`, tenantID).Scan(&sequenceSeries); err != nil {
+		t.Fatalf("no unused NFC-e series available for integration: %v", err)
+	}
+	secondarySeries := sequenceSeries + 1
 
 	var registerID string
 	if err := pool.QueryRow(ctx, `
