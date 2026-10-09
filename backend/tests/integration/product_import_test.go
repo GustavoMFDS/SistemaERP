@@ -227,6 +227,26 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tenant B stock batch: %v", err)
 	}
+	// Global stock report must include all tenant products, including those
+	// not in the low-stock page. No tenant selector is accepted from clients.
+	stockReportA, err := stockSvc.StockReport(ctx, tenantA)
+	if err != nil || len(stockReportA) != 3 {
+		t.Fatalf("tenant A report must list three catalog products: %+v err=%v", stockReportA, err)
+	}
+	stockReportB, err := stockSvc.StockReport(ctx, tenantB)
+	if err != nil || len(stockReportB) != 2 {
+		t.Fatalf("tenant B stock report must list only two products: %+v err=%v", stockReportB, err)
+	}
+	var openingFound bool
+	for _, row := range stockReportA {
+		if row.SKU == sku1 {
+			openingFound = row.Quantity == "1.000"
+		}
+	}
+	if !openingFound {
+		t.Fatalf("stock report failed to reflect opening-stock balance: %+v", stockReportA)
+	}
+
 	allHistory, err := svc.ListUnifiedImportHistory(ctx, tenantA, true, true, 10, 0, invapp.ImportHistoryFilter{})
 	if err != nil || len(allHistory.Items) != 3 || allHistory.HasMore ||
 		allHistory.Items[0].Kind != "opening-stock" || allHistory.Items[0].BatchID != openingA.BatchID {
