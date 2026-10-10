@@ -5,16 +5,16 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/jackc/pgx/v5"
 )
 
 // Fiscal obligations are durable records, not issued documents. A complete
 // signed/authorized SEFAZ response is still required to consider one fulfilled.
 type FiscalObligation struct {
 	SaleID       string  `json:"sale_id"`
-	CreatedAt    string  `json:"created_at"`
+	CreatedAt    time.Time  `json:"created_at"`
 	DocumentKind string  `json:"document_kind"`
 	SaleStatus   string  `json:"sale_status"`
 	Status       string  `json:"status"`
@@ -68,7 +68,7 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 		return FiscalObligationsPage{}, err
 	}
 	rows, err := h.db.Query(ctx, `
-		SELECT f.sale_id::text, f.created_at::text, f.document_kind,
+		SELECT f.sale_id::text, f.created_at, f.document_kind,
 			f.legacy_review, s.status,
 			i.id::text, i.status,
 			COALESCE((`+obligationAuthorization+`), false) AS authorized
