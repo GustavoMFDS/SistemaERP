@@ -234,6 +234,20 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 	if err != nil || !created || amount != platform.NewMoneyCents(2580) {
 		t.Fatalf("sell blue only: id=%s amount=%v created=%v err=%v", saleID, amount, created, err)
 	}
+	// Fiscal document issuance is independent of paper printing: PostgreSQL
+	// inserts the durable obligation in the SAME transaction as the sale.
+	// A pending obligation is not a SEFAZ-authorized note.
+	var fiscalKind string
+	var fiscalLegacy bool
+	if err := pool.QueryRow(ctx, `
+		SELECT document_kind, legacy_review
+		FROM sale_fiscal_intents WHERE tenant_id=$1 AND sale_id=$2
+	`, tenant, saleID).Scan(&fiscalKind, &fiscalLegacy); err != nil {
+		t.Fatalf("sale committed without fiscal intent: %v", err)
+	}
+	if fiscalKind != "nfce" || fiscalLegacy {
+		t.Fatalf("wrong fiscal obligation: kind=%s legacy=%v", fiscalKind, fiscalLegacy)
+	}
 	check(10, 3, 3)
 	if cached, err := products.Get(ctx, tenant, blue); err != nil || cached.QtyOnHand != platform.NewQuantityMilli(3000) {
 		t.Fatalf("sale cache invalidation failed: %+v %v", cached, err)
