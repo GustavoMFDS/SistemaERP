@@ -306,9 +306,18 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE tenant_id=$1 AND action='fiscal.nfce.reserve' AND resource_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM invoice_authorized_xml_files WHERE tenant_id=$1 AND invoice_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM invoices WHERE tenant_id=$1 AND sale_id=$2`, tenantID, saleID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE tenant_id=$1 AND resource_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID)
+		// Cancellation events use an FK that prevents deleting an invoice.
+		// Clear them before processed XML/invoice to allow real reruns.
+		if _, err := pool.Exec(context.Background(), `DELETE FROM invoice_fiscal_events WHERE tenant_id=$1 AND invoice_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID); err != nil {
+			t.Errorf("cleanup cancellation events: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM invoice_authorized_xml_files WHERE tenant_id=$1 AND invoice_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID); err != nil {
+			t.Errorf("cleanup processed XML: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM invoices WHERE tenant_id=$1 AND sale_id=$2`, tenantID, saleID); err != nil {
+			t.Errorf("cleanup invoice: %v", err)
+		}
 		_, _ = pool.Exec(context.Background(), `DELETE FROM sales WHERE tenant_id=$1 AND id=$2`, tenantID, saleID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM product_fiscal_profiles WHERE tenant_id=$1 AND product_id=$2`, tenantID, productID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM products WHERE tenant_id=$1 AND id=$2`, tenantID, productID)
