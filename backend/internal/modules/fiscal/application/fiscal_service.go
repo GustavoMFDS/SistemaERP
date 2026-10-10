@@ -251,6 +251,20 @@ func (s *FiscalService) DownloadXML(ctx context.Context, tenantID string, id str
 	return s.fiscal.GetXMLContent(ctx, tenantID, id)
 }
 
+// The only endpoint for distributing an authorized NFC-e must return
+// a previously archived nfeProc. A signed standalone NFe is a draft,
+// never an official downloadable authorized document.
+func (s *FiscalService) DownloadAuthorizedNFCeProcessedXML(
+	ctx context.Context, tenantID, invoiceID string,
+) (string,[]byte,error) {
+	if s.validate.Var(strings.TrimSpace(invoiceID),"required,uuid")!=nil {return "",nil,common.ErrValidation}
+	name,content,storedHash,err:=s.fiscal.GetAuthorizedNFCeProcessedXML(ctx,tenantID,invoiceID)
+	if err!=nil {return "",nil,err}
+	sum:=sha256.Sum256(content)
+	if hex.EncodeToString(sum[:])!=storedHash {return "",nil,common.ErrConflict}
+	return name,content,nil
+}
+
 func uniqueProductIDs(items []sales.SaleItem) []string {
 	if len(items) == 0 {
 		return nil
@@ -2269,6 +2283,7 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 	if outcome.Authorized() {
 		result.Status = fisc.NFCeStatusAuthorized
 		result.Protocol = outcome.Protocol
+		result.ProtocolXML = append([]byte(nil),outcome.ProtocolXML...)
 		result.AuthorizedAt = outcome.ReceivedAt
 	} else if outcome.Rejected() {
 		result.Status = fisc.NFCeStatusRejected
@@ -2321,8 +2336,32 @@ func (s *FiscalService) ApplyNFCeAuthorizationResult(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	var processed []byte
+	var processedSHA string
+	if result.IsAuthorized() {
+		// No update to authorized is committed without the real SEFAZ
+		// protocol being bound to our signed XML and archived as nfeProc.
+		// An ambiguous response remains submitted and is consulted again.
+		if s.nfceProcessed == nil || len(result.ProtocolXML)==0 {
+			return common.ErrFiscalNotReady
+		}
+		_, signedXML, err := s.fiscal.GetLatestNFCeXMLContent(ctx, tx, tenantID, invoiceID)
+		if err != nil { return err }
+		processed, err = s.nfceProcessed.Build(
+			signedXML, result.ProtocolXML, result.AccessKey, result.Protocol, result.AuthorizedAt,
+		)
+		if err != nil { return fmt.Errorf("SEFAZ protocol / signed NFC-e mismatch: %w",err) }
+		sum := sha256.Sum256(processed)
+		processedSHA = hex.EncodeToString(sum[:])
+	}
 	if err := s.fiscal.ApplyNFCeAuthorizationResult(ctx, tx, tenantID, invoiceID, result); err != nil {
 		return err
+	}
+	if result.IsAuthorized() {
+		if err := s.fiscal.StoreAuthorizedNFCeProcessedXML(
+			ctx,tx,tenantID,invoiceID,result.AccessKey,
+			result.AccessKey+"-procNFe.xml",result.ProtocolXML,processed,processedSHA,
+		); err != nil { return err }
 	}
 	action := "fiscal.nfce.rejected"
 	metadata := map[string]any{
