@@ -35,6 +35,7 @@ type saleFiscalStatus struct {
 	Authorized   bool    `json:"authorized"`
 	Printable    bool    `json:"printable"`
 	InvoiceID    *string `json:"invoice_id,omitempty"`
+	AccessKey    *string `json:"access_key,omitempty"`
 	LegacyReview bool    `json:"legacy_review"`
 }
 
@@ -50,22 +51,23 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 	var invoiceStatus *string
 	var invoiceModel *int16
 	var protocol *string
+	var accessKey *string
 	var authorizedAt *string
 	err := h.db.QueryRow(r.Context(), `
 		SELECT s.status,
 			f.document_kind, f.legacy_review,
 			i.id::text, i.status, i.model,
-			i.authorization_protocol, i.authorized_at::text
+			i.authorization_protocol, i.authorized_at::text, i.access_key
 		FROM sales s
 		LEFT JOIN sale_fiscal_intents f ON f.tenant_id=s.tenant_id AND f.sale_id=s.id
 		LEFT JOIN LATERAL (
-			SELECT id, status, model, authorization_protocol, authorized_at
+			SELECT id, status, model, authorization_protocol, authorized_at, access_key
 			FROM invoices
 			WHERE tenant_id=s.tenant_id AND sale_id=s.id
 			ORDER BY created_at DESC, id DESC LIMIT 1
 		) i ON true
 		WHERE s.tenant_id=$1 AND s.id=$2
-	`, tenantID, saleID).Scan(&saleStatus, &kind, &legacy, &invoiceID, &invoiceStatus, &invoiceModel, &protocol, &authorizedAt)
+	`, tenantID, saleID).Scan(&saleStatus, &kind, &legacy, &invoiceID, &invoiceStatus, &invoiceModel, &protocol, &authorizedAt, &accessKey)
 	if err != nil {
 		return out, err
 	}
@@ -91,9 +93,11 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 	if saleStatus == "finalized" && invoiceStatus != nil && *invoiceStatus == "authorized" &&
 		invoiceModel != nil && *invoiceModel == 65 &&
 		protocol != nil && strings.TrimSpace(*protocol) != "" &&
-		authorizedAt != nil && *authorizedAt != "" && out.DocumentKind == "nfce" {
+		authorizedAt != nil && *authorizedAt != "" &&
+		accessKey != nil && strings.TrimSpace(*accessKey) != "" && out.DocumentKind == "nfce" {
 		out.Authorized = true
 		out.Printable = true
+		out.AccessKey = accessKey
 	}
 	// Cancelled sales or voided invoices are never offered for ordinary print.
 	return out, nil
