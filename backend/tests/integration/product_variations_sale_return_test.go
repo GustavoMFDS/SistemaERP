@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/example/sistemaemgo/internal/httpapi/handlers"
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
@@ -247,6 +248,25 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 	}
 	if fiscalKind != "nfce" || fiscalLegacy {
 		t.Fatalf("wrong fiscal obligation: kind=%s legacy=%v", fiscalKind, fiscalLegacy)
+	}
+	// The manager's operational queue must include unissued sales, with no
+	// cross-CNPJ leakage, even when there is no invoice row to join.
+	obligations := handlers.NewSaleFiscalHandler(pool, nil, nil)
+	pending, err := obligations.QueryObligations(ctx, tenant, 20, 0, true)
+	if err != nil || pending.Total != 1 || len(pending.Items) != 1 {
+		t.Fatalf("unissued fiscal queue: total=%d items=%+v err=%v", pending.Total, pending.Items, err)
+	}
+	if pending.Items[0].SaleID != saleID || pending.Items[0].Status != "pending" ||
+		pending.Items[0].Authorized || pending.Items[0].LegacyReview {
+		t.Fatalf("wrong queue state: %+v", pending.Items[0])
+	}
+	allObligations, err := obligations.QueryObligations(ctx, tenant, 20, 0, false)
+	if err != nil || allObligations.Total != 1 {
+		t.Fatalf("all fiscal obligations: %+v err=%v", allObligations, err)
+	}
+	otherTenant, err := obligations.QueryObligations(ctx, uuid.NewString(), 20, 0, true)
+	if err != nil || otherTenant.Total != 0 || len(otherTenant.Items) != 0 {
+		t.Fatalf("cross-tenant fiscal queue: %+v err=%v", otherTenant, err)
 	}
 	check(10, 3, 3)
 	if cached, err := products.Get(ctx, tenant, blue); err != nil || cached.QtyOnHand != platform.NewQuantityMilli(3000) {
