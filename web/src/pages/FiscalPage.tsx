@@ -606,6 +606,11 @@ export default function FiscalPage() {
           <div>
             <summary className="cursor-pointer text-base font-bold text-slate-900">Notas preparadas e arquivos anteriores</summary>
             <p className="text-xs text-gray-600">Total: {total}</p>
+            <p className="mt-1 max-w-lg text-xs text-amber-800">
+              Os XMLs técnicos desta lista não substituem o XML processado (nfeProc)
+              com protocolo genuíno da SEFAZ. Consulte a situação fiscal antes de
+              entregar qualquer arquivo como nota autorizada.
+            </p>
           </div>
         </div>
         <div className="mt-2 overflow-auto rounded-md border">
@@ -627,7 +632,7 @@ export default function FiscalPage() {
                   <td className="px-3 py-2">
                     <div className="flex gap-3">
                       <button type="button" onClick={() => void onDownload(x)} className="text-xs text-blue-700 hover:underline">
-                        Download XML
+                        Baixar XML técnico
                       </button>
                       {x.file_name.startsWith('NFCe-') ? (
                         <button type="button" onClick={() => void onDANFE(x)} className="text-xs text-blue-700 hover:underline">
