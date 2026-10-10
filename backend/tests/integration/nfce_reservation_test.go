@@ -171,7 +171,10 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	defer pool.Close()
+	// Cleanup registered after pool.Close must run while the pool is alive.
+	// t.Cleanup runs LIFO, whereas defer would close the pool first and leak
+	// invoices and fiscal number sequences into the next test iteration.
+	t.Cleanup(pool.Close)
 
 	var tenantID, actorUserID string
 	if err := pool.QueryRow(ctx, `
