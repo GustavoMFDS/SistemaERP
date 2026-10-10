@@ -21,6 +21,7 @@ type FiscalObligation = {
   authorized: boolean
   legacy_review: boolean
   invoice_id?: string
+  access_key?: string
 }
 type FiscalObligationsPage = {
   items: FiscalObligation[]
@@ -158,7 +159,7 @@ export default function FiscalPage() {
     try {
       await apiDownload(
         '/api/v1/fiscal/nfce/invoices/' + encodeURIComponent(item.invoice_id) + '/processed-xml',
-        item.invoice_id + '-procNFe.xml',
+        (item.access_key ?? item.invoice_id) + '-procNFe.xml',
         'application/xml',
       )
     } catch (error: unknown) {
