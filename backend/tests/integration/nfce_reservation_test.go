@@ -827,6 +827,30 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if status != "authorized" || protocol != secondOutcome.Protocol || !storedAuthorizedAt.Equal(authorizedAt) {
 		t.Fatalf("unexpected authorized invoice state: %s %s %s", status, protocol, storedAuthorizedAt)
 	}
+	// The fiscal transition and processed document must share one transaction.
+	// The fake builder validates the DB contract here; the real builder has
+	// separate XMLDSig/access-key/digest validation tests.
+	fileName, processedXML, err := service.DownloadAuthorizedNFCeProcessedXML(
+		ctx, tenantID, reservation.InvoiceID,
+	)
+	if err != nil || fileName != reservation.AccessKey+"-procNFe.xml" ||
+		len(processedXML)==0 {
+		t.Fatalf("authorized note must have processed XML: file=%q len=%d err=%v",
+			fileName,len(processedXML),err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM invoice_authorized_xml_files
+		WHERE tenant_id=$1 AND invoice_id=$2 AND
+		  protocol_xml=$3 AND processed_xml=$4
+	`, tenantID,reservation.InvoiceID,remote.consultOut.ProtocolXML,processedXML).Scan(&count); err != nil || count!=1 {
+		t.Fatalf("missing genuine protocol / processed file: rows=%d err=%v",count,err)
+	}
+	if _, _, err := service.DownloadAuthorizedNFCeProcessedXML(
+		ctx,"11111111-1111-1111-1111-111111111111",reservation.InvoiceID,
+	); !errors.Is(err, common.ErrNotFound) {
+		t.Fatalf("cross-tenant processed XML leaked: %v", err)
+	}
 
 	_, err = service.AuthorizeNFCeHomologation(
 		ctx, tenantID, actorUserID, reservation.InvoiceID,
@@ -893,6 +917,10 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 			storedCancelledAt,
 			cancellationReason,
 		)
+	}
+	if _, _, err := service.DownloadAuthorizedNFCeProcessedXML(ctx,tenantID,reservation.InvoiceID);
+		!errors.Is(err,common.ErrNotFound) {
+		t.Fatalf("ordinary download must not represent cancelled note as authorized: %v",err)
 	}
 
 	var saleStatus string
