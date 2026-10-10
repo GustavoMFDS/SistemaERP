@@ -163,6 +163,14 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
+	// Cancellation events and fiscal calculation snapshots are legally
+	// protected against deletion by database triggers. This test creates
+	// irreversibly auditable fiscal records and must NEVER run against a
+	// shared/long-lived DB or via -count=N on the same DB. Recreate the
+	// disposable database for each iteration instead.
+	if os.Getenv("TEST_FISCAL_DISPOSABLE_DB") != "1" {
+		t.Skip("set TEST_FISCAL_DISPOSABLE_DB=1 only for a freshly seeded isolated database")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -309,15 +317,10 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE tenant_id=$1 AND resource_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID)
 		// Cancellation events use an FK that prevents deleting an invoice.
 		// Clear them before processed XML/invoice to allow real reruns.
-		if _, err := pool.Exec(context.Background(), `DELETE FROM invoice_fiscal_events WHERE tenant_id=$1 AND invoice_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID); err != nil {
-			t.Errorf("cleanup cancellation events: %v", err)
-		}
-		if _, err := pool.Exec(context.Background(), `DELETE FROM invoice_authorized_xml_files WHERE tenant_id=$1 AND invoice_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID); err != nil {
-			t.Errorf("cleanup processed XML: %v", err)
-		}
-		if _, err := pool.Exec(context.Background(), `DELETE FROM invoices WHERE tenant_id=$1 AND sale_id=$2`, tenantID, saleID); err != nil {
-			t.Errorf("cleanup invoice: %v", err)
-		}
+		// Best-effort mutable cleanup only: immutable fiscal records MUST
+		// survive; the dedicated test database itself is the disposal unit.
+		_, _ = pool.Exec(context.Background(), `DELETE FROM invoice_authorized_xml_files WHERE tenant_id=$1 AND invoice_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM invoices WHERE tenant_id=$1 AND sale_id=$2`, tenantID, saleID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM sales WHERE tenant_id=$1 AND id=$2`, tenantID, saleID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM product_fiscal_profiles WHERE tenant_id=$1 AND product_id=$2`, tenantID, productID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM products WHERE tenant_id=$1 AND id=$2`, tenantID, productID)
