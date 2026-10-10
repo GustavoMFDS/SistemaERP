@@ -157,6 +157,7 @@ func authorizationOutcome(
 			return fisc.NFCeRemoteOutcome{}, err
 		}
 		out.FinalStatus = fisc.NFCeStatusAuthorized
+		out.ProtocolXML = append([]byte(nil),response.Protocol.RawXML...)
 		out.ReceivedAt = receivedAt
 		return out, nil
 	}
@@ -199,6 +200,7 @@ func consultationOutcome(
 			return fisc.NFCeRemoteOutcome{}, err
 		}
 		out.FinalStatus = fisc.NFCeStatusAuthorized
+		out.ProtocolXML = append([]byte(nil),response.Protocol.RawXML...)
 		out.ReceivedAt = receivedAt
 		return out, nil
 	}
