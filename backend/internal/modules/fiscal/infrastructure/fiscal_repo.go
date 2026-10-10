@@ -682,7 +682,7 @@ func (r *FiscalRepo) StoreAuthorizedNFCeProcessedXML(
   )
   SELECT $1,$2,$3,$4,$5,$6,$7
   FROM invoices
-  WHERE tenant_id=$1 AND id=$2 AND access_key=$3 AND status='authorized'
+  WHERE tenant_id=$1 AND id=$2 AND access_key=$3 AND status='authorized' AND model=65
   ON CONFLICT DO NOTHING
  `,tenantID,invoiceID,accessKey,fileName,protocolXML,processedXML,sha256)
  if err!=nil {return err}
