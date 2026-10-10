@@ -61,6 +61,23 @@ def main() -> int:
                 (root / schema).write_bytes(archive.read(member))
         xml_parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
         schema = etree.XMLSchema(etree.parse(str(root / "nfe_v4.00.xsd"), parser=xml_parser))
+        # The official 010f release contains TNfeProc, but does not ship
+        # a standalone procNFe_v4.00.xsd entrypoint. Supply ONLY a local
+        # root-element declaration referencing that unchanged official type.
+        # No schema rule is weakened or rewritten.
+        wrapper = root / "local_nfeproc_entrypoint.xsd"
+        wrapper.write_text(
+            '<?xml version="1.0" encoding="utf-8"?>' +
+            '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" ' +
+            'xmlns="http://www.portalfiscal.inf.br/nfe" ' +
+            'targetNamespace="http://www.portalfiscal.inf.br/nfe" ' +
+            'elementFormDefault="qualified">' +
+            '<xs:include schemaLocation="leiauteNFe_v4.00.xsd"/>' +
+            '<xs:element name="nfeProc" type="TNfeProc"/>' +
+            '</xs:schema>',
+            encoding="utf-8",
+        )
+        processed_schema = etree.XMLSchema(etree.parse(str(wrapper), parser=xml_parser))
 
         failures = 0
         for profile in ("legacy", "rtc"):
@@ -91,9 +108,30 @@ def main() -> int:
                 continue
             print(f"PASSOU: NFC-e assinada ({profile}) conforme XSD 010f; unsigned corretamente rejeitado")
 
+            processed_file = args.fixtures_dir / f"nfce-{profile}-proc.xml"
+            try:
+                processed = etree.parse(str(processed_file), parser=xml_parser)
+            except (OSError, etree.XMLSyntaxError) as exc:
+                print(f"FALHA: nfeProc fixture {profile}: {exc}", file=sys.stderr)
+                failures += 1
+                continue
+            if processed.getroot().tag != NFE + "nfeProc" or [
+                el.tag for el in processed.getroot()
+            ] != [NFE + "NFe", NFE + "protNFe"]:
+                print(f"FALHA: estrutura nfeProc {profile}", file=sys.stderr)
+                failures += 1
+                continue
+            if not processed_schema.validate(processed):
+                print(f"FALHA: nfeProc {profile} rejeitado pelo tipo TNfeProc oficial 010f:", file=sys.stderr)
+                for issue in processed_schema.error_log[:12]:
+                    print("  ", issue.message, file=sys.stderr)
+                failures += 1
+                continue
+            print(f"PASSOU: nfeProc ({profile}) conforme TNfeProc do XSD oficial 010f; protocolo sintético")
+
         if failures:
             return 1
-    print("OK: ambas as estruturas XML assinadas passaram. Não houve transmissão à SEFAZ.")
+    print("OK: duas NFC-e assinadas e dois nfeProc sintéticos passaram no XSD 010f. Não houve transmissão à SEFAZ.")
     return 0
 
 
