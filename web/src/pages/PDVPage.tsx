@@ -97,6 +97,7 @@ type SaleFiscalStatus = {
   authorized: boolean
   printable: boolean
   invoice_id?: string
+  access_key?: string
   legacy_review: boolean
 }
 
@@ -1385,6 +1386,21 @@ export default function PDVPage() {
                 ? 'Venda anterior à obrigatoriedade automática: situação fiscal requer revisão.'
                 : 'NFC-e ainda não autorizada. Pendência fiscal permanece registrada, mesmo sem impressão.'}
           </p>
+          {fiscalStatus?.authorized && fiscalStatus.access_key ? (
+            <div className="mt-2">
+              <p className="text-xs text-slate-700">
+                Chave de acesso da NFC-e autorizada: <span className="font-mono break-all">{fiscalStatus.access_key}</span>
+              </p>
+              <button type="button" className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(fiscalStatus.access_key ?? '').catch(() => {
+                    setFiscalStatusError('Não foi possível copiar a chave. Selecione o texto manualmente.')
+                  })
+                }}>
+                Copiar chave para entrega digital
+              </button>
+            </div>
+          ) : null}
           {fiscalStatusError ? <p className="mt-2 text-red-700">{fiscalStatusError}</p> : null}
           {printDecisionOpen ? (
             <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
