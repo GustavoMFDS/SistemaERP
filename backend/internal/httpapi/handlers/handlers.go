@@ -15,6 +15,7 @@ type Handlers struct {
 	Inventory       *InventoryHandler
 	Cash            *CashHandler
 	Sales           *SalesHandler
+	SaleFiscal      *SaleFiscalHandler
 	Finance         *FinanceHandler
 	FinanceAccounts *FinanceAccountsHandler
 	Fiscal          *FiscalHandler
@@ -36,6 +37,7 @@ func New(cfg config.Config, mods *modules.Modules, logger *slog.Logger) *Handler
 		Inventory:       NewInventoryHandler(mods.Inventory, logger),
 		Cash:            NewCashHandler(mods.Cash, logger),
 		Sales:           NewSalesHandler(mods.Sales, logger),
+		SaleFiscal:      NewSaleFiscalHandler(mods.DB, mods.Fiscal, mods.Audit),
 		Finance:         NewFinanceHandler(mods.Finance, logger),
 		FinanceAccounts: NewFinanceAccountsHandler(mods.DB, mods.Audit),
 		Fiscal:          NewFiscalHandler(mods.Fiscal, mods.Audit, logger),
