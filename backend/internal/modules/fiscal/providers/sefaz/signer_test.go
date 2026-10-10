@@ -116,8 +116,8 @@ func TestSignNFCeXMLProducesVerifiableOfficialProfile(t *testing.T) {
 	if infNFe == nil || signature == nil || supl == nil {
 		t.Fatalf("signed NFC-e structure incomplete: %s", signed)
 	}
-	if signature.Index() != infNFe.Index()+1 || supl.Index() <= signature.Index() {
-		t.Fatalf("Signature must be between infNFe and infNFeSupl")
+	if supl.Index() != infNFe.Index()+1 || signature.Index() != supl.Index()+1 {
+		t.Fatalf("official NFC-e XSD requires infNFe, infNFeSupl, Signature order")
 	}
 	if signature.SelectAttrValue("xmlns", "") != dsig.Namespace {
 		t.Fatalf("Signature namespace=%q", signature.SelectAttrValue("xmlns", ""))
