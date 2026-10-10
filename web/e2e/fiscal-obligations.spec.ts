@@ -9,7 +9,7 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   const sale1 = 'f27e693b-c4b1-4db2-a257-01e64a937980'
   const sale2 = 'ab1014a5-e3bc-46dd-aa12-d7e7500e70a7'
   const sale3 = '4f439fed-d5fd-40be-bf19-3aa93419905c'
-  let filterRequests: string[] = []
+  const filterRequests: string[] = []
   const pending = [
     { sale_id: sale1, created_at: '2026-10-09T12:00:00Z',
       document_kind: 'nfce', sale_status: 'finalized', status: 'pending',
