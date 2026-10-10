@@ -112,3 +112,32 @@ func TestAuthorizationOutcomeRejectsMismatchedKey(t *testing.T) {
 		t.Fatalf("expected access-key mismatch, got %v", err)
 	}
 }
+
+func TestAuthorizedSEFAZOutcomeRequiresGenuineProtocolAndAccessKey(t *testing.T) {
+	for _, build := range []func() Protocol{
+		func() Protocol {
+			return Protocol{StatusCode: 100, AccessKey: testAccessKey,
+				ReceivedAt: "2026-10-01T00:30:00-03:00"}
+		},
+		func() Protocol {
+			return Protocol{StatusCode: 100, Protocol: "131260000000001",
+				ReceivedAt: "2026-10-01T00:30:00-03:00"}
+		},
+		func() Protocol {
+			return Protocol{StatusCode: 100, AccessKey: testAccessKey,
+				Protocol: "131260000000001"}
+		},
+	} {
+		proto := build()
+		if result, err := authorizationOutcome(testAccessKey, AuthorizationResponse{
+			StatusCode: 104, Protocol: &proto,
+		}); err == nil || result.Authorized() {
+			t.Fatalf("malformed authorization erroneously accepted: result=%+v err=%v", result, err)
+		}
+		if result, err := consultationOutcome(testAccessKey, ConsultationResponse{
+			StatusCode: 100, AccessKey: testAccessKey, Protocol: &proto,
+		}); err == nil || result.Authorized() {
+			t.Fatalf("malformed consultation erroneously accepted: result=%+v err=%v", result, err)
+		}
+	}
+}
