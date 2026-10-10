@@ -324,16 +324,16 @@ var danfeTemplate = template.Must(template.New("danfe-nfce").Parse(`<!doctype ht
 <style>
 @page { margin: 2mm; }
 * { box-sizing: border-box; }
-body { width: 80mm; min-width: 52mm; margin: 0 auto; padding: 2mm; font: 11px/1.25 Arial, Helvetica, sans-serif; color: #000; background: #fff; }
+body { width: 100%; max-width: 80mm; min-width: 0; margin: 0 auto; padding: 2mm; font: 11px/1.25 Arial, Helvetica, sans-serif; color: #000; background: #fff; }
 h1,p { margin: 0; }
 .center { text-align: center; }
 .strong { font-weight: 700; }
 .section { border-top: 1px dashed #000; padding-top: 2mm; margin-top: 2mm; }
 .banner { border: 2px solid #000; padding: 2mm; margin: 2mm 0; font-weight: 700; text-align: center; }
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 1mm 0.5mm; vertical-align: top; }
+th, td { padding: 1mm 0.5mm; vertical-align: top; overflow-wrap: anywhere; }
 th { border-bottom: 1px solid #000; font-size: 9px; }
-td.num, th.num { text-align: right; white-space: nowrap; }
+td.num, th.num { text-align: right; overflow-wrap: anywhere; }
 .item-desc { word-break: break-word; }
 .row { display: flex; justify-content: space-between; gap: 3mm; }
 .qr { text-align: center; }
@@ -341,7 +341,7 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .key { word-break: break-word; font-family: monospace; font-size: 10px; }
 .muted { font-size: 9px; }
 @media print {
-  body { width: 80mm; margin: 0 auto; padding: 0 2mm; }
+  body { width: 100%; max-width: 80mm; margin: 0 auto; padding: 0 1mm; }
   .no-print { display: none; }
 }
 </style>
