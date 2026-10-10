@@ -152,6 +152,19 @@ export default function FiscalPage() {
     setCertificateSecretRef('')
   }
 
+  async function printAuthorizedFiscalObligation(item: FiscalObligation) {
+    if (!item.authorized || !item.invoice_id || item.document_kind !== 'nfce') return
+    setFiscalObligationsError('')
+    try {
+      await apiOpenPrintable(
+        '/api/v1/fiscal/nfce/invoices/' + encodeURIComponent(item.invoice_id) + '/danfe',
+        true,
+      )
+    } catch (error: unknown) {
+      setFiscalObligationsError('Impressão indisponível: ' + errorMessage(error))
+    }
+  }
+
   async function loadObligations(offset: number, includeAuthorized: boolean) {
     // A controlled checkbox must update synchronously; waiting for the
     // network before updating "checked" makes the browser undo the click.
@@ -422,6 +435,7 @@ export default function FiscalPage() {
                     <th className="px-3 py-2">Data</th>
                     <th className="px-3 py-2">Modelo</th>
                     <th className="px-3 py-2">Situação fiscal</th>
+                    <th className="px-3 py-2">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -440,10 +454,21 @@ export default function FiscalPage() {
                         {fiscalObligationStatusLabel[item.status] ?? item.status}
                         {item.legacy_review ? ' • histórico' : ''}
                       </td>
+                      <td className="px-3 py-2">
+                        {item.authorized && item.document_kind === 'nfce' && item.invoice_id ? (
+                          <button type="button"
+                            onClick={() => void printAuthorizedFiscalObligation(item)}
+                            className="rounded border border-slate-300 px-2 py-1 text-xs">
+                            Imprimir DANFE
+                          </button>
+                        ) : (
+                          <span className="text-slate-500">Acompanhar</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {fiscalObligations.items.length === 0 ? (
-                    <tr><td colSpan={4} className="px-3 py-5 text-center text-slate-600">
+                    <tr><td colSpan={5} className="px-3 py-5 text-center text-slate-600">
                       Nenhum registro nesta consulta.
                     </td></tr>
                   ) : null}
