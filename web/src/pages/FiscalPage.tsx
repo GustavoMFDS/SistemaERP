@@ -152,6 +152,23 @@ export default function FiscalPage() {
     setCertificateSecretRef('')
   }
 
+  async function downloadAuthorizedProcessedXML(item: FiscalObligation) {
+    if (!item.authorized || !item.invoice_id || item.document_kind !== 'nfce') return
+    setFiscalObligationsError('')
+    try {
+      await apiDownload(
+        '/api/v1/fiscal/nfce/invoices/' + encodeURIComponent(item.invoice_id) + '/processed-xml',
+        item.invoice_id + '-procNFe.xml',
+        'application/xml',
+      )
+    } catch (error: unknown) {
+      setFiscalObligationsError(
+        'XML autorizado indisponível: ' + errorMessage(error) +
+        '. Verifique se o protocolo SEFAZ foi preservado para esta nota.',
+      )
+    }
+  }
+
   async function printAuthorizedFiscalObligation(item: FiscalObligation) {
     if (!item.authorized || !item.invoice_id || item.document_kind !== 'nfce') return
     setFiscalObligationsError('')
@@ -456,11 +473,18 @@ export default function FiscalPage() {
                       </td>
                       <td className="px-3 py-2">
                         {item.authorized && item.document_kind === 'nfce' && item.invoice_id ? (
-                          <button type="button"
-                            onClick={() => void printAuthorizedFiscalObligation(item)}
-                            className="rounded border border-slate-300 px-2 py-1 text-xs">
-                            Imprimir DANFE
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button"
+                              onClick={() => void printAuthorizedFiscalObligation(item)}
+                              className="rounded border border-slate-300 px-2 py-1 text-xs">
+                              Imprimir DANFE
+                            </button>
+                            <button type="button"
+                              onClick={() => void downloadAuthorizedProcessedXML(item)}
+                              className="rounded border border-slate-300 px-2 py-1 text-xs">
+                              Baixar XML autorizado
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-slate-500">Acompanhar</span>
                         )}
