@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -64,7 +63,7 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 		Items: make([]FiscalObligation, 0),
 		Limit: limit, Offset: offset,
 	}
-	where := ` WHERE f.tenant_id=$1 AND (NOT $2::boolean OR NOT (` + obligationAuthorization + `)) `
+	where := ` WHERE f.tenant_id=$1 AND (NOT $2::boolean OR NOT COALESCE((` + obligationAuthorization + `), false)) `
 	if err := h.db.QueryRow(ctx, `SELECT count(*) `+obligationInvoiceJoin+where, tenant, unresolvedOnly).Scan(&out.Total); err != nil {
 		return FiscalObligationsPage{}, err
 	}
@@ -72,7 +71,7 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 		SELECT f.sale_id::text, f.created_at::text, f.document_kind,
 			f.legacy_review, s.status,
 			i.id::text, i.status,
-			(`+obligationAuthorization+`) AS authorized
+			COALESCE((`+obligationAuthorization+`), false) AS authorized
 		`+obligationInvoiceJoin+where+`
 		ORDER BY f.created_at DESC, f.sale_id DESC LIMIT $3 OFFSET $4
 	`, tenant, unresolvedOnly, limit, offset)
@@ -135,14 +134,9 @@ func (h *SaleFiscalHandler) ListObligations(w http.ResponseWriter, r *http.Reque
 	}
 	out,err:=h.QueryObligations(r.Context(),au.TenantID,limit,offset,onlyUnresolved)
 	if err!=nil {
-		h.auditIssue(fmt.Errorf("list obligations: %w",err))
 		writeError(w,r,http.StatusInternalServerError,"internal_error","falha na consulta das pendencias fiscais",nil)
 		return
 	}
 	writeJSON(w,http.StatusOK,out)
 }
 
-func (h *SaleFiscalHandler) auditIssue(_ error) {
-	// The response intentionally hides internal DB details; no customer data.
-	// A production logger/metrics hook can be added without changing status.
-}
