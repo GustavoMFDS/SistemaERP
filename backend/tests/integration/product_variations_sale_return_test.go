@@ -266,9 +266,23 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 	if err != nil || allObligations.Total != 1 {
 		t.Fatalf("all fiscal obligations: %+v err=%v", allObligations, err)
 	}
-	otherTenant, err := obligations.QueryObligations(ctx, uuid.NewString(), 20, 0, true)
-	if err != nil || otherTenant.Total != 0 || len(otherTenant.Items) != 0 {
-		t.Fatalf("cross-tenant fiscal queue: %+v err=%v", otherTenant, err)
+	// Query a DIFFERENT, existing legal entity rather than a non-existent
+	// random UUID. That tenant may have its own pending documents, but must
+	// never see this company's sale or fiscal identifiers.
+	var separateCompanyID string
+	if err := pool.QueryRow(ctx, `
+		SELECT id::text FROM companies WHERE id<>$1 ORDER BY created_at LIMIT 1
+	`, tenant).Scan(&separateCompanyID); err != nil {
+		t.Fatalf("require another independent legal entity: %v", err)
+	}
+	otherTenant, err := obligations.QueryObligations(ctx, separateCompanyID, 100, 0, true)
+	if err != nil {
+		t.Fatalf("query other company's fiscal obligations: %v", err)
+	}
+	for _, item := range otherTenant.Items {
+		if item.SaleID == saleID {
+			t.Fatalf("fiscal queue leaked sale %s across separate CNPJs", saleID)
+		}
 	}
 	check(10, 3, 3)
 	if cached, err := products.Get(ctx, tenant, blue); err != nil || cached.QtyOnHand != platform.NewQuantityMilli(3000) {
