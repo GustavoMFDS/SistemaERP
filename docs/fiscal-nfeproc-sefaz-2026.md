@@ -36,13 +36,33 @@ com nota autorizada nem a obrigação fiscal por venda com a autorização.
   documento genuinamente assinado com RSA de testes e protocolo de
   **fixture sintética** geraram `nfeProc`; casos com ambiente, digest,
   chave, cStat, protocolo e data trocados foram rejeitados.
-- O schema 010f oficial anteriormente foi usado para **NFe assinada**,
-  não ainda para o `nfeProc` desta etapa. A validação do arquivo
-  processado completo contra `procNFe_v4.00.xsd`, com dependências
-  oficiais atualizadas, permanece **pendente**.
-- A migração 0040, nova rota, transação e teste integrado de persistência
-  foram implementados, **mas ainda não passaram na bateria final**
-  desta etapa: o computador conectado ficou indisponível.
+- Em 10/10/2026 o ZIP oficial **PL_010f_v1.04** do Portal Nacional
+  (SHA-256 `B8589490A58A09A993A80E6AC4D7ED10F20892061ECFC56719337098D4B95998`)
+  foi baixado novamente. Ele inclui o tipo `TNfeProc` em
+  `leiauteNFe_v4.00.xsd`, mas **não** inclui `procNFe_v4.00.xsd`
+  como arquivo separado. O script de validação cria localmente apenas
+  a declaração de elemento raiz `nfeProc` referindo-se ao tipo
+  **oficial e não modificado** e às dependências oficiais.
+  Duas NFC-e assinadas (legada e IBS/CBS) e **dois nfeProc sintéticos**
+  gerados pelo Go **passaram** em `lxml.XMLSchema`.
+  Isso prova estrutura nesses casos, jamais protocolo SEFAZ real.
+- A migração **0040 passou**, junto com **todas as 40 migrações**
+  e o seed em PostgreSQL 16 temporário isolado (porta 55439).
+  O teste integrado `TestNFCeReservation_IsAtomicAndIdempotentPerSale`
+  passou **duas vezes**, cada vez com um banco recém-criado,
+  exercitando recuperação por consulta, persistência atômica do
+  `nfeProc`, consulta por tenant e bloqueio de download após
+  cancelamento. `go test ./...`, `go vet ./...`, build frontend,
+  lint (0 erros/12 avisos conhecidos) e dois testes Playwright de
+  painel/PDV também passaram.
+- Atenção ao teste: eventos de cancelamento e cálculos tributários
+  possuem **gatilhos de imutabilidade**; não é permitido apagá-los
+  para executar `go test -count=N` contra **o mesmo banco**.
+  `TestNFCeReservation_IsAtomicAndIdempotentPerSale` agora exige
+  `TEST_FISCAL_DISPOSABLE_DB=1`, além de `TEST_DATABASE_URL`,
+  para impedir execução acidental em ambiente permanente.
+  Execute cada repetição num banco de testes independente e descarte
+  o banco ao final. Não remova/desative os gatilhos fiscais.
 - O teste de integração de persistência usa um builder simulado para
   provar transação/tenant; não substitui a prova com certificado e
   protocolo efetivamente recebidos da SEFAZ. Não usar fixture como
@@ -57,3 +77,21 @@ com nota autorizada nem a obrigação fiscal por venda com a autorização.
 `NFCE_SEFAZ_HOMOLOGATION_ENABLED=false` até conclusão dos testes,
 configuração real de certificado e aprovação da implantação.
 GitHub Actions não foi utilizado.
+
+## Comandos de verificação do arquivo processado
+
+```powershell
+# Dentro de um checkout de testes e com Python + lxml instalado:
+$env:NFCE_OFFICIAL_VALIDATION_EXPORT_DIR = 'C:\\Temp\\nfce-prova-temporaria'
+New-Item -ItemType Directory -Force $env:NFCE_OFFICIAL_VALIDATION_EXPORT_DIR
+Push-Location backend
+go test ./internal/modules/fiscal/providers/sefaz -run '^TestExportOfficialNFCeSchemaFixtures$' -count=1 -v
+Pop-Location
+# Faça download do pacote oficial 010f do Portal Nacional NF-e,
+# conforme docs/fiscal-2026-auditoria-schema-010f.md.
+python scripts/fiscal/validate_official_nfce.py --schema-zip 'C:\\Temp\\nfce-prova-temporaria\\010f.zip' --fixtures-dir $env:NFCE_OFFICIAL_VALIDATION_EXPORT_DIR
+```
+
+Testes completos com certificado real, retorno SOAP legítimo, verificação
+criptográfica independente do XML arquivado e regras tributárias por UF
+**continuam pendentes**; não marcar a issue #33 como resolvida.
