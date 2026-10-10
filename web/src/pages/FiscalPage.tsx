@@ -153,6 +153,10 @@ export default function FiscalPage() {
   }
 
   async function loadObligations(offset: number, includeAuthorized: boolean) {
+    // A controlled checkbox must update synchronously; waiting for the
+    // network before updating "checked" makes the browser undo the click.
+    setShowAllObligations(includeAuthorized)
+    setFiscalObligations(null)
     setFiscalObligationsLoading(true)
     setFiscalObligationsError('')
     try {
@@ -162,7 +166,6 @@ export default function FiscalPage() {
       )
       setFiscalObligations(page)
       setObligationsOffset(page.offset)
-      setShowAllObligations(includeAuthorized)
     } catch (error: unknown) {
       setFiscalObligationsError(errorMessage(error))
     } finally {
