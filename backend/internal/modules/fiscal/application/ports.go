@@ -104,6 +104,12 @@ type NFCeRemoteInutilizationClient interface {
 	) (fisc.NFCeInutilizationRemoteResult, error)
 }
 
+// NFCeProcessedDocumentBuilder must only accept an original signed XML
+// and the exact protocol XML captured from a SEFAZ response.
+type NFCeProcessedDocumentBuilder interface {
+ Build(signedXML, protocolXML []byte, accessKey, protocol string, authorizedAt time.Time) ([]byte,error)
+}
+
 type NFeProvider interface {
 	GenerateNFeXML(ctx context.Context, sale sales.Sale, items []sales.SaleItem, products map[string]inv.Product) (content []byte, fileName string, err error)
 }
@@ -129,6 +135,8 @@ type FiscalRepository interface {
 	StoreSignedNFCeXML(ctx context.Context, tx db.DBTX, tenantID, invoiceID, accessKey, fileName string, content []byte, sha256 string) (string, error)
 	MarkNFCeSubmitted(ctx context.Context, tx db.DBTX, tenantID, invoiceID, accessKey string) error
 	ApplyNFCeAuthorizationResult(ctx context.Context, tx db.DBTX, tenantID, invoiceID string, result fisc.NFCeAuthorizationResult) error
+	StoreAuthorizedNFCeProcessedXML(ctx context.Context, tx db.DBTX, tenantID, invoiceID, accessKey, fileName string, protocolXML, processedXML []byte, sha256 string) error
+	GetAuthorizedNFCeProcessedXML(ctx context.Context, tenantID, invoiceID string) (fileName string, xml []byte, sha256 string, err error)
 	GetProductFiscalProfiles(ctx context.Context, tx db.DBTX, tenantID string, productIDs []string) (map[string]fisc.ProductFiscalProfile, error)
 	UpsertProductFiscalProfile(ctx context.Context, tx db.DBTX, tenantID, actorUserID string, profile fisc.ProductFiscalProfile) error
 	CreateSaleItemFiscalSnapshots(ctx context.Context, tx db.DBTX, tenantID string, snapshots []fisc.SaleItemFiscalSnapshot) error
