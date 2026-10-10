@@ -108,7 +108,7 @@ type NFCeRemoteInutilizationClient interface {
 // NFCeProcessedDocumentBuilder must only accept an original signed XML
 // and the exact protocol XML captured from a SEFAZ response.
 type NFCeProcessedDocumentBuilder interface {
- Build(signedXML, protocolXML []byte, accessKey, protocol string, authorizedAt time.Time) ([]byte,error)
+	Build(signedXML, protocolXML []byte, accessKey, protocol string, authorizedAt time.Time) ([]byte, error)
 }
 
 type NFeProvider interface {

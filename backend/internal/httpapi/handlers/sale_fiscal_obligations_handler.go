@@ -13,15 +13,15 @@ import (
 // Fiscal obligations are durable records, not issued documents. A complete
 // signed/authorized SEFAZ response is still required to consider one fulfilled.
 type FiscalObligation struct {
-	SaleID       string    `json:"sale_id"`
-	CreatedAt    time.Time `json:"created_at"`
-	DocumentKind string    `json:"document_kind"`
-	SaleStatus   string    `json:"sale_status"`
-	Status       string    `json:"status"`
-	Authorized   bool      `json:"authorized"`
-	LegacyReview bool      `json:"legacy_review"`
-	InvoiceID    *string   `json:"invoice_id,omitempty"`
-	ProcessedAvailable bool `json:"processed_xml_available"`
+	SaleID             string    `json:"sale_id"`
+	CreatedAt          time.Time `json:"created_at"`
+	DocumentKind       string    `json:"document_kind"`
+	SaleStatus         string    `json:"sale_status"`
+	Status             string    `json:"status"`
+	Authorized         bool      `json:"authorized"`
+	LegacyReview       bool      `json:"legacy_review"`
+	InvoiceID          *string   `json:"invoice_id,omitempty"`
+	ProcessedAvailable bool      `json:"processed_xml_available"`
 }
 
 type FiscalObligationsPage struct {

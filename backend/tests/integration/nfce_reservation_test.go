@@ -28,10 +28,12 @@ import (
 type fakeProcessedDocumentBuilder struct{}
 
 func (fakeProcessedDocumentBuilder) Build(
- _ []byte, proto []byte, _ string, _ string, _ time.Time,
-) ([]byte,error) {
- if len(proto)==0 {return nil,errors.New("missing SEFAZ protocol")}
- return []byte(`<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><test-fixture/></nfeProc>`),nil
+	_ []byte, proto []byte, _ string, _ string, _ time.Time,
+) ([]byte, error) {
+	if len(proto) == 0 {
+		return nil, errors.New("missing SEFAZ protocol")
+	}
+	return []byte(`<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><test-fixture/></nfeProc>`), nil
 }
 
 type fakeNFCeDocumentBuilder struct{}
@@ -849,20 +851,20 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		ctx, tenantID, reservation.InvoiceID,
 	)
 	if err != nil || fileName != reservation.AccessKey+"-procNFe.xml" ||
-		len(processedXML)==0 {
+		len(processedXML) == 0 {
 		t.Fatalf("authorized note must have processed XML: file=%q len=%d err=%v",
-			fileName,len(processedXML),err)
+			fileName, len(processedXML), err)
 	}
 	var count int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM invoice_authorized_xml_files
 		WHERE tenant_id=$1 AND invoice_id=$2 AND
 		  protocol_xml=$3 AND processed_xml=$4
-	`, tenantID,reservation.InvoiceID,remote.consultOut.ProtocolXML,processedXML).Scan(&count); err != nil || count!=1 {
-		t.Fatalf("missing genuine protocol / processed file: rows=%d err=%v",count,err)
+	`, tenantID, reservation.InvoiceID, remote.consultOut.ProtocolXML, processedXML).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("missing genuine protocol / processed file: rows=%d err=%v", count, err)
 	}
 	if _, _, err := service.DownloadAuthorizedNFCeProcessedXML(
-		ctx,"11111111-1111-1111-1111-111111111111",reservation.InvoiceID,
+		ctx, "11111111-1111-1111-1111-111111111111", reservation.InvoiceID,
 	); !errors.Is(err, common.ErrNotFound) {
 		t.Fatalf("cross-tenant processed XML leaked: %v", err)
 	}
@@ -933,9 +935,8 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 			cancellationReason,
 		)
 	}
-	if _, _, err := service.DownloadAuthorizedNFCeProcessedXML(ctx,tenantID,reservation.InvoiceID);
-		!errors.Is(err,common.ErrNotFound) {
-		t.Fatalf("ordinary download must not represent cancelled note as authorized: %v",err)
+	if _, _, err := service.DownloadAuthorizedNFCeProcessedXML(ctx, tenantID, reservation.InvoiceID); !errors.Is(err, common.ErrNotFound) {
+		t.Fatalf("ordinary download must not represent cancelled note as authorized: %v", err)
 	}
 
 	var saleStatus string

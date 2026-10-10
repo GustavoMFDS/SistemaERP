@@ -644,32 +644,35 @@ func (h *FiscalHandler) InutilizeNFCeNumbers(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (h *FiscalHandler) DownloadAuthorizedNFCeProcessedXML(w http.ResponseWriter,r *http.Request) {
- au,ok:=middleware.GetAuthUser(r.Context())
- if !ok {
-  writeError(w,r,http.StatusUnauthorized,"authentication_error","nao autenticado",nil)
-  return
- }
- invoiceID:=chi.URLParam(r,"invoiceID")
- name,content,err:=h.svc.DownloadAuthorizedNFCeProcessedXML(r.Context(),au.TenantID,invoiceID)
- if err!=nil {
-  status:=http.StatusInternalServerError
-  switch err {
-   case common.ErrValidation: status=http.StatusUnprocessableEntity
-   case common.ErrNotFound: status=http.StatusNotFound
-   case common.ErrConflict: status=http.StatusConflict
-  }
-  writeError(w,r,status,errorCodeForStatus(status),friendlyErrorMessage(err),nil)
-  return
- }
- recordAudit(h.audit,r,au.TenantID,au.UserID,
-   "fiscal.nfce.nfe_proc.download","invoice",invoiceID,"success",nil)
- w.Header().Set("Content-Type","application/xml; charset=utf-8")
- w.Header().Set("Content-Disposition","attachment; filename=\""+name+"\"")
- w.Header().Set("Cache-Control","private, no-store")
- w.Header().Set("X-Content-Type-Options","nosniff")
- w.WriteHeader(http.StatusOK)
- _,_=w.Write(content)
+func (h *FiscalHandler) DownloadAuthorizedNFCeProcessedXML(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	invoiceID := chi.URLParam(r, "invoiceID")
+	name, content, err := h.svc.DownloadAuthorizedNFCeProcessedXML(r.Context(), au.TenantID, invoiceID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch err {
+		case common.ErrValidation:
+			status = http.StatusUnprocessableEntity
+		case common.ErrNotFound:
+			status = http.StatusNotFound
+		case common.ErrConflict:
+			status = http.StatusConflict
+		}
+		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
+		return
+	}
+	recordAudit(h.audit, r, au.TenantID, au.UserID,
+		"fiscal.nfce.nfe_proc.download", "invoice", invoiceID, "success", nil)
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
 }
 
 func (h *FiscalHandler) DownloadNFCeDANFE(w http.ResponseWriter, r *http.Request) {

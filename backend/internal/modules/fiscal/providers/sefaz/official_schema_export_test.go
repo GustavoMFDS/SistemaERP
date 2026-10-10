@@ -50,8 +50,8 @@ func TestExportOfficialNFCeSchemaFixtures(t *testing.T) {
 		}
 		for filename, content := range map[string][]byte{
 			"nfce-" + name + "-unsigned.xml": unsigned,
-			"nfce-" + name + "-signed.xml": signed,
-			"nfce-" + name + "-proc.xml": processed,
+			"nfce-" + name + "-signed.xml":   signed,
+			"nfce-" + name + "-proc.xml":     processed,
 		} {
 			path := filepath.Join(dir, filename)
 			if err := os.WriteFile(path, content, 0600); err != nil {
