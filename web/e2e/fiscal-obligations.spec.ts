@@ -41,6 +41,13 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
       const items = onlyPending ? pending : [...pending, authorized]
       return reply({ items, total: items.length, limit: 20, offset: 0 })
     }
+    if (url.pathname === '/api/v1/fiscal/nfce/invoices/' + authorized.invoice_id + '/danfe') {
+      return route.fulfill({
+        status: 200, contentType: 'text/html; charset=utf-8',
+        body: '<!doctype html><html><head><title>DANFE TESTE</title></head>' +
+          '<body><h1>DANFE SIMULADO DE TESTE</h1></body></html>',
+      })
+    }
     if (url.pathname === '/api/v1/fiscal/nfce/readiness') return reply({
       tenant_id: tenantID, model: 65, issuer_identity_configured: false,
       issuer_address_configured: false, municipality_code_configured: false,
@@ -78,6 +85,15 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   await section.getByRole('checkbox', { name: 'Mostrar também vendas com nota autorizada' }).check()
   await expect(section.getByText('Registros fiscais da loja: 3')).toBeVisible()
   await expect(section.getByRole('cell', { name: 'Autorizada', exact: true })).toBeVisible()
+  const authorizedRow = section.getByRole('row').filter({ hasText: sale3.slice(0, 8) })
+  const pendingRow = section.getByRole('row').filter({ hasText: sale1.slice(0, 8) })
+  await expect(pendingRow.getByRole('button', { name: 'Imprimir DANFE' })).toHaveCount(0)
+  await expect(authorizedRow.getByRole('button', { name: 'Imprimir DANFE' })).toBeVisible()
+  const printPopupPromise = page.waitForEvent('popup')
+  await authorizedRow.getByRole('button', { name: 'Imprimir DANFE' }).click()
+  const printPopup = await printPopupPromise
+  await expect(printPopup.locator('body')).toContainText('DANFE SIMULADO DE TESTE')
+  await printPopup.close()
   expect(filterRequests).toContain('false')
   await section.getByRole('checkbox', { name: 'Mostrar também vendas com nota autorizada' }).uncheck()
   await expect(section.getByText('Vendas que precisam de acompanhamento: 2')).toBeVisible()
