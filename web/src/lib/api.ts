@@ -128,7 +128,6 @@ async function apiDownloadInternal(
   fileName: string,
   mime: string,
   allowRefresh: boolean,
-  autoPrint: boolean,
 ): Promise<void> {
   const token = getToken()
   const headers = new Headers()
@@ -181,6 +180,7 @@ async function apiOpenPrintableInternal(
   path: string,
   popup: Window,
   allowRefresh: boolean,
+  autoPrint: boolean,
 ): Promise<void> {
   const token = getToken()
   const headers = new Headers({ Accept: 'text/html' })
