@@ -20,7 +20,8 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   ]
   const authorized = { sale_id: sale3, created_at: '2026-10-09T10:00:00Z',
     document_kind: 'nfce', sale_status: 'finalized', status: 'authorized',
-    authorized: true, legacy_review: false, invoice_id: 'dd11bc2d-415b-47b3-98d3-eec344d3be54' }
+    authorized: true, legacy_review: false, invoice_id: 'dd11bc2d-415b-47b3-98d3-eec344d3be54',
+    processed_xml_available: true }
 
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
