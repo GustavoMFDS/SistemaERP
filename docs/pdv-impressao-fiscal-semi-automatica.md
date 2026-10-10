@@ -90,3 +90,48 @@ homologadas, o sistema deve permanecer em piloto sem emissão fiscal real.
   interface não tenta baixar DANFE (API simulada).
 - `pdv-operations.spec.ts` atualizado para a regra nova no fluxo
   prod-like com API real: requer execução na próxima rodada E2E completa.
+
+
+## Acompanhamento e reimpressão de pendências por CNPJ
+
+A tela **Fiscal → Vendas e emissão fiscal** permite ao responsável
+(`invoice:read`) consultar os últimos registros e paginar por até 100
+obrigações por requisição. Por padrão filtra **ainda não autorizadas**,
+com opção de incluir também as autorizadas. Cada resultado indica a
+venda, data, tipo de documento e estado fiscal corrente, sem expor
+dados de cliente ou custo/lucratividade.
+
+O endpoint somente-leitura `GET /api/v1/fiscal/obligations` aceita
+`unresolved=true|false`, `limit` e `offset`, sempre consultando a
+`tenant_id` derivada da sessão autenticada. Cada consulta usa o estado
+persistido da nota, não a decisão de imprimir.
+
+**O que conta como autorizado**: venda finalizada, modelo correto
+(65 para NFC-e ou 55 para NF-e), status `authorized`, protocolo não
+vazio, data de autorização e chave de acesso. Se a nota está apenas
+`reserved`, `signed`, `submitted`, `rejected` ou
+`xml_generated`, a obrigação **permanece no painel**. Falhas de
+conexão/respostas ambíguas exigirão recuperação legal e técnica antes
+de qualquer nova transmissão.
+
+A lista oferece **Imprimir DANFE** *somente* para NFC-e autorizada com
+`invoice_id`. Reimpressão passa pelo mesmo renderer backend protegido
+por tenant, autenticação e estado real do documento. Operador que não
+imprimiu no instante da venda pode voltar ao painel posteriormente,
+desde que autorizado a consultar notas.
+
+O template HTML do DANFE deixou de impor largura mínima fixa de
+80 mm. Usa largura relativa ao driver/papel, limite máximo de 80 mm,
+colunas que quebram linhas quando necessário e QR Code de 32 mm.
+Isso dá suporte técnico para 58/80 mm, **não dispensa ensaios físicos**
+de legibilidade, cortes, margens e normas fiscais aplicáveis.
+
+**Validação complementar (sem autorização SEFAZ):** teste integrado
+PostgreSQL+Redis duas vezes, confirmando que venda não autorizada
+aparece no painel do próprio CNPJ e não em outro; incluir um registro
+de XML gerado sem autorização também **não** retira a pendência.
+Teste Playwright Chromium exercitou o filtro, a distinção de rejeitada
+e autorizada e a abertura da reimpressão quando a resposta indica
+autorização (API simulada). Testes de renderizador DANFE e build
+passaram. Falta fluxo real de transmissão, automação de retry,
+homologação SEFAZ e impressão em equipamento físico.
