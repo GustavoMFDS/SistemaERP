@@ -831,6 +831,7 @@ export default function PDVPage() {
     try {
       await apiOpenPrintable(
         '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-danfe',
+        true,
       )
       setPrintDecisionOpen(false)
     } catch (error: unknown) {
