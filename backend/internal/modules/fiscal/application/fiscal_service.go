@@ -32,6 +32,7 @@ type FiscalService struct {
 	nfceSigner         NFCeXMLSigner
 	nfceValidator      NFCeSchemaValidator
 	nfceAuthorizer     NFCeRemoteAuthorizer
+	nfceProcessed      NFCeProcessedDocumentBuilder
 	nfceCancelBuilder  NFCeCancellationEventBuilder
 	nfceCancelSigner   NFCeCancellationEventSigner
 	nfceEventValidator NFCeSchemaValidator
@@ -124,6 +125,10 @@ func (s *FiscalService) SetNFCeXMLSigner(signer NFCeXMLSigner) {
 
 func (s *FiscalService) SetNFCeSchemaValidator(schemaValidator NFCeSchemaValidator) {
 	s.nfceValidator = schemaValidator
+}
+
+func (s *FiscalService) SetNFCeProcessedDocumentBuilder(builder NFCeProcessedDocumentBuilder) {
+ s.nfceProcessed = builder
 }
 
 func (s *FiscalService) SetNFCeRemoteAuthorizer(authorizer NFCeRemoteAuthorizer) {
