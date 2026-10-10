@@ -102,11 +102,13 @@ func SignNFCeXML(
 		return nil, fmt.Errorf("construct NFC-e XMLDSig: %w", err)
 	}
 
-	insertAt := infNFe.Index() + 1
-	if infNFeSupl != nil && infNFeSupl.Index() < insertAt {
+	// Official leiauteNFe_v4.00.xsd TNFe sequence:
+	// infNFe, infNFeSupl (optional), Signature (mandatory).
+	// Inserting Signature before infNFeSupl fails the official XSD.
+	if infNFeSupl != nil && infNFeSupl.Index() < infNFe.Index() {
 		return nil, fmt.Errorf("infNFeSupl appears before infNFe")
 	}
-	root.InsertChildAt(insertAt, signature)
+	root.AddChild(signature)
 
 	signed, err := doc.WriteToBytes()
 	if err != nil {
