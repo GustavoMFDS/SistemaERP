@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/sistemaemgo/internal/httpapi/handlers"
 	"github.com/example/sistemaemgo/internal/config"
+	"github.com/example/sistemaemgo/internal/httpapi/handlers"
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	fininfra "github.com/example/sistemaemgo/internal/modules/finance/infrastructure"
