@@ -23,6 +23,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// This test double exercises the atomic DB transition. The actual nfeProc
+// builder's key/digest/namespace validation is covered by its own tests.
+type fakeProcessedDocumentBuilder struct{}
+
+func (fakeProcessedDocumentBuilder) Build(
+ _ []byte, proto []byte, _ string, _ string, _ time.Time,
+) ([]byte,error) {
+ if len(proto)==0 {return nil,errors.New("missing SEFAZ protocol")}
+ return []byte(`<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><test-fixture/></nfeProc>`),nil
+}
+
 type fakeNFCeDocumentBuilder struct{}
 
 func (fakeNFCeDocumentBuilder) BuildUnsignedLegacyCandidate(
@@ -293,6 +304,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE tenant_id=$1 AND action='fiscal.nfce.reserve' AND resource_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM invoice_authorized_xml_files WHERE tenant_id=$1 AND invoice_id IN (SELECT id FROM invoices WHERE tenant_id=$1 AND sale_id=$2)`, tenantID, saleID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM invoices WHERE tenant_id=$1 AND sale_id=$2`, tenantID, saleID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM sales WHERE tenant_id=$1 AND id=$2`, tenantID, saleID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM product_fiscal_profiles WHERE tenant_id=$1 AND product_id=$2`, tenantID, productID)
@@ -313,6 +325,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		logger,
 	)
 
+	service.SetNFCeProcessedDocumentBuilder(fakeProcessedDocumentBuilder{})
 	issuedAt := time.Date(2026, time.September, 30, 10, 30, 0, 0, time.FixedZone("BRT", -3*60*60))
 	reservation, created, err := service.ReserveNFCeDraft(
 		ctx, tenantID, actorUserID, saleID, issuedAt,
@@ -766,6 +779,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 			Reason:      "Autorizado o uso da NF-e",
 			FinalStatus: fisc.NFCeStatusAuthorized,
 			Protocol:    "131260000000001",
+			ProtocolXML: []byte("<protNFe>fake-transport-protocol</protNFe>"),
 			ReceivedAt:  authorizedAt,
 		},
 	}
