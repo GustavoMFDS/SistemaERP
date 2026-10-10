@@ -22,6 +22,7 @@ type FiscalObligation = {
   legacy_review: boolean
   invoice_id?: string
   access_key?: string
+  processed_xml_available?: boolean
 }
 type FiscalObligationsPage = {
   items: FiscalObligation[]
@@ -480,11 +481,17 @@ export default function FiscalPage() {
                               className="rounded border border-slate-300 px-2 py-1 text-xs">
                               Imprimir DANFE
                             </button>
-                            <button type="button"
-                              onClick={() => void downloadAuthorizedProcessedXML(item)}
-                              className="rounded border border-slate-300 px-2 py-1 text-xs">
-                              Baixar XML autorizado
-                            </button>
+                            {item.processed_xml_available ? (
+                              <button type="button"
+                                onClick={() => void downloadAuthorizedProcessedXML(item)}
+                                className="rounded border border-slate-300 px-2 py-1 text-xs">
+                                Baixar XML autorizado
+                              </button>
+                            ) : (
+                              <span className="text-xs text-amber-800" title="XML processado com protocolo SEFAZ ainda não arquivado">
+                                XML final pendente de arquivamento
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <span className="text-slate-500">Acompanhar</span>
