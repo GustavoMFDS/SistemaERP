@@ -128,6 +128,7 @@ async function apiDownloadInternal(
   fileName: string,
   mime: string,
   allowRefresh: boolean,
+  autoPrint: boolean,
 ): Promise<void> {
   const token = getToken()
   const headers = new Headers()
@@ -164,12 +165,12 @@ async function apiDownloadInternal(
   }
 }
 
-export async function apiOpenPrintable(path: string): Promise<void> {
+export async function apiOpenPrintable(path: string, autoPrint = false): Promise<void> {
   const popup = window.open('about:blank', '_blank')
   if (!popup) throw new Error('O navegador bloqueou a nova aba de impressão.')
   popup.opener = null
   try {
-    await apiOpenPrintableInternal(path, popup, true)
+    await apiOpenPrintableInternal(path, popup, true, autoPrint)
   } catch (error) {
     popup.close()
     throw error
@@ -189,7 +190,7 @@ async function apiOpenPrintableInternal(
   if (!res.ok) {
     if (res.status === 401 && allowRefresh) {
       const refreshed = await refreshAccessToken()
-      if (refreshed) return apiOpenPrintableInternal(path, popup, false)
+      if (refreshed) return apiOpenPrintableInternal(path, popup, false, autoPrint)
     }
     const text = await res.text().catch(() => '')
     let message = `HTTP ${res.status}`
@@ -204,6 +205,15 @@ async function apiOpenPrintableInternal(
 
   const blob = await res.blob()
   const url = URL.createObjectURL(new Blob([blob], { type: 'text/html' }))
+  if (autoPrint) {
+    // A single user click opens the popup. When the authorized DANFE HTML
+    // loads, show the OS printing dialog, never silently print on a device.
+    popup.onload = () => {
+      popup.onload = null
+      popup.focus()
+      popup.print()
+    }
+  }
   popup.location.replace(url)
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
