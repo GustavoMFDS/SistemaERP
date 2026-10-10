@@ -21,6 +21,7 @@ type FiscalObligation struct {
 	Authorized   bool      `json:"authorized"`
 	LegacyReview bool      `json:"legacy_review"`
 	InvoiceID    *string   `json:"invoice_id,omitempty"`
+	ProcessedAvailable bool `json:"processed_xml_available"`
 }
 
 type FiscalObligationsPage struct {
@@ -42,6 +43,8 @@ LEFT JOIN LATERAL (
 	WHERE tenant_id=f.tenant_id AND sale_id=f.sale_id
 	ORDER BY created_at DESC, id DESC LIMIT 1
 ) i ON true
+LEFT JOIN invoice_authorized_xml_files p
+  ON p.tenant_id=f.tenant_id AND p.invoice_id=i.id
 `
 
 const obligationAuthorization = `
@@ -75,7 +78,8 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 		SELECT f.sale_id::text, f.created_at, f.document_kind,
 			f.legacy_review, s.status,
 			i.id::text, i.status,
-			COALESCE((`+obligationAuthorization+`), false) AS authorized
+			COALESCE((`+obligationAuthorization+`), false) AS authorized,
+    COALESCE(p.invoice_id IS NOT NULL AND (`+obligationAuthorization+`), false) AS processed_available
 		`+obligationInvoiceJoin+where+`
 		ORDER BY f.created_at DESC, f.sale_id DESC LIMIT $3 OFFSET $4
 	`, tenant, unresolvedOnly, limit, offset)
@@ -89,7 +93,7 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 		var authorized *bool
 		if err := rows.Scan(&item.SaleID, &item.CreatedAt, &item.DocumentKind,
 			&item.LegacyReview, &item.SaleStatus,
-			&item.InvoiceID, &invStatus, &authorized); err != nil {
+			&item.InvoiceID, &invStatus, &authorized, &item.ProcessedAvailable); err != nil {
 			return FiscalObligationsPage{}, err
 		}
 		item.Authorized = authorized != nil && *authorized
