@@ -5,6 +5,8 @@ import (
  "encoding/base64"
  "encoding/xml"
  "fmt"
+ "errors"
+ "io"
  "strings"
  "time"
 
@@ -25,7 +27,7 @@ func ExtractProtocolXML(payload []byte) ([]byte,error) {
   before:=dec.InputOffset()
   tok,err:=dec.Token()
   if err != nil {
-    if err.Error()=="EOF" {break}
+    if errors.Is(err,io.EOF) {break}
     return nil,fmt.Errorf("parse SEFAZ protocol response: %w",err)
   }
   switch v:=tok.(type) {
