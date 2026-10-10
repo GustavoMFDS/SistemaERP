@@ -1278,9 +1278,9 @@ func (s *FiscalService) SignNFCeReserved(
 	if err != nil {
 		return "", "", err
 	}
-	if err := s.nfceValidator.Validate(ctx, unsigned); err != nil {
-		return "", "", fmt.Errorf("validate NFC-e candidate against pinned XSD: %w", err)
-	}
+	// The official nfe_v4.00.xsd describes a signed NFe: it requires
+	// ds:Signature after infNFeSupl. Validate the *signed* artifact,
+	// not the unsigned candidate which cannot satisfy that schema.
 	cfg, err := s.fiscal.GetNFCeConfig(ctx, tenantID)
 	if err != nil {
 		return "", "", err
@@ -1300,6 +1300,9 @@ func (s *FiscalService) SignNFCeReserved(
 	)
 	if err != nil {
 		return "", "", err
+	}
+	if err := s.nfceValidator.Validate(ctx, signed); err != nil {
+		return "", "", fmt.Errorf("validate signed NFC-e against configured official XSD: %w", err)
 	}
 	fileName := "NFCe-" + draft.Reservation.AccessKey + ".xml"
 	xmlID, err := s.StoreSignedNFCeXML(
