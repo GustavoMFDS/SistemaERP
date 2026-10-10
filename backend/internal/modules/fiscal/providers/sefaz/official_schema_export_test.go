@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
 	"github.com/example/sistemaemgo/internal/platform"
@@ -34,9 +35,23 @@ func TestExportOfficialNFCeSchemaFixtures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// The fixture deliberately uses a synthetic protNFe. Its purpose is
+		// to prove the 2026 XSD structure, NOT a real SEFAZ authorization.
+		protocolTime := input.Reservation.IssuedAt.Add(90 * time.Second)
+		protocolXML := authenticTestProtocol(
+			t, signed, input.Reservation.AccessKey, "2", protocolTime,
+		)
+		processed, err := BuildAuthorizedNFeProc(
+			signed, protocolXML, input.Reservation.AccessKey,
+			"131260000000001", protocolTime,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for filename, content := range map[string][]byte{
 			"nfce-" + name + "-unsigned.xml": unsigned,
 			"nfce-" + name + "-signed.xml": signed,
+			"nfce-" + name + "-proc.xml": processed,
 		} {
 			path := filepath.Join(dir, filename)
 			if err := os.WriteFile(path, content, 0600); err != nil {
