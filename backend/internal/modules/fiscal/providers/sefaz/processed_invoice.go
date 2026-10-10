@@ -149,3 +149,16 @@ func BuildAuthorizedNFeProc(signedXML, protocolXML []byte, accessKey, expectedPr
  if err:=xml.Unmarshal(b.Bytes(),&structure);err!=nil{return nil,fmt.Errorf("validate processed XML envelope: %w",err)}
  return b.Bytes(),nil
 }
+
+
+// ProcessedDocumentBuilder is the production adapter for the application
+// port; the real SEFAZ protocol must be provided by its remote authorizer.
+type ProcessedDocumentBuilder struct{}
+
+func NewProcessedDocumentBuilder() *ProcessedDocumentBuilder { return &ProcessedDocumentBuilder{} }
+
+func (b *ProcessedDocumentBuilder) Build(
+ signedXML, protocolXML []byte, accessKey, protocol string, authorizedAt time.Time,
+) ([]byte,error) {
+ return BuildAuthorizedNFeProc(signedXML,protocolXML,accessKey,protocol,authorizedAt)
+}
