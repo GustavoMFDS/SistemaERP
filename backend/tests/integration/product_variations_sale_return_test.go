@@ -84,6 +84,8 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 			"DELETE FROM payments WHERE tenant_id=$1",
 			"DELETE FROM ledger_entries WHERE tenant_id=$1",
 			"DELETE FROM sale_items WHERE tenant_id=$1",
+			"DELETE FROM invoice_xml_files WHERE tenant_id=$1",
+			"DELETE FROM invoices WHERE tenant_id=$1",
 			"DELETE FROM sales WHERE tenant_id=$1",
 			"DELETE FROM inventory_movements WHERE tenant_id=$1",
 			"DELETE FROM purchase_receipt_items WHERE tenant_id=$1",
@@ -380,4 +382,22 @@ func TestProductVariationSaleReturnIsolatesEveryBalance(t *testing.T) {
 		t.Fatalf("receipt retry duplicated or failed: %s %v", replayedReceiptID, err)
 	}
 	check(10, 4, 5)
+
+	// Preparing an XML row does not authorize the NF-e/NFC-e. The manager's
+	// queue must preserve a visible unresolved obligation even after a fiscal
+	// record was created, rather than silently marking it as issued.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO invoices(tenant_id, sale_id, company_id, status)
+		VALUES($1, $2, $1, 'xml_generated')
+	`, tenant, saleID); err != nil {
+		t.Fatalf("create test-only XML invoice placeholder: %v", err)
+	}
+	stillPending, err := obligations.QueryObligations(ctx, tenant, 20, 0, true)
+	if err != nil || stillPending.Total != 1 || len(stillPending.Items) != 1 {
+		t.Fatalf("XML alone dropped fiscal obligation: %+v err=%v", stillPending, err)
+	}
+	if stillPending.Items[0].Status != "xml_generated" ||
+		stillPending.Items[0].Authorized {
+		t.Fatalf("XML incorrectly treated as authorized: %+v", stillPending.Items[0])
+	}
 }
