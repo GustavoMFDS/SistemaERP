@@ -109,7 +109,9 @@ qualidade de código ou de progresso validado.
 - [ ] Catálogo de categorias/marcas e filtros completos com interface de gestão verificada ponta a ponta.
 - [ ] Exportação estruturada de todo o cadastro de produtos **com níveis explícitos de permissão para preço e custo**.
 - [ ] Etiquetas com código de barras/preço para prateleiras e balança, quando aplicável.
-- [ ] Fotos de produtos, variações/unidades de embalagem e kits/composições.
+- [ ] **Galeria opcional de fotos (prioridade P1):** até cinco fotos por produto, selecionadas no PC ou celular, com principal automática, prévias no estoque/PDV, compressão e exclusão; não exigir foto para cadastro ou venda.
+- [ ] **Variações opcionais (prioridade P1):** perguntar em linguagem simples se o produto tem cores/tamanhos/modelos e se a loja quer controlar saldo por opção; se sim, SKU/código de barras e saldo distintos para cada opção, com baixa, devolução, inventário e relatórios consistentes.
+- [ ] **Unidades de embalagem e kits (P2):** manter separados do cadastro de variações e definir conversão/estoque antes de liberar vendas.
 
 **Melhorias:** validação de preço/custo em telas simples, diagnóstico de CSV linha a linha, comparação antes/depois da importação, importação de atualização sem recriar produtos.
 
@@ -376,3 +378,68 @@ Um item só pode ser apresentado como **validado** quando existirem, no mínimo:
 | 2026-10-09 | Catálogo de estado do sistema | PR #15 / HEAD acima | Inventariado | **Não**: runner 0 / steps 0 | Não | CI, migrations 33–34, homologação fiscal e operação real |
 
 **Observação final:** nenhum item marcado `[x]` neste documento, isoladamente, autoriza emissão de documento fiscal, movimentação bancária real, merge ou implantação em produção.
+
+
+## Adição aprovada — fotos e variações no catálogo (09/10/2026)
+
+**Solicitação do proprietário:** cadastrar por exemplo um único "Caderno Brochurão 96 folhas" com três fotos (azul, rosa e verde), preservando um cadastro simples e permitindo controlar por cor **apenas quando a loja pedir**. Cada CNPJ permanece isolado.
+
+**Fluxo de loja:** clicar em "Adicionar fotos" (opcional); até cinco arquivos JPG/PNG/WebP, arrastar/reordenar a principal, excluir/substituir; visualizar miniaturas na busca do catálogo, tela de estoque e seleção no PDV. Escolher "Este produto tem cores ou tamanhos diferentes?" (não por padrão). Em caso afirmativo: "Quer acompanhar quantas unidades há de cada opção?" (não obrigatório).
+
+**Dois comportamentos, sem duplicação fiscal acidental:** (A) só fotos/cores ilustrativas com **um único estoque**; (B) variações comercializáveis com identificador próprio, estoque e código de barras por opção. Fotos nunca criam automaticamente nova linha de estoque. O modo B exige compatibilidade transacional com venda, devolução/troca, recebimentos, ajuste, carga inicial, estoque mínimo, CSV/relatórios e snapshot de venda; alterar depois de vender deve preservar histórico. Não deduzir quantidades de cores de uma foto.
+
+**Validações obrigatórias:** tenant/RBAC em todas as operações de fotos, tamanho/tipo de arquivo e contagem limite no backend, mídia privada (sem URLs públicas abertas entre lojas), prevenção de HTML/SVG/script, otimização e armazenamento escalável, auditoria de inclusão/remoção/seleção de principal, teste de permissões cruzadas, concorrência e idempotência de tentativas ambíguas, busca paginada sem carregar fotos originais, E2E desktop e celular, leitura com conexão instável/offline sem quebrar a venda. Não incluir imagens no XML fiscal como se fossem item tributário.
+
+**Ordem proposta:** 1) galeria persistente e miniaturas; 2) representação de variações sem estoque por opção; 3) fluxo de variações com controle de saldo e integração transacional; 4) testes, migração reversível, acessibilidade e homologação. Até essas provas, manter os itens acima [ ] e não declarar a funcionalidade pronta nem efetuar merge.
+
+**Bloqueios gerais preservados:** PR #15 continua sem merge; CI do SHA corrente não está validado, e fiscal/SEFAZ real continua condicionado a testes/homologação externos.
+
+### Implementação inicial rastreada (PR #25, ainda rascunho)
+
+- **Código novo na branch feature/catalog-product-photos-20261009:** migration 0036, API privada de até cinco fotos por produto, JPEG normalizado no servidor, miniaturas bateladas no catálogo/estoque/PDV, permissão de leitura/escrita, auditoria de adição/remoção, replay idempotente e galeria opcional na UI.
+- **Atenção:** a galeria está implementada no código, mas **não foi testada ponta a ponta** nesta branch. A escolha/reordenação manual da foto principal também não foi implementada; por enquanto a primeira foto é principal automaticamente. O requisito fica marcado aberto até o aceite e a validação.
+- **Variações e estoque por cor/tamanho:** permanecem explicitamente pendentes na [issue #24](https://github.com/GustavoMFDS/SistemaERP/issues/24). O envio de múltiplas imagens hoje **não divide o estoque**: as imagens são ilustrativas de um produto único.
+- [PR #25 — fotos e miniaturas](https://github.com/GustavoMFDS/SistemaERP/pull/25) foi aberto como *draft* contra a branch do PR #15, sem merge.
+- **CI da branch:** runs recentes continuam sem executar steps (jobs runner_id=0, steps=[]), inclusive o run 37958899385; não há evidência de go test, build, lint, integração, E2E ou upgrade/rollback de 0036 aprovado. A etapa de verificação de migration foi adicionada ao workflow, não executada com sucesso.
+- **Gate para merge:** validar testes Go, build/lint, migração v36 com rollback/reapply, controle de acesso de duas lojas e E2E de galeria, seleção no PDV, devoluções e estoque. O PR #15 e a homologação fiscal continuam gates independentes.
+
+### Resultado complementar v37 — identificação visual por cor (09/10/2026)
+
+- A galeria agora oferece **nome opcional por foto** (ex.: Azul, Rosa ou Verde; até 40 caracteres), com gravação via rota protegida por CNPJ, auditoria e verificação de formato e tamanho. **Isto não cria SKU ou estoque por cor.** A escolha de controle de saldo por variação comercial segue na issue #24.
+- Migração 0037 acrescenta `caption` e limite em banco. O ambiente PostgreSQL isolado foi atualizado até `schema_migrations=37, dirty=false` e a coluna foi confirmada. O workflow tem procedimento de upgrade/rollback/reapply; **o rollback ainda não foi executado localmente**.
+- Banco real: `backend/tests/integration/product_images_isolation.sql` aprovado (DO, seguido de ROLLBACK), testando duas empresas independentes, associação entre CNPJs rejeitada, chave repetida rejeitada, legenda persistida, limite de 40 caracteres e impedimento de editar legenda usando tenant incorreto. O script entrou no job de integração.
+- Após a mudança: `go test ./...` aprovado, `npm run build` aprovado; teste Playwright Chromium com API simulada `web/e2e/product-photos.spec.ts` passou 1/1, incluindo salvar "Azul" e preservar o saldo. Não equivale a validação E2E com API/DB conectados.
+- Os jobs GitHub-hosted do PR #25 continuam falhando antes de iniciar (`runner_id=0, steps=[]`); dependência externa registrada na issue #28. Não fazer merge, nem liberar a funcionalidade/fiscal para produção, até integração e gates passarem.
+
+### Entrega incremental: cadastrar cor com saldo próprio (09/10/2026)
+
+- Para uma loja que não quer diferenciar quantidades por cor, mantém-se um único produto com até cinco fotos e legendas. Nenhuma nova movimentação de estoque é criada por essas legendas.
+- Para uma loja que **escolher saldo por cor/tamanho**, o catálogo oferece `Nova cor/tamanho com estoque próprio` no produto original. Esta ação **não converte nem divide saldos existentes**; prepara o cadastro de um **novo produto com SKU exclusivo** e estoque inicial zero. O operador pode então fazer o ajuste da nova quantidade no fluxo normal do Estoque.
+- O formulário reaproveita nome base, unidade, preço à vista e estoque mínimo, mas exige SKU novo e deixa código de barras, NCM e CEST vazios para revisão, evitando duplicação silenciosa de GTIN ou tributação.
+- Vendas, devoluções, compras e relatórios continuarão vinculados a cada `product_id` e ao seu estoque independente. **Ainda faltam** agrupamento formal de produtos da mesma família, seletor de opção no PDV, testes integrados das movimentações e UX de estoque consolidado (issue #24). Não considerar a issue concluída.
+- No upload de imagens, a miniatura é agora **gerada a partir da foto normalizada pelo servidor**, impedindo divergência deliberada entre foto grande e foto que aparece no caixa. O cliente envia somente `image_base64`; `thumbnail_base64` antigo é aceito mas ignorado para compatibilidade.
+- Evidências locais deste SHA: `go test ./...` passou; `npm run build` passou; dois testes Playwright Chromium (API simulada) passaram. Na execução anterior também passou `go test -tags=integration ./tests/integration/... -count=1` contra PostgreSQL real e Redis de teste. Os testes E2E de autenticação e transações reais ainda não foram substituídos.
+
+### Variações vinculadas — incremento 0038 (09/10/2026)
+
+- **Sem controle por cor:** fotos e legendas continuam opcionais; todas as opções visuais usam o saldo do mesmo produto.
+- **Com controle por cor/tamanho:** o cadastro `Nova cor/tamanho com estoque próprio` grava, numa única transação, um **SKU novo** e seu vínculo ao produto original (`product_variations`). Cada SKU tem `product_id`, `inventory_balances`, preço e histórico próprios; o estoque do produto-base não é dividido nem transferido.
+- O banco assegura que base e variante pertençam à **mesma empresa/CNPJ**, impedindo referências cruzadas; também impede vincular o mesmo SKU a múltiplas famílias e nomes de opção duplicados na mesma família, ignorando maiúsculas/minúsculas.
+- Não se permite criar subvariantes usando uma variante como base. O serviço transacional valida opções não vazias de até 40 caracteres, existência de pai, exclusividade da opção e reversão do SKU novo caso falhe qualquer etapa, inclusive auditoria.
+- `GET /api/v1/products/{id}/variations` aceita o código do produto-base ou de uma variante e retorna os SKUs agrupados com seus respectivos saldos e preços, **limitados ao tenant autenticado**. `POST /api/v1/products/{id}/variations` cria a opção de forma atômica, com autorização `product:write`, origem confiável e controle de taxa.
+- O catálogo exibe o painel **Ver cores/tamanhos**, mostrando família, SKU, preços e saldos independentes; criar nova opção a partir de uma cor existente resolve o produto-base e cria uma irmã, sem aninhar grupos.
+- O PDV exibe o seletor **Cor ou tamanho deste produto** quando houver mais de um SKU na família. Ao mudar de opção, os itens adicionados à venda continuam registrados pelo `product_id` exato; outras opções não são consumidas.
+- A migração **0038** foi aplicada no PostgreSQL Docker isolado e confirmada em `schema_migrations=38, dirty=false`. Os testes Go com banco real `TestProductVariationAtomicStockAndTenantBoundary` passaram, cobrindo estoque original preservado, saldo zero da variante, SKU órfão inexistente após conflito, subvariante bloqueada e vínculo inter-CNPJ negado. Testes Chromium com API simulada: **3/3** (criação, seleção no PDV, fotos). `go test ./...` e `npm run build` também passaram.
+- Workflow de CI ganhou teste de `up/down/up` da migração 0038, **ainda não executado pelos runners GitHub** devido ao bloqueio da issue #28. E2E completo com backend real, offline/cache, venda + devolução por variação e homologação fiscal por SKU seguem como critérios pendentes na issue #24; não classificar a expansão como pronta para produção.
+
+
+### Evidência integrada local — vendas, devoluções, ajustes e compras (09/10/2026)
+
+- `backend/tests/integration/product_variations_sale_return_test.go`: exercício transacional **real** em PostgreSQL isolado, com **Redis habilitado**, que cria uma família de SKUs em CNPJ temporário de teste, abre uma sessão de caixa e registra uma venda de 2 unidades Azuis. O saldo muda apenas no SKU Azul (5→3); produto-base (10) e Rosa (3) ficam intactos.
+- A mesma `Idempotency-Key` da venda não gera nova venda; venda acima do saldo da cor é bloqueada. A devolução de uma Azul com reposição move só Azul (3→4), preserva o reembolso correto, não duplica em replay e impede devolução acima do vendido.
+- Ajuste de estoque direto no SKU Rosa (+1 e -1) não altera outras cores; ajuste que resultaria em estoque negativo é recusado.
+- Compra vinculada ao SKU Rosa, recebimento de duas unidades e replay do mesmo comprovante aumentam só o saldo Rosa (3→5), sem duplicação.
+- O teste também confere que o cache Redis retorna o novo saldo após venda e devolução. Corrigiu-se a implementação `CachedProductsRepo.CreateVariation`, que antes não repassava a criação de variantes: a composição com Redis podia recusar novos grupos mesmo com PostgreSQL correto.
+- O PDV agora persiste no **cache offline escopado ao tenant/usuário** as variantes descobertas depois das primeiras 200 linhas, sem estender a idade original (24h). Falha de `localStorage` não invalida um catálogo online recém-carregado. Estoque/cache offline é somente indicativo e sempre revalidado no servidor durante a sincronização.
+- A migração `0038.down` passou a rejeitar rollback caso existam vínculos de variantes, preservando dados e impedindo perda silenciosa de agrupamento. A reversão real da migração **não foi executada nesta rodada**, mesmo em ambiente de teste; continua como gate técnico.
+- Não foram realizadas operações em ambiente fiscal real ou na SEFAZ. O escopo desta validação cobre serviços locais e banco/Redis de testes; navegador Chromium usa API simulada. Aparelhos físicos, sincronização após falhas complexas de rede e homologação fiscal permanecem pendentes.

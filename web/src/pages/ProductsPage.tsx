@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { APIError, apiJson, errorMessage } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 import ImportBatchHistory from '../components/ImportBatchHistory'
+import ProductPhotos from '../components/ProductPhotos'
+import ProductFamily from '../components/ProductFamily'
+import { useProductThumbnails } from '../lib/productThumbnails'
 import { clearPendingProductImport, fingerprintProducts, readPendingProductImport, savePendingProductImport, type PendingProductImport } from '../lib/productImportRecovery'
 import { parseProductCSV, PRODUCT_IMPORT_EXAMPLE, type ProductImportPreview } from '../lib/productImport'
 
@@ -46,6 +49,14 @@ export default function ProductsPage() {
   const [query, setQuery] = useState('')
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
+  const [photoProductId, setPhotoProductId] = useState('')
+  const [familyProductId, setFamilyProductId] = useState('')
+  const manualFormRef = useRef<HTMLDetailsElement>(null)
+  const skuInputRef = useRef<HTMLInputElement>(null)
+  const [variationSource, setVariationSource] = useState('')
+  const [variationParentId, setVariationParentId] = useState('')
+  const [variationOptionLabel, setVariationOptionLabel] = useState('')
+  const [photoVersion, setPhotoVersion] = useState(0)
   const [items, setItems] = useState<Product[]>([])
   const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
   const [ncmDrafts, setNcmDrafts] = useState<Record<string, string>>({})
@@ -74,6 +85,7 @@ export default function ProductsPage() {
 
   const lowStockItems = items.filter((p) => p.active && p.min_stock > 0 && p.qty_on_hand <= p.min_stock)
   const visibleItems = onlyLowStock ? lowStockItems : items
+  const thumbnails = useProductThumbnails(visibleItems.map((item) => item.id), photoVersion)
 
   const canCreate = useMemo(() => sku.trim() && name.trim() && priceCash > 0, [
     sku,
@@ -81,12 +93,12 @@ export default function ProductsPage() {
     priceCash,
   ])
 
-  async function load() {
+  async function load(nextQuery = query) {
     setError('')
     setLoading(true)
     try {
       const qs = new URLSearchParams()
-      if (query.trim()) qs.set('query', query.trim())
+      if (nextQuery.trim()) qs.set('query', nextQuery.trim())
       const data = await apiJson<ListResponse>(`/api/v1/products?${qs.toString()}`)
       setItems(data.items)
       setTotal(data.total)
@@ -178,10 +190,12 @@ export default function ProductsPage() {
         min_stock: Number(minStock) || 0,
         active: true,
       }
-      await apiJson<{ id: string }>('/api/v1/products', {
-        method: 'POST',
-        body: payload,
-      })
+      const created = await apiJson<{ id: string }>(
+        variationParentId ? '/api/v1/products/' + encodeURIComponent(variationParentId) + '/variations' : '/api/v1/products', {
+          method: 'POST',
+          body: variationParentId ? { option_label: variationOptionLabel, product: payload } : payload,
+        },
+      )
       setSku('')
       setBarcode('')
       setNcm('')
@@ -189,10 +203,62 @@ export default function ProductsPage() {
       setName('')
       setPriceCash(0)
       setMinStock(0)
-      await load()
+      setVariationSource('')
+      setVariationParentId('')
+      setVariationOptionLabel('')
+      setQuery(payload.name)
+      setPhotoProductId(created.id)
+      await load(payload.name)
     } catch (e: unknown) {
       setError(errorMessage(e))
     }
+  }
+
+
+  async function prepareNewVariation(product: Product) {
+    if (!canWrite) return
+    const option = window.prompt('Qual é a cor ou tamanho? Ex.: Azul, Verde, 42')?.trim()
+    if (!option) return
+    if (option.length > 40) {
+      setError('Use no máximo 40 caracteres para a cor ou tamanho.')
+      return
+    }
+    // A variant may be selected in the catalog. Resolve its real parent
+    // before creating a sibling, never attempt nested product families.
+    const scope = getSessionScope()
+    let parent = product
+    let parentId = product.id
+    try {
+      const family = await apiJson<{ parent_id: string; items: Array<{
+        id: string; name: string; unit: string; price_cash: number
+      }> }>('/api/v1/products/' + encodeURIComponent(product.id) + '/variations')
+      if (scope !== getSessionScope()) return
+      const resolved = family.items.find((item) => item.id === family.parent_id)
+      if (!resolved) throw new Error('O produto-base não foi encontrado nesta loja.')
+      parentId = family.parent_id
+      parent = { ...product, ...resolved }
+    } catch (e: unknown) {
+      if (scope === getSessionScope()) setError('Não foi possível consultar as opções do produto: ' + errorMessage(e))
+      return
+    }
+    // Reuse standard sale/return and inventory rules for the new SKU.
+    setSku('')
+    setBarcode('')
+    setNcm('')
+    setCest('')
+    setName(parent.name + ' — ' + option)
+    setUnit(parent.unit)
+    setPriceCash(parent.price_cash)
+    setMinStock(parent.min_stock)
+    setVariationSource(parent.name + ' — ' + option)
+    setVariationParentId(parentId)
+    setVariationOptionLabel(option)
+    setError('')
+    if (manualFormRef.current) {
+      manualFormRef.current.open = true
+      manualFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    window.requestAnimationFrame(() => skuInputRef.current?.focus())
   }
 
   async function chooseImportFile(event: ChangeEvent<HTMLInputElement>) {
@@ -412,6 +478,7 @@ export default function ProductsPage() {
         <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
+              <th className="px-3 py-2">Foto</th>
               <th className="px-3 py-2">Código (SKU)</th>
               {showTechnical ? (<>
               <th className="px-3 py-2">Código de barras</th>
@@ -428,7 +495,16 @@ export default function ProductsPage() {
           </thead>
           <tbody className="divide-y">
             {visibleItems.map((p) => (
-              <tr key={p.id}>
+              <Fragment key={p.id}>
+              <tr>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    {thumbnails[p.id] ? (
+                      <img src={thumbnails[p.id]} alt={p.name} className="h-12 w-12 rounded-md object-cover" />
+                    ) : <span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-100 text-xs text-slate-500">Sem foto</span>}
+                    <button type="button" onClick={() => setPhotoProductId(photoProductId === p.id ? '' : p.id)} className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50">Fotos</button>
+                  </div>
+                </td>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
                 {showTechnical ? (<>
                 <td className="px-3 py-2">
@@ -488,7 +564,17 @@ export default function ProductsPage() {
                   )}
                 </td>
                 </>) : null}
-                <td className="px-3 py-2">{p.name}</td>
+                <td className="px-3 py-2">
+                  <div>{p.name}</div>
+                  <button type="button" onClick={() => setFamilyProductId(familyProductId === p.id ? "" : p.id)}
+                    className="mt-1 mr-3 text-xs font-medium text-blue-700 underline hover:text-blue-900">
+                    {familyProductId === p.id ? "Ocultar cores/tamanhos" : "Ver cores/tamanhos"}
+                  </button>
+                  {canWrite ? <button type="button" onClick={() => void prepareNewVariation(p)}
+                    className="mt-1 text-xs font-medium text-blue-700 underline hover:text-blue-900">
+                    Nova cor/tamanho com estoque próprio
+                  </button> : null}
+                </td>
                 <td className="px-3 py-2">{p.unit}</td>
                 <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
                 <td className="px-3 py-2">
@@ -500,9 +586,21 @@ export default function ProductsPage() {
                 <td className="px-3 py-2">{p.min_stock.toFixed(2)}</td>
                 <td className="px-3 py-2">{p.active ? 'Sim' : 'Não'}</td>
               </tr>
+              {familyProductId === p.id ? (
+                <tr><td colSpan={showTechnical ? 11 : 8} className="p-3">
+                  <ProductFamily productId={p.id} />
+                </td></tr>
+              ) : null}
+              {photoProductId === p.id ? (
+                <tr><td colSpan={showTechnical ? 11 : 8} className="p-3">
+                  <ProductPhotos productId={p.id} productName={p.name} canWrite={canWrite}
+                    onChange={() => setPhotoVersion((value) => value + 1)} />
+                </td></tr>
+              ) : null}
+              </Fragment>
             ))}
             {visibleItems.length === 0 ? (
-              <tr><td colSpan={showTechnical ? 10 : 7} className="px-3 py-6 text-center text-sm text-gray-500">
+              <tr><td colSpan={showTechnical ? 11 : 8} className="px-3 py-6 text-center text-sm text-gray-500">
                 {onlyLowStock ? 'Nenhum produto abaixo do mínimo entre os resultados carregados.' : 'Nenhum produto encontrado.'}
               </td></tr>
             ) : null}
@@ -572,13 +670,17 @@ export default function ProductsPage() {
       ) : null}
 
       {canWrite ? (
-        <details className="mt-5 rounded-2xl border border-slate-200 p-5">
+        <details ref={manualFormRef} className="mt-5 rounded-2xl border border-slate-200 p-5">
           <summary className="cursor-pointer text-base font-bold">Adicionar produto manualmente</summary>
         <form onSubmit={onCreate} className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-8">
           <p className="text-sm text-slate-600 md:col-span-8">Preencha o nome, o código e o preço. Os dados fiscais podem ser preenchidos depois, com ajuda do contador.</p>
+          {variationSource ? <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 md:col-span-8">
+            Nova opção de {variationSource}: ela ficará vinculada ao produto original, mas terá código e estoque independentes. Informe um SKU diferente. O saldo começa zerado; ajuste-o na aba Estoque após cadastrar. Os dados fiscais e código de barras não são copiados automaticamente.
+          </p> : null}
           <label className="block md:col-span-2">
             <span className="text-xs text-gray-600">Código do produto (SKU)</span>
             <input
+              ref={skuInputRef}
               value={sku}
               onChange={(e) => setSku(e.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"

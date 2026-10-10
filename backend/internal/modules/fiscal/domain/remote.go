@@ -9,6 +9,7 @@ type NFCeRemoteOutcome struct {
 	FinalStatus string    `json:"final_status,omitempty"`
 	Protocol    string    `json:"protocol,omitempty"`
 	ReceivedAt  time.Time `json:"received_at,omitempty"`
+	ProtocolXML []byte `json:"-"`
 }
 
 func (o NFCeRemoteOutcome) Authorized() bool {

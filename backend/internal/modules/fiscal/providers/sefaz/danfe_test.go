@@ -61,10 +61,17 @@ func TestDANFERendererRendersAuthorizedNFCe(t *testing.T) {
 		"3126 0912 3456 7800 0195 6500 1000 0000 4211 2345 6789",
 		"data:image/png;base64,",
 		"width: 32mm",
+		"width: 100%; max-width: 80mm;",
+		"overflow-wrap: anywhere;",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("DANFE missing %q", want)
 		}
+	}
+	// Never force a fixed 80mm body: with a 58mm thermal paper driver,
+	// the DANFE must adapt to the print-area width without clipping columns.
+	if strings.Contains(got, "body { width: 80mm;") {
+		t.Fatal("DANFE forces 80mm and would clip on 58mm thermal paper")
 	}
 	if strings.Contains(got, "#ZgotmplZ") {
 		t.Fatal("QR Code data URL was sanitized by html/template")

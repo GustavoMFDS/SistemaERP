@@ -144,11 +144,20 @@ func authorizationOutcome(
 		return fisc.NFCeRemoteOutcome{}, fmt.Errorf("authorization outcome access key mismatch")
 	}
 	if response.Protocol.StatusCode == 100 {
+		// A successful code without a matching access key, nonempty
+		// SEFAZ protocol and receipt timestamp is NOT authorization.
+		// Treat ambiguous or malformed responses as errors; never
+		// manufacture protocol fields for the final fiscal artifact.
+		if strings.TrimSpace(response.Protocol.AccessKey) != expectedAccessKey ||
+			strings.TrimSpace(response.Protocol.Protocol) == "" {
+			return fisc.NFCeRemoteOutcome{}, fmt.Errorf("authorized SEFAZ response has missing protocol or access key")
+		}
 		receivedAt, err := parseProtocolTime(response.Protocol.ReceivedAt)
 		if err != nil {
 			return fisc.NFCeRemoteOutcome{}, err
 		}
 		out.FinalStatus = fisc.NFCeStatusAuthorized
+		out.ProtocolXML = append([]byte(nil), response.Protocol.RawXML...)
 		out.ReceivedAt = receivedAt
 		return out, nil
 	}
@@ -178,11 +187,20 @@ func consultationOutcome(
 	out.Reason = strings.TrimSpace(response.Protocol.Reason)
 	out.Protocol = strings.TrimSpace(response.Protocol.Protocol)
 	if response.Protocol.StatusCode == 100 {
+		// A successful code without a matching access key, nonempty
+		// SEFAZ protocol and receipt timestamp is NOT authorization.
+		// Treat ambiguous or malformed responses as errors; never
+		// manufacture protocol fields for the final fiscal artifact.
+		if strings.TrimSpace(response.Protocol.AccessKey) != expectedAccessKey ||
+			strings.TrimSpace(response.Protocol.Protocol) == "" {
+			return fisc.NFCeRemoteOutcome{}, fmt.Errorf("authorized SEFAZ response has missing protocol or access key")
+		}
 		receivedAt, err := parseProtocolTime(response.Protocol.ReceivedAt)
 		if err != nil {
 			return fisc.NFCeRemoteOutcome{}, err
 		}
 		out.FinalStatus = fisc.NFCeStatusAuthorized
+		out.ProtocolXML = append([]byte(nil), response.Protocol.RawXML...)
 		out.ReceivedAt = receivedAt
 		return out, nil
 	}

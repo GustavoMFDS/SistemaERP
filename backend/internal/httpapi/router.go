@@ -72,6 +72,13 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.With(middleware.RequireAnyPermission("product:write", "inventory:adjust")).Get("/imports/history", h.Products.ListUnifiedImportHistory)
 
 			pr.Route("/products", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("product:read")).Get("/images/previews", h.ProductImages.Previews)
+				rr.With(middleware.RequirePermission("product:read")).Get("/{id}/images", h.ProductImages.List)
+				rr.With(middleware.RequirePermission("product:read")).Get("/{id}/variations", h.ProductVariations.List)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/{id}/variations", h.ProductVariations.Create)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/{id}/images", h.ProductImages.Upload)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin).Delete("/{id}/images/{photoID}", h.ProductImages.Delete)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin).Patch("/{id}/images/{photoID}/caption", h.ProductImages.SetCaption)
 				rr.With(middleware.RequirePermission("product:read")).Get("/", h.Products.List)
 				rr.With(middleware.RequirePermission("product:read")).Get("/barcode/{barcode}", h.Products.GetByBarcode)
 				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/import-batches", h.Products.ImportBatch)
@@ -124,6 +131,8 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/sales", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("sale:read")).Get("/", h.Sales.List)
 				rr.With(middleware.RequirePermission("sale:read")).Get("/{id}", h.Sales.Get)
+				rr.With(middleware.RequireAnyPermission("sale:read", "sale:write")).Get("/{id}/fiscal-status", h.SaleFiscal.Status)
+				rr.With(middleware.RequireAnyPermission("sale:read", "sale:write"), fiscalLimit).Get("/{id}/fiscal-danfe", h.SaleFiscal.PrintDANFE)
 				rr.With(middleware.RequirePermission("sale:write"), salesLimit).Post("/", h.Sales.CreateAndFinalize)
 				rr.With(middleware.RequirePermission("sale:return")).Post("/{id}/returns", h.Returns.CreateForSale)
 				rr.With(middleware.RequirePermission("sale:cancel")).Post("/{id}/cancel", h.Sales.Cancel)
@@ -153,12 +162,14 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 			if mods.Fiscal != nil {
 				pr.Route("/fiscal", func(rr chi.Router) {
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/obligations", h.SaleFiscal.ListObligations)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/readiness", h.Fiscal.NFCeReadiness)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/reservations", h.Fiscal.ReserveNFCeDraft)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/reservations/offline-contingency", h.Fiscal.ReserveNFCeOfflineContingency)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/inutilizations", h.Fiscal.InutilizeNFCeNumbers)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/invoices/{invoiceID}/tax-calculations", h.Fiscal.ListInvoiceTaxCalculations)
 					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/danfe", h.Fiscal.DownloadNFCeDANFE)
+					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/processed-xml", h.Fiscal.DownloadAuthorizedNFCeProcessedXML)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/xml-candidate", h.Fiscal.PreviewNFCeXMLCandidate)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/sign", h.Fiscal.SignNFCeReserved)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/authorize", h.Fiscal.AuthorizeNFCe)

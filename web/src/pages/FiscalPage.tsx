@@ -12,6 +12,38 @@ type XMLFile = {
 
 type XMLListResponse = { items: XMLFile[]; total: number }
 
+type FiscalObligation = {
+  sale_id: string
+  created_at: string
+  document_kind: 'nfce' | 'nfe'
+  sale_status: string
+  status: string
+  authorized: boolean
+  legacy_review: boolean
+  invoice_id?: string
+  access_key?: string
+  processed_xml_available?: boolean
+}
+type FiscalObligationsPage = {
+  items: FiscalObligation[]
+  total: number
+  limit: number
+  offset: number
+}
+
+const fiscalObligationStatusLabel: Record<string, string> = {
+  pending: 'Aguardando emissão',
+  legacy_review: 'Venda anterior: revisar',
+  sale_cancelled_review: 'Venda cancelada: revisar fiscal',
+  reserved: 'Número reservado — não autorizado',
+  signed: 'Documento assinado — não autorizado',
+  submitted: 'Enviado — consultar protocolo',
+  rejected: 'Rejeitada — corrigir',
+  authorized: 'Autorizada',
+  cancelled: 'Nota cancelada — revisar',
+  xml_generated: 'XML preparado — sem autorização',
+}
+
 type NFCeReadiness = {
   tenant_id: string
   model: number
@@ -76,6 +108,11 @@ export default function FiscalPage() {
   const [message, setMessage] = useState('')
   const [items, setItems] = useState<XMLFile[]>([])
   const [total, setTotal] = useState(0)
+  const [fiscalObligations, setFiscalObligations] = useState<FiscalObligationsPage | null>(null)
+  const [fiscalObligationsError, setFiscalObligationsError] = useState('')
+  const [fiscalObligationsLoading, setFiscalObligationsLoading] = useState(false)
+  const [obligationsOffset, setObligationsOffset] = useState(0)
+  const [showAllObligations, setShowAllObligations] = useState(false)
   const [readiness, setReadiness] = useState<NFCeReadiness | null>(null)
   const [issuer, setIssuer] = useState<NFCeIssuerProfile | null>(null)
   const [config, setConfig] = useState<NFCeConfig | null>(null)
@@ -117,6 +154,57 @@ export default function FiscalPage() {
     setCertificateSecretRef('')
   }
 
+  async function downloadAuthorizedProcessedXML(item: FiscalObligation) {
+    if (!item.authorized || !item.invoice_id || item.document_kind !== 'nfce') return
+    setFiscalObligationsError('')
+    try {
+      await apiDownload(
+        '/api/v1/fiscal/nfce/invoices/' + encodeURIComponent(item.invoice_id) + '/processed-xml',
+        (item.access_key ?? item.invoice_id) + '-procNFe.xml',
+        'application/xml',
+      )
+    } catch (error: unknown) {
+      setFiscalObligationsError(
+        'XML autorizado indisponível: ' + errorMessage(error) +
+        '. Verifique se o protocolo SEFAZ foi preservado para esta nota.',
+      )
+    }
+  }
+
+  async function printAuthorizedFiscalObligation(item: FiscalObligation) {
+    if (!item.authorized || !item.invoice_id || item.document_kind !== 'nfce') return
+    setFiscalObligationsError('')
+    try {
+      await apiOpenPrintable(
+        '/api/v1/fiscal/nfce/invoices/' + encodeURIComponent(item.invoice_id) + '/danfe',
+        true,
+      )
+    } catch (error: unknown) {
+      setFiscalObligationsError('Impressão indisponível: ' + errorMessage(error))
+    }
+  }
+
+  async function loadObligations(offset: number, includeAuthorized: boolean) {
+    // A controlled checkbox must update synchronously; waiting for the
+    // network before updating "checked" makes the browser undo the click.
+    setShowAllObligations(includeAuthorized)
+    setFiscalObligations(null)
+    setFiscalObligationsLoading(true)
+    setFiscalObligationsError('')
+    try {
+      const page = await apiJson<FiscalObligationsPage>(
+        '/api/v1/fiscal/obligations?limit=20&offset=' + offset +
+        '&unresolved=' + String(!includeAuthorized),
+      )
+      setFiscalObligations(page)
+      setObligationsOffset(page.offset)
+    } catch (error: unknown) {
+      setFiscalObligationsError(errorMessage(error))
+    } finally {
+      setFiscalObligationsLoading(false)
+    }
+  }
+
   async function load() {
     setError('')
     setLoading(true)
@@ -152,6 +240,7 @@ export default function FiscalPage() {
 
   useEffect(() => {
     void load()
+    void loadObligations(0, false)
   }, [])
 
   async function saveIssuer(e: FormEvent) {
@@ -326,6 +415,122 @@ export default function FiscalPage() {
         </section>
       ) : null}
 
+      <section aria-label="Pendências fiscais das vendas" className="mt-4 rounded-2xl border border-amber-200 bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Vendas e emissão fiscal</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Cada venda gera uma obrigação fiscal independente da impressão.
+              Uma pendência nesta lista não é uma NFC-e/NF-e autorizada.
+            </p>
+          </div>
+          <button type="button" disabled={fiscalObligationsLoading}
+            onClick={() => void loadObligations(obligationsOffset, showAllObligations)}
+            className="rounded-md border border-slate-300 px-3 py-2 text-xs disabled:opacity-50">
+            {fiscalObligationsLoading ? 'Consultando…' : 'Atualizar pendências'}
+          </button>
+        </div>
+        <label className="mt-3 flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={showAllObligations} disabled={fiscalObligationsLoading}
+            onChange={(event) => void loadObligations(0, event.target.checked)} />
+          Mostrar também vendas com nota autorizada
+        </label>
+        {fiscalObligationsError ? (
+          <p role="alert" className="mt-3 text-sm text-red-700">
+            Não foi possível consultar as obrigações fiscais: {fiscalObligationsError}
+          </p>
+        ) : null}
+        {fiscalObligations ? (
+          <>
+            <p className="mt-3 text-xs text-slate-600">
+              {showAllObligations ? 'Registros fiscais da loja' : 'Vendas que precisam de acompanhamento'}:
+              {' '}{fiscalObligations.total}
+            </p>
+            <div className="mt-2 overflow-x-auto rounded-md border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="px-3 py-2">Venda</th>
+                    <th className="px-3 py-2">Data</th>
+                    <th className="px-3 py-2">Modelo</th>
+                    <th className="px-3 py-2">Situação fiscal</th>
+                    <th className="px-3 py-2">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {fiscalObligations.items.map((item) => (
+                    <tr key={item.sale_id}>
+                      <td className="px-3 py-2 font-mono" title={item.sale_id}>
+                        {item.sale_id.slice(0, 8)}…
+                      </td>
+                      <td className="px-3 py-2">
+                        {new Date(item.created_at).toLocaleString('pt-BR')}
+                      </td>
+                      <td className="px-3 py-2">{item.document_kind.toUpperCase()}</td>
+                      <td className={item.authorized
+                        ? 'px-3 py-2 text-green-800'
+                        : 'px-3 py-2 font-semibold text-amber-800'}>
+                        {fiscalObligationStatusLabel[item.status] ?? item.status}
+                        {item.legacy_review ? ' • histórico' : ''}
+                      </td>
+                      <td className="px-3 py-2">
+                        {item.authorized && item.document_kind === 'nfce' && item.invoice_id ? (
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button"
+                              onClick={() => void printAuthorizedFiscalObligation(item)}
+                              className="rounded border border-slate-300 px-2 py-1 text-xs">
+                              Imprimir DANFE
+                            </button>
+                            {item.processed_xml_available ? (
+                              <button type="button"
+                                onClick={() => void downloadAuthorizedProcessedXML(item)}
+                                className="rounded border border-slate-300 px-2 py-1 text-xs">
+                                Baixar XML autorizado
+                              </button>
+                            ) : (
+                              <span className="text-xs text-amber-800" title="XML processado com protocolo SEFAZ ainda não arquivado">
+                                XML final pendente de arquivamento
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500">Acompanhar</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {fiscalObligations.items.length === 0 ? (
+                    <tr><td colSpan={5} className="px-3 py-5 text-center text-slate-600">
+                      Nenhum registro nesta consulta.
+                    </td></tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 flex items-center gap-3 text-xs">
+              <button type="button" disabled={fiscalObligationsLoading || obligationsOffset === 0}
+                onClick={() => void loadObligations(Math.max(0, obligationsOffset - 20), showAllObligations)}
+                className="rounded border border-slate-300 px-3 py-2 disabled:opacity-40">
+                Anteriores
+              </button>
+              <span>Mostrando {fiscalObligations.items.length === 0 ? 0 : obligationsOffset + 1}
+                {' '}a {obligationsOffset + fiscalObligations.items.length}
+              </span>
+              <button type="button" disabled={fiscalObligationsLoading ||
+                obligationsOffset + fiscalObligations.items.length >= fiscalObligations.total}
+                onClick={() => void loadObligations(obligationsOffset + 20, showAllObligations)}
+                className="rounded border border-slate-300 px-3 py-2 disabled:opacity-40">
+                Próximas
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-slate-600">
+              A emissão real, correções de rejeição e transmissão à SEFAZ
+              continuarão desabilitadas até completar homologação e segurança fiscal.
+            </p>
+          </>
+        ) : null}
+      </section>
+
       {issuer ? (
         <details id="fiscal-issuer" className="mt-4 rounded-2xl border border-slate-200 p-5">
           <summary className="cursor-pointer text-base font-bold text-slate-900">Preencher dados da loja</summary>
@@ -433,6 +638,11 @@ export default function FiscalPage() {
           <div>
             <summary className="cursor-pointer text-base font-bold text-slate-900">Notas preparadas e arquivos anteriores</summary>
             <p className="text-xs text-gray-600">Total: {total}</p>
+            <p className="mt-1 max-w-lg text-xs text-amber-800">
+              Os XMLs técnicos desta lista não substituem o XML processado (nfeProc)
+              com protocolo genuíno da SEFAZ. Consulte a situação fiscal antes de
+              entregar qualquer arquivo como nota autorizada.
+            </p>
           </div>
         </div>
         <div className="mt-2 overflow-auto rounded-md border">
@@ -454,7 +664,7 @@ export default function FiscalPage() {
                   <td className="px-3 py-2">
                     <div className="flex gap-3">
                       <button type="button" onClick={() => void onDownload(x)} className="text-xs text-blue-700 hover:underline">
-                        Download XML
+                        Baixar XML técnico
                       </button>
                       {x.file_name.startsWith('NFCe-') ? (
                         <button type="button" onClick={() => void onDANFE(x)} className="text-xs text-blue-700 hover:underline">

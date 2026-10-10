@@ -111,6 +111,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
 	documentBuilder := fiscsefaz.NewDocumentBuilder(cfg.AppVersion)
 	fiscalSvc.SetNFCeDocumentBuilder(documentBuilder)
+	fiscalSvc.SetNFCeProcessedDocumentBuilder(fiscsefaz.NewProcessedDocumentBuilder())
 	fiscalSvc.SetNFCeCancellationBuilder(documentBuilder)
 	fiscalSvc.SetNFCeInutilizationBuilder(documentBuilder)
 	fiscalSvc.SetNFCeDANFERenderer(fiscsefaz.NewDANFERenderer())

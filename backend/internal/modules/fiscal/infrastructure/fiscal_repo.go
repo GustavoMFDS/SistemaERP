@@ -669,6 +669,53 @@ func (r *FiscalRepo) ApplyNFCeAuthorizationResult(
 	return nil
 }
 
+func (r *FiscalRepo) StoreAuthorizedNFCeProcessedXML(
+	ctx context.Context, tx db.DBTX,
+	tenantID, invoiceID, accessKey, fileName string,
+	protocolXML, processedXML []byte, sha256 string,
+) error {
+	tag, err := tx.Exec(ctx, `
+  INSERT INTO invoice_authorized_xml_files(
+    tenant_id, invoice_id, access_key, file_name,
+    protocol_xml, processed_xml, sha256
+  )
+  SELECT $1,$2,$3,$4,$5,$6,$7
+  FROM invoices
+  WHERE tenant_id=$1 AND id=$2 AND access_key=$3 AND status='authorized' AND model=65
+  ON CONFLICT DO NOTHING
+ `, tenantID, invoiceID, accessKey, fileName, protocolXML, processedXML, sha256)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return common.ErrConflict
+	}
+	return nil
+}
+
+func (r *FiscalRepo) GetAuthorizedNFCeProcessedXML(
+	ctx context.Context, tenantID, invoiceID string,
+) (string, []byte, string, error) {
+	var name, hash string
+	var content []byte
+	err := r.db.QueryRow(ctx, `
+  SELECT p.file_name,p.processed_xml,p.sha256
+  FROM invoice_authorized_xml_files p
+  JOIN invoices i ON i.tenant_id=p.tenant_id AND i.id=p.invoice_id
+  WHERE p.tenant_id=$1 AND p.invoice_id=$2 AND i.status='authorized'
+    AND i.model=65 AND i.access_key=p.access_key
+    AND i.authorization_protocol IS NOT NULL
+    AND i.authorized_at IS NOT NULL
+ `, tenantID, invoiceID).Scan(&name, &content, &hash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil, "", common.ErrNotFound
+		}
+		return "", nil, "", err
+	}
+	return name, content, hash, nil
+}
+
 func (r *FiscalRepo) GetNFCeCancellationEventForUpdate(
 	ctx context.Context,
 	tx db.DBTX,
