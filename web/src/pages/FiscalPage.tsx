@@ -23,12 +23,31 @@ type FiscalObligation = {
   invoice_id?: string
   access_key?: string
   processed_xml_available?: boolean
+  dispatch_state?: string
 }
 type FiscalObligationsPage = {
   items: FiscalObligation[]
   total: number
   limit: number
   offset: number
+}
+
+const fiscalDispatchLabel: Record<string, string> = {
+  pending: 'Aguardando triagem automática',
+  awaiting_configuration: 'Preencher configuração fiscal da loja',
+  awaiting_fiscal_processing: 'Configuração registrada; emissão ainda não iniciada',
+  waiting_sale: 'Aguardando finalização da venda',
+  manual_review: 'Venda histórica: revisão manual obrigatória',
+  unsupported_model: 'NF-e 55: fluxo ainda não implementado',
+  reserved: 'Numeração reservada; preparação pendente',
+  xml_generated: 'XML técnico gerado; falta autorização',
+  signed: 'XML assinado; autorização pendente',
+  awaiting_sefaz: 'Resposta SEFAZ pendente de reconciliação',
+  missing_processed_xml: 'ALERTA: autorizado sem arquivo processado',
+  authorized: 'Arquivo processado arquivado',
+  rejected_review: 'Rejeição fiscal exige análise',
+  cancelled_review: 'Cancelamento exige revisão',
+  requires_review: 'Revisão técnica obrigatória',
 }
 
 const fiscalObligationStatusLabel: Record<string, string> = {
@@ -496,6 +515,10 @@ export default function FiscalPage() {
                         ) : (
                           <span className="text-slate-500">Acompanhar</span>
                         )}
+                        <div className="mt-1 text-xs text-slate-600">
+                          Acompanhamento: {fiscalDispatchLabel[item.dispatch_state ?? 'pending'] ??
+                            'Situação pendente de triagem'}
+                        </div>
                       </td>
                     </tr>
                   ))}

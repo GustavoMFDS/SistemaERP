@@ -11,6 +11,7 @@ import (
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/httpapi"
 	"github.com/example/sistemaemgo/internal/modules"
+	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/example/sistemaemgo/internal/platform/observability"
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,6 +102,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	}
 
 	startIdempotencyMaintenance(ctx, pool, logger)
+	// Only reconciles local fiscal dispatch diagnostics. Never reserves or transmits.
+	fiscapp.StartFiscalDispatchReconciliation(ctx, pool, logger)
 
 	mods := modules.New(cfg, pool, rdb, logger)
 	router := httpapi.NewRouter(cfg, mods, logger)
