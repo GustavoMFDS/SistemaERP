@@ -24,12 +24,21 @@ type FiscalObligation = {
   access_key?: string
   processed_xml_available?: boolean
   dispatch_state?: string
+  preflight_result?: string
 }
 type FiscalObligationsPage = {
   items: FiscalObligation[]
   total: number
   limit: number
   offset: number
+}
+
+const fiscalPreflightLabel: Record<string, string> = {
+  inputs_present_unverified: 'Dados básicos presentes; validação tributária oficial ainda pendente',
+  issuer_incomplete: 'Conferir CNPJ, inscrição estadual ou endereço do emitente',
+  product_classification_missing: 'Completar NCM e perfil fiscal dos produtos vendidos',
+  payment_review_required: 'Forma de pagamento ainda requer suporte fiscal',
+  internal_error: 'Falha temporária ao verificar os dados; nova tentativa programada',
 }
 
 const fiscalDispatchLabel: Record<string, string> = {
@@ -518,6 +527,12 @@ export default function FiscalPage() {
                         <div className="mt-1 text-xs text-slate-600">
                           Acompanhamento: {fiscalDispatchLabel[item.dispatch_state ?? 'pending'] ??
                             'Situação pendente de triagem'}
+                          {item.preflight_result && (
+                            <div>
+                              Verificação: {fiscalPreflightLabel[item.preflight_result] ??
+                                'Revisão técnica necessária'}
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>

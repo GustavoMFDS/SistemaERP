@@ -23,6 +23,7 @@ type FiscalObligation struct {
 	InvoiceID          *string   `json:"invoice_id,omitempty"`
 	ProcessedAvailable bool      `json:"processed_xml_available"`
 	DispatchState      string    `json:"dispatch_state"`
+	PreflightResult    *string   `json:"preflight_result,omitempty"`
 }
 
 type FiscalObligationsPage struct {
@@ -83,7 +84,7 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 			i.id::text, i.status,
 			COALESCE((`+obligationAuthorization+`), false) AS authorized,
     COALESCE(p.invoice_id IS NOT NULL AND (`+obligationAuthorization+`), false) AS processed_available,
-    j.state AS dispatch_state
+    j.state AS dispatch_state, j.last_result_code AS preflight_result
 		`+obligationInvoiceJoin+where+`
 		ORDER BY f.created_at DESC, f.sale_id DESC LIMIT $3 OFFSET $4
 	`, tenant, unresolvedOnly, limit, offset)
@@ -98,7 +99,7 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 		var dispatchState *string
 		if err := rows.Scan(&item.SaleID, &item.CreatedAt, &item.DocumentKind,
 			&item.LegacyReview, &item.SaleStatus,
-			&item.InvoiceID, &invStatus, &authorized, &item.ProcessedAvailable, &dispatchState); err != nil {
+			&item.InvoiceID, &invStatus, &authorized, &item.ProcessedAvailable, &dispatchState, &item.PreflightResult); err != nil {
 			return FiscalObligationsPage{}, err
 		}
 		item.Authorized = authorized != nil && *authorized

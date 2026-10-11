@@ -13,10 +13,12 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   const pending = [
     { sale_id: sale1, created_at: '2026-10-09T12:00:00Z',
       document_kind: 'nfce', sale_status: 'finalized', status: 'pending',
-      authorized: false, legacy_review: false, dispatch_state: 'awaiting_configuration' },
+      authorized: false, legacy_review: false, dispatch_state: 'awaiting_fiscal_processing',
+      preflight_result: 'issuer_incomplete' },
     { sale_id: sale2, created_at: '2026-10-09T11:00:00Z',
       document_kind: 'nfce', sale_status: 'finalized', status: 'rejected',
-      authorized: false, legacy_review: false, dispatch_state: 'rejected_review' },
+      authorized: false, legacy_review: false, dispatch_state: 'rejected_review',
+      preflight_result: 'payment_review_required' },
   ]
   const authorized = { sale_id: sale3, created_at: '2026-10-09T10:00:00Z',
     document_kind: 'nfce', sale_status: 'finalized', status: 'authorized',
@@ -81,8 +83,10 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   await expect(section.getByText('Aguardando emissão')).toBeVisible()
   await expect(section.getByText('Rejeitada — corrigir')).toBeVisible()
   await expect(section.getByRole('cell', { name: 'Autorizada', exact: true })).toHaveCount(0)
-  await expect(section.getByText('Acompanhamento: Preencher configuração fiscal da loja')).toBeVisible()
+  await expect(section.getByText('Acompanhamento: Configuração registrada; emissão ainda não iniciada')).toBeVisible()
   await expect(section.getByText('Acompanhamento: Rejeição fiscal exige análise')).toBeVisible()
+  await expect(section.getByText('Verificação: Conferir CNPJ, inscrição estadual ou endereço do emitente')).toBeVisible()
+  await expect(section.getByText('Verificação: Forma de pagamento ainda requer suporte fiscal')).toBeVisible()
   expect(filterRequests).toContain('true')
 
   await section.getByRole('checkbox', { name: 'Mostrar também vendas com nota autorizada' }).check()

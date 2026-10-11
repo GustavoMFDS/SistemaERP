@@ -104,6 +104,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	startIdempotencyMaintenance(ctx, pool, logger)
 	// Only reconciles local fiscal dispatch diagnostics. Never reserves or transmits.
 	fiscapp.StartFiscalDispatchReconciliation(ctx, pool, logger)
+	// Local inspections use expiring database leases; no SEFAZ traffic.
+	fiscapp.StartFiscalPreflightDiagnostics(ctx, pool, logger)
 
 	mods := modules.New(cfg, pool, rdb, logger)
 	router := httpapi.NewRouter(cfg, mods, logger)

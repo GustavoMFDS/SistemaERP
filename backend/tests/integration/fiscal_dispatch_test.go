@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -116,6 +117,93 @@ func TestFiscalDispatchClassifiesWithoutIssuing(t *testing.T) {
 	}
 	if invoices != 0 {
 		t.Fatal("diagnostic worker illegally reserved a fiscal invoice")
+	}
+	// Two replicas must not own the same fiscal preflight at once.
+	claimsA, err := fiscalapp.ClaimFiscalPreflight(ctx, pool, "replica-a", 2, time.Minute)
+	if err != nil || len(claimsA) != 1 {
+		t.Fatalf("first lease: count=%d err=%v", len(claimsA), err)
+	}
+	claimsB, err := fiscalapp.ClaimFiscalPreflight(ctx, pool, "replica-b", 2, time.Minute)
+	if err != nil || len(claimsB) != 0 {
+		t.Fatalf("duplicate lease granted: count=%d err=%v", len(claimsB), err)
+	}
+	result, err := fiscalapp.InspectFiscalPreflight(ctx, pool, claimsA[0])
+	if err != nil || result != fiscalapp.PreflightIssuerIncomplete {
+		t.Fatalf("preflight did not refuse incomplete issuer: %s %v", result, err)
+	}
+	if err := fiscalapp.CompleteFiscalPreflight(ctx, pool, "replica-b", claimsA[0], result); !errors.Is(err, fiscalapp.ErrFiscalLeaseLost) {
+		t.Fatalf("wrong owner able to release another lease: %v", err)
+	}
+	// Simulate the first process crashing. The next owner is permitted
+	// to reclaim expired work, but the stale token cannot complete it.
+	if _, err := pool.Exec(ctx, `
+	  UPDATE fiscal_dispatch_jobs SET lease_until=now()-interval '1 second'
+	  WHERE tenant_id=$1 AND sale_id=$2
+	`, tenant, sale); err != nil {
+		t.Fatal(err)
+	}
+	claimsB, err = fiscalapp.ClaimFiscalPreflight(ctx, pool, "replica-b", 2, time.Minute)
+	if err != nil || len(claimsB) != 1 {
+		t.Fatalf("expired work not reclaimed: count=%d err=%v", len(claimsB), err)
+	}
+	if err := fiscalapp.CompleteFiscalPreflight(ctx, pool, "replica-a", claimsA[0], result); !errors.Is(err, fiscalapp.ErrFiscalLeaseLost) {
+		t.Fatalf("stale lease completed after takeover: %v", err)
+	}
+	if err := fiscalapp.CompleteFiscalPreflight(ctx, pool, "replica-b", claimsB[0], result); err != nil {
+		t.Fatalf("new owner cannot finish: %v", err)
+	}
+	var recorded string
+	var claimCount int
+	if err := pool.QueryRow(ctx, `
+	 SELECT last_result_code,claim_count FROM fiscal_dispatch_jobs
+	 WHERE tenant_id=$1 AND sale_id=$2
+	`, tenant, sale).Scan(&recorded, &claimCount); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != fiscalapp.PreflightIssuerIncomplete || claimCount != 2 {
+		t.Fatalf("lease result not persisted: result=%s attempts=%d", recorded, claimCount)
+	}
+	// Neither a crash nor a takeover is allowed to generate a document.
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM invoices WHERE tenant_id=$1 AND sale_id=$2", tenant, sale).Scan(&invoices); err != nil {
+		t.Fatal(err)
+	}
+	if invoices != 0 {
+		t.Fatal("preflight lease unexpectedly created fiscal invoice")
+	}
+	// Truly concurrent workers must still claim this job exactly once.
+	if _, err := pool.Exec(ctx, `
+	 UPDATE fiscal_dispatch_jobs SET next_claim_at=now()-interval '1 second'
+	 WHERE tenant_id=$1 AND sale_id=$2
+	`, tenant, sale); err != nil {
+		t.Fatal(err)
+	}
+	type concurrentLeaseResult struct {
+		owner  string
+		claims []fiscalapp.FiscalPreflightClaim
+		err    error
+	}
+	results := make(chan concurrentLeaseResult, 2)
+	for _, owner := range []string{"worker-one", "worker-two"} {
+		go func(owner string) {
+			claims, err := fiscalapp.ClaimFiscalPreflight(ctx, pool, owner, 1, time.Minute)
+			results <- concurrentLeaseResult{owner, claims, err}
+		}(owner)
+	}
+	claimedTotal := 0
+	for range 2 {
+		got := <-results
+		if got.err != nil {
+			t.Fatalf("concurrent claim failed: %v", got.err)
+		}
+		claimedTotal += len(got.claims)
+		for _, claim := range got.claims {
+			if err := fiscalapp.CompleteFiscalPreflight(ctx, pool, got.owner, claim, result); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if claimedTotal != 1 {
+		t.Fatalf("concurrent lease claimed %d times, want 1", claimedTotal)
 	}
 	// A model that isn't implemented must never enter the NFC-e processing state.
 	if _, err := pool.Exec(ctx, `
