@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
 
@@ -31,6 +31,15 @@ type FiscalObligationsPage = {
   total: number
   limit: number
   offset: number
+}
+
+type FiscalPreflightAuditEvent = {
+  id: number
+  worker_identity_id: string
+  event_kind: 'claimed' | 'completed'
+  reclaimed: boolean
+  result_code?: string
+  recorded_at: string
 }
 
 const fiscalPreflightLabel: Record<string, string> = {
@@ -139,6 +148,11 @@ export default function FiscalPage() {
   const [fiscalObligations, setFiscalObligations] = useState<FiscalObligationsPage | null>(null)
   const [fiscalObligationsError, setFiscalObligationsError] = useState('')
   const [fiscalObligationsLoading, setFiscalObligationsLoading] = useState(false)
+  const [auditSaleID, setAuditSaleID] = useState('')
+  const auditRequestSeq = useRef(0)
+  const [auditEvents, setAuditEvents] = useState<FiscalPreflightAuditEvent[]>([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState('')
   const [obligationsOffset, setObligationsOffset] = useState(0)
   const [showAllObligations, setShowAllObligations] = useState(false)
   const [readiness, setReadiness] = useState<NFCeReadiness | null>(null)
@@ -180,6 +194,32 @@ export default function FiscalPage() {
     setEnvironment(next?.environment || 'homologation')
     setSeries(next?.series ?? 1)
     setCertificateSecretRef('')
+  }
+
+  async function loadFiscalPreflightAudit(saleID: string) {
+    if (auditSaleID === saleID) {
+      auditRequestSeq.current += 1
+      setAuditSaleID('')
+      setAuditEvents([])
+      return
+    }
+    const seq = ++auditRequestSeq.current
+    setAuditSaleID(saleID)
+    setAuditEvents([])
+    setAuditError('')
+    setAuditLoading(true)
+    try {
+      const response = await apiJson<{ sale_id: string; items: FiscalPreflightAuditEvent[] }>(
+        '/api/v1/fiscal/obligations/' + encodeURIComponent(saleID) + '/preflight-audit?limit=20',
+      )
+      if (seq === auditRequestSeq.current) setAuditEvents(response.items)
+    } catch (error: unknown) {
+      if (seq === auditRequestSeq.current) {
+        setAuditError('Não foi possível consultar o histórico técnico: ' + errorMessage(error))
+      }
+    } finally {
+      if (seq === auditRequestSeq.current) setAuditLoading(false)
+    }
   }
 
   async function downloadAuthorizedProcessedXML(item: FiscalObligation) {
@@ -534,6 +574,11 @@ export default function FiscalPage() {
                             </div>
                           )}
                         </div>
+                        <button type="button"
+                          onClick={() => void loadFiscalPreflightAudit(item.sale_id)}
+                          className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs">
+                          {auditSaleID === item.sale_id ? 'Fechar histórico técnico' : 'Histórico técnico'}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -545,6 +590,37 @@ export default function FiscalPage() {
                 </tbody>
               </table>
             </div>
+            {auditSaleID && (
+              <div role="region" aria-label="Histórico técnico da venda"
+                className="mt-3 rounded border border-slate-200 p-3 text-xs">
+                <p className="font-semibold">Inspeções técnicas — venda {auditSaleID.slice(0, 8)}</p>
+                <p className="mt-1 text-slate-600">
+                  Estas verificações não representam emissão nem autorização pela SEFAZ.
+                  A identidade indicada pertence ao processo, não a um funcionário.
+                </p>
+                {auditLoading && <p className="mt-2">Consultando registros...</p>}
+                {auditError && <p role="alert" className="mt-2 text-red-700">{auditError}</p>}
+                {!auditLoading && !auditError && auditEvents.length === 0 && (
+                  <p className="mt-2">Nenhuma inspeção técnica registrada.</p>
+                )}
+                {!auditLoading && !auditError && (
+                  <ul className="mt-2 space-y-2">
+                    {auditEvents.map((event) => (
+                      <li key={event.id} className="border-t border-slate-100 pt-2">
+                        {event.event_kind === 'claimed' ? 'Verificação assumida' : 'Verificação concluída'}
+                        {' · '}{new Date(event.recorded_at).toLocaleString('pt-BR')}
+                        {' · '}Processo {event.worker_identity_id.slice(0, 8)}
+                        {event.reclaimed && ' · Retomada após interrupção'}
+                        {event.result_code && (
+                          <span>{' · '}{fiscalPreflightLabel[event.result_code] ??
+                            'Diagnóstico técnico a revisar'}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             <div className="mt-3 flex items-center gap-3 text-xs">
               <button type="button" disabled={fiscalObligationsLoading || obligationsOffset === 0}
                 onClick={() => void loadObligations(Math.max(0, obligationsOffset - 20), showAllObligations)}

@@ -34,6 +34,41 @@ const (
 	PreflightInternalError     = "internal_error"
 )
 
+// RegisterFiscalPreflightWorker registers an ephemeral machine identity.
+// This principal is NOT a user account and is never used to impersonate staff.
+// A random, process-scoped owner can be registered exactly once.
+func RegisterFiscalPreflightWorker(ctx context.Context, pool *pgxpool.Pool, owner string) error {
+	if !fiscalLeaseOwnerPattern.MatchString(owner) {
+		return fmt.Errorf("invalid fiscal worker identity")
+	}
+	var id string
+	err := pool.QueryRow(ctx, `
+  INSERT INTO fiscal_worker_identities(owner_name,active_until)
+  VALUES($1,now()+interval '5 minutes') RETURNING id::text
+ `, owner).Scan(&id)
+	return err
+}
+
+// RenewFiscalPreflightWorker keeps an already active technical identity
+// alive. An expired or revoked principal cannot silently re-register.
+func RenewFiscalPreflightWorker(ctx context.Context, pool *pgxpool.Pool, owner string) error {
+	if !fiscalLeaseOwnerPattern.MatchString(owner) {
+		return fmt.Errorf("invalid fiscal worker identity")
+	}
+	tag, err := pool.Exec(ctx, `
+  UPDATE fiscal_worker_identities
+  SET renewed_at=now(),active_until=now()+interval '5 minutes'
+  WHERE owner_name=$1 AND revoked_at IS NULL AND active_until>now()
+ `, owner)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("fiscal worker identity expired or revoked")
+	}
+	return nil
+}
+
 // ClaimFiscalPreflight atomically fences duplicate *LOCAL* inspections across
 // replicas. It cannot reserve fiscal numbers or send anything to SEFAZ.
 // Only finalized, nonlegacy NFC-e obligations in homologation with a configured
@@ -49,6 +84,9 @@ func ClaimFiscalPreflight(ctx context.Context, pool *pgxpool.Pool, owner string,
    JOIN sale_fiscal_intents f ON f.tenant_id=j.tenant_id AND f.sale_id=j.sale_id
    JOIN sales s ON s.tenant_id=j.tenant_id AND s.id=j.sale_id
    JOIN nfce_configs cfg ON cfg.tenant_id=j.tenant_id
+   JOIN fiscal_worker_identities worker
+     ON worker.owner_name=$2 AND worker.revoked_at IS NULL
+     AND worker.active_until>now()
    WHERE j.state='awaiting_fiscal_processing'
      AND j.next_claim_at<=now()
      AND (j.lease_until IS NULL OR j.lease_until<=now())
@@ -111,6 +149,10 @@ func CompleteFiscalPreflight(ctx context.Context, pool *pgxpool.Pool, owner stri
   WHERE tenant_id=$1 AND sale_id=$2 AND lease_token=$3::uuid
     AND lease_owner=$4 AND lease_until>now()
     AND state='awaiting_fiscal_processing'
+    AND EXISTS (
+      SELECT 1 FROM fiscal_worker_identities w
+      WHERE w.owner_name=$4 AND w.revoked_at IS NULL AND w.active_until>now()
+    )
     AND NOT EXISTS (
       SELECT 1 FROM invoices i WHERE i.tenant_id=$1 AND i.sale_id=$2
     )
@@ -184,10 +226,23 @@ func StartFiscalPreflightDiagnostics(ctx context.Context, pool *pgxpool.Pool, lo
 		return
 	}
 	owner := fmt.Sprintf("local-preflight-%x", random[:])
+	regCtx, regCancel := context.WithTimeout(ctx, 5*time.Second)
+	registerErr := RegisterFiscalPreflightWorker(regCtx, pool, owner)
+	regCancel()
+	if registerErr != nil {
+		logger.Error("fiscal_preflight_identity_registration_failed", slog.Any("error", registerErr))
+		return
+	}
 	go func() {
 		run := func() {
 			claimCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
+			if err := RenewFiscalPreflightWorker(claimCtx, pool, owner); err != nil {
+				if claimCtx.Err() == nil {
+					logger.Error("fiscal_preflight_identity_renewal_failed", slog.Any("error", err))
+				}
+				return
+			}
 			claims, err := ClaimFiscalPreflight(claimCtx, pool, owner, 10, 2*time.Minute)
 			if err != nil {
 				if claimCtx.Err() == nil {

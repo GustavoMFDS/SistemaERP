@@ -118,6 +118,18 @@ func TestFiscalDispatchClassifiesWithoutIssuing(t *testing.T) {
 	if invoices != 0 {
 		t.Fatal("diagnostic worker illegally reserved a fiscal invoice")
 	}
+	// An unregistered process must not be able to claim fiscal work.
+	anonymousClaims, err := fiscalapp.ClaimFiscalPreflight(ctx, pool, "unregistered-worker", 2, time.Minute)
+	if err != nil || len(anonymousClaims) != 0 {
+		t.Fatalf("unregistered worker claimed jobs: count=%d err=%v", len(anonymousClaims), err)
+	}
+	// All workers must first register unique machine identities, distinct
+	// from employee user IDs. Claims without registration fail closed.
+	for _, worker := range []string{"replica-a", "replica-b", "worker-one", "worker-two"} {
+		if err := fiscalapp.RegisterFiscalPreflightWorker(ctx, pool, worker); err != nil {
+			t.Fatalf("cannot register technical worker %s: %v", worker, err)
+		}
+	}
 	// Two replicas must not own the same fiscal preflight at once.
 	claimsA, err := fiscalapp.ClaimFiscalPreflight(ctx, pool, "replica-a", 2, time.Minute)
 	if err != nil || len(claimsA) != 1 {
@@ -204,6 +216,42 @@ func TestFiscalDispatchClassifiesWithoutIssuing(t *testing.T) {
 	}
 	if claimedTotal != 1 {
 		t.Fatalf("concurrent lease claimed %d times, want 1", claimedTotal)
+	}
+	// Each lease transition must leave append-only evidence linked to
+	// a distinct machine principal, never a staff actor_user_id.
+	var claimsLogged, completionsLogged, reclaimsLogged int
+	if err := pool.QueryRow(ctx, `
+ SELECT
+   count(*) FILTER (WHERE e.event_kind='claimed'),
+   count(*) FILTER (WHERE e.event_kind='completed'),
+   count(*) FILTER (WHERE e.reclaimed_from_token IS NOT NULL)
+ FROM fiscal_preflight_audit_events e
+ JOIN fiscal_worker_identities w ON w.id=e.worker_identity_id
+ WHERE e.tenant_id=$1 AND e.sale_id=$2
+   AND w.kind='local_preflight'
+ `, tenant, sale).Scan(&claimsLogged, &completionsLogged, &reclaimsLogged); err != nil {
+		t.Fatal(err)
+	}
+	if claimsLogged != 3 || completionsLogged != 2 || reclaimsLogged != 1 {
+		t.Fatalf("unexpected fiscal machine audit: claims=%d completed=%d recovered=%d",
+			claimsLogged, completionsLogged, reclaimsLogged)
+	}
+	// Attempting to rewrite an audit event must fail and leave the chain intact.
+	if _, err := pool.Exec(ctx, `
+ UPDATE fiscal_preflight_audit_events SET result_code='internal_error'
+ WHERE tenant_id=$1 AND sale_id=$2
+ `, tenant, sale); err == nil {
+		t.Fatal("fiscal machine audit history was mutable")
+	}
+	// Revocation forbids reuse of the old worker even when a future job appears.
+	if _, err := pool.Exec(ctx, `
+ UPDATE fiscal_worker_identities SET revoked_at=now()
+ WHERE owner_name='replica-b'
+ `); err != nil {
+		t.Fatal(err)
+	}
+	if err := fiscalapp.RenewFiscalPreflightWorker(ctx, pool, "replica-b"); err == nil {
+		t.Fatal("revoked technical identity was renewed")
 	}
 	// A model that isn't implemented must never enter the NFC-e processing state.
 	if _, err := pool.Exec(ctx, `

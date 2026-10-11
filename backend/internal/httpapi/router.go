@@ -163,6 +163,8 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			if mods.Fiscal != nil {
 				pr.Route("/fiscal", func(rr chi.Router) {
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/obligations", h.SaleFiscal.ListObligations)
+					// Machine-preflight audit, never exposes lease tokens or human identity.
+					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/obligations/{saleID}/preflight-audit", h.SaleFiscal.ListFiscalPreflightAudit)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/readiness", h.Fiscal.NFCeReadiness)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/reservations", h.Fiscal.ReserveNFCeDraft)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/reservations/offline-contingency", h.Fiscal.ReserveNFCeOfflineContingency)

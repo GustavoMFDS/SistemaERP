@@ -38,6 +38,16 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
       id: userID, name: 'Responsável Fiscal', email: 'fiscal@teste.local',
       permissions: ['invoice:read', 'invoice:generate', 'sale:read', 'product:read'],
     })
+    if (url.pathname === '/api/v1/fiscal/obligations/' + sale1 + '/preflight-audit') {
+      return reply({ sale_id: sale1, items: [
+        { id: 2, worker_identity_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          event_kind: 'completed', reclaimed: false, result_code: 'issuer_incomplete',
+          recorded_at: '2026-10-11T20:00:01Z' },
+        { id: 1, worker_identity_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          event_kind: 'claimed', reclaimed: true,
+          recorded_at: '2026-10-11T20:00:00Z' },
+      ] })
+    }
     if (url.pathname === '/api/v1/fiscal/obligations') {
       filterRequests.push(url.searchParams.get('unresolved') || '')
       const onlyPending = url.searchParams.get('unresolved') !== 'false'
@@ -94,6 +104,11 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   await expect(section.getByRole('cell', { name: 'Autorizada', exact: true })).toBeVisible()
   const authorizedRow = section.getByRole('row').filter({ hasText: sale3.slice(0, 8) })
   const pendingRow = section.getByRole('row').filter({ hasText: sale1.slice(0, 8) })
+  await pendingRow.getByRole('button', { name: 'Histórico técnico' }).click()
+  const history = section.getByRole('region', { name: 'Histórico técnico da venda' })
+  await expect(history.getByText(/Verificação concluída/)).toBeVisible()
+  await expect(history.getByText(/Retomada após interrupção/)).toBeVisible()
+  await expect(history).toContainText('não representam emissão nem autorização pela SEFAZ')
   await expect(pendingRow.getByRole('button', { name: 'Imprimir DANFE' })).toHaveCount(0)
   await expect(authorizedRow.getByRole('button', { name: 'Imprimir DANFE' })).toBeVisible()
   const printPopupPromise = page.waitForEvent('popup')
