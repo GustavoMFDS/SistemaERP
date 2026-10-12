@@ -66,3 +66,16 @@ O backend mantém lista fechada de chaves válidas, **recusando** estados como `
 **Atenção:** as marcações não comprovam nem substituem credenciamento, validade do certificado, enquadramento fiscal, homologação ou autorização de NFC-e/NF-e. A transmissão continua desligada. A verificação real em MG depende de credenciamento, dados oficiais, executor fiscal, homologação e respostas da SEFAZ.
 
 Validações locais executadas em 12/10/2026: `go test ./...` e `go vet ./...` aprovados; frontend `npm run build` e `npm run lint` aprovados (0 erros, 12 avisos históricos); Chromium Playwright fiscal com API simulada 1/1 aprovado, incluindo gravação de checklist. PostgreSQL 16 temporário em porta separada: 45 migrações aplicadas, seed de demonstração somente no banco descartável, integração `TestFiscalSetupReviewsTenantBoundaryAndAudit` aprovada, `0045.down`/`0045.up` aprovadas sem registros fiscais, e rollback corretamente recusado diante de um registro fiscal. Nenhum teste SEFAZ real ou interação com dados de lojas ocorreu. Não usar Actions e manter PR draft/sem merge.
+
+
+## Verificação estrutural unificada — 12/10/2026
+
+O assistente mostra **pendências locais detalhadas** extraídas do endpoint `GET /api/v1/fiscal/nfce/readiness`, sem novas credenciais ou chamadas a sites governamentais. O mesmo validador de estrutura do emitente, `NFCeMGIssuerLocalBlockers`, é aplicado em três caminhos:
+
+- **Readiness** da loja: diferencia razão social, dígitos verificadores do CNPJ, IE ausente, CRT desconhecido, rua, número, bairro, cidade, CEP com exatamente oito dígitos, UF MG e prefixo IBGE `31` com sete dígitos; mantém os códigos gerais anteriores para compatibilidade.
+- **Preflight local** de venda finalizada: não classifica como `inputs_present_unverified` um emitente com uma dessas pendências.
+- **Ativação em produção e reserva de número**: o pedido de habilitação reutiliza `FiscalService.NFCeReadiness`, incluindo a inspeção detalhada; a reserva valida o mesmo emitente antes de criar qualquer número. Estas proteções não ligam o executor fiscal.
+
+A tela indica expressamente que `Campos locais presentes` **não** equivale a homologação. Um CRT preenchido não está necessariamente confirmado pela contabilidade; a IE é verificada quanto à presença, não à existência no cadastro estadual; códigos IBGE são testados apenas quanto a formato e UF, não contra a tabela oficial. NCMs são protegidos por formato na base, mas a escolha do código e dos perfis fiscais é responsabilidade da validação contábil. CEST pode ser aplicável conforme o caso. A transmissão e a impressão de DANFE seguem condicionadas à autorização fiscal genuína.
+
+**Validações locais:** `go test ./...`, `go vet ./...`, `npm run build`, `npm run lint` (0 erros, 12 avisos preexistentes), Playwright Chromium com API simulada 1/1. Em PostgreSQL 16 **isolado e descartável**: 45 migrations aplicadas, testes integrados `TestFiscalDispatchClassifiesWithoutIssuing`, `TestNFCeReadinessReportsInvalidIssuerAndMGCode` e `TestNFCeReservation_IsAtomicAndIdempotentPerSale` aprovados. O último verifica que município incompatível não gera reserva nem consome sequência. Sem homologação/SEFAZ real, sem Actions e sem merge.
