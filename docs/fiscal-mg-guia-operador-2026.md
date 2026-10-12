@@ -46,3 +46,23 @@ Não há persistência de checkboxes nem campo para usuário/senha do governo. O
 - O assistente não chama Receita/SEF/IBGE em nome da loja, não registra login externo, não solicita segredo e não presume regime tributário. Sempre usa os dados já retornados pelos endpoints autenticados da aba Fiscal; não cria nova chamada, gravação ou marcação de aprovação.
 - A posição de navegação fica somente em memória durante a visualização da página; o sistema não registra automaticamente etapas legais cumpridas. Em caso de troca de empresa, são usados os dados do novo contexto autenticado carregados pela página e nada é copiado entre CNPJs.
 - Teste Chromium com API simulada comprova avanço/retorno e prévia do cadastro; não confirma qualquer conexão fiscal real.
+
+
+## Progresso manual por empresa — 12/10/2026
+
+As tarefas de organização fiscal agora são salvas no servidor por **tenant/CNPJ**, usando a infraestrutura pré-existente de `setup_step_reviews`, com permissão `invoice:generate`, proteção de origem confiável para `PUT`, gravação/remoção auditada na mesma transação e FK para usuário ligado ao tenant.
+
+A migração 0045 amplia apenas a enumeração de tarefas manuais admissíveis:
+
+- `fiscal_docs_collected`: operador declara ter reunido documentação cadastral;
+- `fiscal_siare_access_arranged`: responsável providenciou o acesso ao portal SIARE;
+- `fiscal_accountant_consulted`: operador solicitou conferência tributária ao contador;
+- `fiscal_previous_series_checked`: operador conferiu o histórico de série e numeração.
+
+Cada botão pode **marcar** e **reabrir** a tarefa. A confirmação é exibida explicitamente como declaração do operador. A listagem da aba Fiscal apresenta `N de 4 tarefas marcadas manualmente`, de forma separada dos diagnósticos automáticos dos campos do PDV e da situação real da SEF/MG.
+
+O backend mantém lista fechada de chaves válidas, **recusando** estados como `fiscal_homologated`, `fiscal_authorized` e `fiscal_transmission_enabled`. A migração reversa recusa rollback se restarem registros fiscais, evitando perda silenciosa da história organizacional. Nenhuma senha, token, PFX/CSC, dados contábeis livres ou documentos são armazenados por essa funcionalidade.
+
+**Atenção:** as marcações não comprovam nem substituem credenciamento, validade do certificado, enquadramento fiscal, homologação ou autorização de NFC-e/NF-e. A transmissão continua desligada. A verificação real em MG depende de credenciamento, dados oficiais, executor fiscal, homologação e respostas da SEFAZ.
+
+Testes previstos: `go test ./...`, `go vet ./...`, migração 0045 em PostgreSQL descartável, isolamento entre empresas e trilha auditável, `npm run build`, `npm run lint` e Playwright com API simulada. Não usar Actions e manter PR draft/sem merge.
