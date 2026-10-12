@@ -12,6 +12,7 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   let salePosts = 0
   let fiscalReads = 0
   let danfeRequests = 0
+  let sefazAuthorizedLater = false
 
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
@@ -52,7 +53,10 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
       fiscalReads += 1
       return reply({
         sale_id: saleID, required: true, document_kind: 'nfce',
-        status: 'pending', authorized: false, printable: false,
+        status: sefazAuthorizedLater ? 'authorized' : 'pending',
+        authorized: sefazAuthorizedLater,
+        printable: sefazAuthorizedLater,
+        access_key: sefazAuthorizedLater ? '31261011222333000181650010000000011123456789' : undefined,
         legacy_review: false,
       })
     }
@@ -81,6 +85,18 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   await page.getByRole('button', { name: 'Não imprimir' }).click()
   await expect(page.getByRole('button', { name: 'Não imprimir' })).toHaveCount(0)
   await expect(page.getByText(/Pendência fiscal permanece registrada/)).toBeVisible()
+  expect(danfeRequests).toBe(0)
+  expect(salePosts).toBe(1)
+
+  // Authorization can arrive asynchronously after the customer decides not
+  // to print. The same finalized sale is refreshed automatically; issuing a
+  // new sale or triggering silent printing would be wrong.
+  const readsBeforeAuthorization = fiscalReads
+  sefazAuthorizedLater = true
+  await expect(page.getByRole('button', { name: 'Imprimir depois' }))
+    .toBeVisible({ timeout: 12000 })
+  expect(fiscalReads).toBeGreaterThan(readsBeforeAuthorization)
+  await expect(page.getByText(/NFC-e autorizada/)).toBeVisible()
   expect(danfeRequests).toBe(0)
   expect(salePosts).toBe(1)
 })
