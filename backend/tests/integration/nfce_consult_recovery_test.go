@@ -156,7 +156,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if err := pool.QueryRow(ctx, `
 		SELECT last_status_code,last_result_code,state FROM nfce_consult_recovery_jobs
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`,tenantA,invoiceA).Scan(&code,&last,&state); err != nil {
+	`,claimsA[0].TenantID,claimsA[0].InvoiceID).Scan(&code,&last,&state); err != nil {
 		t.Fatal(err)
 	}
 	if code!=217 || last!=fiscal.NFCeConsultNotFound || state!="awaiting_consultation" {
@@ -164,7 +164,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx, `
 		SELECT state FROM nfce_consult_recovery_jobs WHERE tenant_id=$1 AND invoice_id=$2
-	`,tenantB,invoiceB).Scan(&state);err!=nil {
+	`,claimsB[0].TenantID,claimsB[0].InvoiceID).Scan(&state);err!=nil {
 		t.Fatal(err)
 	}
 	if state!="manual_review" {
@@ -177,7 +177,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		UPDATE invoices SET status='rejected',rejection_code='999',rejection_message='fixture'
 		WHERE tenant_id=$1 AND id=$2
-	`,tenantA,invoiceA); err!=nil {
+	`,claimsA[0].TenantID,claimsA[0].InvoiceID); err!=nil {
 		t.Fatal(err)
 	}
 	if resolved, err := fiscal.ResolveNFCeConsultationPlans(ctx,pool); err!=nil || resolved!=1 {
