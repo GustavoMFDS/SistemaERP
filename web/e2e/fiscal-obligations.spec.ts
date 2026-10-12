@@ -38,6 +38,11 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
       id: userID, name: 'Responsável Fiscal', email: 'fiscal@teste.local',
       permissions: ['invoice:read', 'invoice:generate', 'sale:read', 'product:read'],
     })
+    if (url.pathname === '/api/v1/fiscal/obligations/' + sale1 + '/preparation') {
+      return reply({sale_id:sale1,status:'blocked',
+        result_code:'issuer_incomplete',source_matches:false,
+        prepared_at:'2026-10-11T20:00:00Z'})
+    }
     if (url.pathname === '/api/v1/fiscal/obligations/' + sale1 + '/preflight-audit') {
       return reply({ sale_id: sale1, items: [
         { id: 2, worker_identity_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -106,6 +111,7 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   const pendingRow = section.getByRole('row').filter({ hasText: sale1.slice(0, 8) })
   await pendingRow.getByRole('button', { name: 'Histórico técnico' }).click()
   const history = section.getByRole('region', { name: 'Histórico técnico da venda' })
+  await expect(history.getByText(/Plano desatualizado/)).toBeVisible()
   await expect(history.getByText(/Verificação concluída/)).toBeVisible()
   await expect(history.getByText(/Retomada após interrupção/)).toBeVisible()
   await expect(history).toContainText('não representam emissão nem autorização pela SEFAZ')

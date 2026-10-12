@@ -170,8 +170,12 @@ func CompleteFiscalPreflight(ctx context.Context, pool *pgxpool.Pool, owner stri
 // payment methods. Even "inputs_present_unverified" NEVER means the tax model,
 // signature, SEFAZ environment, or the invoice is ready for issuance.
 func InspectFiscalPreflight(ctx context.Context, pool *pgxpool.Pool, claim FiscalPreflightClaim) (string, error) {
+	return inspectFiscalPreflight(ctx, pool, claim)
+}
+
+func inspectFiscalPreflight(ctx context.Context, reader preparationReader, claim FiscalPreflightClaim) (string, error) {
 	var cnpj, ie, crt, street, number, city, cityCode, uf, zip string
-	err := pool.QueryRow(ctx, `
+	err := reader.QueryRow(ctx, `
   SELECT c.cnpj,COALESCE(c.ie,''),COALESCE(c.crt,''),
     COALESCE(c.address_street,''),COALESCE(c.address_number,''),
     COALESCE(c.address_city,''),COALESCE(c.address_city_code,''),
@@ -191,7 +195,7 @@ func InspectFiscalPreflight(ctx context.Context, pool *pgxpool.Pool, claim Fisca
 		return PreflightIssuerIncomplete, nil
 	}
 	var totalItems, badProducts, totalPayments, badPayments int
-	err = pool.QueryRow(ctx, `
+	err = reader.QueryRow(ctx, `
  SELECT
   (SELECT count(*) FROM sale_items si WHERE si.tenant_id=$1 AND si.sale_id=$2),
   (SELECT count(*) FROM sale_items si
@@ -259,8 +263,20 @@ func StartFiscalPreflightDiagnostics(ctx context.Context, pool *pgxpool.Pool, lo
 					logger.Warn("fiscal_preflight_inspection_failed", slog.Any("err", err))
 					result = PreflightInternalError
 				}
-				if err := CompleteFiscalPreflight(claimCtx, pool, owner, claim, result); err != nil {
-					logger.Warn("fiscal_preflight_release_failed", slog.Any("err", err))
+				// Store a versioned fingerprint together with the completion
+				// of the machine lease. A stale or lost claim must NEVER
+				// leave behind an apparently current preparation plan.
+				hash, snapshotErr := ObserveFiscalPreparation(claimCtx, pool, claim, result)
+				if snapshotErr != nil {
+					logger.Warn("fiscal_preparation_snapshot_failed", slog.Any("err", snapshotErr))
+					// No plan is archived if inputs could not be read.
+					if releaseErr := CompleteFiscalPreflight(claimCtx, pool, owner, claim, PreflightInternalError); releaseErr != nil {
+						logger.Warn("fiscal_preflight_release_failed", slog.Any("err", releaseErr))
+					}
+					continue
+				}
+				if err := CompleteFiscalPreflightWithPreparation(claimCtx, pool, owner, claim, result, hash); err != nil {
+					logger.Warn("fiscal_preflight_preparation_failed", slog.Any("err", err))
 				}
 			}
 		}

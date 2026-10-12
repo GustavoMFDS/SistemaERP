@@ -33,6 +33,13 @@ type FiscalObligationsPage = {
   offset: number
 }
 
+type FiscalPreparationSummary = {
+  status: 'not_prepared' | 'blocked' | 'tax_review_required'
+  result_code?: string
+  prepared_at?: string
+  source_matches: boolean
+}
+
 type FiscalPreflightAuditEvent = {
   id: number
   worker_identity_id: string
@@ -151,6 +158,7 @@ export default function FiscalPage() {
   const [auditSaleID, setAuditSaleID] = useState('')
   const auditRequestSeq = useRef(0)
   const [auditEvents, setAuditEvents] = useState<FiscalPreflightAuditEvent[]>([])
+  const [preparationSummary, setPreparationSummary] = useState<FiscalPreparationSummary | null>(null)
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState('')
   const [obligationsOffset, setObligationsOffset] = useState(0)
@@ -201,18 +209,25 @@ export default function FiscalPage() {
       auditRequestSeq.current += 1
       setAuditSaleID('')
       setAuditEvents([])
+      setPreparationSummary(null)
       return
     }
     const seq = ++auditRequestSeq.current
     setAuditSaleID(saleID)
     setAuditEvents([])
+    setPreparationSummary(null)
     setAuditError('')
     setAuditLoading(true)
     try {
-      const response = await apiJson<{ sale_id: string; items: FiscalPreflightAuditEvent[] }>(
-        '/api/v1/fiscal/obligations/' + encodeURIComponent(saleID) + '/preflight-audit?limit=20',
-      )
-      if (seq === auditRequestSeq.current) setAuditEvents(response.items)
+      const url = '/api/v1/fiscal/obligations/' + encodeURIComponent(saleID)
+      const [response, plan] = await Promise.all([
+        apiJson<{ sale_id: string; items: FiscalPreflightAuditEvent[] }>(url + '/preflight-audit?limit=20'),
+        apiJson<FiscalPreparationSummary>(url + '/preparation'),
+      ])
+      if (seq === auditRequestSeq.current) {
+        setAuditEvents(response.items)
+        setPreparationSummary(plan)
+      }
     } catch (error: unknown) {
       if (seq === auditRequestSeq.current) {
         setAuditError('Não foi possível consultar o histórico técnico: ' + errorMessage(error))
@@ -599,6 +614,27 @@ export default function FiscalPage() {
                   A identidade indicada pertence ao processo, não a um funcionário.
                 </p>
                 {auditLoading && <p className="mt-2">Consultando registros...</p>}
+                {preparationSummary && !auditLoading && (
+                  <div className="mt-2 rounded border border-slate-200 p-2">
+                    <p className="font-medium">Plano de verificação da venda</p>
+                    {preparationSummary.status === 'not_prepared' ? (
+                      <p>Nenhum plano registrado. A emissão fiscal não foi iniciada.</p>
+                    ) : (
+                      <>
+                        <p>{preparationSummary.source_matches
+                          ? 'Dados conferidos sem alterações desde a última inspeção.'
+                          : 'Plano desatualizado: dados da venda ou configuração foram alterados.'}</p>
+                        <p>{preparationSummary.status === 'blocked'
+                          ? 'Há dados pendentes para conferir.'
+                          : 'Dados básicos presentes, mas validação tributária oficial ainda pendente.'}</p>
+                        {preparationSummary.result_code && (
+                          <p>{fiscalPreflightLabel[preparationSummary.result_code] ??
+                            'Verificação fiscal requer revisão.'}</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
                 {auditError && <p role="alert" className="mt-2 text-red-700">{auditError}</p>}
                 {!auditLoading && !auditError && auditEvents.length === 0 && (
                   <p className="mt-2">Nenhuma inspeção técnica registrada.</p>

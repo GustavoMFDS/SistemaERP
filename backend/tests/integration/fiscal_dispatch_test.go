@@ -277,4 +277,106 @@ func TestFiscalDispatchClassifiesWithoutIssuing(t *testing.T) {
 	if state != "unsupported_model" {
 		t.Fatalf("NF-e 55 incorrectly allowed: %s", state)
 	}
+	// Create a second finalized sale in this DISPOSABLE database to
+	// validate the immutable preparation snapshot independently.
+	var sale2 string
+	if err := pool.QueryRow(ctx, `
+ INSERT INTO sales(tenant_id,cash_session_id,status,subtotal,discount_value,total,
+ profit_estimated,created_by_user_id)
+ VALUES($1,$2,'finalized',15,0,15,5,$3) RETURNING id::text
+ `, tenant, session, actor).Scan(&sale2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fiscalapp.ReconcileFiscalDispatchBatch(ctx, pool, 100); err != nil {
+		t.Fatal(err)
+	}
+	plansClaims, err := fiscalapp.ClaimFiscalPreflight(ctx, pool, "worker-one", 1, time.Minute)
+	if err != nil || len(plansClaims) != 1 || plansClaims[0].SaleID != sale2 {
+		t.Fatalf("expected a lease for independent sale: %+v %v", plansClaims, err)
+	}
+	planResult, err := fiscalapp.InspectFiscalPreflight(ctx, pool, plansClaims[0])
+	if err != nil || planResult != fiscalapp.PreflightIssuerIncomplete {
+		t.Fatalf("expected incomplete issuer inspection: %s %v", planResult, err)
+	}
+	originalHash, err := fiscalapp.ObserveFiscalPreparation(ctx, pool, plansClaims[0], planResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Changing the issuer AFTER inspection must reject the old snapshot.
+	if _, err := pool.Exec(ctx, `UPDATE companies SET address_street=COALESCE(address_street,'') || ' nova'
+ WHERE id=$1`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if err := fiscalapp.CompleteFiscalPreflightWithPreparation(
+		ctx, pool, "worker-one", plansClaims[0], planResult, originalHash,
+	); !errors.Is(err, fiscalapp.ErrFiscalPreparationStale) {
+		t.Fatalf("stale fiscal inputs accepted: %v", err)
+	}
+	var preparedCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM fiscal_emission_preparations
+ WHERE tenant_id=$1 AND sale_id=$2`, tenant, sale2).Scan(&preparedCount); err != nil {
+		t.Fatal(err)
+	}
+	if preparedCount != 0 {
+		t.Fatal("stale inspection wrote a plan")
+	}
+	// A fresh observation may be archived while the SAME lease remains
+	// valid. It is always BLOCKED or tax-review-required, never legal ready.
+	newHash, err := fiscalapp.ObserveFiscalPreparation(ctx, pool, plansClaims[0], planResult)
+	if err != nil || newHash == originalHash {
+		t.Fatalf("snapshot hash not changed: %v", err)
+	}
+	// A forged optimistic result must not become a plan. Recheck the
+	// preflight classification INSIDE the completion transaction.
+	if err := fiscalapp.CompleteFiscalPreflightWithPreparation(ctx, pool, "worker-one",
+		plansClaims[0], fiscalapp.PreflightInputsUnverified, newHash); !errors.Is(err, fiscalapp.ErrFiscalPreparationStale) {
+		t.Fatalf("forged fiscal readiness accepted: %v", err)
+	}
+	if err := fiscalapp.CompleteFiscalPreflightWithPreparation(ctx, pool, "worker-one",
+		plansClaims[0], planResult, newHash); err != nil {
+		t.Fatal(err)
+	}
+	record, err := fiscalapp.GetLatestFiscalPreparation(ctx, pool, tenant, sale2)
+	if err != nil || !record.SourceMatches || record.Status != "blocked" ||
+		record.ResultCode != fiscalapp.PreflightIssuerIncomplete {
+		t.Fatalf("archived preparation is not conservatively blocked: %+v %v", record, err)
+	}
+	// No duplicate plan for same fenced token (already released).
+	if err := fiscalapp.CompleteFiscalPreflightWithPreparation(ctx, pool, "worker-one",
+		plansClaims[0], planResult, newHash); !errors.Is(err, fiscalapp.ErrFiscalPreparationLeaseLost) {
+		t.Fatalf("replayed completed lease accepted: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE companies SET address_street=COALESCE(address_street,'') || ' alterada'
+ WHERE id=$1`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	record, err = fiscalapp.GetLatestFiscalPreparation(ctx, pool, tenant, sale2)
+	if err != nil || record.SourceMatches {
+		t.Fatalf("changed inputs not flagged stale: %+v %v", record, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM fiscal_emission_preparations WHERE id=$1`, record.ID); err == nil {
+		t.Fatal("immutable preparation was deleted")
+	}
+	// No other family member's CNPJ may retrieve the plan or its hash.
+	if _, err := fiscalapp.GetLatestFiscalPreparation(
+		ctx, pool, "11111111-1111-1111-1111-111111111111", sale2,
+	); err == nil {
+		t.Fatal("fiscal preparation leaked across companies")
+	}
+	// Adding a payment must also change the fingerprint (even though this
+	// local planner still never authorizes a fiscal document).
+	if _, err := pool.Exec(ctx, `
+	  INSERT INTO payments(tenant_id,sale_id,method,amount)
+	  VALUES($1,$2,'pix',15)
+	`, tenant, sale2); err != nil {
+		t.Fatal(err)
+	}
+	paymentHash, err := fiscalapp.ObserveFiscalPreparation(ctx, pool, plansClaims[0], planResult)
+	if err != nil || paymentHash == newHash {
+		t.Fatalf("payment change not included in plan fingerprint: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM invoices WHERE tenant_id=$1 AND sale_id=$2`,
+		tenant, sale2).Scan(&invoices); err != nil || invoices != 0 {
+		t.Fatalf("preparation created invoice: count=%d err=%v", invoices, err)
+	}
 }

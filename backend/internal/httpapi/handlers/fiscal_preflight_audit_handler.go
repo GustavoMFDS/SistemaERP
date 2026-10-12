@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
+	fiscalapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // Technical actor identities are separate from humans. A lease token is a
@@ -20,6 +23,52 @@ type FiscalPreflightAuditItem struct {
 	Reclaimed        bool      `json:"reclaimed"`
 	ResultCode       *string   `json:"result_code,omitempty"`
 	RecordedAt       time.Time `json:"recorded_at"`
+}
+
+// GetFiscalPreparation exposes the latest immutable local diagnostic and
+// verifies whether its data fingerprint is still current. There is NO
+// "ready for issuance" status. Cross-company sales are not discoverable.
+func (h *SaleFiscalHandler) GetFiscalPreparation(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	saleID := strings.TrimSpace(chi.URLParam(r, "saleID"))
+	if _, err := uuid.Parse(saleID); err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "venda invalida", nil)
+		return
+	}
+	var exists bool
+	err := h.db.QueryRow(r.Context(), `
+  SELECT EXISTS(SELECT 1 FROM sale_fiscal_intents WHERE tenant_id=$1 AND sale_id=$2)
+ `, au.TenantID, saleID).Scan(&exists)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "falha na consulta do plano fiscal", nil)
+		return
+	}
+	if !exists {
+		writeError(w, r, http.StatusNotFound, "not_found", "venda nao encontrada", nil)
+		return
+	}
+	result, err := fiscalapp.GetLatestFiscalPreparation(r.Context(), h.db, au.TenantID, saleID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		w.Header().Set("Cache-Control", "private, no-store")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"sale_id": saleID, "status": "not_prepared", "source_matches": false,
+		})
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "falha na consulta do plano fiscal", nil)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sale_id": saleID,
+		"id":      result.ID, "status": result.Status, "result_code": result.ResultCode,
+		"prepared_at": result.PreparedAt, "source_matches": result.SourceMatches,
+	})
 }
 
 func (h *SaleFiscalHandler) ListFiscalPreflightAudit(w http.ResponseWriter, r *http.Request) {
