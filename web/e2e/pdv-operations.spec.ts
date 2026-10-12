@@ -129,7 +129,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   await expect(quickSearch).toBeFocused()
   await quickSearch.fill(`E2E-PDV-${suffix}`)
 
-  await page.getByLabel('Produto').selectOption(setup.productId)
+  await page.getByLabel('Produto', { exact: true }).selectOption(setup.productId)
   await page.getByLabel('Qtd').fill('1')
   await page.getByRole('button', { name: 'Adicionar' }).click()
 
