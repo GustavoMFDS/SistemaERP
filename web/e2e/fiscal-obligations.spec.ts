@@ -113,6 +113,8 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   await guide.getByText('Providenciar certificado digital e conferir CSC').click()
   await guide.getByRole('button', { name: 'Ir para certificado e configurações' }).click()
   await expect(page.locator('#fiscal-certificate')).toHaveAttribute('open', '')
+  await guide.getByRole('button', { name: 'Próxima etapa' }).click()
+  await expect(guide.getByText('Etapa 4 de 6')).toBeVisible()
   await expect(guide).toContainText('A transmissão permanece desativada')
   const section = page.getByRole('region', { name: 'Pendências fiscais das vendas' })
   await expect(section.getByText('Vendas que precisam de acompanhamento: 2')).toBeVisible()
