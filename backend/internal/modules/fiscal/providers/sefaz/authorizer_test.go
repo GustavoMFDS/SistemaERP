@@ -2,6 +2,7 @@ package sefaz
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -81,8 +82,8 @@ func TestAuthorizationOutcomeMapsPendingAuthorizedAndRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rejected.Rejected() || rejected.StatusCode != 539 {
-		t.Fatalf("unexpected rejected outcome: %+v", rejected)
+	if !rejected.Pending() || rejected.StatusCode != 539 {
+		t.Fatalf("duplicate NFC-e outcome must await consultation, got: %+v", rejected)
 	}
 }
 
@@ -138,6 +139,51 @@ func TestAuthorizedSEFAZOutcomeRequiresGenuineProtocolAndAccessKey(t *testing.T)
 			StatusCode: 100, AccessKey: testAccessKey, Protocol: &proto,
 		}); err == nil || result.Authorized() {
 			t.Fatalf("malformed consultation erroneously accepted: result=%+v err=%v", result, err)
+		}
+	}
+}
+
+func TestConsultationNeverMistakesCanceledDeniedOrUnknownForRejection(t *testing.T) {
+	for _, status := range []int{101, 110, 204, 539, 217, 656} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			for _, withProtocol := range []bool{false, true} {
+				response := ConsultationResponse{
+					StatusCode: status,
+					Reason: "situation requires reconciliation",
+					AccessKey: testAccessKey,
+				}
+				if withProtocol {
+					response.Protocol = &Protocol{
+						AccessKey: testAccessKey, StatusCode: status,
+						Reason: "not authorization",
+					}
+				}
+				out, err := consultationOutcome(testAccessKey, response)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !out.Pending() || out.Authorized() || out.Rejected() {
+					t.Fatalf("cStat %d protocol=%t was finalized: %+v", status, withProtocol, out)
+				}
+			}
+		})
+	}
+}
+
+func TestAuthorizationDuplicateDoesNotConfirmRejection(t *testing.T) {
+	for _, status := range []int{204, 539} {
+		out, err := authorizationOutcome(testAccessKey, AuthorizationResponse{
+			StatusCode: 104,
+			Protocol: &Protocol{
+				AccessKey: testAccessKey, StatusCode: status,
+				Reason: "duplicidade",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !out.Pending() || out.Rejected() {
+			t.Fatalf("duplicate status %d cannot be made terminal: %+v", status, out)
 		}
 	}
 }
