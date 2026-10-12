@@ -115,3 +115,16 @@ Não ativar produção fiscal apenas porque a impressão HTML passou.
 A visualização na tela é uma verificação **do motor do Chromium**.
 Sem uma impressora física e o respectivo driver, não se pode comprovar
 o tamanho impresso em papel, guilhotina ou leitura ótica do QR real.
+
+
+### Ensaio das rotas reais de impressora
+
+O teste integrado `TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession`
+usa `httpapi.NewRouter` com autenticação JWT, permissões RBAC,
+proteção de origem confiável, PostgreSQL descartável e auditoria reais.
+Com dados inteiramente fictícios, cobre: ausência de login (401),
+leitura da bobina padrão (80 mm), alteração legítima para 58 mm,
+persistência no GET, origem maliciosa (403), largura inválida (422),
+tentativa de acesso a caixa de outro CNPJ (404), auditoria exatamente
+uma vez e recusa de alteração após encerramento da sessão (404).
+Isso não depende de uma impressora física nem consulta a SEF/MG.
