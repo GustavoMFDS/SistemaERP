@@ -137,7 +137,16 @@ type NFCeConfig = {
 
 const blockerLabels: Record<string, string> = {
   issuer_identity: 'Identidade fiscal do emitente incompleta',
+  issuer_legal_name_missing: 'Razão social ausente no cadastro da empresa',
+  issuer_cnpj_invalid: 'CNPJ não passou na validação local dos dígitos verificadores',
+  issuer_ie_missing: 'Inscrição estadual não informada',
+  issuer_crt_invalid: 'CRT ainda não informado ou código não reconhecido: confirme com o contador',
   issuer_address: 'Endereço do emitente incompleto',
+  issuer_street_missing: 'Rua ou avenida não informada',
+  issuer_number_missing: 'Número do endereço não informado',
+  issuer_neighborhood_missing: 'Bairro não informado',
+  issuer_city_missing: 'Nome do município não informado',
+  issuer_zip_invalid: 'CEP deve ter exatamente 8 dígitos numéricos',
   issuer_municipality_code: 'Código IBGE do município ausente/inválido',
   issuer_uf_unsupported: 'A integração atual da NFC-e só aceita emitente de MG',
   issuer_municipality_uf_mismatch: 'O município do emitente precisa usar código IBGE de MG (31xxxxx)',
@@ -467,7 +476,7 @@ export default function FiscalPage() {
         <section id="fiscal-readiness" className="mt-4 rounded-md border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-semibold">Prontidão para homologação</h3>
+              <h3 className="text-sm font-semibold">Diagnóstico local da configuração fiscal</h3>
               <p className="text-xs text-gray-600">
                 Ambiente: {readiness.environment || 'não configurado'} · Série:{' '}
                 {readiness.series ?? '—'} · Produtos ativos: {readiness.active_products}
@@ -480,7 +489,7 @@ export default function FiscalPage() {
                   : 'rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800'
               }
             >
-              {readiness.ready_for_homologation_data ? 'Dados prontos' : 'Pendências'}
+              {readiness.ready_for_homologation_data ? 'Campos locais presentes (não homologado)' : 'Pendências locais'}
             </span>
           </div>
 
@@ -499,11 +508,28 @@ export default function FiscalPage() {
           </details>
 
           {(readiness.blocking_reasons ?? []).length > 0 ? (
-            <ul className="mt-3 list-disc pl-5 text-xs text-amber-800">
-              {(readiness.blocking_reasons ?? []).map((reason) => (
-                <li key={reason}>{blockerLabels[reason] ?? reason}</li>
-              ))}
-            </ul>
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-amber-800">Campos que precisam de atenção</p>
+              <ul className="mt-1 list-disc pl-5 text-xs text-amber-800">
+                {(readiness.blocking_reasons ?? [])
+                  .filter((reason) => !(
+                    (reason === 'issuer_identity' &&
+                      readiness.blocking_reasons.some((item) =>
+                        ['issuer_legal_name_missing', 'issuer_cnpj_invalid',
+                          'issuer_ie_missing', 'issuer_crt_invalid'].includes(item))) ||
+                    (reason === 'issuer_address' &&
+                      readiness.blocking_reasons.some((item) =>
+                        ['issuer_street_missing', 'issuer_number_missing',
+                          'issuer_neighborhood_missing', 'issuer_city_missing',
+                          'issuer_zip_invalid'].includes(item)))
+                  ))
+                  .map((reason) => <li key={reason}>{blockerLabels[reason] ?? reason}</li>)}
+              </ul>
+              <p className="mt-2 text-xs text-slate-600">
+                Conferência de formato e preenchimento, sem consulta ao cadastro estadual,
+                à Receita Federal ou à situação de autorização na SEF/MG.
+              </p>
+            </div>
           ) : null}
 
           <div className="mt-3 rounded-md bg-gray-50 p-2 text-xs text-gray-700">
