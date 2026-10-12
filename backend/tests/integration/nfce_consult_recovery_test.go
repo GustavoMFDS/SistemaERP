@@ -78,8 +78,8 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		}
 		now := time.Date(2026, 10, 12, 10, 30, 0, 0, time.UTC)
 		key, err := fisc.BuildNFCeAccessKey(fisc.NFCeAccessKeyInput{
-			UF:"MG", IssuedAt:now, CNPJ:cnpj, Series:151, Number:number,
-			NumericCode:"12345678", EmissionType:1,
+			UF: "MG", IssuedAt: now, CNPJ: cnpj, Series: 151, Number: number,
+			NumericCode: "12345678", EmissionType: 1,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -91,7 +91,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 				emission_type,numeric_code,access_key_check_digit,issued_at)
 			VALUES($1,$2,$1,'submitted',$3,65,151,$4,'homologation',$5,1,'12345678',$6,$7)
 			RETURNING id::text
-		`,tenant,saleID,actor,number,key,int(key[len(key)-1]-'0'),now).Scan(&invoiceID); err != nil {
+		`, tenant, saleID, actor, number, key, int(key[len(key)-1]-'0'), now).Scan(&invoiceID); err != nil {
 			t.Fatal(err)
 		}
 		return invoiceID
@@ -114,84 +114,85 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		}
 	}
 	claimsA, err := fiscal.ClaimNFCeSubmittedConsultations(ctx, pool, ownerA, 1, time.Minute)
-	if err != nil || len(claimsA)!=1 {
-		t.Fatalf("first claim=%+v err=%v",claimsA,err)
+	if err != nil || len(claimsA) != 1 {
+		t.Fatalf("first claim=%+v err=%v", claimsA, err)
 	}
 	claimsB, err := fiscal.ClaimNFCeSubmittedConsultations(ctx, pool, ownerB, 2, time.Minute)
-	if err != nil || len(claimsB)!=1 {
-		t.Fatalf("second worker duplicated claim: %+v err=%v",claimsB,err)
+	if err != nil || len(claimsB) != 1 {
+		t.Fatalf("second worker duplicated claim: %+v err=%v", claimsB, err)
 	}
-	if claimsA[0].InvoiceID==claimsB[0].InvoiceID || claimsA[0].LeaseToken==claimsB[0].LeaseToken {
-		t.Fatalf("overlapping recovery claims: %+v %+v",claimsA,claimsB)
+	if claimsA[0].InvoiceID == claimsB[0].InvoiceID || claimsA[0].LeaseToken == claimsB[0].LeaseToken {
+		t.Fatalf("overlapping recovery claims: %+v %+v", claimsA, claimsB)
 	}
-	for _, claim := range []fiscal.NFCeConsultClaim{claimsA[0],claimsB[0]} {
-		if claim.Environment!="homologation" || claim.AttemptCount!=1 {
-			t.Fatalf("unexpected claim metadata: %+v",claim)
+	for _, claim := range []fiscal.NFCeConsultClaim{claimsA[0], claimsB[0]} {
+		if claim.Environment != "homologation" || claim.AttemptCount != 1 {
+			t.Fatalf("unexpected claim metadata: %+v", claim)
 		}
 	}
-	if err := fiscal.CompleteNFCeConsultation(ctx, pool, ownerB, claimsA[0], fiscal.NFCeConsultPending, 217);
-		!errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
-		t.Fatalf("different owner must be rejected: %v",err)
+	if err := fiscal.CompleteNFCeConsultation(ctx, pool, ownerB, claimsA[0], fiscal.NFCeConsultPending, 217); !errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
+		t.Fatalf("different owner must be rejected: %v", err)
 	}
 	if err := fiscal.CompleteNFCeConsultation(ctx, pool, ownerA, claimsA[0], fiscal.NFCeConsultNotFound, 217); err != nil {
 		t.Fatal(err)
 	}
-	if err := fiscal.CompleteNFCeConsultation(ctx, pool, ownerA, claimsA[0], fiscal.NFCeConsultNotFound, 217);
-		!errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
-		t.Fatalf("replayed completion must fail: %v",err)
+	if err := fiscal.CompleteNFCeConsultation(ctx, pool, ownerA, claimsA[0], fiscal.NFCeConsultNotFound, 217); !errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
+		t.Fatalf("replayed completion must fail: %v", err)
 	}
 	if err := fiscal.CompleteNFCeConsultation(ctx, pool, ownerB, claimsB[0], fiscal.NFCeConsultManualReview, 110); err != nil {
 		t.Fatal(err)
 	}
 	var statusA, statusB string
-	if err := pool.QueryRow(ctx,"SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2",tenantA,invoiceA).
-		Scan(&statusA); err != nil { t.Fatal(err) }
-	if err := pool.QueryRow(ctx,"SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2",tenantB,invoiceB).
-		Scan(&statusB); err != nil { t.Fatal(err) }
-	if statusA!="submitted" || statusB!="submitted" {
-		t.Fatalf("consultation results wrongly changed invoice status: A=%s B=%s",statusA,statusB)
+	if err := pool.QueryRow(ctx, "SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2", tenantA, invoiceA).
+		Scan(&statusA); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2", tenantB, invoiceB).
+		Scan(&statusB); err != nil {
+		t.Fatal(err)
+	}
+	if statusA != "submitted" || statusB != "submitted" {
+		t.Fatalf("consultation results wrongly changed invoice status: A=%s B=%s", statusA, statusB)
 	}
 	var code int
 	var last, state string
 	if err := pool.QueryRow(ctx, `
 		SELECT last_status_code,last_result_code,state FROM nfce_consult_recovery_jobs
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`,claimsA[0].TenantID,claimsA[0].InvoiceID).Scan(&code,&last,&state); err != nil {
+	`, claimsA[0].TenantID, claimsA[0].InvoiceID).Scan(&code, &last, &state); err != nil {
 		t.Fatal(err)
 	}
-	if code!=217 || last!=fiscal.NFCeConsultNotFound || state!="awaiting_consultation" {
-		t.Fatalf("unexpected A recovery: %d %s %s",code,last,state)
+	if code != 217 || last != fiscal.NFCeConsultNotFound || state != "awaiting_consultation" {
+		t.Fatalf("unexpected A recovery: %d %s %s", code, last, state)
 	}
 	if err := pool.QueryRow(ctx, `
 		SELECT state FROM nfce_consult_recovery_jobs WHERE tenant_id=$1 AND invoice_id=$2
-	`,claimsB[0].TenantID,claimsB[0].InvoiceID).Scan(&state);err!=nil {
+	`, claimsB[0].TenantID, claimsB[0].InvoiceID).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
-	if state!="manual_review" {
-		t.Fatalf("manual review did not remain blocked: %s",state)
+	if state != "manual_review" {
+		t.Fatalf("manual review did not remain blocked: %s", state)
 	}
-	if claims, err := fiscal.ClaimNFCeSubmittedConsultations(ctx,pool,ownerA,5,time.Minute);
-		err!=nil || len(claims)!=0 {
-		t.Fatalf("undue immediate retries after release: %+v %v",claims,err)
+	if claims, err := fiscal.ClaimNFCeSubmittedConsultations(ctx, pool, ownerA, 5, time.Minute); err != nil || len(claims) != 0 {
+		t.Fatalf("undue immediate retries after release: %+v %v", claims, err)
 	}
 	if _, err := pool.Exec(ctx, `
 		UPDATE invoices SET status='rejected',rejection_code='999',rejection_message='fixture'
 		WHERE tenant_id=$1 AND id=$2
-	`,claimsA[0].TenantID,claimsA[0].InvoiceID); err!=nil {
+	`, claimsA[0].TenantID, claimsA[0].InvoiceID); err != nil {
 		t.Fatal(err)
 	}
-	if resolved, err := fiscal.ResolveNFCeConsultationPlans(ctx,pool); err!=nil || resolved!=1 {
-		t.Fatalf("resolve external final state=%d err=%v",resolved,err)
+	if resolved, err := fiscal.ResolveNFCeConsultationPlans(ctx, pool); err != nil || resolved != 1 {
+		t.Fatalf("resolve external final state=%d err=%v", resolved, err)
 	}
-	if again, err := fiscal.PlanNFCeSubmittedConsultations(ctx,pool);err!=nil || again!=0 {
-		t.Fatalf("resolved work requeued=%d err=%v",again,err)
+	if again, err := fiscal.PlanNFCeSubmittedConsultations(ctx, pool); err != nil || again != 0 {
+		t.Fatalf("resolved work requeued=%d err=%v", again, err)
 	}
-	for _, tenant := range []string{tenantA,tenantB} {
+	for _, tenant := range []string{tenantA, tenantB} {
 		var count int
-		if err:=pool.QueryRow(ctx,`
+		if err := pool.QueryRow(ctx, `
 			SELECT count(*) FROM nfce_consult_recovery_jobs WHERE tenant_id=$1
-		`,tenant).Scan(&count);err!=nil || count!=1 {
-			t.Fatalf("tenant %s recovery isolation: %d %v",tenant,count,err)
+		`, tenant).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("tenant %s recovery isolation: %d %v", tenant, count, err)
 		}
 	}
 	_ = fmt.Sprint(invoiceA) // assure fixture is used in all checks

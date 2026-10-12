@@ -149,8 +149,8 @@ func TestConsultationNeverMistakesCanceledDeniedOrUnknownForRejection(t *testing
 			for _, withProtocol := range []bool{false, true} {
 				response := ConsultationResponse{
 					StatusCode: status,
-					Reason: "situation requires reconciliation",
-					AccessKey: testAccessKey,
+					Reason:     "situation requires reconciliation",
+					AccessKey:  testAccessKey,
 				}
 				if withProtocol {
 					response.Protocol = &Protocol{

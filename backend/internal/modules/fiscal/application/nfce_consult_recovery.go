@@ -116,8 +116,8 @@ func ClaimNFCeSubmittedConsultations(
 	out := make([]NFCeConsultClaim, 0, max)
 	for rows.Next() {
 		var item NFCeConsultClaim
-		if err := rows.Scan(&item.TenantID,&item.InvoiceID,&item.AccessKey,
-			&item.Environment,&item.LeaseToken,&item.LeaseUntil,&item.AttemptCount); err != nil {
+		if err := rows.Scan(&item.TenantID, &item.InvoiceID, &item.AccessKey,
+			&item.Environment, &item.LeaseToken, &item.LeaseUntil, &item.AttemptCount); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -200,7 +200,7 @@ func StartNFCeConsultationPlanner(ctx context.Context, pool *pgxpool.Pool, logge
 			}
 		}
 		plan()
-		ticker := time.NewTicker(2*time.Minute)
+		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()
 		for {
 			select {
