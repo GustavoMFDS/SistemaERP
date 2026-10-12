@@ -82,15 +82,30 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
 
-  const openResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/v1/cash/sessions/open') &&
-      response.request().method() === 'POST',
-  )
-  await page.getByRole('button', { name: 'Abrir' }).click()
-  const openResponse = await openResponsePromise
-  expect(openResponse.ok()).toBe(true)
-  const opened = (await openResponse.json()) as { id: string }
+  // A seeded disposable database may already have an open cash session
+  // from a previous suite. Reuse it rather than trying to open another.
+  const priorCash = await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    try {
+      return await apiJson<{ id: string; status: string }>('/api/v1/cash/sessions/current')
+    } catch {
+      return null
+    }
+  })
+  let opened: { id: string }
+  if (priorCash?.status === 'open') {
+    opened = priorCash
+  } else {
+    const openResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/cash/sessions/open') &&
+        response.request().method() === 'POST',
+    )
+    await page.getByRole('button', { name: 'Abrir' }).click()
+    const openResponse = await openResponsePromise
+    expect(openResponse.ok()).toBe(true)
+    opened = (await openResponse.json()) as { id: string }
+  }
 
   const recoveredCash = await page.evaluate(async () => {
     const { apiJson } = await import('/src/lib/api.ts')
