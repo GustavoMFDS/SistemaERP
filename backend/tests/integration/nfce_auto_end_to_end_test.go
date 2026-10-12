@@ -22,6 +22,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Renderer stub isolates the service's database-level protocol/archive
+// checks from thermal HTML generation in this integration test.
+type testReceiptRenderer struct{}
+
+func (testReceiptRenderer) Render(_ fisc.NFCeReservation, _ []byte) ([]byte, error) {
+	return []byte("<html><body>MOCK DANFE</body></html>"), nil
+}
+
 func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) {
 	if os.Getenv("TEST_FISCAL_DISPOSABLE_DB") != "1" ||
 		os.Getenv("TEST_DATABASE_URL") == "" {
@@ -155,6 +163,7 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	svc.SetNFCeXMLSigner(fakeNFCeSigner{})
 	svc.SetNFCeSchemaValidator(fakeCancellationValidator{})
 	svc.SetNFCeProcessedDocumentBuilder(fakeProcessedDocumentBuilder{})
+	svc.SetNFCeDANFERenderer(testReceiptRenderer{})
 	remote := &fakeRemoteAuthorizer{authorizeOut: fisc.NFCeRemoteOutcome{
 		StatusCode: 103, Reason: "recebido; resultado incerto",
 	}}
@@ -187,6 +196,26 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 		WHERE tenant_id=$1 AND invoice_id=$2
 	`, tenant, invoice).Scan(&taxItems); err != nil || taxItems != 1 {
 		t.Fatalf("missing copied configured fiscal item calc: %d %v", taxItems, err)
+	}
+	// The invoice can be marked authorized by a faulty/manual database
+	// operation while no SEFAZ archive exists. Even then the Fiscal-page
+	// renderer must refuse to print. Restore submitted before consultation.
+	if _, err := pool.Exec(ctx, `
+		UPDATE invoices SET status='authorized',
+		  authorization_protocol='fixture-not-real',authorized_at=now()
+		WHERE tenant_id=$1 AND id=$2 AND status='submitted'
+	`, tenant, invoice); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err == nil {
+		t.Fatal("authorized status without protocol/nfeProc archive printed DANFE")
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE invoices SET status='submitted',
+		  authorization_protocol=NULL,authorized_at=NULL
+		WHERE tenant_id=$1 AND id=$2 AND status='authorized'
+	`, tenant, invoice); err != nil {
+		t.Fatal(err)
 	}
 	// The first send is acknowledged but inconclusive; only Consult may
 	// reconcile it. A second POST to Authorize is never issued.
@@ -236,6 +265,10 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	}
 	if finalInvoice != "authorized" || jobState != "authorized" {
 		t.Fatalf("not authorized with completed queue: invoice=%s job=%s", finalInvoice, jobState)
+	}
+	if _, rendered, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80);
+		err != nil || len(rendered) == 0 {
+		t.Fatalf("processed authorized invoice should be printable: %v", err)
 	}
 	var archived, audited int
 	if err := pool.QueryRow(ctx, `
