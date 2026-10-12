@@ -161,6 +161,12 @@ func authorizationOutcome(
 		out.ReceivedAt = receivedAt
 		return out, nil
 	}
+	// A duplicate-access-key response cannot prove a *new* rejection:
+	// a previous send might already have been authorized by SEFAZ.
+	// Leave the invoice submitted and require consultation/manual review.
+	if out.StatusCode == 204 || out.StatusCode == 539 {
+		return out, nil
+	}
 	out.FinalStatus = fisc.NFCeStatusRejected
 	return out, nil
 }
@@ -204,7 +210,11 @@ func consultationOutcome(
 		out.ReceivedAt = receivedAt
 		return out, nil
 	}
-	out.FinalStatus = fisc.NFCeStatusRejected
+	// Consultation is not a new authorization request. cStat other than
+	// 100 includes not found (217), canceled (101), denied (110), duplicate,
+	// transient errors and mismatched business state. None proves that this
+	// local submission is safe to transition to 'rejected'/reissue.
+	// Keep it submitted for subsequent consultation and operator escalation.
 	return out, nil
 }
 
