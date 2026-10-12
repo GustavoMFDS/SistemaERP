@@ -23,7 +23,7 @@ import (
 // consultationHookAuthorizer simulates a reply arriving after another process
 // revokes/invalidates the lease, without contacting SEFAZ.
 type consultationHookAuthorizer struct {
-	outcome fisc.NFCeRemoteOutcome
+	outcome      fisc.NFCeRemoteOutcome
 	beforeReturn func() error
 	consultCalls int
 }
@@ -256,7 +256,6 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		}
 	}
 
-
 	// The initial SKIP LOCKED claim order is deliberately unspecified; the
 	// invoice escalated to manual review is identified by the actual claim.
 	// The other invoice was made terminal earlier in this test.
@@ -300,78 +299,77 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	}
 	getBClaim := func() fiscal.NFCeConsultClaim {
 		t.Helper()
-		jobs, err := fiscal.ClaimNFCeSubmittedConsultations(ctx,pool,ownerB,1,time.Minute)
-		if err != nil || len(jobs)!=1 || jobs[0].InvoiceID!=targetInvoice {
-			t.Fatalf("recovery claim B: %+v %v",jobs,err)
+		jobs, err := fiscal.ClaimNFCeSubmittedConsultations(ctx, pool, ownerB, 1, time.Minute)
+		if err != nil || len(jobs) != 1 || jobs[0].InvoiceID != targetInvoice {
+			t.Fatalf("recovery claim B: %+v %v", jobs, err)
 		}
 		return jobs[0]
 	}
 	rescheduleB()
 	remote := &fakeRemoteAuthorizer{consultOut: fisc.NFCeRemoteOutcome{
-		AccessKey:accessKey,StatusCode:217,Reason:"nao consta na base", // INCONCLUSIVE
+		AccessKey: accessKey, StatusCode: 217, Reason: "nao consta na base", // INCONCLUSIVE
 	}}
 	svc := fiscal.NewFiscalService(db.NewPgxUnitOfWork(pool),
-		fiscalinfra.NewFiscalRepo(pool),nil,nil,audit.New(pool,nil),validator.New(),nil)
+		fiscalinfra.NewFiscalRepo(pool), nil, nil, audit.New(pool, nil), validator.New(), nil)
 	svc.SetNFCeRemoteAuthorizer(remote)
 	svc.SetNFCeProcessedDocumentBuilder(fakeProcessedDocumentBuilder{})
 	claim := getBClaim()
-	if _, err := svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerA,actor,claim);
-		!errors.Is(err,fiscal.ErrNFCeConsultLeaseLost) {
-		t.Fatalf("wrong lease owner should never call Consult: %v",err)
+	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerA, actor, claim); !errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
+		t.Fatalf("wrong lease owner should never call Consult: %v", err)
 	}
-	if remote.consultCalls!=0 || remote.authorizeCalls!=0 {
+	if remote.consultCalls != 0 || remote.authorizeCalls != 0 {
 		t.Fatal("wrong owner triggered a network adapter")
 	}
 	// A worker lease does not authorize access as a user from another tenant.
-	if _, err := svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,uuid.NewString(),claim);
-		!errors.Is(err,fiscal.ErrNFCeConsultLeaseLost) {
-		t.Fatalf("operator outside tenant must be rejected: %v",err)
+	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, uuid.NewString(), claim); !errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
+		t.Fatalf("operator outside tenant must be rejected: %v", err)
 	}
-	if remote.consultCalls!=0 || remote.authorizeCalls!=0 {
+	if remote.consultCalls != 0 || remote.authorizeCalls != 0 {
 		t.Fatal("unrelated operator triggered SEFAZ consultation")
 	}
-	pending, err := svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim)
-	if err!=nil || !pending.Pending() || remote.consultCalls!=1 ||
-		remote.authorizeCalls!=0 {
+	pending, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim)
+	if err != nil || !pending.Pending() || remote.consultCalls != 1 ||
+		remote.authorizeCalls != 0 {
 		t.Fatalf("not-found consult must remain pending: %+v %v, calls=%d/%d",
-			pending,err,remote.consultCalls,remote.authorizeCalls)
+			pending, err, remote.consultCalls, remote.authorizeCalls)
 	}
 	if err := pool.QueryRow(ctx,
 		"SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2",
-		targetTenant,targetInvoice).Scan(&statusB);err!=nil || statusB!="submitted" {
-		t.Fatalf("not-found consult unexpectedly authorized: %s %v",statusB,err)
+		targetTenant, targetInvoice).Scan(&statusB); err != nil || statusB != "submitted" {
+		t.Fatalf("not-found consult unexpectedly authorized: %s %v", statusB, err)
 	}
 	// Invalid protocol from a faulty/misconfigured transport must not create
 	// an authorization even when a mock supplies a success label.
 	rescheduleB()
-	claim=getBClaim()
-	remote.consultOut=fisc.NFCeRemoteOutcome{
-		AccessKey:accessKey,StatusCode:100,
-		FinalStatus:fisc.NFCeStatusAuthorized,
-		Protocol:"123456789",ReceivedAt:time.Now(),
+	claim = getBClaim()
+	remote.consultOut = fisc.NFCeRemoteOutcome{
+		AccessKey: accessKey, StatusCode: 100,
+		FinalStatus: fisc.NFCeStatusAuthorized,
+		Protocol:    "123456789", ReceivedAt: time.Now(),
 	}
-	if _,err:=svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim);err==nil {
+	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim); err == nil {
 		t.Fatal("status 100 without genuine protocol XML must be rejected")
 	}
 	if err := pool.QueryRow(ctx,
 		"SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2",
-		targetTenant,targetInvoice).Scan(&statusB);err!=nil || statusB!="submitted" {
-		t.Fatalf("invalid protocol incorrectly authorized: %s %v",statusB,err)
+		targetTenant, targetInvoice).Scan(&statusB); err != nil || statusB != "submitted" {
+		t.Fatalf("invalid protocol incorrectly authorized: %s %v", statusB, err)
 	}
 	// A stale consultation outcome must not be applied to an expired lease.
 	rescheduleB()
-	claim=getBClaim()
-	if _,err := pool.Exec(ctx,`
+	claim = getBClaim()
+	if _, err := pool.Exec(ctx, `
 		UPDATE nfce_consult_recovery_jobs SET lease_until=now()-interval '1 second'
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`, targetTenant,targetInvoice);err!=nil {t.Fatal(err)}
-	remote.consultOut.ProtocolXML=[]byte("<protNFe>fixture-only</protNFe>")
-	callsBefore := remote.consultCalls
-	if _,err:=svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim);
-		!errors.Is(err,fiscal.ErrNFCeConsultLeaseLost) {
-		t.Fatalf("expired lease must be rejected: %v",err)
+	`, targetTenant, targetInvoice); err != nil {
+		t.Fatal(err)
 	}
-	if remote.consultCalls!=callsBefore {
+	remote.consultOut.ProtocolXML = []byte("<protNFe>fixture-only</protNFe>")
+	callsBefore := remote.consultCalls
+	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim); !errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
+		t.Fatalf("expired lease must be rejected: %v", err)
+	}
+	if remote.consultCalls != callsBefore {
 		t.Fatal("expired lease invoked Consult")
 	}
 	// Model a response obtained BEFORE the lease expiry but applied AFTER
@@ -383,9 +381,9 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		outcome: fisc.NFCeRemoteOutcome{
 			AccessKey: accessKey, StatusCode: 100,
 			FinalStatus: fisc.NFCeStatusAuthorized,
-			Protocol: "123456789",
+			Protocol:    "123456789",
 			ProtocolXML: []byte("<protNFe>race-fixture</protNFe>"),
-			ReceivedAt: time.Now().UTC(),
+			ReceivedAt:  time.Now().UTC(),
 		},
 	}
 	race.beforeReturn = func() error {
@@ -397,8 +395,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		return err
 	}
 	svc.SetNFCeRemoteAuthorizer(race)
-	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim);
-		!errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
+	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim); !errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
 		t.Fatalf("post-network expired lease must be rejected: %v", err)
 	}
 	if race.consultCalls != 1 {
@@ -421,33 +418,33 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	// An unexpired lease + matching 100/protocol enters the existing atomic
 	// invoice/protocolXML/nfeProc/archive/audit commit.
 	rescheduleB()
-	claim=getBClaim()
-	authorized,err:=svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim)
-	if err!=nil || !authorized.Authorized() {
-		t.Fatalf("claimed consultation authorization failed: %+v %v",authorized,err)
+	claim = getBClaim()
+	authorized, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim)
+	if err != nil || !authorized.Authorized() {
+		t.Fatalf("claimed consultation authorization failed: %+v %v", authorized, err)
 	}
-	if remote.authorizeCalls!=0 {
+	if remote.authorizeCalls != 0 {
 		t.Fatal("consult recovery MUST NOT call Authorize")
 	}
-	var authStatus,jobState,protocol string
-	if err := pool.QueryRow(ctx,`
+	var authStatus, jobState, protocol string
+	if err := pool.QueryRow(ctx, `
 		SELECT i.status,j.state,i.authorization_protocol
 		FROM invoices i JOIN nfce_consult_recovery_jobs j
 		ON j.tenant_id=i.tenant_id AND j.invoice_id=i.id
 		WHERE i.tenant_id=$1 AND i.id=$2
-	`,targetTenant,targetInvoice).Scan(&authStatus,&jobState,&protocol);err!=nil {
+	`, targetTenant, targetInvoice).Scan(&authStatus, &jobState, &protocol); err != nil {
 		t.Fatal(err)
 	}
-	if authStatus!="authorized" || jobState!="resolved" || protocol!="123456789" {
+	if authStatus != "authorized" || jobState != "resolved" || protocol != "123456789" {
 		t.Fatalf("authorized + resolved not atomic: %s %s %q",
-			authStatus,jobState,protocol)
+			authStatus, jobState, protocol)
 	}
 	var archived int
-	if err:=pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM invoice_authorized_xml_files
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`,targetTenant,targetInvoice).Scan(&archived);err!=nil || archived!=1 {
-		t.Fatalf("protocol XML and processed nfeProc not archived: %d %v",archived,err)
+	`, targetTenant, targetInvoice).Scan(&archived); err != nil || archived != 1 {
+		t.Fatalf("protocol XML and processed nfeProc not archived: %d %v", archived, err)
 	}
 	var audited int
 	if err := pool.QueryRow(ctx, `
@@ -456,8 +453,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	`, targetTenant, targetInvoice).Scan(&audited); err != nil || audited != 1 {
 		t.Fatalf("authorized NFC-e requires one tenant-scoped audit: %d %v", audited, err)
 	}
-	if _,err:=svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim);
-		!errors.Is(err,fiscal.ErrNFCeConsultLeaseLost) {
-		t.Fatalf("replayed authorization after lease resolution must fail: %v",err)
+	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim); !errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
+		t.Fatalf("replayed authorization after lease resolution must fail: %v", err)
 	}
 }
