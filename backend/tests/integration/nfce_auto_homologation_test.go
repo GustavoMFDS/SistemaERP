@@ -116,11 +116,21 @@ func TestAutomaticNFCeHomologationPlansOnlyNewConfiguredSales(t *testing.T) {
 		t.Fatalf("unowned claim completed: %v",err)
 	}
 	if err:=fiscal.CompleteNFCeAutomaticHomologation(ctx,pool,worker,claim,
-		fiscal.NFCeAutoAwaiting,"awaiting_sefaz");err!=nil{
-		t.Fatal(err)
+		fiscal.NFCeAutoAwaiting,"awaiting_sefaz");
+		!errors.Is(err,fiscal.ErrNFCeAutoLeaseLost){
+		t.Fatalf("cannot mark awaiting_sefaz without submitted invoice: %v",err)
 	}
 	if err:=fiscal.CompleteNFCeAutomaticHomologation(ctx,pool,worker,claim,
 		fiscal.NFCeAutoAuthorized,"authorized");
+		!errors.Is(err,fiscal.ErrNFCeAutoLeaseLost){
+		t.Fatalf("cannot mark authorized without archived protocol: %v",err)
+	}
+	if err:=fiscal.CompleteNFCeAutomaticHomologation(ctx,pool,worker,claim,
+		fiscal.NFCeAutoQueued,"retry");err!=nil{
+		t.Fatal(err)
+	}
+	if err:=fiscal.CompleteNFCeAutomaticHomologation(ctx,pool,worker,claim,
+		fiscal.NFCeAutoQueued,"retry");
 		!errors.Is(err,fiscal.ErrNFCeAutoLeaseLost){
 		t.Fatalf("replay claim completed: %v",err)
 	}
@@ -128,8 +138,8 @@ func TestAutomaticNFCeHomologationPlansOnlyNewConfiguredSales(t *testing.T) {
 	if err:=pool.QueryRow(ctx,`
 		SELECT state FROM nfce_auto_homologation_jobs
 		WHERE tenant_id=$1 AND sale_id=$2
-	`,tenant,newSale).Scan(&state);err!=nil||state!=fiscal.NFCeAutoAwaiting{
-		t.Fatalf("unexpected pending state: %q %v",state,err)
+	`,tenant,newSale).Scan(&state);err!=nil||state!=fiscal.NFCeAutoQueued{
+		t.Fatalf("unexpected retry state: %q %v",state,err)
 	}
 	// Queue state can never fabricate an invoice or an SEFAZ response.
 	var invoices int
