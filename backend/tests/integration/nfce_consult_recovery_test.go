@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -39,11 +40,26 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	`).Scan(&tenantA, &actor, &cnpjA); err != nil {
 		t.Fatal(err)
 	}
+	// Generate a fresh structurally valid CNPJ for every run. Even on an
+	// intentionally reused disposable database, keys and tenants must not
+	// collide with fixtures from a previous failed test.
+	body := fmt.Sprintf("%012d", time.Now().UnixNano()%1_000_000_000_000)
+	cnpjB := ""
+	for dv := 0; dv < 100; dv++ {
+		candidate := fmt.Sprintf("%s%02d", body, dv)
+		if fisc.ValidateCNPJ(candidate) == nil {
+			cnpjB = candidate
+			break
+		}
+	}
+	if cnpjB == "" {
+		t.Fatal("could not create valid test CNPJ")
+	}
 	tenantB := ""
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO companies(legal_name,cnpj,address_state)
-		VALUES($1,'11222333000181','MG') RETURNING id::text
-	`, "Consulta NFC-e Tenant B "+uuid.NewString()).Scan(&tenantB); err != nil {
+		VALUES($1,$2,'MG') RETURNING id::text
+	`, "Consulta NFC-e Tenant B "+uuid.NewString(), cnpjB).Scan(&tenantB); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -95,8 +111,9 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		}
 		return invoiceID
 	}
-	invoiceA := makeSubmitted(tenantA, cnpjA, 101)
-	invoiceB := makeSubmitted(tenantB, "11222333000181", 102)
+	seriesStart := time.Now().UnixNano()%800_000_000 + 100_000
+	invoiceA := makeSubmitted(tenantA, cnpjA, seriesStart)
+	invoiceB := makeSubmitted(tenantB, cnpjB, seriesStart+1)
 
 	if added, err := fiscal.PlanNFCeSubmittedConsultations(ctx, pool); err != nil || added != 2 {
 		t.Fatalf("initial recovery plan added=%d err=%v", added, err)
@@ -186,12 +203,26 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if again, err := fiscal.PlanNFCeSubmittedConsultations(ctx, pool); err != nil || again != 0 {
 		t.Fatalf("resolved work requeued=%d err=%v", again, err)
 	}
-	for _, tenant := range []string{tenantA, tenantB} {
+	for _, item := range []struct{ tenant, invoice string }{
+		{tenantA, invoiceA}, {tenantB, invoiceB},
+	} {
 		var count int
 		if err := pool.QueryRow(ctx, `
-			SELECT count(*) FROM nfce_consult_recovery_jobs WHERE tenant_id=$1
-		`, tenant).Scan(&count); err != nil || count != 1 {
-			t.Fatalf("tenant %s recovery isolation: %d %v", tenant, count, err)
+			SELECT count(*) FROM nfce_consult_recovery_jobs
+			WHERE tenant_id=$1 AND invoice_id=$2
+		`, item.tenant, item.invoice).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("tenant/invoice recovery isolation: %d %v", count, err)
+		}
+	}
+	for _, item := range []struct{ tenant, otherInvoice string }{
+		{tenantA, invoiceB}, {tenantB, invoiceA},
+	} {
+		var count int
+		if err := pool.QueryRow(ctx, `
+			SELECT count(*) FROM nfce_consult_recovery_jobs
+			WHERE tenant_id=$1 AND invoice_id=$2
+		`, item.tenant, item.otherInvoice).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("cross-tenant recovery leak: %d %v", count, err)
 		}
 	}
 }
