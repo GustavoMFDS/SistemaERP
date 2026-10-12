@@ -53,11 +53,17 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 	var protocol *string
 	var accessKey *string
 	var authorizedAt *string
+	var processedXMLPresent bool
 	err := h.db.QueryRow(r.Context(), `
 		SELECT s.status,
 			f.document_kind, f.legacy_review,
 			i.id::text, i.status, i.model,
-			i.authorization_protocol, i.authorized_at::text, i.access_key
+			i.authorization_protocol, i.authorized_at::text, i.access_key,
+			EXISTS (
+			  SELECT 1 FROM invoice_authorized_xml_files x
+			  WHERE x.tenant_id=s.tenant_id AND x.invoice_id=i.id
+			    AND x.access_key=i.access_key
+			)
 		FROM sales s
 		LEFT JOIN sale_fiscal_intents f ON f.tenant_id=s.tenant_id AND f.sale_id=s.id
 		LEFT JOIN LATERAL (
@@ -67,7 +73,7 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 			ORDER BY created_at DESC, id DESC LIMIT 1
 		) i ON true
 		WHERE s.tenant_id=$1 AND s.id=$2
-	`, tenantID, saleID).Scan(&saleStatus, &kind, &legacy, &invoiceID, &invoiceStatus, &invoiceModel, &protocol, &authorizedAt, &accessKey)
+	`, tenantID, saleID).Scan(&saleStatus, &kind, &legacy, &invoiceID, &invoiceStatus, &invoiceModel, &protocol, &authorizedAt, &accessKey, &processedXMLPresent)
 	if err != nil {
 		return out, err
 	}
@@ -93,7 +99,7 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 	if saleStatus == "finalized" && invoiceStatus != nil && *invoiceStatus == "authorized" &&
 		invoiceModel != nil && *invoiceModel == 65 &&
 		protocol != nil && strings.TrimSpace(*protocol) != "" &&
-		authorizedAt != nil && *authorizedAt != "" &&
+		authorizedAt != nil && *authorizedAt != "" && processedXMLPresent &&
 		accessKey != nil && strings.TrimSpace(*accessKey) != "" && out.DocumentKind == "nfce" {
 		out.Authorized = true
 		out.Printable = true
