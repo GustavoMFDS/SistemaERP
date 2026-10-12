@@ -441,6 +441,8 @@ export default function FiscalPage() {
 
       <FiscalSetupGuide
         readiness={readiness}
+        issuer={issuer}
+        config={config}
         onOpenIssuer={() => openFiscalSection('fiscal-issuer')}
         onOpenCertificate={() => openFiscalSection('fiscal-certificate')}
         onOpenReadiness={() => openFiscalSection('fiscal-readiness')}
