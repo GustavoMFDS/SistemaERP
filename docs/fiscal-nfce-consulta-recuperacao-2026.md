@@ -32,3 +32,10 @@ O serviço fiscal já possui um caminho `AuthorizeNFCeHomologation` que, quando 
 - Migrações **0001–0046** aplicadas em PostgreSQL descartável.
 - `TestNFCeConsultationRecoveryIsTenantScopedAndFenced` usa duas lojas fictícias e dois trabalhadores independentes. Comprova planejamento idempotente, ausência de colisão de leases, rejeição de trabalhador errado e repetição de token, isolamento de CNPJs, diagnóstico sem mutação da nota e resolução por status final já gravado.
 - Somente o banco de testes descartável foi alterado; nenhuma venda ou certificado real.
+
+## Resultados comprovados da rodada (12/10/2026)
+
+- `go test ./...` e `go vet ./...` passaram com o adaptador de consulta alterado; a nova regra é conservadora inclusive para retornos de cancelamento/denegação em respostas de envio.
+- Instância PostgreSQL 16 descartável em porta isolada: **46 migrações up** aplicadas com dados sintéticos. A migração `0046.down` recusou apagar jobs existentes; em outra base vazia `0046.down` e reaplicação `0046.up` passaram.
+- `TestNFCeConsultationRecoveryIsTenantScopedAndFenced` executado com as flags explícitas de banco descartável, corrigido para não pressupor ordem de lease e para gerar CNPJ/numeração próprios a cada execução. **Dois runs consecutivos na mesma base** passaram.
+- Não foram executados calls SOAP, autorização real, reenvio de XML, homologação SEF/MG ou testes de certificado. A migração e o planejador podem ser instalados sem habilitar transmissão, mas o executor remoto ainda é P0 pendente.
