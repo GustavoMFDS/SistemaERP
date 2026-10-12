@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 type GuideReadiness = {
   issuer_identity_configured: boolean
   issuer_address_configured: boolean
@@ -21,6 +23,7 @@ type Props = {
 const officialLinks = {
   cnpj: 'https://www.gov.br/pt-br/servicos/consultar-cadastro-nacional-de-pessoas-juridicas',
   simples: 'https://www8.receita.fazenda.gov.br/SIMPLESNACIONAL/Servicos/Grupo.aspx?grp=9',
+  contribuinteMG: 'https://portalsped.fazenda.mg.gov.br/spedmg/nfe/Consulta-Cadastro-de-Contribuintes/',
   municipios: 'https://www.ibge.gov.br/explica/codigos-dos-municipios.php',
   credenciamento: 'https://portalsped.fazenda.mg.gov.br/spedmg/nfce/credenciamento/index.html',
   siare: 'https://siare.fazenda.mg.gov.br/sicaf/',
@@ -45,7 +48,7 @@ function GuideStep({
   number: number
   title: string
   status: string
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <details className="group rounded-lg border border-slate-200 bg-white">
@@ -117,11 +120,12 @@ export default function FiscalSetupGuide({
               endereço completo, CEP, município e código IBGE de sete dígitos, além do
               regime tributário/CRT confirmado pelo contador.</p>
             <p><strong>Onde consultar:</strong> CNPJ na Receita Federal, opção pelo
-              Simples Nacional no portal da Receita e código municipal no IBGE.
+              Simples Nacional no portal da Receita, IE no cadastro de contribuintes da SEF/MG e código municipal no IBGE.
               O comprovante de CNPJ ou o fato de não ser MEI não determina sozinho o CRT.</p>
             <div className="flex flex-wrap gap-x-4 gap-y-2">
               <OfficialLink href={officialLinks.cnpj}>Consultar CNPJ</OfficialLink>
               <OfficialLink href={officialLinks.simples}>Consultar Simples Nacional</OfficialLink>
+              <OfficialLink href={officialLinks.contribuinteMG}>Consultar IE em MG</OfficialLink>
               <OfficialLink href={officialLinks.municipios}>Código do município (IBGE)</OfficialLink>
             </div>
             <JumpButton onClick={onOpenIssuer}>Ir para dados da loja</JumpButton>
@@ -129,9 +133,11 @@ export default function FiscalSetupGuide({
 
           <GuideStep number={2} title="Conferir credenciamento da NFC-e na SEF/MG"
             status="Confirmação externa obrigatória">
-            <p><strong>Acesso necessário:</strong> SIARE da SEF/MG, normalmente por CPF
-              e senha do responsável autorizado ou pela opção de certificado digital.
-              O contador ou representante com autorização pode orientar o procedimento.
+            <p><strong>Acesso necessário:</strong> SIARE da SEF/MG. Na opção de login,
+              selecione o tipo de usuário adequado (por exemplo, Inscrição Estadual),
+              informe os dados solicitados da IE, o CPF do responsável autorizado e a senha
+              pessoal; também existe acesso por certificado digital. O contador ou
+              representante autorizado pode orientar o procedimento.
               Esse login é feito no portal do governo, não no SistemaEmGo.</p>
             <p><strong>O que fazer:</strong> verificar se o CNPJ/IE está credenciado
               para emitir NFC-e modelo 65 e, se necessário, seguir as instruções
