@@ -95,8 +95,9 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 		VALUES($1,$2,$3,1,10,0,10,5) RETURNING id::text
 	`,tenant,sale,product).Scan(&saleItem);err!=nil{t.Fatal(err)}
 	if _,err:=pool.Exec(ctx,`
-		INSERT INTO payments(sale_id,method,amount) VALUES($1,'cash',10)
-	`,sale);err!=nil{t.Fatal(err)}
+		INSERT INTO payments(tenant_id,sale_id,method,amount)
+		VALUES($1,$2,'cash',10)
+	`,tenant,sale);err!=nil{t.Fatal(err)}
 
 	if _,err:=fiscal.PlanNFCeAutomaticHomologation(ctx,pool);err!=nil{t.Fatal(err)}
 	owner:="auto-hom-e2e-"+uuid.NewString()
