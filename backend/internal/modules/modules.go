@@ -97,6 +97,12 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	var refreshStore authapp.RefreshTokenStore
 	if rdb != nil {
 		refreshStore = authinfra.NewRefreshTokenStore(rdb)
+	} else if !cfg.IsProdLike() {
+		// Developer-only session rotation when a local Redis instance is not
+		// available. Never permit ephemeral, non-distributed auth in prod.
+		refreshStore = authinfra.NewMemoryRefreshTokenStore()
+		logger.Warn("dev_refresh_tokens_in_memory",
+			slog.String("impact", "sessions expire on restart; not for multiple backend replicas"))
 	}
 	authSvc := authapp.NewAuthService(cfg, usersRepo, refreshStore, logger)
 	productsSvc := invapp.NewProductsService(uow, productsRepo, auditSvc, v, logger)
