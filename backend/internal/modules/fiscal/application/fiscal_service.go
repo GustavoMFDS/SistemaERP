@@ -1445,6 +1445,28 @@ func (s *FiscalService) RenderNFCeDANFE(
 		reservation.AuthorizedAt.IsZero() {
 		return "", nil, common.ErrFiscalNotReady
 	}
+	// The fiscal-page reprint route is not the cashier-safe status route.
+	// Apply the same archive requirement here so that a locally marked
+	// authorized/cancelled invoice with no persisted genuine nfeProc cannot
+	// be presented as a legally authorized paper document.
+	if !offlinePending {
+		var archivePresent bool
+		err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM invoice_authorized_xml_files p
+				WHERE p.tenant_id=$1 AND p.invoice_id=$2
+				  AND p.access_key=$3
+				  AND octet_length(p.processed_xml)>0
+				  AND octet_length(p.protocol_xml)>0
+			)
+		`, tenantID, invoiceID, reservation.AccessKey).Scan(&archivePresent)
+		if err != nil {
+			return "", nil, err
+		}
+		if !archivePresent {
+			return "", nil, common.ErrFiscalNotReady
+		}
+	}
 	_, signedXML, err := s.fiscal.GetLatestNFCeXMLContent(
 		ctx, tx, tenantID, invoiceID,
 	)
