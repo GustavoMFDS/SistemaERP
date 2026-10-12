@@ -900,7 +900,7 @@ export default function PDVPage() {
   }
 
   async function printFiscalDANFE(previewOnly = false) {
-    if (!fiscalStatus?.printable || fiscalStatus.sale_id !== fiscalSaleRef.current) return
+    if (!fiscalStatus?.printable || printerSaving || printerError || fiscalStatus.sale_id !== fiscalSaleRef.current) return
     try {
       await apiOpenPrintable(
         '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-danfe',
@@ -1500,18 +1500,19 @@ export default function PDVPage() {
                 </label>
                 <span className="text-xs text-slate-600">Use o mesmo tamanho no driver da impressora.</span>
               </div>
+              {printerSaving ? <p role="status" className="mt-2 text-xs text-slate-600">Salvando largura da bobina…</p> : null}
               {printerError ? <p role="alert" className="mt-2 text-xs text-red-700">{printerError}</p> : null}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => setPrintDecisionOpen(false)}
                   className="rounded-md border border-slate-400 bg-white px-3 py-2">
                   Não imprimir
                 </button>
-                <button type="button" disabled={!fiscalStatus?.printable}
+                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || !!printerError}
                   onClick={() => void printFiscalDANFE(true)}
                   className="rounded-md border border-slate-500 bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50">
                   Pré-visualizar DANFE
                 </button>
-                <button type="button" disabled={!fiscalStatus?.printable}
+                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || !!printerError}
                   onClick={() => void printFiscalDANFE()}
                   className="rounded-md bg-slate-900 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50">
                   Sim, abrir para imprimir
