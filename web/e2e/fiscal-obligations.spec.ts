@@ -10,6 +10,8 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   const sale2 = 'ab1014a5-e3bc-46dd-aa12-d7e7500e70a7'
   const sale3 = '4f439fed-d5fd-40be-bf19-3aa93419905c'
   const filterRequests: string[] = []
+  const manualReviews = new Set<string>()
+  let reviewWrites = 0
   const pending = [
     { sale_id: sale1, created_at: '2026-10-09T12:00:00Z',
       document_kind: 'nfce', sale_status: 'finalized', status: 'pending',
@@ -28,6 +30,19 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
     const reply = (data: unknown, status = 200) => route.fulfill({ status, json: data })
+    if (url.pathname === '/api/v1/setup/reviews') return reply({
+      items: [...manualReviews].map((step) => ({ step, reviewed_at: '2026-10-12T12:00:00Z' })),
+    })
+    if (url.pathname.startsWith('/api/v1/setup/reviews/') && route.request().method() === 'PUT') {
+      reviewWrites += 1
+      const step = url.pathname.split('/').at(-1) || ''
+      const { reviewed } = route.request().postDataJSON() as { reviewed: boolean }
+      if (reviewed) manualReviews.add(step)
+      else manualReviews.delete(step)
+      return reply({ items: [...manualReviews].map((value) => ({
+        step: value, reviewed_at: '2026-10-12T12:00:00Z',
+      })) })
+    }
     if (url.pathname === '/api/v1/auth/login') return reply({
       token: { access_token: token }, user: {
         id: userID, email: 'fiscal@teste.local', name: 'Responsável Fiscal', roles: ['admin'],
@@ -98,6 +113,13 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   await expect(guide.getByText('Etapa 1 de 6')).toBeVisible()
   await expect(guide.getByText('Dados já cadastrados nesta loja (preenchimento automático)')).toBeVisible()
   await expect(guide.getByText('Loja Fictícia')).toBeVisible()
+  await expect(guide.getByText('0 de 4 tarefas marcadas manualmente')).toBeVisible()
+  page.once('dialog', (dialog) => void dialog.accept())
+  await guide.getByRole('button', { name: 'Marcar tarefa organizada' }).click()
+  await expect(guide.getByRole('button', { name: 'Reabrir tarefa' })).toBeVisible()
+  await expect(guide.getByText('1 de 4 tarefas marcadas manualmente')).toBeVisible()
+  expect(manualReviews.has('fiscal_docs_collected')).toBe(true)
+  expect(reviewWrites).toBe(1)
   await guide.getByRole('button', { name: 'Próxima etapa' }).click()
   await expect(guide.getByText('Etapa 2 de 6')).toBeVisible()
   await guide.getByRole('button', { name: 'Voltar etapa' }).click()
