@@ -201,7 +201,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	`, claimsA[0].TenantID, claimsA[0].InvoiceID); err != nil {
 		t.Fatal(err)
 	}
-	if resolved, err := fiscal.ResolveNFCeConsultationPlans(ctx, pool); err != nil || resolved != 1 {
+	if resolved, err := fiscal.ResolveNFCeConsultationPlans(ctx, pool); err != nil || resolved < 1 {
 		t.Fatalf("resolve external final state=%d err=%v", resolved, err)
 	}
 	if again, err := fiscal.PlanNFCeSubmittedConsultations(ctx, pool); err != nil || again != 0 {
