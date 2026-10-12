@@ -79,6 +79,20 @@ type StoredReviews = {
   steps: FiscalManualReview[]
 }
 
+const localIssuerIssueLabels: Record<string, string> = {
+  issuer_legal_name_missing: 'Falta a razão social oficial da empresa.',
+  issuer_cnpj_invalid: 'CNPJ inválido nos dígitos verificadores: peça a correção do cadastro principal.',
+  issuer_ie_missing: 'Inscrição estadual não informada: consulte o cadastro estadual.',
+  issuer_crt_invalid: 'CRT ausente ou não reconhecido: confirme o enquadramento com o contador.',
+  issuer_street_missing: 'Informe a rua ou avenida.',
+  issuer_number_missing: 'Informe o número do endereço.',
+  issuer_neighborhood_missing: 'Informe o bairro.',
+  issuer_city_missing: 'Informe o nome da cidade.',
+  issuer_zip_invalid: 'CEP inválido: use exatamente oito dígitos, sem hífen.',
+  issuer_uf_unsupported: 'O emissor atual de NFC-e só oferece integração para MG.',
+  issuer_municipality_uf_mismatch: 'Código IBGE municipal deve ter sete números e começar com 31 (MG).',
+}
+
 const manualReviewSteps: FiscalManualReview[] = [
   'fiscal_docs_collected',
   'fiscal_siare_access_arranged',
@@ -242,6 +256,7 @@ export default function FiscalSetupGuide({
     />
   )
   const reasons = readiness?.blocking_reasons ?? []
+  const issuerIssues = reasons.filter((reason) => Boolean(localIssuerIssueLabels[reason]))
   const issuerFilled = Boolean(
     readiness?.issuer_identity_configured &&
     readiness.issuer_address_configured &&
@@ -347,6 +362,27 @@ export default function FiscalSetupGuide({
                 </p>
               ) : null}
             </div>
+            {readiness ? (
+              <div className="rounded-md border border-slate-200 bg-white p-3">
+                <p className="font-semibold text-slate-900">Conferência automática dos campos</p>
+                {issuerIssues.length > 0 ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-800">
+                    {issuerIssues.map((reason) => (
+                      <li key={reason}>{localIssuerIssueLabels[reason]}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-700">
+                    Não há pendências locais de formato nesses campos.
+                    Isso não comprova inscrição estadual, CRT, município no IBGE ou credenciamento.
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-slate-600">
+                  A conferência é feita com dados já cadastrados no PDV. Ela não acessa
+                  a Receita Federal ou o portal da SEF/MG.
+                </p>
+              </div>
+            ) : null}
             <p><strong>Separe:</strong> CNPJ, razão social, inscrição estadual (IE),
               endereço completo, CEP, município e código IBGE de sete dígitos, além do
               regime tributário/CRT confirmado pelo contador.</p>
