@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { apiJson, errorMessage } from '../lib/api'
 import type { ReactNode } from 'react'
 
 type GuideReadiness = {
+  tenant_id: string
   issuer_identity_configured: boolean
   issuer_address_configured: boolean
   municipality_code_configured: boolean
@@ -40,6 +42,7 @@ type Props = {
   onOpenIssuer: () => void
   onOpenCertificate: () => void
   onOpenReadiness: () => void
+  canReview: boolean
 }
 
 const officialLinks = {
@@ -61,6 +64,64 @@ function OfficialLink({ href, children }: { href: string; children: string }) {
       className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900">
       {children} ↗
     </a>
+  )
+}
+
+type FiscalManualReview =
+  | 'fiscal_docs_collected'
+  | 'fiscal_siare_access_arranged'
+  | 'fiscal_accountant_consulted'
+  | 'fiscal_previous_series_checked'
+
+type ReviewResponse = { items: Array<{ step: string; reviewed_at: string }> }
+type StoredReviews = {
+  tenantID: string
+  steps: FiscalManualReview[]
+}
+
+const manualReviewSteps: FiscalManualReview[] = [
+  'fiscal_docs_collected',
+  'fiscal_siare_access_arranged',
+  'fiscal_accountant_consulted',
+  'fiscal_previous_series_checked',
+]
+
+function parseManualReviews(tenantID: string, response: ReviewResponse): StoredReviews {
+  return {
+    tenantID,
+    steps: response.items
+      .filter((item) => manualReviewSteps.includes(item.step as FiscalManualReview))
+      .map((item) => item.step as FiscalManualReview),
+  }
+}
+
+function ManualChecklistTask({
+  title, step, reviewed, available, saving, onToggle,
+}: {
+  title: string
+  step: FiscalManualReview
+  reviewed: boolean
+  available: boolean
+  saving: boolean
+  onToggle: (step: FiscalManualReview) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="flex-1">
+        <p className="font-medium text-slate-900">{title}</p>
+        <p className="text-xs text-slate-600">
+          {reviewed
+            ? 'Marcação manual registrada nesta empresa; não é comprovação perante a SEF/MG.'
+            : 'Tarefa de organização ainda não marcada nesta empresa.'}
+        </p>
+      </div>
+      <button type="button" disabled={!available || saving}
+        aria-pressed={reviewed}
+        onClick={() => onToggle(step)}
+        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 disabled:opacity-50">
+        {saving ? 'Salvando…' : reviewed ? 'Reabrir tarefa' : 'Marcar tarefa organizada'}
+      </button>
+    </div>
   )
 }
 
@@ -112,12 +173,72 @@ function JumpButton({ onClick, children }: { onClick: () => void; children: stri
   )
 }
 
-// This guide is informational: it does not write credentials, infer fiscal
-// regimes, persist manual checkmarks or claim government authorization.
+// This guide never writes credentials, infers CRT or claims official
+// approval. Manual checklist acknowledgements use the existing audited,
+// tenant-scoped setup review API and cannot enable transmission.
 export default function FiscalSetupGuide({
-  readiness, issuer, config, onOpenIssuer, onOpenCertificate, onOpenReadiness,
+  readiness, issuer, config, onOpenIssuer, onOpenCertificate, onOpenReadiness, canReview,
 }: Props) {
   const [activeStep, setActiveStep] = useState(1)
+  const [storedReviews, setStoredReviews] = useState<StoredReviews | null>(null)
+  const [reviewError, setReviewError] = useState('')
+  const [savingReview, setSavingReview] = useState<FiscalManualReview | null>(null)
+  const tenantID = readiness?.tenant_id ?? ''
+  const tenantRef = useRef(tenantID)
+  tenantRef.current = tenantID
+
+  useEffect(() => {
+    let active = true
+    if (tenantID && canReview) {
+      apiJson<ReviewResponse>('/api/v1/setup/reviews')
+        .then((response) => {
+          if (!active) return
+          setStoredReviews(parseManualReviews(tenantID, response))
+          setReviewError('')
+        })
+        .catch((error: unknown) => {
+          if (active) setReviewError('Não foi possível recuperar as tarefas desta empresa: ' + errorMessage(error))
+        })
+    }
+    return () => { active = false }
+  }, [tenantID, canReview])
+
+  const currentReviews = storedReviews?.tenantID === tenantID ? storedReviews.steps : []
+  const canSaveReview = Boolean(canReview && tenantID && storedReviews?.tenantID === tenantID)
+  async function toggleReview(step: FiscalManualReview) {
+    if (!canSaveReview || savingReview || !manualReviewSteps.includes(step)) return
+    const reviewed = !currentReviews.includes(step)
+    if (reviewed && !window.confirm(
+      'Registrar somente que a tarefa de organização foi realizada? ' +
+      'Isso não confirma credenciamento, homologação, validade de dados fiscais ou autorização de notas.',
+    )) return
+    setSavingReview(step)
+    setReviewError('')
+    try {
+      const response = await apiJson<ReviewResponse>('/api/v1/setup/reviews/' + step, {
+        method: 'PUT', body: { reviewed },
+      })
+      if (tenantRef.current === tenantID) {
+        setStoredReviews(parseManualReviews(tenantID, response))
+      }
+    } catch (error: unknown) {
+      if (tenantRef.current === tenantID) {
+        setReviewError('Não foi possível salvar a tarefa: ' + errorMessage(error))
+      }
+    } finally {
+      setSavingReview(null)
+    }
+  }
+
+  const manualTask = (step: FiscalManualReview, title: string) => (
+    <ManualChecklistTask
+      step={step} title={title}
+      reviewed={currentReviews.includes(step)}
+      available={canSaveReview}
+      saving={savingReview === step}
+      onToggle={(value) => { void toggleReview(value) }}
+    />
+  )
   const reasons = readiness?.blocking_reasons ?? []
   const issuerFilled = Boolean(
     readiness?.issuer_identity_configured &&
@@ -172,6 +293,18 @@ export default function FiscalSetupGuide({
           A transmissão permanece desativada. Não digite senha do SIARE, senha do
           certificado, token CSC ou chave privada nesta tela.
         </p>
+        <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+          <p className="font-semibold">Tarefas organizacionais salvas por empresa</p>
+          <p className="mt-1 text-xs text-slate-700">
+            {canReview
+              ? canSaveReview
+                ? currentReviews.length + ' de 4 tarefas marcadas manualmente'
+                : 'Consultando tarefas da empresa…'
+              : 'Você pode ler o guia; só responsáveis com permissão fiscal podem marcar tarefas.'}
+            {' '}Essas marcações não validam notas, credenciamento nem homologação.
+          </p>
+          {reviewError ? <p role="alert" className="mt-2 text-xs text-red-700">{reviewError}</p> : null}
+        </div>
         <div className="mt-4 space-y-3">
           <div className="rounded-lg border border-slate-200 bg-white p-3" role="status"
             aria-live="polite" aria-atomic="true">
@@ -224,6 +357,7 @@ export default function FiscalSetupGuide({
               <OfficialLink href={officialLinks.contribuinteMG}>Consultar IE em MG</OfficialLink>
               <OfficialLink href={officialLinks.municipios}>Código do município (IBGE)</OfficialLink>
             </div>
+            {manualTask('fiscal_docs_collected', 'Reuni os documentos e informações cadastrais da loja')}
             <JumpButton onClick={onOpenIssuer}>Ir para dados da loja</JumpButton>
           </GuideStep>
 
@@ -243,6 +377,7 @@ export default function FiscalSetupGuide({
               <OfficialLink href={officialLinks.credenciamento}>Instruções da SEF/MG</OfficialLink>
               <OfficialLink href={officialLinks.siare}>Abrir SIARE (login)</OfficialLink>
             </div>
+            {manualTask('fiscal_siare_access_arranged', 'Organizei o acesso do responsável ao portal SIARE')}
             <p className="text-xs text-slate-600">
               O sistema não consegue verificar sozinho se esse credenciamento foi realizado.
             </p>
@@ -295,6 +430,7 @@ export default function FiscalSetupGuide({
             <p><strong>Onde obter:</strong> escrituração, cadastro fiscal dos produtos,
               notas de fornecedores e orientação contábil. Não invente códigos ou
               aplique um mesmo imposto a todos os produtos por conveniência.</p>
+            {manualTask('fiscal_accountant_consulted', 'Solicitei ao contador a revisão das informações tributárias')}
             <JumpButton onClick={onOpenReadiness}>Ver pendências detectadas no PDV</JumpButton>
           </GuideStep>
 
@@ -319,6 +455,7 @@ export default function FiscalSetupGuide({
               <OfficialLink href={officialLinks.homologacao}>Serviços oficiais de MG</OfficialLink>
               <OfficialLink href={officialLinks.nfe}>NF-e modelo 55: credenciamento separado</OfficialLink>
             </div>
+            {manualTask('fiscal_previous_series_checked', 'Conferi com o responsável a numeração e a série já utilizadas')}
             <JumpButton onClick={onOpenCertificate}>Abrir configuração de homologação</JumpButton>
           </GuideStep>
 
