@@ -87,7 +87,10 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
       config_exists: false, transmission_enabled: false, environment: 'homologation',
       certificate_reference_configured: false, csc_reference_configured: false,
       active_products: 0, products_missing_ncm: 0,
-      ready_for_homologation_data: false, blocking_reasons: ['issuer_identity'],
+      ready_for_homologation_data: false, blocking_reasons: [
+        'issuer_identity', 'issuer_cnpj_invalid', 'issuer_crt_invalid',
+        'issuer_zip_invalid', 'issuer_municipality_uf_mismatch',
+      ],
     })
     if (url.pathname === '/api/v1/fiscal/nfce/issuer') return reply({
       tenant_id: tenantID, legal_name: 'Loja Fictícia', trade_name: 'Teste',
@@ -113,6 +116,11 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   await expect(guide.getByText('Etapa 1 de 6')).toBeVisible()
   await expect(guide.getByText('Dados já cadastrados nesta loja (preenchimento automático)')).toBeVisible()
   await expect(guide.getByText('Loja Fictícia')).toBeVisible()
+  await expect(guide.getByText('Conferência automática dos campos')).toBeVisible()
+  await expect(guide.getByText(/CNPJ inválido nos dígitos verificadores/)).toBeVisible()
+  await expect(guide.getByText(/CRT ausente ou não reconhecido/)).toBeVisible()
+  await expect(guide.getByText(/CEP inválido: use exatamente oito dígitos/)).toBeVisible()
+  await expect(guide.getByText(/Código IBGE municipal deve ter sete números/)).toBeVisible()
   await expect(guide.getByText('0 de 4 tarefas marcadas manualmente')).toBeVisible()
   page.once('dialog', (dialog) => void dialog.accept())
   await guide.getByRole('button', { name: 'Marcar tarefa organizada' }).click()
