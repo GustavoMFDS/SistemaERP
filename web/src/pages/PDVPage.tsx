@@ -218,6 +218,9 @@ export default function PDVPage() {
   const [fiscalStatus, setFiscalStatus] = useState<SaleFiscalStatus | null>(null)
   const [fiscalStatusError, setFiscalStatusError] = useState('')
   const [printDecisionOpen, setPrintDecisionOpen] = useState(false)
+  const [printerWidthMM, setPrinterWidthMM] = useState<58 | 80>(80)
+  const [printerSaving, setPrinterSaving] = useState(false)
+  const [printerError, setPrinterError] = useState('')
   const fiscalSaleRef = useRef('')
   const [finalizing, setFinalizing] = useState(false)
   const finalizeInFlight = useRef(false)
@@ -854,14 +857,56 @@ export default function PDVPage() {
     return () => window.clearInterval(interval)
   }, [saleId, fiscalStatus?.authorized, fiscalStatus?.status])
 
-  async function printFiscalDANFE() {
+  useEffect(() => {
+    if (!cashSessionId || !online) return
+    let cancelled = false
+    const scope = getSessionScope()
+    setPrinterError('')
+    void apiJson<{ paper_width_mm: number }>(
+      '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer',
+    ).then((settings) => {
+      if (!cancelled && scope === getSessionScope() &&
+          (settings.paper_width_mm === 58 || settings.paper_width_mm === 80)) {
+        setPrinterWidthMM(settings.paper_width_mm)
+      }
+    }).catch(() => {
+      if (!cancelled && scope === getSessionScope()) {
+        setPrinterError('Não foi possível carregar a bobina configurada neste caixa.')
+      }
+    })
+    return () => { cancelled = true }
+  }, [cashSessionId, online])
+
+  async function setPrinterPaperWidth(width: 58 | 80) {
+    if (!cashSessionId || printerSaving || !online) return
+    const previousWidth = printerWidthMM
+    setPrinterSaving(true)
+    setPrinterError('')
+    try {
+      const settings = await apiJson<{ paper_width_mm: number }>(
+        '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer',
+        { method: 'PUT', body: { paper_width_mm: width } },
+      )
+      if (settings.paper_width_mm !== 58 && settings.paper_width_mm !== 80) {
+        throw new Error('O servidor retornou uma largura de bobina inválida.')
+      }
+      setPrinterWidthMM(settings.paper_width_mm)
+    } catch (error: unknown) {
+      setPrinterWidthMM(previousWidth)
+      setPrinterError('Não foi possível salvar a bobina: ' + errorMessage(error))
+    } finally {
+      setPrinterSaving(false)
+    }
+  }
+
+  async function printFiscalDANFE(previewOnly = false) {
     if (!fiscalStatus?.printable || fiscalStatus.sale_id !== fiscalSaleRef.current) return
     try {
       await apiOpenPrintable(
         '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-danfe',
-        true,
+        !previewOnly,
       )
-      setPrintDecisionOpen(false)
+      if (!previewOnly) setPrintDecisionOpen(false)
     } catch (error: unknown) {
       setFiscalStatusError('Não foi possível abrir o DANFE: ' + errorMessage(error))
     }
@@ -1436,10 +1481,35 @@ export default function PDVPage() {
                 Escolher não imprimir não cancela a venda nem a obrigação fiscal.
                 Sem autorização da SEFAZ, nenhum documento fiscal será apresentado como emitido.
               </p>
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <label className="text-xs font-semibold text-slate-900">
+                  Bobina deste caixa
+                  <select
+                    aria-label="Largura da bobina do DANFE"
+                    className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    value={printerWidthMM}
+                    disabled={!cashSessionId || !online || printerSaving}
+                    onChange={(event) => {
+                      const width = Number(event.target.value)
+                      if (width === 58 || width === 80) void setPrinterPaperWidth(width)
+                    }}
+                  >
+                    <option value={58}>58 mm</option>
+                    <option value={80}>80 mm</option>
+                  </select>
+                </label>
+                <span className="text-xs text-slate-600">Use o mesmo tamanho no driver da impressora.</span>
+              </div>
+              {printerError ? <p role="alert" className="mt-2 text-xs text-red-700">{printerError}</p> : null}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => setPrintDecisionOpen(false)}
                   className="rounded-md border border-slate-400 bg-white px-3 py-2">
                   Não imprimir
+                </button>
+                <button type="button" disabled={!fiscalStatus?.printable}
+                  onClick={() => void printFiscalDANFE(true)}
+                  className="rounded-md border border-slate-500 bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50">
+                  Pré-visualizar DANFE
                 </button>
                 <button type="button" disabled={!fiscalStatus?.printable}
                   onClick={() => void printFiscalDANFE()}
