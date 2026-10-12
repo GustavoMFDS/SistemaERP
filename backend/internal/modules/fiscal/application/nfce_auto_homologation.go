@@ -154,6 +154,21 @@ func CompleteNFCeAutomaticHomologation(
 		      AND s.status='finalized' AND f.document_kind='nfce'
 		      AND NOT f.legacy_review
 		  )
+		  AND ($5<>'authorized' OR EXISTS (
+		    SELECT 1 FROM invoices i
+		    JOIN invoice_authorized_xml_files x
+		      ON x.tenant_id=i.tenant_id AND x.invoice_id=i.id
+		    WHERE i.tenant_id=j.tenant_id AND i.sale_id=j.sale_id
+		      AND i.status='authorized' AND i.model=65
+		      AND i.access_key=x.access_key
+		      AND i.authorization_protocol IS NOT NULL
+		      AND i.authorized_at IS NOT NULL
+		  ))
+		  AND ($5<>'awaiting_sefaz' OR EXISTS (
+		    SELECT 1 FROM invoices i
+		    WHERE i.tenant_id=j.tenant_id AND i.sale_id=j.sale_id
+		      AND i.status IN ('submitted','authorized') AND i.model=65
+		  ))
 	`,job.TenantID,job.SaleID,job.LeaseToken,owner,nextState,step)
 	if err!=nil{return err}
 	if tag.RowsAffected()!=1{return ErrNFCeAutoLeaseLost}
