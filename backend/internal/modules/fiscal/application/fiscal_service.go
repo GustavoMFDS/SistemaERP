@@ -471,7 +471,8 @@ func (s *FiscalService) reserveNFCeDraftWithMode(
 		AddressState:        reservationContext.Issuer.AddressState,
 		AddressZIP:          reservationContext.Issuer.AddressZIP,
 	}
-	if s.validate.Struct(issuerReq) != nil || fisc.ValidateCNPJ(reservationContext.Issuer.CNPJ) != nil {
+	if s.validate.Struct(issuerReq) != nil ||
+		len(fisc.NFCeMGIssuerLocalBlockers(reservationContext.Issuer)) != 0 {
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
 	}
 	if !reservationContext.Config.CertificateReferenceConfigured {
