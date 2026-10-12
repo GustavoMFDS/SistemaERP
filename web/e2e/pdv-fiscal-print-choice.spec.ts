@@ -96,7 +96,7 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   await expect(page.getByRole('button', { name: 'Imprimir depois' }))
     .toBeVisible({ timeout: 12000 })
   expect(fiscalReads).toBeGreaterThan(readsBeforeAuthorization)
-  await expect(page.getByText(/NFC-e autorizada/)).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'NFC-e autorizada.' })).toBeVisible()
   expect(danfeRequests).toBe(0)
   expect(salePosts).toBe(1)
 })
