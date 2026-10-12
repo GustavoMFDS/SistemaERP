@@ -155,6 +155,7 @@ type danfeView struct {
 	AuthorizedAt         string
 	Consumer             danfeConsumerView
 	QRCodeDataURL        template.URL
+	PaperWidthMM         int
 }
 
 type danfeItemView struct {
@@ -183,6 +184,19 @@ func (r *DANFERenderer) Render(
 	reservation fisc.NFCeReservation,
 	signedXML []byte,
 ) ([]byte, error) {
+	return r.RenderWithPaperWidth(reservation, signedXML, 80)
+}
+
+// RenderWithPaperWidth selects the physical cash-register roll width.
+// No client-controlled CSS/HTML is interpolated: only 58 or 80 is accepted.
+func (r *DANFERenderer) RenderWithPaperWidth(
+	reservation fisc.NFCeReservation,
+	signedXML []byte,
+	paperWidthMM int,
+) ([]byte, error) {
+	if paperWidthMM != 58 && paperWidthMM != 80 {
+		return nil, fmt.Errorf("DANFE paper width must be 58 or 80 mm")
+	}
 	if r == nil {
 		return nil, fmt.Errorf("DANFE renderer is not configured")
 	}
@@ -305,6 +319,7 @@ func (r *DANFERenderer) Render(
 		AuthorizedAt:         authorizedAt,
 		Consumer:             danfeConsumer(doc.InfNFe.Dest),
 		QRCodeDataURL:        template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG)),
+		PaperWidthMM:         paperWidthMM,
 	}
 
 	var out bytes.Buffer
@@ -324,16 +339,20 @@ var danfeTemplate = template.Must(template.New("danfe-nfce").Parse(`<!doctype ht
 <style>
 @page { margin: 2mm; }
 * { box-sizing: border-box; }
-body { width: 100%; max-width: 80mm; min-width: 0; margin: 0 auto; padding: 2mm; font: 11px/1.25 Arial, Helvetica, sans-serif; color: #000; background: #fff; }
+body { width: 100%; max-width: {{.PaperWidthMM}}mm; min-width: 0; margin: 0 auto; padding: 2mm; font: 11px/1.25 Arial, Helvetica, sans-serif; color: #000; background: #fff; }
 h1,p { margin: 0; }
 .center { text-align: center; }
 .strong { font-weight: 700; }
 .section { border-top: 1px dashed #000; padding-top: 2mm; margin-top: 2mm; }
 .banner { border: 2px solid #000; padding: 2mm; margin: 2mm 0; font-weight: 700; text-align: center; }
-table { width: 100%; border-collapse: collapse; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 th, td { padding: 1mm 0.5mm; vertical-align: top; overflow-wrap: anywhere; }
 th { border-bottom: 1px solid #000; font-size: 9px; }
 td.num, th.num { text-align: right; overflow-wrap: anywhere; }
+thead { display: table-header-group; }
+tbody tr { break-inside: avoid; page-break-inside: avoid; }
+.section.qr { break-inside: avoid; page-break-inside: avoid; }
+header, .banner, .section.center { break-inside: avoid; page-break-inside: avoid; }
 .item-desc { word-break: break-word; }
 .row { display: flex; justify-content: space-between; gap: 3mm; }
 .qr { text-align: center; }
@@ -341,7 +360,7 @@ td.num, th.num { text-align: right; overflow-wrap: anywhere; }
 .key { word-break: break-word; font-family: monospace; font-size: 10px; }
 .muted { font-size: 9px; }
 @media print {
-  body { width: 100%; max-width: 80mm; margin: 0 auto; padding: 0 1mm; }
+  body { width: 100%; max-width: {{.PaperWidthMM}}mm; margin: 0 auto; padding: 0 1mm; }
   .no-print { display: none; }
 }
 </style>
