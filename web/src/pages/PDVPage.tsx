@@ -827,6 +827,33 @@ export default function PDVPage() {
     }
   }
 
+  // A finalized sale always keeps its fiscal obligation, even while an
+  // automated issuer prepares/signs/transmits it. Only enable printing once
+  // the backend confirms a real authorized and archived document.
+  useEffect(() => {
+    if (!saleId || saleId.startsWith('offline:') ||
+        fiscalStatus?.authorized || fiscalStatus?.status === 'legacy_review') return
+
+    let requestInFlight = false
+    const interval = window.setInterval(() => {
+      if (requestInFlight || fiscalSaleRef.current !== saleId) return
+      requestInFlight = true
+      void apiJson<SaleFiscalStatus>(
+        '/api/v1/sales/' + encodeURIComponent(saleId) + '/fiscal-status',
+      ).then((next) => {
+        if (fiscalSaleRef.current === saleId) {
+          setFiscalStatus(next)
+          setFiscalStatusError('')
+        }
+      }).catch((error: unknown) => {
+        if (fiscalSaleRef.current === saleId) {
+          setFiscalStatusError('Não foi possível atualizar a situação fiscal: ' + errorMessage(error))
+        }
+      }).finally(() => { requestInFlight = false })
+    }, 5000)
+    return () => window.clearInterval(interval)
+  }, [saleId, fiscalStatus?.authorized, fiscalStatus?.status])
+
   async function printFiscalDANFE() {
     if (!fiscalStatus?.printable || fiscalStatus.sale_id !== fiscalSaleRef.current) return
     try {
