@@ -188,10 +188,10 @@ func inspectFiscalPreflight(ctx context.Context, reader preparationReader, claim
 		return PreflightInternalError, err
 	}
 	if fisc.ValidateCNPJ(cnpj) != nil ||
-		len(strings.TrimSpace(ie)) == 0 || len(strings.TrimSpace(crt)) == 0 ||
+		len(strings.TrimSpace(ie)) == 0 || !fisc.ValidNFCeCRT(crt) ||
 		len(strings.TrimSpace(street)) == 0 || len(strings.TrimSpace(number)) == 0 ||
-		len(strings.TrimSpace(city)) == 0 || len(cityCode) != 7 ||
-		len(uf) != 2 || len(zip) != 8 {
+		len(strings.TrimSpace(city)) == 0 || fisc.NFCeMGJurisdictionBlocker(uf, cityCode) != "" ||
+		len(zip) != 8 || strings.Trim(zip, "0123456789") != "" {
 		return PreflightIssuerIncomplete, nil
 	}
 	var totalItems, badProducts, totalPayments, badPayments int
