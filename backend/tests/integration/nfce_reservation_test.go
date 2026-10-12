@@ -344,6 +344,38 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 
 	service.SetNFCeProcessedDocumentBuilder(fakeProcessedDocumentBuilder{})
 	issuedAt := time.Date(2026, time.September, 30, 10, 30, 0, 0, time.FixedZone("BRT", -3*60*60))
+	// The XML builder cannot be used to reserve a fiscal number for an
+	// issuer outside MG. This must fail BEFORE creating an invoice/sequence.
+	if _, err := pool.Exec(ctx, `
+		UPDATE companies SET address_city_code='3550308' WHERE id=$1
+	`, tenantID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.ReserveNFCeDraft(
+		ctx, tenantID, actorUserID, saleID, issuedAt,
+	); !errors.Is(err, common.ErrFiscalNotReady) {
+		t.Fatalf("non-MG municipality must not reserve NFC-e: %v", err)
+	}
+	var prematureInvoices, prematureSequences int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM invoices WHERE tenant_id=$1 AND sale_id=$2
+	`, tenantID, saleID).Scan(&prematureInvoices); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM fiscal_document_sequences WHERE tenant_id=$1 AND model=65 AND series=321
+	`, tenantID).Scan(&prematureSequences); err != nil {
+		t.Fatal(err)
+	}
+	if prematureInvoices != 0 || prematureSequences != 0 {
+		t.Fatalf("invalid MG issuer consumed invoice/number: invoices=%d sequences=%d",
+			prematureInvoices, prematureSequences)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE companies SET address_city_code='3170206' WHERE id=$1
+	`, tenantID); err != nil {
+		t.Fatal(err)
+	}
 	reservation, created, err := service.ReserveNFCeDraft(
 		ctx, tenantID, actorUserID, saleID, issuedAt,
 	)
