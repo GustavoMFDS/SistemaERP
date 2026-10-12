@@ -19,6 +19,7 @@ import (
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
+	"github.com/jackc/pgx/v5"
 )
 
 type FiscalService struct {
@@ -2325,10 +2326,26 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 	return outcome, nil
 }
 
+// ApplyNFCeAuthorizationResult is the existing interactive authorization path.
+// The recovery executor uses the same atomic processing with an additional
+// database lease fence; this legacy method does not bypass the recovery path.
 func (s *FiscalService) ApplyNFCeAuthorizationResult(
 	ctx context.Context,
 	tenantID, actorUserID, invoiceID string,
 	result fisc.NFCeAuthorizationResult,
+) error {
+	return s.applyNFCeAuthorizationResult(ctx, tenantID, actorUserID, invoiceID, result, nil)
+}
+
+type nfceConsultFence struct {
+	owner string
+	token string
+}
+
+func (s *FiscalService) applyNFCeAuthorizationResult(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID string,
+	result fisc.NFCeAuthorizationResult, fence *nfceConsultFence,
 ) error {
 	invoiceID = strings.TrimSpace(invoiceID)
 	result.AccessKey = strings.TrimSpace(result.AccessKey)
@@ -2360,6 +2377,37 @@ func (s *FiscalService) ApplyNFCeAuthorizationResult(
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if fence != nil {
+		// Lock the recovery lease for this entire archive/authorization tx.
+		// A remote reply received after lease expiry or worker fencing can
+		// NEVER mark an invoice authorized or write a processed XML.
+		if !result.IsAuthorized() || !fiscalLeaseOwnerPattern.MatchString(fence.owner) {
+			return common.ErrValidation
+		}
+		var valid bool
+		err := tx.QueryRow(ctx, `
+			SELECT true
+			FROM nfce_consult_recovery_jobs j
+			JOIN invoices i ON i.tenant_id=j.tenant_id AND i.id=j.invoice_id
+			JOIN fiscal_worker_identities w ON w.owner_name=j.lease_owner
+			WHERE j.tenant_id=$1 AND j.invoice_id=$2
+			  AND j.access_key=$3 AND j.environment='homologation'
+			  AND j.state='awaiting_consultation'
+			  AND j.lease_token=$4::uuid AND j.lease_owner=$5
+			  AND j.lease_until>now()
+			  AND w.revoked_at IS NULL AND w.active_until>now()
+			  AND i.status='submitted' AND i.model=65
+			  AND i.environment='homologation' AND i.access_key=j.access_key
+			FOR UPDATE OF j
+		`, tenantID, invoiceID, result.AccessKey, fence.token, fence.owner).Scan(&valid)
+		if err != nil || !valid {
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			return ErrNFCeConsultLeaseLost
+		}
+	}
 
 	var processed []byte
 	var processedSHA string
@@ -2412,6 +2460,24 @@ func (s *FiscalService) ApplyNFCeAuthorizationResult(
 		Metadata: metadata,
 	}); err != nil {
 		return err
+	}
+	if fence != nil {
+		// Invoice, real protocol XML, nfeProc, audit and lease resolution
+		// commit together. A failed archive rolls everything back.
+		tag, err := tx.Exec(ctx, `
+			UPDATE nfce_consult_recovery_jobs SET
+			  state='resolved',lease_owner=NULL,lease_token=NULL,
+			  lease_until=NULL,last_status_code=100,updated_at=now()
+			WHERE tenant_id=$1 AND invoice_id=$2 AND access_key=$3
+			  AND lease_token=$4::uuid AND lease_owner=$5
+			  AND state='awaiting_consultation' AND lease_until>now()
+		`, tenantID, invoiceID, result.AccessKey, fence.token, fence.owner)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNFCeConsultLeaseLost
+		}
 	}
 	return tx.Commit(ctx)
 }
