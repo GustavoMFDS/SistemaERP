@@ -299,17 +299,27 @@ func (s *FiscalService) NFCeReadiness(ctx context.Context, tenantID string) (fis
 	if err != nil {
 		return fisc.NFCeReadiness{}, err
 	}
-	if err := fisc.ValidateCNPJ(profile.CNPJ); err != nil {
-		readiness.IssuerIdentityConfigured = false
+	// Do not let a superficial presence check certify an issuer: report each
+	// incomplete field to the operator, while maintaining old general blockers
+	// for clients that already consume them. No SEF/MG request is made here.
+	for _, reason := range fisc.NFCeMGIssuerLocalBlockers(profile) {
 		readiness.ReadyForHomologationData = false
-		if !containsReadinessReason(readiness.BlockingReasons, "issuer_identity") {
-			readiness.BlockingReasons = append(readiness.BlockingReasons, "issuer_identity")
+		switch reason {
+		case "issuer_legal_name_missing", "issuer_cnpj_invalid",
+			"issuer_ie_missing", "issuer_crt_invalid":
+			readiness.IssuerIdentityConfigured = false
+			if !containsReadinessReason(readiness.BlockingReasons, "issuer_identity") {
+				readiness.BlockingReasons = append(readiness.BlockingReasons, "issuer_identity")
+			}
+		case "issuer_street_missing", "issuer_number_missing",
+			"issuer_neighborhood_missing", "issuer_city_missing", "issuer_zip_invalid":
+			readiness.IssuerAddressConfigured = false
+			if !containsReadinessReason(readiness.BlockingReasons, "issuer_address") {
+				readiness.BlockingReasons = append(readiness.BlockingReasons, "issuer_address")
+			}
+		case "issuer_municipality_uf_mismatch", "issuer_uf_unsupported":
+			readiness.MunicipalityCodeConfigured = false
 		}
-	}
-	// The live endpoint catalog currently supports MG alone. A plausible
-	// seven-digit IBGE code from another UF is not enough for homologation.
-	if reason := fisc.NFCeMGJurisdictionBlocker(profile.AddressState, profile.AddressCityCode); reason != "" {
-		readiness.ReadyForHomologationData = false
 		if !containsReadinessReason(readiness.BlockingReasons, reason) {
 			readiness.BlockingReasons = append(readiness.BlockingReasons, reason)
 		}
@@ -2597,7 +2607,10 @@ func (s *FiscalService) SetNFCeProductionTransmission(
 			!s.productionTransmissionStackReady() {
 			return fisc.NFCeConfig{}, common.ErrFiscalNotReady
 		}
-		readiness, err := s.fiscal.GetNFCeReadiness(ctx, tenantID)
+		// Use the same tenant-scoped detailed local checks exposed to the
+		// operator. Bypassing them here could enable production with a
+		// formally-shaped but invalid CNPJ or mismatched MG municipality.
+		readiness, err := s.NFCeReadiness(ctx, tenantID)
 		if err != nil {
 			return fisc.NFCeConfig{}, err
 		}
