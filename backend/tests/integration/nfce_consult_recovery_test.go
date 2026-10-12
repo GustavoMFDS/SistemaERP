@@ -449,6 +449,13 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	`,targetTenant,targetInvoice).Scan(&archived);err!=nil || archived!=1 {
 		t.Fatalf("protocol XML and processed nfeProc not archived: %d %v",archived,err)
 	}
+	var audited int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM audit_logs WHERE tenant_id=$1
+		  AND entity_id=$2 AND action='fiscal.nfce.authorized'
+	`, targetTenant, targetInvoice).Scan(&audited); err != nil || audited != 1 {
+		t.Fatalf("authorized NFC-e requires one tenant-scoped audit: %d %v", audited, err)
+	}
 	if _,err:=svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim);
 		!errors.Is(err,fiscal.ErrNFCeConsultLeaseLost) {
 		t.Fatalf("replayed authorization after lease resolution must fail: %v",err)
