@@ -1377,7 +1377,18 @@ func (s *FiscalService) SignNFCeReserved(
 func (s *FiscalService) RenderNFCeDANFE(
 	ctx context.Context,
 	tenantID, invoiceID string,
+	paperWidths ...int,
 ) (string, []byte, error) {
+	paperWidthMM := 80
+	if len(paperWidths) > 1 {
+		return "", nil, common.ErrValidation
+	}
+	if len(paperWidths) == 1 {
+		paperWidthMM = paperWidths[0]
+	}
+	if paperWidthMM != 58 && paperWidthMM != 80 {
+		return "", nil, common.ErrValidation
+	}
 	invoiceID = strings.TrimSpace(invoiceID)
 	if s.nfceDANFE == nil ||
 		s.validate.Var(invoiceID, "required,uuid") != nil {
@@ -1426,7 +1437,16 @@ func (s *FiscalService) RenderNFCeDANFE(
 		return "", nil, err
 	}
 
-	content, err := s.nfceDANFE.Render(reservation, signedXML)
+	var content []byte
+	if paperWidthMM == 80 {
+		content, err = s.nfceDANFE.Render(reservation, signedXML)
+	} else if sized, ok := s.nfceDANFE.(interface {
+		RenderWithPaperWidth(fisc.NFCeReservation, []byte, int) ([]byte, error)
+	}); ok {
+		content, err = sized.RenderWithPaperWidth(reservation, signedXML, paperWidthMM)
+	} else {
+		return "", nil, common.ErrFiscalNotReady
+	}
 	if err != nil {
 		return "", nil, err
 	}
