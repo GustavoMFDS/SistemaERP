@@ -171,7 +171,7 @@ func TestConsultationNeverMistakesCanceledDeniedOrUnknownForRejection(t *testing
 }
 
 func TestAuthorizationDuplicateDoesNotConfirmRejection(t *testing.T) {
-	for _, status := range []int{204, 539} {
+	for _, status := range []int{101, 110, 204, 539} {
 		out, err := authorizationOutcome(testAccessKey, AuthorizationResponse{
 			StatusCode: 104,
 			Protocol: &Protocol{
