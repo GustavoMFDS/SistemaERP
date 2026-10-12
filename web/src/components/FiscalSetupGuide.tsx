@@ -185,7 +185,9 @@ export default function FiscalSetupGuide({
   const [savingReview, setSavingReview] = useState<FiscalManualReview | null>(null)
   const tenantID = readiness?.tenant_id ?? ''
   const tenantRef = useRef(tenantID)
-  tenantRef.current = tenantID
+  useEffect(() => {
+    tenantRef.current = tenantID
+  }, [tenantID])
 
   useEffect(() => {
     let active = true
