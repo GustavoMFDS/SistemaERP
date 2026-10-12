@@ -10,16 +10,16 @@ func TestProductionNFCeDataReadyFailClosedOnDetailedIssuerBlockers(t *testing.T)
 	// Isolates the data predicate; real transmission additionally requires a
 	// valid signing/SEFAZ stack, credentials and explicit official homologation.
 	good := fisc.NFCeReadiness{
-		ConfigExists: true,
-		Environment: "production",
-		IssuerIdentityConfigured: true,
-		IssuerAddressConfigured: true,
-		MunicipalityCodeConfigured: true,
+		ConfigExists:                   true,
+		Environment:                    "production",
+		IssuerIdentityConfigured:       true,
+		IssuerAddressConfigured:        true,
+		MunicipalityCodeConfigured:     true,
 		CertificateReferenceConfigured: true,
-		ActiveProducts: 3,
-		ProductsMissingNCM: 0,
-		ProductsMissingFiscalProfile: 0,
-		BlockingReasons: []string{"homologation_environment"},
+		ActiveProducts:                 3,
+		ProductsMissingNCM:             0,
+		ProductsMissingFiscalProfile:   0,
+		BlockingReasons:                []string{"homologation_environment"},
 	}
 	if !productionNFCeDataReady(good) {
 		t.Fatal("baseline locally filled fields rejected")
