@@ -73,7 +73,7 @@ func TestNFCeMGIssuerLocalChecksDoNotCertifyGovernmentRegisters(t *testing.T) {
 	if got := NFCeMGIssuerLocalBlockers(p); len(got) != 0 {
 		t.Fatalf("structural checks must not masquerade as official IBGE/IE lookup: %v", got)
 	}
-	for _, zip := range []string{"", "3013001", "301300100", "3013AB10"} {
+	for _, zip := range []string{"", "3013001", "301300100", "3013AB10", " 30130010", "30130010 "} {
 		p.AddressZIP = zip
 		if got := NFCeMGIssuerLocalBlockers(p); !slices.Contains(got, "issuer_zip_invalid") {
 			t.Errorf("ZIP %q should be blocked locally: %v", zip, got)
