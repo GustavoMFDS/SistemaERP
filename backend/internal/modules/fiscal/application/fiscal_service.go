@@ -1379,14 +1379,14 @@ func (s *FiscalService) RenderNFCeDANFE(
 	tenantID, invoiceID string,
 	paperWidths ...int,
 ) (string, []byte, error) {
-	paperWidthMM := 80
+	paperWidthMM := 0
 	if len(paperWidths) > 1 {
 		return "", nil, common.ErrValidation
 	}
 	if len(paperWidths) == 1 {
 		paperWidthMM = paperWidths[0]
 	}
-	if paperWidthMM != 58 && paperWidthMM != 80 {
+	if paperWidthMM != 0 && paperWidthMM != 58 && paperWidthMM != 80 {
 		return "", nil, common.ErrValidation
 	}
 	invoiceID = strings.TrimSpace(invoiceID)
@@ -1406,6 +1406,24 @@ func (s *FiscalService) RenderNFCeDANFE(
 	)
 	if err != nil {
 		return "", nil, err
+	}
+	// Reprints from the Fiscal page must use the paper width of the
+	// original sale's register as well; 0 means derive from the database.
+	if paperWidthMM == 0 {
+		if err := tx.QueryRow(ctx, `
+			SELECT cr.danfe_paper_width_mm
+			FROM sales sa
+			JOIN cash_sessions cs ON cs.id=sa.cash_session_id
+			  AND cs.tenant_id=sa.tenant_id
+			JOIN cash_registers cr ON cr.id=cs.cash_register_id
+			  AND cr.tenant_id=sa.tenant_id
+			WHERE sa.tenant_id=$1 AND sa.id=$2
+		`, tenantID, reservation.SaleID).Scan(&paperWidthMM); err != nil {
+			return "", nil, err
+		}
+		if paperWidthMM != 58 && paperWidthMM != 80 {
+			return "", nil, common.ErrFiscalNotReady
+		}
 	}
 	offlinePending := reservation.Status == fisc.NFCeStatusSigned &&
 		reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType
