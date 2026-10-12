@@ -230,6 +230,12 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		}
 	}
 
+
+	// The initial SKIP LOCKED claim order is deliberately unspecified; the
+	// invoice escalated to manual review is identified by the actual claim.
+	// The other invoice was made terminal earlier in this test.
+	targetTenant := claimsB[0].TenantID
+	targetInvoice := claimsB[0].InvoiceID
 	// Simulate a real claimed recovery against a fake Consult-only remote.
 	// The fixture has no certificate secrets; a reference is enough for this
 	// fully isolated integration test (never a real SEFAZ connection).
@@ -239,19 +245,19 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		VALUES($1,'homologation',151,$2)
 		ON CONFLICT (tenant_id) DO UPDATE SET
 			environment='homologation',certificate_secret_ref=excluded.certificate_secret_ref
-	`, tenantB, certRef); err != nil {
+	`, targetTenant, certRef); err != nil {
 		t.Fatal(err)
 	}
 	var accessKey string
 	if err := pool.QueryRow(ctx,
 		"SELECT access_key FROM invoices WHERE tenant_id=$1 AND id=$2",
-		tenantB, invoiceB).Scan(&accessKey); err != nil {
+		targetTenant, targetInvoice).Scan(&accessKey); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO invoice_xml_files(tenant_id,invoice_id,file_name,content,sha256)
 		VALUES($1,$2,'fixture-signed.xml',$3,$4)
-	`, tenantB, invoiceB, []byte("<NFe>signed-in-test-only</NFe>"),
+	`, targetTenant, targetInvoice, []byte("<NFe>signed-in-test-only</NFe>"),
 		fmt.Sprintf("%064x", 123)); err != nil {
 		t.Fatal(err)
 	}
@@ -262,14 +268,14 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 				state='awaiting_consultation',next_attempt_at=now()-interval '1 second',
 				lease_owner=NULL,lease_token=NULL,lease_until=NULL,
 				attempt_count=0 WHERE tenant_id=$1 AND invoice_id=$2
-		`, tenantB, invoiceB); err != nil {
+		`, targetTenant, targetInvoice); err != nil {
 			t.Fatal(err)
 		}
 	}
 	getBClaim := func() fiscal.NFCeConsultClaim {
 		t.Helper()
 		jobs, err := fiscal.ClaimNFCeSubmittedConsultations(ctx,pool,ownerB,1,time.Minute)
-		if err != nil || len(jobs)!=1 || jobs[0].InvoiceID!=invoiceB {
+		if err != nil || len(jobs)!=1 || jobs[0].InvoiceID!=targetInvoice {
 			t.Fatalf("recovery claim B: %+v %v",jobs,err)
 		}
 		return jobs[0]
@@ -298,7 +304,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx,
 		"SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2",
-		tenantB,invoiceB).Scan(&statusB);err!=nil || statusB!="submitted" {
+		targetTenant,targetInvoice).Scan(&statusB);err!=nil || statusB!="submitted" {
 		t.Fatalf("not-found consult unexpectedly authorized: %s %v",statusB,err)
 	}
 	// Invalid protocol from a faulty/misconfigured transport must not create
@@ -315,7 +321,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx,
 		"SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2",
-		tenantB,invoiceB).Scan(&statusB);err!=nil || statusB!="submitted" {
+		targetTenant,targetInvoice).Scan(&statusB);err!=nil || statusB!="submitted" {
 		t.Fatalf("invalid protocol incorrectly authorized: %s %v",statusB,err)
 	}
 	// A stale consultation outcome must not be applied to an expired lease.
@@ -324,7 +330,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if _,err := pool.Exec(ctx,`
 		UPDATE nfce_consult_recovery_jobs SET lease_until=now()-interval '1 second'
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`, tenantB,invoiceB);err!=nil {t.Fatal(err)}
+	`, targetTenant,targetInvoice);err!=nil {t.Fatal(err)}
 	remote.consultOut.ProtocolXML=[]byte("<protNFe>fixture-only</protNFe>")
 	callsBefore := remote.consultCalls
 	if _,err:=svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim);
@@ -351,7 +357,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		FROM invoices i JOIN nfce_consult_recovery_jobs j
 		ON j.tenant_id=i.tenant_id AND j.invoice_id=i.id
 		WHERE i.tenant_id=$1 AND i.id=$2
-	`,tenantB,invoiceB).Scan(&authStatus,&jobState,&protocol);err!=nil {
+	`,targetTenant,targetInvoice).Scan(&authStatus,&jobState,&protocol);err!=nil {
 		t.Fatal(err)
 	}
 	if authStatus!="authorized" || jobState!="resolved" || protocol!="123456789" {
@@ -362,7 +368,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if err:=pool.QueryRow(ctx,`
 		SELECT count(*) FROM invoice_authorized_xml_files
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`,tenantB,invoiceB).Scan(&archived);err!=nil || archived!=1 {
+	`,targetTenant,targetInvoice).Scan(&archived);err!=nil || archived!=1 {
 		t.Fatalf("protocol XML and processed nfeProc not archived: %d %v",archived,err)
 	}
 	if _,err:=svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim);
