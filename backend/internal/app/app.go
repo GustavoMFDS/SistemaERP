@@ -106,6 +106,9 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	fiscapp.StartFiscalDispatchReconciliation(ctx, pool, logger)
 	// Local inspections use expiring database leases; no SEFAZ traffic.
 	fiscapp.StartFiscalPreflightDiagnostics(ctx, pool, logger)
+	// Submitted NFC-e gets a durable *consultation-only* recovery plan.
+	// This loop never contacts SEFAZ, resends XML or marks fiscal outcomes.
+	fiscapp.StartNFCeConsultationPlanner(ctx, pool, logger)
 
 	mods := modules.New(cfg, pool, rdb, logger)
 	router := httpapi.NewRouter(cfg, mods, logger)
