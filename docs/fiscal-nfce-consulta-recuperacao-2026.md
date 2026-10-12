@@ -39,3 +39,19 @@ O serviço fiscal já possui um caminho `AuthorizeNFCeHomologation` que, quando 
 - Instância PostgreSQL 16 descartável em porta isolada: **46 migrações up** aplicadas com dados sintéticos. A migração `0046.down` recusou apagar jobs existentes; em outra base vazia `0046.down` e reaplicação `0046.up` passaram.
 - `TestNFCeConsultationRecoveryIsTenantScopedAndFenced` executado com as flags explícitas de banco descartável, corrigido para não pressupor ordem de lease e para gerar CNPJ/numeração próprios a cada execução. **Dois runs consecutivos na mesma base** passaram.
 - Não foram executados calls SOAP, autorização real, reenvio de XML, homologação SEF/MG ou testes de certificado. A migração e o planejador podem ser instalados sem habilitar transmissão, mas o executor remoto ainda é P0 pendente.
+
+
+## Executor consultivo com arquivamento transacional protegido (rodada seguinte)
+
+O núcleo `FiscalService.ExecuteNFCeConsultationClaim` passou a consumir **um claim já concedido** pela fila persistente de `nfce_consult_recovery_jobs`. Ele está disponível como **contrato interno explicitamente invocado**, não como tarefa automática iniciada no servidor e nem como novo endpoint HTTP. A rotina de startup continua **somente SQL**.
+
+- Antes de qualquer IO de rede, valida UUIDs, chave NFC-e de MG, ambiente exclusivamente **homologação**, lease ativo, identidade técnica registrada, nota ainda `submitted` e cadastrada para aquele tenant, vínculo do operador autorizado no tenant e referência de certificado existente no ambiente correto. Nenhuma credencial é exposta na saída.
+- Faz **apenas** `NFCeRemoteAuthorizer.Consult`, sem chamar `Authorize` e sem reservar uma segunda numeração. Falha de transporte gera diagnóstico `transport_error`; `217` permanece `not_found` para consulta futura; `101`, `110`, `204` e `539` encaminham a revisão humana, não à reemissão.
+- A resposta `100` só avança com chave de acesso idêntica, protocolo, data/hora e `ProtocolXML` não vazio. Usa a rotina existente de vincular o XML assinado ao protocolo e construir `nfeProc` (não gera protocolo artificial).
+- A gravação da nota `authorized`, do XML processado/protocolo, do evento de auditoria e da resolução da fila ocorre em **uma transação**. Ela bloqueia a linha do lease `FOR UPDATE` e exige novamente token/owner, timestamp real da validade, identidade técnica vigente, operador ainda vinculado à empresa, UF MG, certificado referenciado, ambiente `homologation` e nota ainda `submitted`. Qualquer falha reverte tudo.
+- Retorno remoto tardio, inclusive sucesso, depois de expirar/perder o lease nunca autoriza nem arquiva XML. A consulta inconclusiva continua sem tocar no status fiscal.
+- O contador máximo da fila segue 10 e **não existe worker remoto agendado**; o planejamento do banco permanece independente da transmissão.
+
+**Provas locais:** o teste integrado `TestNFCeConsultationRecoveryIsTenantScopedAndFenced`, usando PostgreSQL descartável e `fakeRemoteAuthorizer`, exercita consulta `217`, operador e worker errados, protocolo inválido, lease vencido antes da consulta, lease perdido **durante** a consulta, confirmação simulada `100` com protocolo e armazenamento transacional de XML/auditoria, e recusa de repetição com token antigo. A saída `nfeProc` do teste vem de um `fakeProcessedDocumentBuilder` e **não constitui prova de validação contra XSD oficial ou SEF/MG real**. Os testes de leiaute/assinatura do provedor real são separados.
+
+**Pendente para habilitação efetiva:** orquestração autenticada de cada claim, política de autorização do operador/identidade técnica, provisionamento seguro do A1 real por empresa, fluxo completo de assinatura e envio automático inicial, homologação SEF/MG e ensaios com falhas de rede. Nada nesta rodada liga a transmissão automática.
