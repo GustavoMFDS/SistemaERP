@@ -306,6 +306,14 @@ func (s *FiscalService) NFCeReadiness(ctx context.Context, tenantID string) (fis
 			readiness.BlockingReasons = append(readiness.BlockingReasons, "issuer_identity")
 		}
 	}
+	// The live endpoint catalog currently supports MG alone. A plausible
+	// seven-digit IBGE code from another UF is not enough for homologation.
+	if reason := fisc.NFCeMGJurisdictionBlocker(profile.AddressState, profile.AddressCityCode); reason != "" {
+		readiness.ReadyForHomologationData = false
+		if !containsReadinessReason(readiness.BlockingReasons, reason) {
+			readiness.BlockingReasons = append(readiness.BlockingReasons, reason)
+		}
+	}
 	return readiness, nil
 }
 
