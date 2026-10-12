@@ -77,3 +77,41 @@ do rolo ao acabar papel, resistência do QR impresso à leitura por
 celulares reais ou validade de emissão na SEF/MG. Esses pontos
 dependem de um equipamento e de dados de homologação da empresa.
 Não ativar produção fiscal apenas porque a impressão HTML passou.
+
+
+## Endurecimentos adicionais — layout estreito e conferência fiscal
+
+- Em bobinas de **58 mm**, os itens são mostrados em duas linhas: nome
+  e descrição ocupam toda a largura; quantidade/preço e total vêm
+  abaixo. Em 80 mm, o layout permanece em três colunas proporcionais.
+  Isso diminui quebras no meio de nomes extensos e valores monetários.
+- A pré-visualização e o botão de impressão ficam temporariamente
+  bloqueados enquanto a preferência de bobina está **carregando ou
+  salvando**. Se o servidor recusar/falhar ao buscar o tamanho, a tela
+  explica o problema e oferece **Tentar carregar bobina novamente**.
+  Não imprimir continua disponível em qualquer cenário.
+- A rotina compartilhada `FiscalService.RenderNFCeDANFE`, utilizada
+  tanto pelo caixa quanto pela página Fiscal, recusa renderizar
+  documento marcado `authorized` ou `cancelled` se não existir
+  protocolo XML e `nfeProc` não vazios arquivados com a chave de
+  acesso da nota. A exceção de contingência offline **pendente**
+  permanece distinta e explicitamente sinalizada, sem confundi-la com
+  nota autorizada.
+- O teste de integração `TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ`
+  cria uma situação artificialmente inconsistente (`authorized`
+  **sem** `nfeProc`) e comprova que não pode ser impressa. Somente após
+  o protocolo fictício ter sido reconciliado/arquivado a renderização é
+  permitida.
+- Nova regressão visual opcional `web/e2e/danfe-thermal-layout.spec.ts`:
+  testa no Chromium **o HTML gerado pelo renderer Go**, com descrições
+  compridas, em 58 e 80 mm, mede as larguras reais do corpo, das tabelas
+  e do QR (32 mm CSS) e bloqueia layout com rolagem horizontal.
+  Para executá-la, defina `DANFE_TEST_BROWSER_DIR` apontando para uma
+  pasta descartável, execute o teste Go
+  `TestDANFERendererRendersAuthorizedNFCe` para produzir as duas
+  amostras fictícias e depois execute o Playwright usando a mesma
+  variável de ambiente. Nada é transmitido à SEF/MG.
+
+A visualização na tela é uma verificação **do motor do Chromium**.
+Sem uma impressora física e o respectivo driver, não se pode comprovar
+o tamanho impresso em papel, guilhotina ou leitura ótica do QR real.
