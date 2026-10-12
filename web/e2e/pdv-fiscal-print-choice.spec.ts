@@ -13,6 +13,8 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   let fiscalReads = 0
   let danfeRequests = 0
   let sefazAuthorizedLater = false
+  let printerWidthMM = 80
+  let printerUpdates = 0
 
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
@@ -40,6 +42,15 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
         qty_on_hand: 10, active: true, option_label: '', is_base: true,
       }],
     })
+    if (url.pathname === '/api/v1/cash/sessions/' + cashID + '/printer') {
+      if (route.request().method() === 'PUT') {
+        const body = route.request().postDataJSON() as { paper_width_mm: number }
+        expect([58, 80]).toContain(body.paper_width_mm)
+        printerWidthMM = body.paper_width_mm
+        printerUpdates += 1
+      }
+      return reply({ cash_register_id: cashID, paper_width_mm: printerWidthMM })
+    }
     if (url.pathname === '/api/v1/cash/sessions/current') return reply({
       id: cashID, cash_register_id: cashID, opened_by_user_id: userID,
       opening_amount: 0, status: 'open',
@@ -62,7 +73,12 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
     }
     if (url.pathname === `/api/v1/sales/${saleID}/fiscal-danfe`) {
       danfeRequests += 1
-      return reply({ message: 'DANFE indisponível' }, 409)
+      if (!sefazAuthorizedLater) return reply({ message: 'DANFE indisponível' }, 409)
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: '<!doctype html><html lang="pt-BR"><body><main>DANFE NFC-e AUTORIZADA - visualização de teste</main></body></html>',
+      })
     }
     return reply({ message: 'test endpoint unavailable' }, 404)
   })
@@ -78,6 +94,11 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   await expect(page.getByText(/Venda finalizada:/)).toBeVisible()
   await expect(page.getByText('O cliente deseja imprimir o DANFE NFC-e?')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sim, abrir para imprimir' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Pré-visualizar DANFE' })).toBeDisabled()
+  await expect(page.getByRole('combobox', { name: 'Largura da bobina do DANFE' })).toHaveValue('80')
+  await page.getByRole('combobox', { name: 'Largura da bobina do DANFE' }).selectOption('58')
+  await expect.poll(() => printerUpdates).toBe(1)
+  expect(printerWidthMM).toBe(58)
   await expect(page.getByText(/NFC-e ainda não autorizada/)).toBeVisible()
   expect(salePosts).toBe(1)
   expect(fiscalReads).toBeGreaterThan(0)
@@ -98,5 +119,16 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   expect(fiscalReads).toBeGreaterThan(readsBeforeAuthorization)
   await expect(page.getByRole('status').filter({ hasText: 'NFC-e autorizada.' })).toBeVisible()
   expect(danfeRequests).toBe(0)
+  expect(salePosts).toBe(1)
+
+  // Reopening the print decision after authorization permits preview, but
+  // never creates another sale or silently prints the document.
+  await page.getByRole('button', { name: 'Imprimir depois' }).click()
+  await expect(page.getByRole('combobox', { name: 'Largura da bobina do DANFE' })).toHaveValue('58')
+  const popupPromise = page.waitForEvent('popup')
+  await page.getByRole('button', { name: 'Pré-visualizar DANFE' }).click()
+  const popup = await popupPromise
+  await expect(popup.getByText('DANFE NFC-e AUTORIZADA - visualização de teste')).toBeVisible()
+  expect(danfeRequests).toBe(1)
   expect(salePosts).toBe(1)
 })
