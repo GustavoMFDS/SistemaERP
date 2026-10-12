@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
+import FiscalSetupGuide from '../components/FiscalSetupGuide'
 
 type XMLFile = {
   id: string
@@ -102,6 +103,7 @@ type NFCeReadiness = {
   certificate_reference_configured: boolean
   active_products: number
   products_missing_ncm: number
+  products_missing_fiscal_profile?: number
   ready_for_homologation_data: boolean
   blocking_reasons: string[]
 }
@@ -328,6 +330,14 @@ export default function FiscalPage() {
     void loadObligations(0, false)
   }, [])
 
+  function openFiscalSection(sectionID: string) {
+    const section = document.getElementById(sectionID)
+    if (section instanceof HTMLDetailsElement) {
+      section.open = true
+    }
+    section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   async function saveIssuer(e: FormEvent) {
     e.preventDefault()
     if (!canPrepare) return
@@ -352,7 +362,7 @@ export default function FiscalPage() {
       })
       applyIssuer(profile)
       setMessage('Dados da loja salvos. Próximo passo: configurar o certificado da NFC-e.')
-      document.getElementById('fiscal-certificate')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      openFiscalSection('fiscal-certificate')
       const next = await apiJson<NFCeReadiness>('/api/v1/fiscal/nfce/readiness')
       setReadiness({ ...next, blocking_reasons: Array.isArray(next.blocking_reasons) ? next.blocking_reasons : [] })
     } catch (e: unknown) {
@@ -379,7 +389,7 @@ export default function FiscalPage() {
       })
       applyConfig(next)
       setMessage('Preparação salva. Confira as pendências abaixo antes de pedir a homologação. O sistema não ativou a transmissão.')
-      document.getElementById('fiscal-readiness')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      openFiscalSection('fiscal-readiness')
       const readinessData = await apiJson<NFCeReadiness>('/api/v1/fiscal/nfce/readiness')
       setReadiness({ ...readinessData, blocking_reasons: Array.isArray(readinessData.blocking_reasons) ? readinessData.blocking_reasons : [] })
     } catch (e: unknown) {
@@ -429,13 +439,12 @@ export default function FiscalPage() {
         </button>
       </div>
 
-      <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-950">
-        <p className="font-semibold">Comece pelos dados da sua loja</p>
-        <p className="mt-1 text-blue-900">
-          Confira a situação abaixo. Se faltar algo, abra a seção correspondente e preencha os campos.
-          Um contador ou suporte técnico deve conferir os dados fiscais antes de qualquer emissão real.
-        </p>
-      </div>
+      <FiscalSetupGuide
+        readiness={readiness}
+        onOpenIssuer={() => openFiscalSection('fiscal-issuer')}
+        onOpenCertificate={() => openFiscalSection('fiscal-certificate')}
+        onOpenReadiness={() => openFiscalSection('fiscal-readiness')}
+      />
 
       {message ? (
         <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-2 text-sm text-green-700">
