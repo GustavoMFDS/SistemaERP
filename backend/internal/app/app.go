@@ -116,7 +116,9 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	if cfg.NFCeAutoHomologationEnabled {
 		if !mods.Fiscal.NFCeHomologationAutomationReady() {
 			pool.Close()
-			if rdb != nil { _ = rdb.Close() }
+			if rdb != nil {
+				_ = rdb.Close()
+			}
 			_ = telemetryShutdown(ctx)
 			return nil, errors.New("NFC-e auto homologation requires working signing, XSD, SEFAZ and processed XML adapters")
 		}

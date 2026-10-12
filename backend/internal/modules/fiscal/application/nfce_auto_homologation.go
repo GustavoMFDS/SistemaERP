@@ -16,20 +16,20 @@ import (
 )
 
 const (
-	NFCeAutoQueued      = "queued"
-	NFCeAutoAwaiting    = "awaiting_sefaz"
-	NFCeAutoAuthorized  = "authorized"
-	NFCeAutoManual      = "manual_review"
+	NFCeAutoQueued     = "queued"
+	NFCeAutoAwaiting   = "awaiting_sefaz"
+	NFCeAutoAuthorized = "authorized"
+	NFCeAutoManual     = "manual_review"
 )
 
 var ErrNFCeAutoLeaseLost = errors.New("automatic NFC-e lease expired or replaced")
 
 type NFCeAutoClaim struct {
-	TenantID string
-	SaleID string
+	TenantID   string
+	SaleID     string
 	LeaseToken string
 	LeaseUntil time.Time
-	Attempts int
+	Attempts   int
 }
 
 // PlanNFCeAutomaticHomologation enqueues only new finalized, nonlegacy NFC-e
@@ -69,8 +69,8 @@ func PlanNFCeAutomaticHomologation(ctx context.Context, pool *pgxpool.Pool) (int
 func ClaimNFCeAutomaticHomologation(
 	ctx context.Context, pool *pgxpool.Pool, owner string, limit int32, ttl time.Duration,
 ) ([]NFCeAutoClaim, error) {
-	if !fiscalLeaseOwnerPattern.MatchString(owner) || limit<1 || limit>10 ||
-		ttl<30*time.Second || ttl>5*time.Minute {
+	if !fiscalLeaseOwnerPattern.MatchString(owner) || limit < 1 || limit > 10 ||
+		ttl < 30*time.Second || ttl > 5*time.Minute {
 		return nil, fmt.Errorf("invalid automatic NFC-e lease request")
 	}
 	rows, err := pool.Query(ctx, `
@@ -101,16 +101,20 @@ func ClaimNFCeAutomaticHomologation(
 		RETURNING j.tenant_id::text,j.sale_id::text,j.lease_token::text,
 		          j.lease_until,j.attempt_count
 	`, limit, owner, ttl.Seconds())
-	if err != nil {return nil,err}
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
-	out := make([]NFCeAutoClaim,0,limit)
+	out := make([]NFCeAutoClaim, 0, limit)
 	for rows.Next() {
 		var job NFCeAutoClaim
-		if err := rows.Scan(&job.TenantID,&job.SaleID,&job.LeaseToken,
-			&job.LeaseUntil,&job.Attempts);err!=nil{return nil,err}
-		out=append(out,job)
+		if err := rows.Scan(&job.TenantID, &job.SaleID, &job.LeaseToken,
+			&job.LeaseUntil, &job.Attempts); err != nil {
+			return nil, err
+		}
+		out = append(out, job)
 	}
-	return out,rows.Err()
+	return out, rows.Err()
 }
 
 // CompleteNFCeAutomaticHomologation only updates queue bookkeeping. It cannot
@@ -120,20 +124,20 @@ func CompleteNFCeAutomaticHomologation(
 	job NFCeAutoClaim, nextState, step string,
 ) error {
 	if !fiscalLeaseOwnerPattern.MatchString(owner) ||
-		strings.TrimSpace(job.LeaseToken)=="" {
+		strings.TrimSpace(job.LeaseToken) == "" {
 		return fmt.Errorf("invalid automatic NFC-e completion")
 	}
 	switch nextState {
-	case NFCeAutoQueued,NFCeAutoAwaiting,NFCeAutoAuthorized,NFCeAutoManual:
+	case NFCeAutoQueued, NFCeAutoAwaiting, NFCeAutoAuthorized, NFCeAutoManual:
 	default:
 		return fmt.Errorf("invalid automatic NFC-e target state")
 	}
 	switch step {
-	case "reserve","sign","authorize","awaiting_sefaz","authorized","manual_review","retry":
+	case "reserve", "sign", "authorize", "awaiting_sefaz", "authorized", "manual_review", "retry":
 	default:
 		return fmt.Errorf("invalid automatic NFC-e step")
 	}
-	tag,err := pool.Exec(ctx,`
+	tag, err := pool.Exec(ctx, `
 		UPDATE nfce_auto_homologation_jobs j SET
 		  state=$5,last_step=$6,lease_owner=NULL,lease_token=NULL,lease_until=NULL,
 		  next_attempt_at=now()+CASE WHEN $5='queued'
@@ -169,16 +173,20 @@ func CompleteNFCeAutomaticHomologation(
 		    WHERE i.tenant_id=j.tenant_id AND i.sale_id=j.sale_id
 		      AND i.status IN ('submitted','authorized') AND i.model=65
 		  ))
-	`,job.TenantID,job.SaleID,job.LeaseToken,owner,nextState,step)
-	if err!=nil{return err}
-	if tag.RowsAffected()!=1{return ErrNFCeAutoLeaseLost}
+	`, job.TenantID, job.SaleID, job.LeaseToken, owner, nextState, step)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrNFCeAutoLeaseLost
+	}
 	return nil
 }
 
 // ObserveAuthorizedAutomaticNFCeJob only marks a queue item completed after
 // an actual authorized invoice AND the processed signed XML are stored.
-func ObserveAuthorizedAutomaticNFCeJob(ctx context.Context, pool *pgxpool.Pool) (int64,error) {
-	tag,err:=pool.Exec(ctx,`
+func ObserveAuthorizedAutomaticNFCeJob(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, `
 		UPDATE nfce_auto_homologation_jobs j SET
 		  state='authorized',last_step='authorized',updated_at=now(),
 		  lease_owner=NULL,lease_token=NULL,lease_until=NULL
@@ -190,8 +198,10 @@ func ObserveAuthorizedAutomaticNFCeJob(ctx context.Context, pool *pgxpool.Pool) 
 		  AND i.authorization_protocol IS NOT NULL AND i.authorized_at IS NOT NULL
 		  AND j.state IN ('queued','awaiting_sefaz')
 	`)
-	if err!=nil{return 0,err}
-	return tag.RowsAffected(),nil
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // ProcessNFCeAutoHomologationClaim processes one sale by durable stage.
@@ -200,13 +210,13 @@ func ObserveAuthorizedAutomaticNFCeJob(ctx context.Context, pool *pgxpool.Pool) 
 func ProcessNFCeAutoHomologationClaim(
 	ctx context.Context, pool *pgxpool.Pool, svc *FiscalService,
 	owner string, job NFCeAutoClaim,
-) (string,error) {
-	if svc==nil || svc.nfceSigner==nil || svc.nfceValidator==nil ||
-		svc.nfceAuthorizer==nil || svc.nfceProcessed==nil {
-		return NFCeAutoManual,common.ErrFiscalNotReady
+) (string, error) {
+	if svc == nil || svc.nfceSigner == nil || svc.nfceValidator == nil ||
+		svc.nfceAuthorizer == nil || svc.nfceProcessed == nil {
+		return NFCeAutoManual, common.ErrFiscalNotReady
 	}
-	var actor,invoiceID,status string
-	err:=pool.QueryRow(ctx,`
+	var actor, invoiceID, status string
+	err := pool.QueryRow(ctx, `
 		SELECT s.created_by_user_id::text,
 		       COALESCE(i.id::text,''),COALESCE(i.status,'')
 		FROM nfce_auto_homologation_jobs j
@@ -230,77 +240,89 @@ func ProcessNFCeAutoHomologationClaim(
 		  AND NOT f.legacy_review AND f.document_kind='nfce'
 		  AND (i.id IS NULL OR (i.model=65
 		    AND i.environment='homologation'))
-	`,job.TenantID,job.SaleID,job.LeaseToken,owner).
-		Scan(&actor,&invoiceID,&status)
-	if errors.Is(err,pgx.ErrNoRows){return NFCeAutoManual,ErrNFCeAutoLeaseLost}
-	if err!=nil{return NFCeAutoQueued,err}
+	`, job.TenantID, job.SaleID, job.LeaseToken, owner).
+		Scan(&actor, &invoiceID, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return NFCeAutoManual, ErrNFCeAutoLeaseLost
+	}
+	if err != nil {
+		return NFCeAutoQueued, err
+	}
 
 	switch status {
 	case fisc.NFCeStatusAuthorized:
-		return NFCeAutoAuthorized,nil
+		return NFCeAutoAuthorized, nil
 	case fisc.NFCeStatusSubmitted:
-		return NFCeAutoAwaiting,nil
-	case fisc.NFCeStatusRejected,fisc.NFCeStatusCancelled:
-		return NFCeAutoManual,nil
+		return NFCeAutoAwaiting, nil
+	case fisc.NFCeStatusRejected, fisc.NFCeStatusCancelled:
+		return NFCeAutoManual, nil
 	case "":
 		// Preflight is only a structural blocker, NOT accountant approval.
-		preflight,err:=InspectFiscalPreflight(ctx,pool,
-			FiscalPreflightClaim{TenantID:job.TenantID,SaleID:job.SaleID})
-		if err!=nil{return NFCeAutoQueued,err}
-		if preflight!=PreflightInputsUnverified {
-			return NFCeAutoQueued,common.ErrFiscalNotReady
+		preflight, err := InspectFiscalPreflight(ctx, pool,
+			FiscalPreflightClaim{TenantID: job.TenantID, SaleID: job.SaleID})
+		if err != nil {
+			return NFCeAutoQueued, err
 		}
-		reservation,_,err:=svc.ReserveNFCeDraft(ctx,job.TenantID,actor,
-			job.SaleID,time.Now().In(time.FixedZone("BRT",-3*60*60)))
-		if err!=nil {
-			if errors.Is(err,common.ErrInvoiceAlreadyExists) ||
-				errors.Is(err,common.ErrConflict) {
-				return NFCeAutoQueued,nil
+		if preflight != PreflightInputsUnverified {
+			return NFCeAutoQueued, common.ErrFiscalNotReady
+		}
+		reservation, _, err := svc.ReserveNFCeDraft(ctx, job.TenantID, actor,
+			job.SaleID, time.Now().In(time.FixedZone("BRT", -3*60*60)))
+		if err != nil {
+			if errors.Is(err, common.ErrInvoiceAlreadyExists) ||
+				errors.Is(err, common.ErrConflict) {
+				return NFCeAutoQueued, nil
 			}
-			return NFCeAutoQueued,err
+			return NFCeAutoQueued, err
 		}
-		invoiceID=reservation.InvoiceID
-		status=fisc.NFCeStatusReserved
-	case fisc.NFCeStatusReserved,fisc.NFCeStatusSigned:
+		invoiceID = reservation.InvoiceID
+		status = fisc.NFCeStatusReserved
+	case fisc.NFCeStatusReserved, fisc.NFCeStatusSigned:
 	default:
-		return NFCeAutoManual,common.ErrConflict
+		return NFCeAutoManual, common.ErrConflict
 	}
-	if status==fisc.NFCeStatusReserved {
-		if err:=svc.PrepareAutomaticNFCeTaxes(ctx,job.TenantID,actor,invoiceID);err!=nil {
-			return NFCeAutoQueued,err
+	if status == fisc.NFCeStatusReserved {
+		if err := svc.PrepareAutomaticNFCeTaxes(ctx, job.TenantID, actor, invoiceID); err != nil {
+			return NFCeAutoQueued, err
 		}
-		if _,_,err:=svc.SignNFCeReserved(ctx,job.TenantID,actor,invoiceID);err!=nil {
-			if errors.Is(err,common.ErrConflict) {return NFCeAutoQueued,nil}
-			return NFCeAutoQueued,err
+		if _, _, err := svc.SignNFCeReserved(ctx, job.TenantID, actor, invoiceID); err != nil {
+			if errors.Is(err, common.ErrConflict) {
+				return NFCeAutoQueued, nil
+			}
+			return NFCeAutoQueued, err
 		}
 	}
 	// AuthorizeNFCeHomologation persists 'submitted' BEFORE attempting SOAP.
 	// A transport timeout leaves it submitted, and this job cannot send again.
-	_,err=svc.AuthorizeNFCeHomologation(ctx,job.TenantID,actor,invoiceID)
-	if err!=nil {
+	_, err = svc.AuthorizeNFCeHomologation(ctx, job.TenantID, actor, invoiceID)
+	if err != nil {
 		var persisted string
-		lookupErr:=pool.QueryRow(ctx,`
+		lookupErr := pool.QueryRow(ctx, `
 			SELECT status FROM invoices
 			WHERE tenant_id=$1 AND id=$2
-		`,job.TenantID,invoiceID).Scan(&persisted)
-		if lookupErr==nil && persisted==fisc.NFCeStatusSubmitted {
-			return NFCeAutoAwaiting,err
+		`, job.TenantID, invoiceID).Scan(&persisted)
+		if lookupErr == nil && persisted == fisc.NFCeStatusSubmitted {
+			return NFCeAutoAwaiting, err
 		}
-		return NFCeAutoQueued,err
+		return NFCeAutoQueued, err
 	}
 	// Always inspect persisted invoice status instead of inferring completion
 	// from the gateway response (which might have been only an ACK).
 	var finalStatus string
-	if err:=pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2
-	`,job.TenantID,invoiceID).Scan(&finalStatus);err!=nil{
-		return NFCeAutoQueued,err
+	`, job.TenantID, invoiceID).Scan(&finalStatus); err != nil {
+		return NFCeAutoQueued, err
 	}
 	switch finalStatus {
-	case fisc.NFCeStatusAuthorized:return NFCeAutoAuthorized,nil
-	case fisc.NFCeStatusSubmitted:return NFCeAutoAwaiting,nil
-	case fisc.NFCeStatusRejected:return NFCeAutoManual,nil
-	default:return NFCeAutoQueued,nil
+	case fisc.NFCeStatusAuthorized:
+		return NFCeAutoAuthorized, nil
+	case fisc.NFCeStatusSubmitted:
+		return NFCeAutoAwaiting, nil
+	case fisc.NFCeStatusRejected:
+		return NFCeAutoManual, nil
+	default:
+		return NFCeAutoQueued, nil
 	}
 }
 
@@ -311,68 +333,76 @@ func StartAutomaticNFCeHomologation(
 	ctx context.Context, pool *pgxpool.Pool, svc *FiscalService, logger *slog.Logger,
 ) {
 	var random [12]byte
-	if _,err:=rand.Read(random[:]);err!=nil {
-		logger.Error("nfce_auto_worker_random_failed",slog.Any("error",err))
+	if _, err := rand.Read(random[:]); err != nil {
+		logger.Error("nfce_auto_worker_random_failed", slog.Any("error", err))
 		return
 	}
-	owner:=fmt.Sprintf("nfce-auto-hom-%x",random[:])
-	regCtx,cancel:=context.WithTimeout(ctx,5*time.Second)
-	err:=RegisterFiscalPreflightWorker(regCtx,pool,owner)
+	owner := fmt.Sprintf("nfce-auto-hom-%x", random[:])
+	regCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	err := RegisterFiscalPreflightWorker(regCtx, pool, owner)
 	cancel()
-	if err!=nil {
-		logger.Error("nfce_auto_worker_registration_failed",slog.Any("error",err))
+	if err != nil {
+		logger.Error("nfce_auto_worker_registration_failed", slog.Any("error", err))
 		return
 	}
-	go func(){
-		iteration:=func(){
-			tickCtx,cancel:=context.WithTimeout(ctx,90*time.Second)
+	go func() {
+		iteration := func() {
+			tickCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 			defer cancel()
-			if err:=RenewFiscalPreflightWorker(tickCtx,pool,owner);err!=nil {
-				logger.Error("nfce_auto_worker_identity_expired",slog.Any("error",err))
+			if err := RenewFiscalPreflightWorker(tickCtx, pool, owner); err != nil {
+				logger.Error("nfce_auto_worker_identity_expired", slog.Any("error", err))
 				return
 			}
-			_,_ = ObserveAuthorizedAutomaticNFCeJob(tickCtx,pool)
-			if _,err:=PlanNFCeAutomaticHomologation(tickCtx,pool);err!=nil {
-				if tickCtx.Err()==nil{logger.Warn("nfce_auto_plan_error",slog.Any("error",err))}
+			_, _ = ObserveAuthorizedAutomaticNFCeJob(tickCtx, pool)
+			if _, err := PlanNFCeAutomaticHomologation(tickCtx, pool); err != nil {
+				if tickCtx.Err() == nil {
+					logger.Warn("nfce_auto_plan_error", slog.Any("error", err))
+				}
 				return
 			}
-			claims,err:=ClaimNFCeAutomaticHomologation(tickCtx,pool,owner,2,3*time.Minute)
-			if err!=nil {
-				logger.Warn("nfce_auto_claim_error",slog.Any("error",err))
+			claims, err := ClaimNFCeAutomaticHomologation(tickCtx, pool, owner, 2, 3*time.Minute)
+			if err != nil {
+				logger.Warn("nfce_auto_claim_error", slog.Any("error", err))
 				return
 			}
-			for _,claim:=range claims{
-				if tickCtx.Err()!=nil{return}
-				state,err:=ProcessNFCeAutoHomologationClaim(tickCtx,pool,svc,owner,claim)
-				step:="retry"
+			for _, claim := range claims {
+				if tickCtx.Err() != nil {
+					return
+				}
+				state, err := ProcessNFCeAutoHomologationClaim(tickCtx, pool, svc, owner, claim)
+				step := "retry"
 				switch state {
-				case NFCeAutoAwaiting:step="awaiting_sefaz"
-				case NFCeAutoAuthorized:step="authorized"
-				case NFCeAutoManual:step="manual_review"
+				case NFCeAutoAwaiting:
+					step = "awaiting_sefaz"
+				case NFCeAutoAuthorized:
+					step = "authorized"
+				case NFCeAutoManual:
+					step = "manual_review"
 				}
-				if err!=nil {
+				if err != nil {
 					logger.Warn("nfce_auto_document_pending",
-						slog.String("tenant",claim.TenantID),
-						slog.String("sale",claim.SaleID),
-						slog.Any("error",err))
+						slog.String("tenant", claim.TenantID),
+						slog.String("sale", claim.SaleID),
+						slog.Any("error", err))
 				}
-				if claim.Attempts>=12 && state==NFCeAutoQueued {
-					state=NFCeAutoManual
-					step="manual_review"
+				if claim.Attempts >= 12 && state == NFCeAutoQueued {
+					state = NFCeAutoManual
+					step = "manual_review"
 				}
-				if completeErr:=CompleteNFCeAutomaticHomologation(tickCtx,pool,owner,claim,state,step);
-					completeErr!=nil && tickCtx.Err()==nil{
-					logger.Warn("nfce_auto_completion_error",slog.Any("error",completeErr))
+				if completeErr := CompleteNFCeAutomaticHomologation(tickCtx, pool, owner, claim, state, step); completeErr != nil && tickCtx.Err() == nil {
+					logger.Warn("nfce_auto_completion_error", slog.Any("error", completeErr))
 				}
 			}
 		}
 		iteration()
-		ticker:=time.NewTicker(10*time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():return
-			case <-ticker.C:iteration()
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				iteration()
 			}
 		}
 	}()

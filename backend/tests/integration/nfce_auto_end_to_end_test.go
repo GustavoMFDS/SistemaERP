@@ -23,169 +23,232 @@ import (
 )
 
 func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) {
-	if os.Getenv("TEST_FISCAL_DISPOSABLE_DB")!="1" ||
-		os.Getenv("TEST_DATABASE_URL")=="" {
+	if os.Getenv("TEST_FISCAL_DISPOSABLE_DB") != "1" ||
+		os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("fresh disposable PostgreSQL required")
 	}
-	ctx,cancel:=context.WithTimeout(context.Background(),35*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	pool,err:=pgxpool.New(ctx,os.Getenv("TEST_DATABASE_URL"))
-	if err!=nil{t.Fatal(err)}
+	pool, err := pgxpool.New(ctx, os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer pool.Close()
 
-	var tenant,actor string
-	if err:=pool.QueryRow(ctx,`
+	var tenant, actor string
+	if err := pool.QueryRow(ctx, `
 		SELECT ur.tenant_id::text,ur.user_id::text
 		FROM user_tenant_roles ur JOIN roles r
 		  ON r.id=ur.role_id AND r.name='admin'
 		ORDER BY ur.user_id LIMIT 1
-	`).Scan(&tenant,&actor);err!=nil{t.Fatal(err)}
-	if _,err:=pool.Exec(ctx,`
+	`).Scan(&tenant, &actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
 		UPDATE companies SET ie='110042490114',crt='1',
 		  address_street='Rua Teste',address_number='12',
 		  address_neighborhood='Centro',address_city='Uberlandia',
 		  address_city_code='3170206',address_state='MG',
 		  address_zip='38400000' WHERE id=$1
-	`,tenant);err!=nil{t.Fatal(err)}
+	`, tenant); err != nil {
+		t.Fatal(err)
+	}
 	var product string
-	if err:=pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO products(tenant_id,sku,name,unit,cost_price,
 		  price_cash,min_stock,active,ncm)
 		VALUES($1,$2,'Produto Simulado','UN',5,10,0,true,'61091000')
 		RETURNING id::text
-	`,tenant,"AUTO-NFCE-"+uuid.NewString()).Scan(&product);err!=nil{t.Fatal(err)}
-	fiscalRepo:=fiscinfra.NewFiscalRepo(pool)
-	uow:=db.NewPgxUnitOfWork(pool)
-	tx,err:=uow.Begin(ctx)
-	if err!=nil{t.Fatal(err)}
-	if err:=fiscalRepo.UpsertProductFiscalProfile(ctx,tx,tenant,actor,fisc.ProductFiscalProfile{
-		TenantID:tenant,ProductID:product,CFOP:"5102",ICMSOrigin:"0",
-		ICMSRegime:"csosn",ICMSCode:"102",PISCST:"49",COFINSCST:"49",
-		ReferenceVersion:"auto-hom-integration-synthetic",
-	});err!=nil{_ = tx.Rollback(ctx);t.Fatal(err)}
-	if err:=tx.Commit(ctx);err!=nil{t.Fatal(err)}
-	cert:="secret://test/never-live"
-	if _,err:=pool.Exec(ctx,`
+	`, tenant, "AUTO-NFCE-"+uuid.NewString()).Scan(&product); err != nil {
+		t.Fatal(err)
+	}
+	fiscalRepo := fiscinfra.NewFiscalRepo(pool)
+	uow := db.NewPgxUnitOfWork(pool)
+	tx, err := uow.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fiscalRepo.UpsertProductFiscalProfile(ctx, tx, tenant, actor, fisc.ProductFiscalProfile{
+		TenantID: tenant, ProductID: product, CFOP: "5102", ICMSOrigin: "0",
+		ICMSRegime: "csosn", ICMSCode: "102", PISCST: "49", COFINSCST: "49",
+		ReferenceVersion: "auto-hom-integration-synthetic",
+	}); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cert := "secret://test/never-live"
+	if _, err := pool.Exec(ctx, `
 		INSERT INTO nfce_configs(tenant_id,environment,series,certificate_secret_ref,updated_at)
 		VALUES($1,'homologation',163,$2,now()-interval '1 minute')
 		ON CONFLICT (tenant_id) DO UPDATE SET
 		  environment='homologation',series=163,
 		  certificate_secret_ref=excluded.certificate_secret_ref,
 		  updated_at=now()-interval '1 minute'
-	`,tenant,cert);err!=nil{t.Fatal(err)}
-	var register,session,sale,saleItem string
-	if err:=pool.QueryRow(ctx,`
+	`, tenant, cert); err != nil {
+		t.Fatal(err)
+	}
+	var register, session, sale, saleItem string
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO cash_registers(tenant_id,name,active)
 		VALUES($1,$2,true) RETURNING id::text
-	`,tenant,"Auto Hom Test "+uuid.NewString()).Scan(&register);err!=nil{t.Fatal(err)}
-	if err:=pool.QueryRow(ctx,`
+	`, tenant, "Auto Hom Test "+uuid.NewString()).Scan(&register); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO cash_sessions(tenant_id,cash_register_id,opened_by_user_id,
 		  opening_amount,status)
 		VALUES($1,$2,$3,0,'open') RETURNING id::text
-	`,tenant,register,actor).Scan(&session);err!=nil{t.Fatal(err)}
-	if err:=pool.QueryRow(ctx,`
+	`, tenant, register, actor).Scan(&session); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO sales(tenant_id,cash_session_id,status,subtotal,
 		  discount_value,total,profit_estimated,created_by_user_id,finalized_at)
 		VALUES($1,$2,'finalized',10,0,10,5,$3,now())
 		RETURNING id::text
-	`,tenant,session,actor).Scan(&sale);err!=nil{t.Fatal(err)}
-	if err:=pool.QueryRow(ctx,`
+	`, tenant, session, actor).Scan(&sale); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO sale_items(tenant_id,sale_id,product_id,qty,
 		  unit_price,discount_value,subtotal,cost_unit)
 		VALUES($1,$2,$3,1,10,0,10,5) RETURNING id::text
-	`,tenant,sale,product).Scan(&saleItem);err!=nil{t.Fatal(err)}
-	if _,err:=pool.Exec(ctx,`
+	`, tenant, sale, product).Scan(&saleItem); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
 		INSERT INTO payments(tenant_id,sale_id,method,amount)
 		VALUES($1,$2,'cash',10)
-	`,tenant,sale);err!=nil{t.Fatal(err)}
+	`, tenant, sale); err != nil {
+		t.Fatal(err)
+	}
 
-	if _,err:=fiscal.PlanNFCeAutomaticHomologation(ctx,pool);err!=nil{t.Fatal(err)}
-	owner:="auto-hom-e2e-"+uuid.NewString()
-	if err:=fiscal.RegisterFiscalPreflightWorker(ctx,pool,owner);err!=nil{t.Fatal(err)}
-	claims,err:=fiscal.ClaimNFCeAutomaticHomologation(ctx,pool,owner,5,3*time.Minute)
-	if err!=nil{t.Fatal(err)}
+	if _, err := fiscal.PlanNFCeAutomaticHomologation(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	owner := "auto-hom-e2e-" + uuid.NewString()
+	if err := fiscal.RegisterFiscalPreflightWorker(ctx, pool, owner); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := fiscal.ClaimNFCeAutomaticHomologation(ctx, pool, owner, 5, 3*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var job fiscal.NFCeAutoClaim
-	for _,candidate:=range claims{if candidate.SaleID==sale{job=candidate}}
-	if job.SaleID==""{t.Fatalf("new sale not claimed: %+v",claims)}
+	for _, candidate := range claims {
+		if candidate.SaleID == sale {
+			job = candidate
+		}
+	}
+	if job.SaleID == "" {
+		t.Fatalf("new sale not claimed: %+v", claims)
+	}
 
-	logger:=slog.New(slog.NewTextHandler(io.Discard,nil))
-	svc:=fiscal.NewFiscalService(uow,fiscalRepo,
-		salesinfra.NewSalesRepo(pool),invinfra.NewProductsRepo(pool),
-		audit.New(pool,logger),validator.New(),logger)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	svc := fiscal.NewFiscalService(uow, fiscalRepo,
+		salesinfra.NewSalesRepo(pool), invinfra.NewProductsRepo(pool),
+		audit.New(pool, logger), validator.New(), logger)
 	svc.SetNFCeDocumentBuilder(fakeNFCeDocumentBuilder{})
 	svc.SetNFCeXMLSigner(fakeNFCeSigner{})
 	svc.SetNFCeSchemaValidator(fakeCancellationValidator{})
 	svc.SetNFCeProcessedDocumentBuilder(fakeProcessedDocumentBuilder{})
-	remote:=&fakeRemoteAuthorizer{authorizeOut:fisc.NFCeRemoteOutcome{
-		StatusCode:103,Reason:"recebido; resultado incerto",
+	remote := &fakeRemoteAuthorizer{authorizeOut: fisc.NFCeRemoteOutcome{
+		StatusCode: 103, Reason: "recebido; resultado incerto",
 	}}
 	svc.SetNFCeRemoteAuthorizer(remote)
 
-	state,err:=fiscal.ProcessNFCeAutoHomologationClaim(ctx,pool,svc,owner,job)
-	if err!=nil || state!=fiscal.NFCeAutoAwaiting {
-		t.Fatalf("failed automatic reserve/taxes/sign/send: state=%s err=%v",state,err)
+	state, err := fiscal.ProcessNFCeAutoHomologationClaim(ctx, pool, svc, owner, job)
+	if err != nil || state != fiscal.NFCeAutoAwaiting {
+		t.Fatalf("failed automatic reserve/taxes/sign/send: state=%s err=%v", state, err)
 	}
-	if remote.authorizeCalls!=1 || remote.consultCalls!=0 {
-		t.Fatalf("first submission must authorize once: %+v",remote)
+	if remote.authorizeCalls != 1 || remote.consultCalls != 0 {
+		t.Fatalf("first submission must authorize once: %+v", remote)
 	}
-	if err:=fiscal.CompleteNFCeAutomaticHomologation(
-		ctx,pool,owner,job,state,"awaiting_sefaz");err!=nil{t.Fatal(err)}
-	var invoice,accessKey,invoiceStatus string
-	if err:=pool.QueryRow(ctx,`
+	if err := fiscal.CompleteNFCeAutomaticHomologation(
+		ctx, pool, owner, job, state, "awaiting_sefaz"); err != nil {
+		t.Fatal(err)
+	}
+	var invoice, accessKey, invoiceStatus string
+	if err := pool.QueryRow(ctx, `
 		SELECT id::text,access_key,status FROM invoices
 		WHERE tenant_id=$1 AND sale_id=$2
-	`,tenant,sale).Scan(&invoice,&accessKey,&invoiceStatus);err!=nil{t.Fatal(err)}
-	if invoiceStatus!="submitted"{t.Fatalf("not submitted: %s",invoiceStatus)}
+	`, tenant, sale).Scan(&invoice, &accessKey, &invoiceStatus); err != nil {
+		t.Fatal(err)
+	}
+	if invoiceStatus != "submitted" {
+		t.Fatalf("not submitted: %s", invoiceStatus)
+	}
 	var taxItems int
-	if err:=pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM invoice_item_tax_calculations
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`,tenant,invoice).Scan(&taxItems);err!=nil||taxItems!=1 {
-		t.Fatalf("missing copied configured fiscal item calc: %d %v",taxItems,err)
+	`, tenant, invoice).Scan(&taxItems); err != nil || taxItems != 1 {
+		t.Fatalf("missing copied configured fiscal item calc: %d %v", taxItems, err)
 	}
 	// The first send is acknowledged but inconclusive; only Consult may
 	// reconcile it. A second POST to Authorize is never issued.
-	if _,err:=fiscal.PlanNFCeSubmittedConsultations(ctx,pool);err!=nil{t.Fatal(err)}
-	consultWorker:="auto-consult-e2e-"+uuid.NewString()
-	if err:=fiscal.RegisterFiscalPreflightWorker(ctx,pool,consultWorker);err!=nil{t.Fatal(err)}
-	consultJobs,err:=fiscal.ClaimNFCeSubmittedConsultations(ctx,pool,consultWorker,10,3*time.Minute)
-	if err!=nil{t.Fatal(err)}
+	if _, err := fiscal.PlanNFCeSubmittedConsultations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	consultWorker := "auto-consult-e2e-" + uuid.NewString()
+	if err := fiscal.RegisterFiscalPreflightWorker(ctx, pool, consultWorker); err != nil {
+		t.Fatal(err)
+	}
+	consultJobs, err := fiscal.ClaimNFCeSubmittedConsultations(ctx, pool, consultWorker, 10, 3*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var recovery fiscal.NFCeConsultClaim
-	for _,candidate:=range consultJobs{if candidate.InvoiceID==invoice{recovery=candidate}}
-	if recovery.InvoiceID==""{t.Fatalf("not scheduled for consult: %+v",consultJobs)}
-	remote.consultOut=fisc.NFCeRemoteOutcome{
-		AccessKey:accessKey,StatusCode:100,Reason:"autorizado",
-		FinalStatus:fisc.NFCeStatusAuthorized,
-		Protocol:"131260000009991",ReceivedAt:time.Now().UTC(),
-		ProtocolXML:[]byte("<protNFe>fake protocol from simulated SEFAZ</protNFe>"),
+	for _, candidate := range consultJobs {
+		if candidate.InvoiceID == invoice {
+			recovery = candidate
+		}
 	}
-	out,err:=svc.ExecuteNFCeConsultationClaim(ctx,pool,consultWorker,actor,recovery)
-	if err!=nil || !out.Authorized(){t.Fatalf("simulated consult not applied: %+v %v",out,err)}
-	if remote.authorizeCalls!=1 || remote.consultCalls!=1 {
-		t.Fatalf("unsafe resend or missing consultation: %+v",remote)
+	if recovery.InvoiceID == "" {
+		t.Fatalf("not scheduled for consult: %+v", consultJobs)
 	}
-	if _,err:=fiscal.ObserveAuthorizedAutomaticNFCeJob(ctx,pool);err!=nil{t.Fatal(err)}
-	var jobState,finalInvoice string
-	if err:=pool.QueryRow(ctx,`
+	remote.consultOut = fisc.NFCeRemoteOutcome{
+		AccessKey: accessKey, StatusCode: 100, Reason: "autorizado",
+		FinalStatus: fisc.NFCeStatusAuthorized,
+		Protocol:    "131260000009991", ReceivedAt: time.Now().UTC(),
+		ProtocolXML: []byte("<protNFe>fake protocol from simulated SEFAZ</protNFe>"),
+	}
+	out, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, consultWorker, actor, recovery)
+	if err != nil || !out.Authorized() {
+		t.Fatalf("simulated consult not applied: %+v %v", out, err)
+	}
+	if remote.authorizeCalls != 1 || remote.consultCalls != 1 {
+		t.Fatalf("unsafe resend or missing consultation: %+v", remote)
+	}
+	if _, err := fiscal.ObserveAuthorizedAutomaticNFCeJob(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var jobState, finalInvoice string
+	if err := pool.QueryRow(ctx, `
 		SELECT j.state,i.status FROM nfce_auto_homologation_jobs j
 		JOIN invoices i ON i.tenant_id=j.tenant_id AND i.sale_id=j.sale_id
 		WHERE j.tenant_id=$1 AND j.sale_id=$2
-	`,tenant,sale).Scan(&jobState,&finalInvoice);err!=nil{t.Fatal(err)}
-	if finalInvoice!="authorized" || jobState!="authorized" {
-		t.Fatalf("not authorized with completed queue: invoice=%s job=%s",finalInvoice,jobState)
+	`, tenant, sale).Scan(&jobState, &finalInvoice); err != nil {
+		t.Fatal(err)
+	}
+	if finalInvoice != "authorized" || jobState != "authorized" {
+		t.Fatalf("not authorized with completed queue: invoice=%s job=%s", finalInvoice, jobState)
 	}
 	var archived, audited int
-	if err:=pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM invoice_authorized_xml_files
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`,tenant,invoice).Scan(&archived);err!=nil||archived!=1{
-		t.Fatalf("processed XML not archived: %d %v",archived,err)
+	`, tenant, invoice).Scan(&archived); err != nil || archived != 1 {
+		t.Fatalf("processed XML not archived: %d %v", archived, err)
 	}
-	if err:=pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM audit_logs
 		WHERE tenant_id=$1 AND resource_id=$2
 		  AND action='fiscal.nfce.authorized'
-	`,tenant,invoice).Scan(&audited);err!=nil||audited!=1{
-		t.Fatalf("no unique SEFAZ authorisation audit: %d %v",audited,err)
+	`, tenant, invoice).Scan(&audited); err != nil || audited != 1 {
+		t.Fatalf("no unique SEFAZ authorisation audit: %d %v", audited, err)
 	}
 }
