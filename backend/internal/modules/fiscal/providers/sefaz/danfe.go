@@ -346,6 +346,25 @@ h1,p { margin: 0; }
 .section { border-top: 1px dashed #000; padding-top: 2mm; margin-top: 2mm; }
 .banner { border: 2px solid #000; padding: 2mm; margin: 2mm 0; font-weight: 700; text-align: center; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th:first-child { width: 48%; }
+th:nth-child(2) { width: 32%; }
+th:last-child { width: 20%; }
+/* On 58 mm rolls, the three-column table would give the description
+   roughly 2 cm and split common product names/prices mid-word.
+   Stack the description above the quantity and item total instead. */
+.receipt-58 .items-table, .receipt-58 .items-table tbody { display: block; width: 100%; }
+.receipt-58 .items-table thead { display: none; }
+.receipt-58 .items-table tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: 2mm;
+  padding: 1mm 0;
+  border-bottom: 1px dotted #aaa;
+}
+.receipt-58 .items-table td { padding: 0.5mm 0; min-width: 0; }
+.receipt-58 .items-table .item-desc { grid-column: 1 / -1; font-weight: 700; }
+.receipt-58 .items-table td:nth-child(2) { grid-column: 1; text-align: left; }
+.receipt-58 .items-table td:nth-child(3) { grid-column: 2; text-align: right; }
 th, td { padding: 1mm 0.5mm; vertical-align: top; overflow-wrap: anywhere; }
 th { border-bottom: 1px solid #000; font-size: 9px; }
 td.num, th.num { text-align: right; overflow-wrap: anywhere; }
@@ -365,7 +384,7 @@ header, .banner, .section.center { break-inside: avoid; page-break-inside: avoid
 }
 </style>
 </head>
-<body>
+<body class="receipt-{{.PaperWidthMM}}">
 <header class="center">
   <div class="strong">{{.IssuerName}}</div>
   {{if .IssuerTradeName}}<div>{{.IssuerTradeName}}</div>{{end}}
@@ -380,7 +399,7 @@ header, .banner, .section.center { break-inside: avoid; page-break-inside: avoid
 {{if .Cancelled}}<div class="banner">NFC-e CANCELADA</div>{{end}}
 
 <section class="section">
-<table>
+<table class="items-table">
 <thead>
 <tr><th>CÓDIGO / DESCRIÇÃO</th><th class="num">QTD UN × VL UNIT</th><th class="num">VL TOTAL</th></tr>
 </thead>
