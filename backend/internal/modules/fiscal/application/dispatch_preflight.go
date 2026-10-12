@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"strings"
 	"time"
 
 	fisc "github.com/example/sistemaemgo/internal/modules/fiscal/domain"
