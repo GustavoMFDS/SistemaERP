@@ -20,6 +20,32 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// consultationHookAuthorizer simulates a reply arriving after another process
+// revokes/invalidates the lease, without contacting SEFAZ.
+type consultationHookAuthorizer struct {
+	outcome fisc.NFCeRemoteOutcome
+	beforeReturn func() error
+	consultCalls int
+}
+
+func (a *consultationHookAuthorizer) Authorize(
+	_ context.Context, _, _, _, _ string, _ int64, _ []byte,
+) (fisc.NFCeRemoteOutcome, error) {
+	panic("recovery executor must never call Authorize")
+}
+
+func (a *consultationHookAuthorizer) Consult(
+	_ context.Context, _, _, _, _ string,
+) (fisc.NFCeRemoteOutcome, error) {
+	a.consultCalls++
+	if a.beforeReturn != nil {
+		if err := a.beforeReturn(); err != nil {
+			return fisc.NFCeRemoteOutcome{}, err
+		}
+	}
+	return a.outcome, nil
+}
+
 // Run only against a fresh disposable PostgreSQL database with migrations 1-46.
 // Tests never invoke any SEFAZ implementation.
 func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
@@ -340,6 +366,50 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if remote.consultCalls!=callsBefore {
 		t.Fatal("expired lease invoked Consult")
 	}
+	// Model a response obtained BEFORE the lease expiry but applied AFTER
+	// it. The transaction must recheck the fence at commit, not only before
+	// calling Consult. No invoice XML or status may be written.
+	rescheduleB()
+	claim = getBClaim()
+	race := &consultationHookAuthorizer{
+		outcome: fisc.NFCeRemoteOutcome{
+			AccessKey: accessKey, StatusCode: 100,
+			FinalStatus: fisc.NFCeStatusAuthorized,
+			Protocol: "123456789",
+			ProtocolXML: []byte("<protNFe>race-fixture</protNFe>"),
+			ReceivedAt: time.Now().UTC(),
+		},
+	}
+	race.beforeReturn = func() error {
+		_, err := pool.Exec(ctx, `
+			UPDATE nfce_consult_recovery_jobs SET
+				lease_until=now()-interval '1 second'
+			WHERE tenant_id=$1 AND invoice_id=$2
+		`, targetTenant, targetInvoice)
+		return err
+	}
+	svc.SetNFCeRemoteAuthorizer(race)
+	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim);
+		!errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
+		t.Fatalf("post-network expired lease must be rejected: %v", err)
+	}
+	if race.consultCalls != 1 {
+		t.Fatal("fencing test did not invoke fake Consult")
+	}
+	if err := pool.QueryRow(ctx,
+		"SELECT status FROM invoices WHERE tenant_id=$1 AND id=$2",
+		targetTenant, targetInvoice).Scan(&statusB); err != nil || statusB != "submitted" {
+		t.Fatalf("stale remote 100 wrongly authorized: %s %v", statusB, err)
+	}
+	var beforeArchive int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM invoice_authorized_xml_files
+		WHERE tenant_id=$1 AND invoice_id=$2
+	`, targetTenant, targetInvoice).Scan(&beforeArchive); err != nil || beforeArchive != 0 {
+		t.Fatalf("stale remote 100 wrongly archived XML: %d %v", beforeArchive, err)
+	}
+	svc.SetNFCeRemoteAuthorizer(remote)
+
 	// An unexpired lease + matching 100/protocol enters the existing atomic
 	// invoice/protocolXML/nfeProc/archive/audit commit.
 	rescheduleB()
