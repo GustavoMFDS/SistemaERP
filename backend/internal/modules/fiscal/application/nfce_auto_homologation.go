@@ -251,6 +251,9 @@ func ProcessNFCeAutoHomologationClaim(
 		return NFCeAutoManual,common.ErrConflict
 	}
 	if status==fisc.NFCeStatusReserved {
+		if err:=svc.PrepareAutomaticNFCeTaxes(ctx,job.TenantID,actor,invoiceID);err!=nil {
+			return NFCeAutoQueued,err
+		}
 		if _,_,err:=svc.SignNFCeReserved(ctx,job.TenantID,actor,invoiceID);err!=nil {
 			if errors.Is(err,common.ErrConflict) {return NFCeAutoQueued,nil}
 			return NFCeAutoQueued,err
