@@ -33,7 +33,7 @@ func NFCeMGIssuerLocalBlockers(p NFCeIssuerProfile) []string {
 	if strings.TrimSpace(p.AddressCity) == "" {
 		reasons = append(reasons, "issuer_city_missing")
 	}
-	if zip := strings.TrimSpace(p.AddressZIP); len(zip) != 8 || !onlyASCIIDigits(zip) {
+	if zip := p.AddressZIP; len(zip) != 8 || !onlyASCIIDigits(zip) {
 		reasons = append(reasons, "issuer_zip_invalid")
 	}
 	if reason := NFCeMGJurisdictionBlocker(p.AddressState, p.AddressCityCode); reason != "" {
