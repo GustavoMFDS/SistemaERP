@@ -164,7 +164,8 @@ func authorizationOutcome(
 	// A duplicate-access-key response cannot prove a *new* rejection:
 	// a previous send might already have been authorized by SEFAZ.
 	// Leave the invoice submitted and require consultation/manual review.
-	if out.StatusCode == 204 || out.StatusCode == 539 {
+	if out.StatusCode == 101 || out.StatusCode == 110 ||
+		out.StatusCode == 204 || out.StatusCode == 539 {
 		return out, nil
 	}
 	out.FinalStatus = fisc.NFCeStatusRejected
