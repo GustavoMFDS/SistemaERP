@@ -7,17 +7,17 @@ import (
 
 func validMGIssuerForLocalCheck() NFCeIssuerProfile {
 	return NFCeIssuerProfile{
-		LegalName: "Mercado Exemplo Ltda",
-		CNPJ: "11222333000181",
-		IE: "0012345678901",
-		CRT: "1",
-		AddressStreet: "Rua Exemplo",
-		AddressNumber: "120",
+		LegalName:           "Mercado Exemplo Ltda",
+		CNPJ:                "11222333000181",
+		IE:                  "0012345678901",
+		CRT:                 "1",
+		AddressStreet:       "Rua Exemplo",
+		AddressNumber:       "120",
 		AddressNeighborhood: "Centro",
-		AddressCity: "Belo Horizonte",
-		AddressCityCode: "3106200",
-		AddressState: "MG",
-		AddressZIP: "30130010",
+		AddressCity:         "Belo Horizonte",
+		AddressCityCode:     "3106200",
+		AddressState:        "MG",
+		AddressZIP:          "30130010",
 	}
 }
 
