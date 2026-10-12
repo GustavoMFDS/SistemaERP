@@ -1,6 +1,9 @@
 package sefaz
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +99,46 @@ func TestDANFERendererRendersAuthorizedNFCe(t *testing.T) {
 	}
 	if !strings.Contains(string(wide), "max-width: 80mm;") {
 		t.Fatal("80mm layout not selected")
+	}
+	for _, check := range []struct {
+		html string
+		want []string
+	}{
+		{narrowHTML, []string{
+			`class="receipt-58"`, ".receipt-58 .items-table tr {",
+			"grid-template-columns: minmax(0, 1fr) max-content;",
+		}},
+		{string(wide), []string{
+			`class="receipt-80"`, "th:first-child { width: 48%; }",
+		}},
+	} {
+		for _, snippet := range check.want {
+			if !strings.Contains(check.html, snippet) {
+				t.Fatalf("DANFE paper layout missing %q", snippet)
+			}
+		}
+	}
+	// Optional, completely fictitious HTML fixtures for Playwright geometry
+	// tests. No certificate, real company or SEFAZ data is present.
+	if directory := os.Getenv("DANFE_TEST_BROWSER_DIR"); directory != "" {
+		longProductXML := []byte(strings.Replace(string(xml),
+			"Produto &amp; teste",
+			"Produto &amp; teste - embalagem econômica de produto muito comprido com acentuação",
+			1))
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, width := range []int{58, 80} {
+			rendered, err := NewDANFERenderer().RenderWithPaperWidth(
+				reservation, longProductXML, width)
+			if err != nil {
+				t.Fatalf("render browser fixture %dmm: %v", width, err)
+			}
+			if err := os.WriteFile(filepath.Join(directory,
+				fmt.Sprintf("danfe-%d.html", width)), rendered, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	// Never force a fixed 80mm body: with a 58mm thermal paper driver,
 	// the DANFE must adapt to the print-area width without clipping columns.
