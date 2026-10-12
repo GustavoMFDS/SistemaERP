@@ -2395,12 +2395,23 @@ func (s *FiscalService) applyNFCeAuthorizationResult(
 			  AND j.access_key=$3 AND j.environment='homologation'
 			  AND j.state='awaiting_consultation'
 			  AND j.lease_token=$4::uuid AND j.lease_owner=$5
-			  AND j.lease_until>now()
-			  AND w.revoked_at IS NULL AND w.active_until>now()
+			  AND j.lease_until>clock_timestamp()
+			  AND w.revoked_at IS NULL AND w.active_until>clock_timestamp()
 			  AND i.status='submitted' AND i.model=65
 			  AND i.environment='homologation' AND i.access_key=j.access_key
+			  AND EXISTS (
+			    SELECT 1 FROM user_tenants ut
+			    WHERE ut.tenant_id=j.tenant_id AND ut.user_id=$6::uuid
+			  )
+			  AND EXISTS (
+			    SELECT 1 FROM companies c
+			    JOIN nfce_configs cfg ON cfg.tenant_id=c.id
+			    WHERE c.id=j.tenant_id AND upper(btrim(c.address_state))='MG'
+			      AND cfg.environment='homologation'
+			      AND nullif(btrim(cfg.certificate_secret_ref),'') IS NOT NULL
+			  )
 			FOR UPDATE OF j
-		`, tenantID, invoiceID, result.AccessKey, fence.token, fence.owner).Scan(&valid)
+		`, tenantID, invoiceID, result.AccessKey, fence.token, fence.owner, actorUserID).Scan(&valid)
 		if err != nil || !valid {
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return err
@@ -2470,7 +2481,7 @@ func (s *FiscalService) applyNFCeAuthorizationResult(
 			  lease_until=NULL,last_status_code=100,updated_at=now()
 			WHERE tenant_id=$1 AND invoice_id=$2 AND access_key=$3
 			  AND lease_token=$4::uuid AND lease_owner=$5
-			  AND state='awaiting_consultation' AND lease_until>now()
+			  AND state='awaiting_consultation' AND lease_until>clock_timestamp()
 		`, tenantID, invoiceID, result.AccessKey, fence.token, fence.owner)
 		if err != nil {
 			return err
