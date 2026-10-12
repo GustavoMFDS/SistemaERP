@@ -137,6 +137,8 @@ const blockerLabels: Record<string, string> = {
   issuer_identity: 'Identidade fiscal do emitente incompleta',
   issuer_address: 'Endereço do emitente incompleto',
   issuer_municipality_code: 'Código IBGE do município ausente/inválido',
+  issuer_uf_unsupported: 'A integração atual da NFC-e só aceita emitente de MG',
+  issuer_municipality_uf_mismatch: 'O município do emitente precisa usar código IBGE de MG (31xxxxx)',
   nfce_config: 'Configuração NFC-e ainda não preparada',
   homologation_environment: 'Ambiente deve estar em homologação nesta etapa',
   certificate_secret_reference: 'Referência do certificado ausente',
@@ -684,7 +686,8 @@ export default function FiscalPage() {
       {issuer ? (
         <details id="fiscal-issuer" className="mt-4 rounded-2xl border border-slate-200 p-5">
           <summary className="cursor-pointer text-base font-bold text-slate-900">Preencher dados da loja</summary>
-          <p className="mt-1 text-xs text-gray-600">Preencha conforme o cadastro oficial da empresa e confirme com o contador.</p>
+          <p className="mt-1 text-xs text-gray-600">Preencha conforme o cadastro oficial da empresa e confirme com o contador. Não é necessário saber qual sistema fiscal anterior era utilizado para iniciar esta preparação.</p>
+          <p className="mt-1 text-xs text-amber-800">A integração fiscal atual é específica para Minas Gerais. Código IBGE e UF precisam corresponder a MG; isso não autoriza a emissão.</p>
           <p className="mt-1 text-xs text-gray-600">
             {issuer.legal_name} · CNPJ {issuer.cnpj}
           </p>
@@ -702,6 +705,9 @@ export default function FiscalPage() {
                 <option value="3">3 — Regime Normal</option>
                 <option value="4">4 — MEI</option>
               </select>
+              <span className="mt-1 block text-xs text-gray-600">
+                Não ser MEI não define o regime. Escolha somente o CRT confirmado pela contabilidade; não há seleção automática.
+              </span>
             </label>
             <label className="md:col-span-2">
               <span className="text-xs text-gray-600">Rua ou avenida</span>
