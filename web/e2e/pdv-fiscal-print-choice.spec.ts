@@ -77,7 +77,7 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
       return route.fulfill({
         status: 200,
         contentType: 'text/html; charset=utf-8',
-        body: '<!doctype html><html lang="pt-BR"><body><main>DANFE NFC-e AUTORIZADA - visualização de teste</main></body></html>',
+        body: '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"></head><body><main>DANFE NFC-e AUTORIZADA - visualização de teste</main></body></html>',
       })
     }
     return reply({ message: 'test endpoint unavailable' }, 404)
@@ -128,6 +128,7 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   const popupPromise = page.waitForEvent('popup')
   await page.getByRole('button', { name: 'Pré-visualizar DANFE' }).click()
   const popup = await popupPromise
+  await popup.waitForURL(/^blob:/, { waitUntil: 'domcontentloaded' })
   await expect(popup.getByText('DANFE NFC-e AUTORIZADA - visualização de teste')).toBeVisible()
   expect(danfeRequests).toBe(1)
   expect(salePosts).toBe(1)
