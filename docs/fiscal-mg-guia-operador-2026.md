@@ -35,3 +35,14 @@ Não há persistência de checkboxes nem campo para usuário/senha do governo. O
 - A UI é somente educativa, não submete solicitações nos portais oficiais e não liga SEFAZ.
 - As informações e normas podem mudar; consultar as fontes oficiais e o contador antes do uso real.
 - Teste de navegador com API simulada assegura renderização, URL de consulta oficial e abertura dos campos internos; não substitui E2E com backend real ou homologação fiscal.
+
+
+## Assistente de configuração na própria aba Fiscal — 12/10/2026
+
+- As seis orientações agora são etapas de um assistente de navegação, com indicador **Etapa N de 6**, botões **Voltar etapa**, **Próxima etapa** e **Revisar desde o início**, e abertura direta de uma etapa pelo seu título.
+- O indicador mostra somente onde o operador está lendo, **não percentual de credenciamento ou homologação concluída**. É permitido avançar com campos faltantes para consultar instruções; nunca libera transmissão.
+- Na primeira etapa, o assistente exibe, somente para a loja autenticada, os dados já presentes no cadastro: razão social, CNPJ, IE, CRT explicitamente selecionado, endereço, CEP e código IBGE. O formulário do emitente também já é preenchido pelo cadastro salvo, sem gravar qualquer alteração automaticamente. Valores desconhecidos são exibidos como **Não registrado no PDV**, jamais inventados.
+- Na etapa de certificado, informa apenas se existe referência cadastrada (sem abrir PFX, senha ou chave). Na etapa de produtos, mostra o resumo de cadastros/NCM/perfis. Na etapa de homologação, mostra ambiente e série **salvos**, sem assumir que os defaults da interface foram aplicados.
+- O assistente não chama Receita/SEF/IBGE em nome da loja, não registra login externo, não solicita segredo e não presume regime tributário. Sempre usa os dados já retornados pelos endpoints autenticados da aba Fiscal; não cria nova chamada, gravação ou marcação de aprovação.
+- A posição de navegação fica somente em memória durante a visualização da página; o sistema não registra automaticamente etapas legais cumpridas. Em caso de troca de empresa, são usados os dados do novo contexto autenticado carregados pela página e nada é copiado entre CNPJs.
+- Teste Chromium com API simulada comprova avanço/retorno e prévia do cadastro; não confirma qualquer conexão fiscal real.
