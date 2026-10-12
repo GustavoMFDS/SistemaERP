@@ -68,6 +68,35 @@ func TestDANFERendererRendersAuthorizedNFCe(t *testing.T) {
 			t.Fatalf("DANFE missing %q", want)
 		}
 	}
+	// The same authorized XML prints with both common thermal roll sizes.
+	// Invalid dimensions never reach html/template (no CSS injection).
+	narrow, err := NewDANFERenderer().RenderWithPaperWidth(reservation, xml, 58)
+	if err != nil {
+		t.Fatalf("58mm paper: %v", err)
+	}
+	narrowHTML := string(narrow)
+	for _, want := range []string{
+		"max-width: 58mm;", "width: 32mm", "break-inside: avoid;",
+		"page-break-inside: avoid;", "data:image/png;base64,",
+		"Produto &amp; teste", "EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO",
+	} {
+		if !strings.Contains(narrowHTML, want) {
+			t.Fatalf("58mm DANFE missing %q", want)
+		}
+	}
+	if strings.Contains(narrowHTML, "max-width: 80mm;") {
+		t.Fatal("58mm print CSS used the larger roll size")
+	}
+	if _, err := NewDANFERenderer().RenderWithPaperWidth(reservation, xml, 60); err == nil {
+		t.Fatal("unsupported roll size must fail closed")
+	}
+	wide, err := NewDANFERenderer().RenderWithPaperWidth(reservation, xml, 80)
+	if err != nil {
+		t.Fatalf("80mm paper: %v", err)
+	}
+	if !strings.Contains(string(wide), "max-width: 80mm;") {
+		t.Fatal("80mm layout not selected")
+	}
 	// Never force a fixed 80mm body: with a 58mm thermal paper driver,
 	// the DANFE must adapt to the print-area width without clipping columns.
 	if strings.Contains(got, "body { width: 80mm;") {
