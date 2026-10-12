@@ -266,8 +266,7 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if finalInvoice != "authorized" || jobState != "authorized" {
 		t.Fatalf("not authorized with completed queue: invoice=%s job=%s", finalInvoice, jobState)
 	}
-	if _, rendered, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80);
-		err != nil || len(rendered) == 0 {
+	if _, rendered, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err != nil || len(rendered) == 0 {
 		t.Fatalf("processed authorized invoice should be printable: %v", err)
 	}
 	var archived, audited int
