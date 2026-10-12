@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
-import FiscalSetupGuide from '../components/FiscalSetupGuide'
+const FiscalSetupGuide = lazy(() => import('../components/FiscalSetupGuide'))
 
 type XMLFile = {
   id: string
@@ -439,14 +439,16 @@ export default function FiscalPage() {
         </button>
       </div>
 
-      <FiscalSetupGuide
-        readiness={readiness}
-        issuer={issuer}
-        config={config}
-        onOpenIssuer={() => openFiscalSection('fiscal-issuer')}
-        onOpenCertificate={() => openFiscalSection('fiscal-certificate')}
-        onOpenReadiness={() => openFiscalSection('fiscal-readiness')}
-      />
+      <Suspense fallback={<p className="mt-5 text-sm text-slate-600">Carregando guia fiscal…</p>}>
+        <FiscalSetupGuide
+          readiness={readiness}
+          issuer={issuer}
+          config={config}
+          onOpenIssuer={() => openFiscalSection('fiscal-issuer')}
+          onOpenCertificate={() => openFiscalSection('fiscal-certificate')}
+          onOpenReadiness={() => openFiscalSection('fiscal-readiness')}
+        />
+      </Suspense>
 
       {message ? (
         <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-2 text-sm text-green-700">
