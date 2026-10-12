@@ -111,6 +111,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	fiscapp.StartNFCeConsultationPlanner(ctx, pool, logger)
 
 	mods := modules.New(cfg, pool, rdb, logger)
+	// Explicit opt-in for homologation only. No certificate, schema bundle
+	// or deployment enablement means no worker and zero SEFAZ traffic.
+	if cfg.NFCeAutoHomologationEnabled {
+		fiscapp.StartAutomaticNFCeHomologation(ctx, pool, mods.Fiscal, logger)
+		fiscapp.StartAutomaticNFCeConsultation(ctx, pool, mods.Fiscal, logger)
+	}
 	router := httpapi.NewRouter(cfg, mods, logger)
 
 	return &App{DB: pool, Redis: rdb, Router: router, telemetryShutdown: telemetryShutdown, logger: logger}, nil
