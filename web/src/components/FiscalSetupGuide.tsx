@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 
 type GuideReadiness = {
@@ -13,8 +14,29 @@ type GuideReadiness = {
   blocking_reasons: string[]
 }
 
+type GuideIssuer = {
+  legal_name: string
+  cnpj: string
+  ie: string
+  crt: string
+  address_street: string
+  address_number: string
+  address_city: string
+  address_city_code: string
+  address_state: string
+  address_zip: string
+}
+
+type GuideConfig = {
+  environment: string
+  series: number
+  certificate_reference_configured: boolean
+}
+
 type Props = {
   readiness: GuideReadiness | null
+  issuer: GuideIssuer | null
+  config: GuideConfig | null
   onOpenIssuer: () => void
   onOpenCertificate: () => void
   onOpenReadiness: () => void
@@ -43,27 +65,41 @@ function OfficialLink({ href, children }: { href: string; children: string }) {
 }
 
 function GuideStep({
-  number, title, status, children,
+  number, title, status, active, onSelect, children,
 }: {
   number: number
   title: string
   status: string
+  active: boolean
+  onSelect: (step: number) => void
   children: ReactNode
 }) {
   return (
-    <details className="group rounded-lg border border-slate-200 bg-white">
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-3 text-sm [&::-webkit-details-marker]:hidden">
-        <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 font-semibold text-slate-700">
+    <div className={active
+      ? 'rounded-lg border-2 border-slate-500 bg-white'
+      : 'rounded-lg border border-slate-200 bg-white'}>
+      <button type="button" onClick={() => onSelect(number)}
+        aria-expanded={active}
+        aria-controls={'fiscal-guide-panel-' + number}
+        id={'fiscal-guide-tab-' + number}
+        className="flex w-full flex-wrap items-center gap-2 rounded-lg px-3 py-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+        <span aria-hidden="true" className={active
+          ? 'flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-800 font-semibold text-white'
+          : 'flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 font-semibold text-slate-700'}>
           {number}
         </span>
         <span className="min-w-40 flex-1 font-semibold text-slate-900">{title}</span>
         <span className="text-xs text-slate-600">{status}</span>
-        <span aria-hidden="true" className="text-slate-500 group-open:rotate-180">⌄</span>
-      </summary>
-      <div className="space-y-3 border-t border-slate-100 px-4 py-3 text-sm leading-relaxed text-slate-700">
-        {children}
-      </div>
-    </details>
+        <span aria-hidden="true" className="text-slate-500">{active ? '⌃' : '⌄'}</span>
+      </button>
+      {active ? (
+        <div id={'fiscal-guide-panel-' + number} role="region"
+          aria-labelledby={'fiscal-guide-tab-' + number}
+          className="space-y-3 border-t border-slate-100 px-4 py-3 text-sm leading-relaxed text-slate-700">
+          {children}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -79,8 +115,9 @@ function JumpButton({ onClick, children }: { onClick: () => void; children: stri
 // This guide is informational: it does not write credentials, infer fiscal
 // regimes, persist manual checkmarks or claim government authorization.
 export default function FiscalSetupGuide({
-  readiness, onOpenIssuer, onOpenCertificate, onOpenReadiness,
+  readiness, issuer, config, onOpenIssuer, onOpenCertificate, onOpenReadiness,
 }: Props) {
+  const [activeStep, setActiveStep] = useState(1)
   const reasons = readiness?.blocking_reasons ?? []
   const issuerFilled = Boolean(
     readiness?.issuer_identity_configured &&
@@ -96,9 +133,31 @@ export default function FiscalSetupGuide({
   const referenceFilled = Boolean(readiness?.certificate_reference_configured)
   const configFilled = Boolean(readiness?.config_exists &&
     readiness.environment === 'homologation')
+  // Values are read-only reflections of the authenticated tenant's existing
+  // issuer/config endpoints. Never fetch tax status, infer a CRT, or send a secret.
+  const savedIssuerFields = [
+    { label: 'Razão social', value: issuer?.legal_name },
+    { label: 'CNPJ', value: issuer?.cnpj },
+    { label: 'Inscrição estadual', value: issuer?.ie },
+    { label: 'Regime (CRT)', value: issuer?.crt ? 'CRT ' + issuer.crt : '' },
+    { label: 'Endereço', value: issuer
+      ? [issuer.address_street, issuer.address_number, issuer.address_city, issuer.address_state]
+        .filter(Boolean).join(', ')
+      : '' },
+    { label: 'CEP', value: issuer?.address_zip },
+    { label: 'Código IBGE', value: issuer?.address_city_code },
+  ]
+
+  function goToStep(step: number) {
+    if (step < 1 || step > 6) return
+    setActiveStep(step)
+    document.getElementById('fiscal-setup-guide')?.scrollIntoView({
+      behavior: 'smooth', block: 'start',
+    })
+  }
 
   return (
-    <section aria-label="Guia de configuração fiscal MG"
+    <section id="fiscal-setup-guide" aria-label="Guia de configuração fiscal MG"
       className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
       <details open>
         <summary className="cursor-pointer text-base font-bold text-slate-900">
@@ -113,9 +172,46 @@ export default function FiscalSetupGuide({
           A transmissão permanece desativada. Não digite senha do SIARE, senha do
           certificado, token CSC ou chave privada nesta tela.
         </p>
-        <div className="mt-4 space-y-2">
+        <div className="mt-4 space-y-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-3" role="status"
+            aria-live="polite" aria-atomic="true">
+            <p className="text-sm font-semibold text-slate-900">Etapa {activeStep} de 6</p>
+            <p className="text-xs text-slate-600">
+              Indicador de navegação, não de aprovação fiscal. Pode voltar e avançar sem
+              confirmar dados ou acessar portais externos.
+            </p>
+            <div aria-hidden="true" className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-slate-700 transition-all"
+                style={{ width: (activeStep / 6 * 100) + '%' }} />
+            </div>
+          </div>
           <GuideStep number={1} title="Confirmar os dados e o regime da empresa"
+            active={activeStep === 1} onSelect={goToStep}
             status={issuerFilled ? 'Campos básicos registrados; conferir' : 'Dados da loja por preencher/conferir'}>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="font-semibold text-slate-900">
+                Dados já cadastrados nesta loja (preenchimento automático)
+              </p>
+              <p className="mb-2 text-xs text-slate-600">
+                Os dados são carregados do cadastro do próprio PDV e já aparecem no formulário
+                de edição. Confira no documento oficial; não são consultas à Receita ou à SEF/MG.
+              </p>
+              <dl className="grid gap-2 sm:grid-cols-2">
+                {savedIssuerFields.map((field) => (
+                  <div key={field.label} className="min-w-0">
+                    <dt className="text-xs font-semibold text-slate-600">{field.label}</dt>
+                    <dd className="break-words text-sm text-slate-900">
+                      {field.value?.trim() || 'Não registrado no PDV'}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              {!issuer ? (
+                <p className="mt-2 text-xs text-amber-800">
+                  Não foi possível mostrar os dados da loja. Confira o carregamento da página.
+                </p>
+              ) : null}
+            </div>
             <p><strong>Separe:</strong> CNPJ, razão social, inscrição estadual (IE),
               endereço completo, CEP, município e código IBGE de sete dígitos, além do
               regime tributário/CRT confirmado pelo contador.</p>
@@ -132,6 +228,7 @@ export default function FiscalSetupGuide({
           </GuideStep>
 
           <GuideStep number={2} title="Conferir credenciamento da NFC-e na SEF/MG"
+            active={activeStep === 2} onSelect={goToStep}
             status="Confirmação externa obrigatória">
             <p><strong>Acesso necessário:</strong> SIARE da SEF/MG. Na opção de login,
               selecione o tipo de usuário adequado (por exemplo, Inscrição Estadual),
@@ -152,7 +249,13 @@ export default function FiscalSetupGuide({
           </GuideStep>
 
           <GuideStep number={3} title="Providenciar certificado digital e conferir CSC"
+            active={activeStep === 3} onSelect={goToStep}
             status={referenceFilled ? 'Referência A1 cadastrada; não validada' : 'Certificado ainda não vinculado'}>
+            <p className="rounded-md bg-slate-50 p-2 text-xs">
+              No PDV: {referenceFilled
+                ? 'há uma referência de certificado vinculada; validade e titular não verificados.'
+                : 'a referência do certificado ainda não foi cadastrada.'}
+            </p>
             <p><strong>Certificado:</strong> peça ao responsável da empresa ou contador
               um certificado ICP-Brasil válido que contenha o CNPJ do emitente.
               Para a integração automática atual, um técnico precisa instalar o A1
@@ -175,7 +278,16 @@ export default function FiscalSetupGuide({
           </GuideStep>
 
           <GuideStep number={4} title="Revisar produtos, impostos e formas de pagamento"
+            active={activeStep === 4} onSelect={goToStep}
             status={productsFilled ? 'Cadastro básico presente; revisar tributos' : 'Conferir produtos e tributação'}>
+            <p className="rounded-md bg-slate-50 p-2 text-xs">
+              Estoque no PDV: {readiness
+                ? readiness.active_products + ' produtos ativos; ' +
+                  readiness.products_missing_ncm + ' sem NCM; ' +
+                  (readiness.products_missing_fiscal_profile ?? 'desconhecido') +
+                  ' sem perfil fiscal. Isso não atesta classificação tributária.'
+                : 'dados ainda não carregados.'}
+            </p>
             <p>Peça ao contador a classificação das operações e produtos:
               NCM, CEST quando aplicável, CFOP, ICMS (CST ou CSOSN conforme CRT),
               PIS/Cofins e campos IBS/CBS vigentes. Verifique também cartão,
@@ -187,7 +299,15 @@ export default function FiscalSetupGuide({
           </GuideStep>
 
           <GuideStep number={5} title="Preparar homologação e numeração fiscal"
+            active={activeStep === 5} onSelect={goToStep}
             status={configFilled ? 'Ambiente de testes configurado; validar' : 'Preparar ambiente de testes'}>
+            <p className="rounded-md bg-slate-50 p-2 text-xs">
+              Configuração salva no PDV: {config
+                ? (config.environment === 'homologation' ? 'homologação' :
+                  config.environment === 'production' ? 'produção' : 'ambiente desconhecido') +
+                  '; série ' + config.series + '. Apenas registrada, não homologada.'
+                : 'não cadastrada.'}
+            </p>
             <p>Na seção de certificado, selecione <strong>Homologação</strong> e confirme
               série e numeração com o contador. Antes da primeira emissão real,
               investigue se a loja já emite NFC-e em outro sistema para não
@@ -203,6 +323,7 @@ export default function FiscalSetupGuide({
           </GuideStep>
 
           <GuideStep number={6} title="Validar autorização e só então iniciar operação"
+            active={activeStep === 6} onSelect={goToStep}
             status="Homologação real ainda pendente">
             <p>Com credenciamento e dados reais confirmados, a equipe técnica precisa
               testar assinatura, transmissão, consulta de resultado, rejeições, recuperação
@@ -214,6 +335,24 @@ export default function FiscalSetupGuide({
               segue um fluxo próprio, ainda não liberado neste sistema.</p>
             <OfficialLink href={officialLinks.consulta}>Consultas oficiais NFC-e MG</OfficialLink>
           </GuideStep>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
+            <button type="button" onClick={() => goToStep(activeStep - 1)}
+              disabled={activeStep === 1}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium disabled:opacity-40">
+              Voltar etapa
+            </button>
+            {activeStep < 6 ? (
+              <button type="button" onClick={() => goToStep(activeStep + 1)}
+                className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+                Próxima etapa
+              </button>
+            ) : (
+              <button type="button" onClick={() => goToStep(1)}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium">
+                Revisar desde o início
+              </button>
+            )}
+          </div>
         </div>
         <p className="mt-4 text-xs text-slate-600">
           Guia orientativo baseado nos canais oficiais da SEF/MG, Receita Federal e IBGE.
