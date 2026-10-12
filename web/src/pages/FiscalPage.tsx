@@ -51,7 +51,7 @@ type FiscalPreflightAuditEvent = {
 
 const fiscalPreflightLabel: Record<string, string> = {
   inputs_present_unverified: 'Dados básicos presentes; validação tributária oficial ainda pendente',
-  issuer_incomplete: 'Conferir CNPJ, inscrição estadual ou endereço do emitente',
+  issuer_incomplete: 'Conferir CNPJ, inscrição estadual, regime (CRT), endereço, UF e município do emitente',
   product_classification_missing: 'Completar NCM e perfil fiscal dos produtos vendidos',
   payment_review_required: 'Forma de pagamento ainda requer suporte fiscal',
   internal_error: 'Falha temporária ao verificar os dados; nova tentativa programada',
