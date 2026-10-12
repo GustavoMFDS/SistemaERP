@@ -156,7 +156,23 @@ func (h *SaleFiscalHandler) PrintDANFE(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusConflict, "conflict", "DANFE indisponivel: NFC-e ainda nao autorizada", nil)
 		return
 	}
-	name, data, err := h.fiscal.RenderNFCeDANFE(r.Context(), au.TenantID, *state.InvoiceID)
+	// Derive the saved paper width from the register that originally made
+	// the sale. Never trust an arbitrary paper-width URL parameter.
+	var paperWidthMM int
+	err = h.db.QueryRow(r.Context(), `
+		SELECT cr.danfe_paper_width_mm
+		FROM sales s
+		JOIN cash_sessions cs ON cs.tenant_id=s.tenant_id
+		  AND cs.id=s.cash_session_id
+		JOIN cash_registers cr ON cr.tenant_id=cs.tenant_id
+		  AND cr.id=cs.cash_register_id
+		WHERE s.tenant_id=$1 AND s.id=$2
+	`, au.TenantID, id).Scan(&paperWidthMM)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "largura de bobina do caixa indisponivel", nil)
+		return
+	}
+	name, data, err := h.fiscal.RenderNFCeDANFE(r.Context(), au.TenantID, *state.InvoiceID, paperWidthMM)
 	if err != nil {
 		writeError(w, r, http.StatusConflict, "conflict", "NFC-e nao esta pronta para impressao", nil)
 		return
