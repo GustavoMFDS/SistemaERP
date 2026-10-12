@@ -27,8 +27,19 @@ func New(pool *pgxpool.Pool, auditService *audit.Service) *Service {
 	return &Service{pool: pool, audit: auditService}
 }
 
+// Only bounded organizational tasks may be acknowledged. In particular,
+// official SEFAZ credential, homologation or authorization is never a step.
 func ValidStep(step string) bool {
-	return step == "stock" || step == "team"
+	switch step {
+	case "stock", "team",
+		"fiscal_docs_collected",
+		"fiscal_siare_access_arranged",
+		"fiscal_accountant_consulted",
+		"fiscal_previous_series_checked":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) List(ctx context.Context, tenantID string) ([]Review, error) {
