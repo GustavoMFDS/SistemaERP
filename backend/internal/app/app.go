@@ -114,6 +114,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	// Explicit opt-in for homologation only. No certificate, schema bundle
 	// or deployment enablement means no worker and zero SEFAZ traffic.
 	if cfg.NFCeAutoHomologationEnabled {
+		if !mods.Fiscal.NFCeHomologationAutomationReady() {
+			pool.Close()
+			if rdb != nil { _ = rdb.Close() }
+			_ = telemetryShutdown(ctx)
+			return nil, errors.New("NFC-e auto homologation requires working signing, XSD, SEFAZ and processed XML adapters")
+		}
 		fiscapp.StartAutomaticNFCeHomologation(ctx, pool, mods.Fiscal, logger)
 		fiscapp.StartAutomaticNFCeConsultation(ctx, pool, mods.Fiscal, logger)
 	}
