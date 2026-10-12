@@ -220,6 +220,8 @@ export default function PDVPage() {
   const [printDecisionOpen, setPrintDecisionOpen] = useState(false)
   const [printerWidthMM, setPrinterWidthMM] = useState<58 | 80>(80)
   const [printerSaving, setPrinterSaving] = useState(false)
+  const [printerLoading, setPrinterLoading] = useState(!!getCashSessionId())
+  const [printerReloadSeq, setPrinterReloadSeq] = useState(0)
   const [printerError, setPrinterError] = useState('')
   const fiscalSaleRef = useRef('')
   const [finalizing, setFinalizing] = useState(false)
@@ -861,24 +863,29 @@ export default function PDVPage() {
     if (!cashSessionId || !online) return
     let cancelled = false
     const scope = getSessionScope()
+    setPrinterLoading(true)
     setPrinterError('')
     void apiJson<{ paper_width_mm: number }>(
       '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer',
     ).then((settings) => {
-      if (!cancelled && scope === getSessionScope() &&
-          (settings.paper_width_mm === 58 || settings.paper_width_mm === 80)) {
-        setPrinterWidthMM(settings.paper_width_mm)
+      if (cancelled || scope !== getSessionScope()) return
+      if (settings.paper_width_mm !== 58 && settings.paper_width_mm !== 80) {
+        setPrinterError('O servidor retornou uma bobina inválida. Confira a configuração.')
+        return
       }
+      setPrinterWidthMM(settings.paper_width_mm)
     }).catch(() => {
       if (!cancelled && scope === getSessionScope()) {
         setPrinterError('Não foi possível carregar a bobina configurada neste caixa.')
       }
+    }).finally(() => {
+      if (!cancelled && scope === getSessionScope()) setPrinterLoading(false)
     })
     return () => { cancelled = true }
-  }, [cashSessionId, online])
+  }, [cashSessionId, online, printerReloadSeq])
 
   async function setPrinterPaperWidth(width: 58 | 80) {
-    if (!cashSessionId || printerSaving || !online) return
+    if (!cashSessionId || printerSaving || printerLoading || !online) return
     const previousWidth = printerWidthMM
     setPrinterSaving(true)
     setPrinterError('')
@@ -900,7 +907,7 @@ export default function PDVPage() {
   }
 
   async function printFiscalDANFE(previewOnly = false) {
-    if (!fiscalStatus?.printable || printerSaving || printerError || fiscalStatus.sale_id !== fiscalSaleRef.current) return
+    if (!fiscalStatus?.printable || printerSaving || printerLoading || printerError || fiscalStatus.sale_id !== fiscalSaleRef.current) return
     try {
       await apiOpenPrintable(
         '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-danfe',
@@ -1488,7 +1495,7 @@ export default function PDVPage() {
                     aria-label="Largura da bobina do DANFE"
                     className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
                     value={printerWidthMM}
-                    disabled={!cashSessionId || !online || printerSaving}
+                    disabled={!cashSessionId || !online || printerSaving || printerLoading}
                     onChange={(event) => {
                       const width = Number(event.target.value)
                       if (width === 58 || width === 80) void setPrinterPaperWidth(width)
@@ -1500,19 +1507,29 @@ export default function PDVPage() {
                 </label>
                 <span className="text-xs text-slate-600">Use o mesmo tamanho no driver da impressora.</span>
               </div>
+              {printerLoading ? <p role="status" className="mt-2 text-xs text-slate-600">Carregando bobina do caixa…</p> : null}
               {printerSaving ? <p role="status" className="mt-2 text-xs text-slate-600">Salvando largura da bobina…</p> : null}
-              {printerError ? <p role="alert" className="mt-2 text-xs text-red-700">{printerError}</p> : null}
+              {printerError ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <p role="alert" className="text-xs text-red-700">{printerError}</p>
+                  <button type="button" className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs"
+                    onClick={() => setPrinterReloadSeq((value) => value + 1)}
+                    disabled={!online || printerLoading || printerSaving}>
+                    Tentar carregar bobina novamente
+                  </button>
+                </div>
+              ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => setPrintDecisionOpen(false)}
                   className="rounded-md border border-slate-400 bg-white px-3 py-2">
                   Não imprimir
                 </button>
-                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || !!printerError}
+                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || printerLoading || !!printerError}
                   onClick={() => void printFiscalDANFE(true)}
                   className="rounded-md border border-slate-500 bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50">
                   Pré-visualizar DANFE
                 </button>
-                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || !!printerError}
+                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || printerLoading || !!printerError}
                   onClick={() => void printFiscalDANFE()}
                   className="rounded-md bg-slate-900 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50">
                   Sim, abrir para imprimir
