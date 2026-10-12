@@ -322,6 +322,14 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if remote.consultCalls!=0 || remote.authorizeCalls!=0 {
 		t.Fatal("wrong owner triggered a network adapter")
 	}
+	// A worker lease does not authorize access as a user from another tenant.
+	if _, err := svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,uuid.NewString(),claim);
+		!errors.Is(err,fiscal.ErrNFCeConsultLeaseLost) {
+		t.Fatalf("operator outside tenant must be rejected: %v",err)
+	}
+	if remote.consultCalls!=0 || remote.authorizeCalls!=0 {
+		t.Fatal("unrelated operator triggered SEFAZ consultation")
+	}
 	pending, err := svc.ExecuteNFCeConsultationClaim(ctx,pool,ownerB,actor,claim)
 	if err!=nil || !pending.Pending() || remote.consultCalls!=1 ||
 		remote.authorizeCalls!=0 {
