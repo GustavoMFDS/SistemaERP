@@ -5,7 +5,6 @@ package integration_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -195,5 +194,4 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 			t.Fatalf("tenant %s recovery isolation: %d %v", tenant, count, err)
 		}
 	}
-	_ = fmt.Sprint(invoiceA) // assure fixture is used in all checks
 }
