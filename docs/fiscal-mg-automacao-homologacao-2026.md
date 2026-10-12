@@ -128,3 +128,50 @@ declarar essa etapa como concluída só porque a aplicação compila.
 
 Não executar GitHub Actions para essa validação; usar banco descartável,
 testes Go e navegador local.
+
+
+## PDV funcional sem Redis e sem credenciais fiscais (modo desenvolvimento)
+
+O projeto inclui um modo de demonstração para validar **operações reais do PDV**
+com uma base PostgreSQL separada e dados fictícios, antes de qualquer homologação
+fiscal. O checkout web continua no navegador.
+
+Em `APP_ENV=dev` com `DISABLE_REDIS=true`, a API usa o
+`MemoryRefreshTokenStore` local, com token JTI de uso único,
+expiração e revogação; por não compartilhar estado entre processos, essas
+sessões são perdidas no reinício da API. **Esse mecanismo é estritamente
+para desenvolvimento/demonstração**: `staging` e `prod` continuam
+exigindo Redis e configurações seguras. A demonstração precisa de um banco
+PostgreSQL de teste migrado e, opcionalmente, do seed `backend/seed/seed.sql`
+(protegido pela variável `ALLOW_DEMO_SEED=1`; nunca usar em produção).
+
+O frontend usa `VITE_API_BASE_URL` (por padrão `http://localhost:8080`)
+e a API precisa permitir a origem efetiva do navegador via
+`CORS_ALLOWED_ORIGINS`. Para uso conjunto, iniciar a API e o Vite após
+configurar um banco local/teste; são processos independentes.
+Nenhum certificado é exigido para vender e registrar a **obrigação fiscal**
+pendente no ambiente de demonstração.
+
+### Validações realizadas sem dados reais
+
+- Migração 0047 e as **47 migrações up** em PostgreSQL 16 descartável: passaram.
+- `TestAutomaticNFCeHomologationPlansOnlyNewConfiguredSales`: passou;
+  fila idempotente para vendas novas e nenhuma nota fabricada.
+- `TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ`: passou;
+  venda -> reserva -> cálculo legado configurado -> assinatura simulada ->
+  resposta 103 inconclusiva -> consulta 100 simulada -> `nfeProc` fictício,
+  protocolo e auditoria. Apenas **uma** chamada de envio.
+- `go test ./...`, `go vet ./...`, `npm run build` e
+  `npm run lint`: passaram; lint com 0 erros e 12 avisos anteriores.
+- Playwright Chromium, com respostas fiscais simuladas: a escolha de
+  não imprimir e a autorização posterior por atualização de status
+  passaram, sem nova venda ou impressão automática.
+- Playwright Chromium **com API real e banco descartável**:
+  `e2e/pdv-operations.spec.ts` passou: login, cadastro de produtos,
+  permissões, estoque, abertura/reutilização de caixa, pesquisa,
+  carrinhos, desconto, pagamento e venda. Nesse teste a comunicação
+  fiscal permaneceu pendente e não houve conexão com a SEF/MG.
+
+Esses resultados comprovam execução do software em ambiente de teste e
+simulação, **não homologação ou conformidade fiscal de produção**. A
+automação por padrão permanece desabilitada até configuração completa.
