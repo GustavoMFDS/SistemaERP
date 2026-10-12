@@ -132,6 +132,15 @@ func (s *FiscalService) SetNFCeProcessedDocumentBuilder(builder NFCeProcessedDoc
 	s.nfceProcessed = builder
 }
 
+// NFCeHomologationAutomationReady checks that all required adapters were
+// installed successfully. This is NOT a certificate/cadastral authorization;
+// those are resolved for each tenant and tested again before each operation.
+func (s *FiscalService) NFCeHomologationAutomationReady() bool {
+	return s != nil && s.nfceDoc != nil && s.nfceSigner != nil &&
+		s.nfceValidator != nil && s.nfceAuthorizer != nil &&
+		s.nfceProcessed != nil && s.uow != nil && s.audit != nil
+}
+
 func (s *FiscalService) SetNFCeRemoteAuthorizer(authorizer NFCeRemoteAuthorizer) {
 	s.nfceAuthorizer = authorizer
 }
