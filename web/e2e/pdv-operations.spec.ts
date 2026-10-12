@@ -146,7 +146,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
 
   await page.locator('select').filter({ has: page.locator(`option[value="${setup.productId}"]`) }).selectOption(setup.productId)
   await page.getByLabel('Qtd').fill('1')
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   const qtyInput = page.getByLabel(/Quantidade de E2E-PDV-/)
   await expect(qtyInput).toHaveValue('1')
