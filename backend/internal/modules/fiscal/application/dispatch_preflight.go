@@ -174,24 +174,28 @@ func InspectFiscalPreflight(ctx context.Context, pool *pgxpool.Pool, claim Fisca
 }
 
 func inspectFiscalPreflight(ctx context.Context, reader preparationReader, claim FiscalPreflightClaim) (string, error) {
-	var cnpj, ie, crt, street, number, city, cityCode, uf, zip string
+	var profile fisc.NFCeIssuerProfile
 	err := reader.QueryRow(ctx, `
-  SELECT c.cnpj,COALESCE(c.ie,''),COALESCE(c.crt,''),
+  SELECT c.legal_name,c.cnpj,COALESCE(c.ie,''),COALESCE(c.crt,''),
     COALESCE(c.address_street,''),COALESCE(c.address_number,''),
-    COALESCE(c.address_city,''),COALESCE(c.address_city_code,''),
-    COALESCE(c.address_state,''),COALESCE(c.address_zip,'')
+    COALESCE(c.address_neighborhood,''),COALESCE(c.address_city,''),
+    COALESCE(c.address_city_code,''),COALESCE(c.address_state,''),
+    COALESCE(c.address_zip,'')
   FROM companies c
   JOIN sales s ON s.tenant_id=c.id AND s.id=$2
   WHERE c.id=$1 AND s.status='finalized'
- `, claim.TenantID, claim.SaleID).Scan(&cnpj, &ie, &crt, &street, &number, &city, &cityCode, &uf, &zip)
+ `, claim.TenantID, claim.SaleID).Scan(
+		&profile.LegalName, &profile.CNPJ, &profile.IE, &profile.CRT,
+		&profile.AddressStreet, &profile.AddressNumber,
+		&profile.AddressNeighborhood, &profile.AddressCity,
+		&profile.AddressCityCode, &profile.AddressState, &profile.AddressZIP,
+	)
 	if err != nil {
 		return PreflightInternalError, err
 	}
-	if fisc.ValidateCNPJ(cnpj) != nil ||
-		len(strings.TrimSpace(ie)) == 0 || !fisc.ValidNFCeCRT(crt) ||
-		len(strings.TrimSpace(street)) == 0 || len(strings.TrimSpace(number)) == 0 ||
-		len(strings.TrimSpace(city)) == 0 || fisc.NFCeMGJurisdictionBlocker(uf, cityCode) != "" ||
-		len(zip) != 8 || strings.Trim(zip, "0123456789") != "" {
+	// Share the structural checks with readiness/production gates. A local
+	// inspection must never downgrade a missing issuer field to "unverified".
+	if len(fisc.NFCeMGIssuerLocalBlockers(profile)) != 0 {
 		return PreflightIssuerIncomplete, nil
 	}
 	var totalItems, badProducts, totalPayments, badPayments int
