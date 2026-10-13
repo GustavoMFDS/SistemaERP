@@ -3,6 +3,9 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"fmt"
+
+	"github.com/example/sistemaemgo/internal/modules/fiscal/providers/sefaz"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/audit"
@@ -115,4 +118,49 @@ func (h *SaleFiscalHandler) SetCashPrinter(w http.ResponseWriter, r *http.Reques
 		"cash_register_id": registerID,
 		"paper_width_mm":   req.PaperWidthMM,
 	})
+}
+
+// GetCashPrinterCalibration renders a test coupon WITHOUT any invoice, sale,
+// customer data, tax key, signature or SEFAZ access. It is always non-fiscal.
+// The paper width comes from the currently open tenant-owned register.
+func (h *SaleFiscalHandler) GetCashPrinterCalibration(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	sessionID := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(sessionID); err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "ID da sessao invalido", nil)
+		return
+	}
+	var width int
+	err := h.db.QueryRow(r.Context(), `
+		SELECT cr.danfe_paper_width_mm
+		FROM cash_sessions cs
+		JOIN cash_registers cr ON cr.id=cs.cash_register_id
+		  AND cr.tenant_id=cs.tenant_id
+		WHERE cs.tenant_id=$1 AND cs.id=$2 AND cs.status='open'
+	`, au.TenantID, sessionID).Scan(&width)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "not_found", "caixa nao aberto nesta loja", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao buscar a bobina do caixa", nil)
+		return
+	}
+	html, err := sefaz.RenderPrinterCalibration(width)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "bobina invalida para teste de impressao", nil)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"teste-impressora-%dmm.html\"", width))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(html)
 }
