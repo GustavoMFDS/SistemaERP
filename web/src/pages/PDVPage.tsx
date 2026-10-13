@@ -906,6 +906,19 @@ export default function PDVPage() {
     }
   }
 
+  async function printPrinterCalibration(previewOnly = false) {
+    if (!cashSessionId || !online || printerSaving || printerLoading || printerError) return
+    try {
+      // A non-fiscal test coupon only: no sale, note, certificate or SEFAZ.
+      await apiOpenPrintable(
+        '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer/test',
+        !previewOnly,
+      )
+    } catch (error: unknown) {
+      setPrinterError('Não foi possível abrir o teste da impressora: ' + errorMessage(error))
+    }
+  }
+
   async function printFiscalDANFE(previewOnly = false) {
     if (!fiscalStatus?.printable || printerSaving || printerLoading || printerError || fiscalStatus.sale_id !== fiscalSaleRef.current) return
     try {
@@ -1076,6 +1089,55 @@ export default function PDVPage() {
         </div>
         {cashSessionId ? (
           <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h4 className="text-sm font-semibold text-slate-900">Impressora térmica do caixa</h4>
+              <p className="mt-1 text-xs text-slate-600">
+                Configure e teste a impressora antes da primeira venda. O cupom de teste não registra venda nem emite NFC-e.
+              </p>
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <label className="text-xs font-semibold text-slate-900">
+                  Bobina deste caixa
+                  <select
+                    aria-label="Largura da bobina do DANFE"
+                    className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    value={printerWidthMM}
+                    disabled={!cashSessionId || !online || printerSaving || printerLoading}
+                    onChange={(event) => {
+                      const width = Number(event.target.value)
+                      if (width === 58 || width === 80) void setPrinterPaperWidth(width)
+                    }}
+                  >
+                    <option value={58}>58 mm</option>
+                    <option value={80}>80 mm</option>
+                  </select>
+                </label>
+                <span className="text-xs text-slate-600">Use o mesmo tamanho no driver da impressora.</span>
+              </div>
+              {printerLoading ? <p role="status" className="mt-2 text-xs text-slate-600">Carregando bobina do caixa…</p> : null}
+              {printerSaving ? <p role="status" className="mt-2 text-xs text-slate-600">Salvando largura da bobina…</p> : null}
+              {printerError ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <p role="alert" className="text-xs text-red-700">{printerError}</p>
+                  <button type="button" className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs"
+                    onClick={() => setPrinterReloadSeq((value) => value + 1)}
+                    disabled={!online || printerLoading || printerSaving}>
+                    Tentar carregar bobina novamente
+                  </button>
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" disabled={!online || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printPrinterCalibration(true)}
+                  className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm disabled:opacity-50">
+                  Pré-visualizar teste
+                </button>
+                <button type="button" disabled={!online || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printPrinterCalibration()}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+                  Imprimir cupom de teste
+                </button>
+              </div>
+            </div>
             <details className="rounded-xl bg-slate-50 p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-700">Movimentar dinheiro (entrada ou retirada)</summary>
               <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -1488,37 +1550,6 @@ export default function PDVPage() {
                 Escolher não imprimir não cancela a venda nem a obrigação fiscal.
                 Sem autorização da SEFAZ, nenhum documento fiscal será apresentado como emitido.
               </p>
-              <div className="mt-3 flex flex-wrap items-end gap-3">
-                <label className="text-xs font-semibold text-slate-900">
-                  Bobina deste caixa
-                  <select
-                    aria-label="Largura da bobina do DANFE"
-                    className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                    value={printerWidthMM}
-                    disabled={!cashSessionId || !online || printerSaving || printerLoading}
-                    onChange={(event) => {
-                      const width = Number(event.target.value)
-                      if (width === 58 || width === 80) void setPrinterPaperWidth(width)
-                    }}
-                  >
-                    <option value={58}>58 mm</option>
-                    <option value={80}>80 mm</option>
-                  </select>
-                </label>
-                <span className="text-xs text-slate-600">Use o mesmo tamanho no driver da impressora.</span>
-              </div>
-              {printerLoading ? <p role="status" className="mt-2 text-xs text-slate-600">Carregando bobina do caixa…</p> : null}
-              {printerSaving ? <p role="status" className="mt-2 text-xs text-slate-600">Salvando largura da bobina…</p> : null}
-              {printerError ? (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <p role="alert" className="text-xs text-red-700">{printerError}</p>
-                  <button type="button" className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs"
-                    onClick={() => setPrinterReloadSeq((value) => value + 1)}
-                    disabled={!online || printerLoading || printerSaving}>
-                    Tentar carregar bobina novamente
-                  </button>
-                </div>
-              ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => setPrintDecisionOpen(false)}
                   className="rounded-md border border-slate-400 bg-white px-3 py-2">
