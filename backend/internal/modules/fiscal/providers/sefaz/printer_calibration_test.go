@@ -3,8 +3,11 @@ package sefaz
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	htmlstd "html"
 	"image/png"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +22,13 @@ func TestRenderPrinterCalibrationIsNonFiscalAndSized(t *testing.T) {
 				t.Fatal(err)
 			}
 			html := string(rendered)
+			if dir := os.Getenv("PRINTER_CALIBRATION_BROWSER_DIR"); dir != "" {
+				if err := os.MkdirAll(dir, 0o755); err != nil { t.Fatal(err) }
+				if err := os.WriteFile(filepath.Join(dir,
+					fmt.Sprintf("printer-test-%d.html", width)), rendered, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			for _, text := range []string{
 				"TESTE DE IMPRESSÃO", "NÃO É DOCUMENTO FISCAL",
 				"TESTE — SEM VENDA — SEM NFC-e",
