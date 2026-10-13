@@ -128,3 +128,47 @@ persistência no GET, origem maliciosa (403), largura inválida (422),
 tentativa de acesso a caixa de outro CNPJ (404), auditoria exatamente
 uma vez e recusa de alteração após encerramento da sessão (404).
 Isso não depende de uma impressora física nem consulta a SEF/MG.
+
+
+## Calibração da impressora sem dados fiscais
+
+Agora o **caixa aberto** tem uma seção **Impressora térmica do caixa**,
+acessível **antes de iniciar uma venda**. O operador escolhe bobina de
+58/80 mm e pode usar **Pré-visualizar teste** ou **Imprimir cupom de teste**.
+O navegador usa o driver e abre o diálogo normal de impressão; não
+envia comandos ESC/POS diretamente nem imprime silenciosamente.
+
+O cupom é renderizado no backend no mesmo tamanho cadastrado para aquele
+caixa, no endpoint autenticado
+`GET /api/v1/cash/sessions/{id}/printer/test`. Há conferência de
+sessão aberta, tenant/CNPJ e permissão `cash:open`, com cabeçalhos
+`no-store`, `nosniff` e política CSP restritiva. Caixa fechado e
+outra empresa não têm acesso ao teste. O conteúdo é **inteiramente
+não fiscal**: mensagens grandes de **NÃO É DOCUMENTO FISCAL**,
+texto longo e acentuado, valores de alinhamento, uma régua visual
+de **40 mm** e QR Code PNG de **32 × 32 mm** contendo apenas a frase
+`TESTE DE IMPRESSORA - NAO E DOCUMENTO FISCAL`.
+
+**Não** há nota, XML, assinatura, protocolo, chave de acesso, dados
+de consumidor, chamada à SEF/MG ou obrigação tributária criada.
+A impressão de calibração não é uma venda e não deve ser entregue
+como comprovante de pagamento.
+
+**Como conferir:** escolha a largura da bobina, pré-visualize, clique
+em **Imprimir cupom de teste**, escolha a impressora térmica no diálogo
+do navegador e configure o papel do driver no mesmo tamanho. Meça
+a régua impressa (deve aproximar 40 mm) e escaneie o QR Code com
+um celular (deve exibir a mensagem de teste). Se houver corte lateral,
+ajuste as margens e a escala do driver. Repita nos computadores/caixas
+que forem usar impressoras diferentes.
+
+**Regressões:** `TestRenderPrinterCalibrationIsNonFiscalAndSized`
+verifica os dois tamanhos, conteúdo não fiscal, PNG QR 256×256 e
+rejeição de larguras inválidas; `TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession`
+verifica autenticação, isolamento por loja, caixa aberto e ausência
+de alteração no número de notas fiscais. O teste
+`web/e2e/printer-calibration-layout.spec.ts` usa HTML do próprio
+renderer Go, mede no Chromium a largura física simulada do QR Code,
+da régua e do corpo e verifica que a impressão não extrapola 58/80 mm.
+O teste de PDV verifica que a pré-visualização funciona **antes da
+venda**, sem criação de documento fiscal.
