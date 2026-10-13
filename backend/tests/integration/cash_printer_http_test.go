@@ -97,13 +97,13 @@ func TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	call := func(method, session, body, origin, auth string) *httptest.ResponseRecorder {
+	callEndpoint := func(method, session, suffix, body, origin, auth string) *httptest.ResponseRecorder {
 		t.Helper()
 		var data io.Reader
 		if body != "" {
 			data = bytes.NewBufferString(body)
 		}
-		req := httptest.NewRequest(method, "/api/v1/cash/sessions/"+session+"/printer", data)
+		req := httptest.NewRequest(method, "/api/v1/cash/sessions/"+session+"/printer"+suffix, data)
 		req.Header.Set("Origin", origin)
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
@@ -115,9 +115,18 @@ func TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession(t *testing.T) {
 		api.ServeHTTP(w, req)
 		return w
 	}
+	call := func(method, session, body, origin, auth string) *httptest.ResponseRecorder {
+		return callEndpoint(method, session, "", body, origin, auth)
+	}
+	testReceipt := func(session, auth string) *httptest.ResponseRecorder {
+		return callEndpoint(http.MethodGet, session, "/test", "", "http://127.0.0.1:5189", auth)
+	}
 	goodOrigin := "http://127.0.0.1:5189"
 	if got := call(http.MethodGet, sessionA, "", goodOrigin, "").Code; got != 401 {
 		t.Fatalf("unauthenticated printer read=%d, want 401", got)
+	}
+	if got := testReceipt(sessionA, "").Code; got != 401 {
+		t.Fatalf("unauthenticated test printing=%d, want 401", got)
 	}
 	rr := call(http.MethodGet, sessionA, "", goodOrigin, token)
 	if rr.Code != 200 {
@@ -144,6 +153,9 @@ func TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession(t *testing.T) {
 	if rr := call(http.MethodGet, sessionB, "", goodOrigin, token); rr.Code != 404 {
 		t.Fatalf("cross-company printer read leaked: %d", rr.Code)
 	}
+	if rr := testReceipt(sessionB, token); rr.Code != 404 {
+		t.Fatalf("cross-company test coupon leaked: %d", rr.Code)
+	}
 	if rr := call(http.MethodPut, sessionA, `{"paper_width_mm":58}`,
 		goodOrigin, token); rr.Code != 200 {
 		t.Fatalf("legitimate paper change=%d body=%s", rr.Code, rr.Body.String())
@@ -155,6 +167,32 @@ func TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &after); err != nil || rr.Code != 200 || after.PaperWidthMM != 58 {
 		t.Fatalf("persisted paper preference unavailable: %d %+v %v", rr.Code, after, err)
 	}
+	// The calibration receipt is generated without any sale, invoice or
+	// tax engine invocation. It must stay clearly non-fiscal at both widths.
+	var invoicesBefore, invoicesAfter int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM invoices WHERE tenant_id=$1", tenant).
+		Scan(&invoicesBefore); err != nil { t.Fatal(err) }
+	receipt := testReceipt(sessionA, token)
+	if receipt.Code != 200 ||
+		!bytes.Contains(receipt.Body.Bytes(), []byte("TESTE DE IMPRESSÃO")) ||
+		!bytes.Contains(receipt.Body.Bytes(), []byte("NÃO É DOCUMENTO FISCAL")) ||
+		!bytes.Contains(receipt.Body.Bytes(), []byte("max-width: 58mm")) ||
+		!bytes.Contains(receipt.Body.Bytes(), []byte("data:image/png;base64,")) {
+		t.Fatalf("invalid 58mm nonfiscal test receipt: status=%d body=%s",
+			receipt.Code, receipt.Body.String())
+	}
+	for k, want := range map[string]string {
+		"Cache-Control": "private, no-store",
+		"X-Content-Type-Options": "nosniff",
+		"Content-Type": "text/html; charset=utf-8",
+	} {
+		if got := receipt.Header().Get(k); got != want {
+			t.Fatalf("calibration header %s=%q want %q", k, got, want)
+		}
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM invoices WHERE tenant_id=$1", tenant).
+		Scan(&invoicesAfter); err != nil {t.Fatal(err)}
+	if invoicesAfter != invoicesBefore {t.Fatal("printer test generated a real/fake NFC-e invoice")}
 	var widthB, audits int
 	if err := pool.QueryRow(ctx, `
 		SELECT danfe_paper_width_mm FROM cash_registers
@@ -178,5 +216,8 @@ func TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession(t *testing.T) {
 	if rr := call(http.MethodPut, sessionA, `{"paper_width_mm":80}`,
 		goodOrigin, token); rr.Code != 404 {
 		t.Fatalf("closed register settings altered: %d", rr.Code)
+	}
+	if rr := testReceipt(sessionA, token); rr.Code != 404 {
+		t.Fatalf("closed cash session printed calibration: %d", rr.Code)
 	}
 }
