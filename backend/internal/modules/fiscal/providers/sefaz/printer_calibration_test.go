@@ -15,13 +15,15 @@ func TestRenderPrinterCalibrationIsNonFiscalAndSized(t *testing.T) {
 	for _, width := range []int{58, 80} {
 		t.Run(strconv.Itoa(width)+"mm", func(t *testing.T) {
 			rendered, err := RenderPrinterCalibration(width)
-			if err != nil { t.Fatal(err) }
+			if err != nil {
+				t.Fatal(err)
+			}
 			html := string(rendered)
 			for _, text := range []string{
 				"TESTE DE IMPRESSÃO", "NÃO É DOCUMENTO FISCAL",
 				"TESTE — SEM VENDA — SEM NFC-e",
-				"receipt-test-"+strconv.Itoa(width),
-				"max-width: "+strconv.Itoa(width)+"mm",
+				"receipt-test-" + strconv.Itoa(width),
+				"max-width: " + strconv.Itoa(width) + "mm",
 				"width: 40mm;", "width: 32mm;",
 				"Teste de texto: ção, café, maçã",
 				"Descrição comprida",
@@ -47,7 +49,9 @@ func TestRenderPrinterCalibrationIsNonFiscalAndSized(t *testing.T) {
 				t.Fatal("no QR encoded as PNG data URL")
 			}
 			data, err := base64.StdEncoding.DecodeString(htmlstd.UnescapeString(encoded[1]))
-			if err != nil {t.Fatal(err)}
+			if err != nil {
+				t.Fatal(err)
+			}
 			info, err := png.DecodeConfig(bytes.NewReader(data))
 			if err != nil || info.Width != 256 || info.Height != 256 {
 				t.Fatalf("not a 256x256 generated QR PNG: %+v %v", info, err)

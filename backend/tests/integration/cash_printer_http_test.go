@@ -171,7 +171,9 @@ func TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession(t *testing.T) {
 	// tax engine invocation. It must stay clearly non-fiscal at both widths.
 	var invoicesBefore, invoicesAfter int
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM invoices WHERE tenant_id=$1", tenant).
-		Scan(&invoicesBefore); err != nil { t.Fatal(err) }
+		Scan(&invoicesBefore); err != nil {
+		t.Fatal(err)
+	}
 	receipt := testReceipt(sessionA, token)
 	if receipt.Code != 200 ||
 		!bytes.Contains(receipt.Body.Bytes(), []byte("TESTE DE IMPRESSÃO")) ||
@@ -181,18 +183,22 @@ func TestCashPrinterHTTPScopedAuthorizedAuditAndClosedSession(t *testing.T) {
 		t.Fatalf("invalid 58mm nonfiscal test receipt: status=%d body=%s",
 			receipt.Code, receipt.Body.String())
 	}
-	for k, want := range map[string]string {
-		"Cache-Control": "private, no-store",
+	for k, want := range map[string]string{
+		"Cache-Control":          "private, no-store",
 		"X-Content-Type-Options": "nosniff",
-		"Content-Type": "text/html; charset=utf-8",
+		"Content-Type":           "text/html; charset=utf-8",
 	} {
 		if got := receipt.Header().Get(k); got != want {
 			t.Fatalf("calibration header %s=%q want %q", k, got, want)
 		}
 	}
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM invoices WHERE tenant_id=$1", tenant).
-		Scan(&invoicesAfter); err != nil {t.Fatal(err)}
-	if invoicesAfter != invoicesBefore {t.Fatal("printer test generated a real/fake NFC-e invoice")}
+		Scan(&invoicesAfter); err != nil {
+		t.Fatal(err)
+	}
+	if invoicesAfter != invoicesBefore {
+		t.Fatal("printer test generated a real/fake NFC-e invoice")
+	}
 	var widthB, audits int
 	if err := pool.QueryRow(ctx, `
 		SELECT danfe_paper_width_mm FROM cash_registers

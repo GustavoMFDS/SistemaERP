@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"errors"
-	"net/http"
 	"fmt"
+	"net/http"
 
 	"github.com/example/sistemaemgo/internal/modules/fiscal/providers/sefaz"
 

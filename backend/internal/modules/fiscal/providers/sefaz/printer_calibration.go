@@ -25,11 +25,11 @@ func RenderPrinterCalibration(paperWidthMM int) ([]byte, error) {
 	}
 	var result bytes.Buffer
 	err = printerCalibrationTemplate.Execute(&result, struct {
-		Width int
-		GeneratedAt string
+		Width         int
+		GeneratedAt   string
 		QRCodeDataURL template.URL
 	}{
-		Width: paperWidthMM,
+		Width:       paperWidthMM,
 		GeneratedAt: time.Now().Format("02/01/2006 15:04:05 -07:00"),
 		// The bytes are generated internally, not supplied by the client.
 		QRCodeDataURL: template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG)),
