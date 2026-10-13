@@ -15,6 +15,7 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   let sefazAuthorizedLater = false
   let printerWidthMM = 80
   let printerUpdates = 0
+  let calibrationRequests = 0
 
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
@@ -42,6 +43,14 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
         qty_on_hand: 10, active: true, option_label: '', is_base: true,
       }],
     })
+    if (url.pathname === '/api/v1/cash/sessions/' + cashID + '/printer/test') {
+      calibrationRequests += 1
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"></head><body><strong>TESTE DE IMPRESSÃO — NÃO É DOCUMENTO FISCAL</strong></body></html>',
+      })
+    }
     if (url.pathname === '/api/v1/cash/sessions/' + cashID + '/printer') {
       if (route.request().method() === 'PUT') {
         const body = route.request().postDataJSON() as { paper_width_mm: number }
@@ -88,6 +97,17 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'PDV', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos da venda' })).toBeVisible()
+  // This works before any transaction or real issuer configuration.
+  await expect(page.getByRole('button', { name: 'Pré-visualizar teste' })).toBeEnabled()
+  const nonFiscalPopup = page.waitForEvent('popup')
+  await page.getByRole('button', { name: 'Pré-visualizar teste' }).click()
+  const testPopup = await nonFiscalPopup
+  await testPopup.waitForURL(/^blob:/, { waitUntil: 'domcontentloaded' })
+  await expect(testPopup.getByText('TESTE DE IMPRESSÃO — NÃO É DOCUMENTO FISCAL')).toBeVisible()
+  expect(calibrationRequests).toBe(1)
+  expect(salePosts).toBe(0)
+  expect(danfeRequests).toBe(0)
+  await testPopup.close()
   await page.getByRole('combobox', { name: 'Produto', exact: true }).selectOption(productID)
   await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
   await page.getByRole('button', { name: 'Finalizar', exact: true }).click()
@@ -99,6 +119,7 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   await page.getByRole('combobox', { name: 'Largura da bobina do DANFE' }).selectOption('58')
   await expect.poll(() => printerUpdates).toBe(1)
   expect(printerWidthMM).toBe(58)
+  expect(calibrationRequests).toBe(1)
   await expect(page.getByText(/NFC-e ainda não autorizada/)).toBeVisible()
   expect(salePosts).toBe(1)
   expect(fiscalReads).toBeGreaterThan(0)
