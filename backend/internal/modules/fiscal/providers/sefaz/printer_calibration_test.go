@@ -3,6 +3,7 @@ package sefaz
 import (
 	"bytes"
 	"encoding/base64"
+	htmlstd "html"
 	"image/png"
 	"regexp"
 	"strconv"
@@ -41,11 +42,11 @@ func TestRenderPrinterCalibrationIsNonFiscalAndSized(t *testing.T) {
 			if strings.Contains(html, "max-width: "+strconv.Itoa(138-width)+"mm") {
 				t.Fatal("unexpected other-roll width in HTML")
 			}
-			encoded := regexp.MustCompile(`data:image/png;base64,([A-Za-z0-9+/=]+)`).FindStringSubmatch(html)
+			encoded := regexp.MustCompile(`data:image/png;base64,([^"]+)`).FindStringSubmatch(html)
 			if len(encoded) != 2 {
 				t.Fatal("no QR encoded as PNG data URL")
 			}
-			data, err := base64.StdEncoding.DecodeString(encoded[1])
+			data, err := base64.StdEncoding.DecodeString(htmlstd.UnescapeString(encoded[1]))
 			if err != nil {t.Fatal(err)}
 			info, err := png.DecodeConfig(bytes.NewReader(data))
 			if err != nil || info.Width != 256 || info.Height != 256 {
