@@ -16,16 +16,19 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
     { sale_id: sale1, created_at: '2026-10-09T12:00:00Z',
       document_kind: 'nfce', sale_status: 'finalized', status: 'pending',
       authorized: false, legacy_review: false, dispatch_state: 'awaiting_fiscal_processing',
-      preflight_result: 'issuer_incomplete' },
+      preflight_result: 'issuer_incomplete', automatic_state: 'queued' },
     { sale_id: sale2, created_at: '2026-10-09T11:00:00Z',
       document_kind: 'nfce', sale_status: 'finalized', status: 'rejected',
       authorized: false, legacy_review: false, dispatch_state: 'rejected_review',
-      preflight_result: 'payment_review_required' },
+      preflight_result: 'payment_review_required', automatic_state: 'manual_review',
+      consultation_state: 'manual_review', consultation_attempts: 10,
+      consultation_result: 'manual_review' },
   ]
   const authorized = { sale_id: sale3, created_at: '2026-10-09T10:00:00Z',
     document_kind: 'nfce', sale_status: 'finalized', status: 'authorized',
     authorized: true, legacy_review: false, invoice_id: 'dd11bc2d-415b-47b3-98d3-eec344d3be54',
-    processed_xml_available: true, dispatch_state: 'authorized' }
+    processed_xml_available: true, dispatch_state: 'authorized',
+    automatic_state: 'authorized', consultation_state: 'resolved', consultation_attempts: 2 }
 
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
@@ -153,6 +156,10 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
   await expect(section.getByRole('cell', { name: 'Autorizada', exact: true })).toHaveCount(0)
   await expect(section.getByText('Acompanhamento: Configuração registrada; emissão ainda não iniciada')).toBeVisible()
   await expect(section.getByText('Acompanhamento: Rejeição fiscal exige análise')).toBeVisible()
+  await expect(section.getByText('Emissão automática: Aguardando processamento')).toBeVisible()
+  await expect(section.getByText(/Emissão automática: REVISÃO MANUAL — não reenviar nem gerar outro número/)).toBeVisible()
+  await expect(section.getByText(/Consulta SEFAZ: REVISÃO MANUAL — resultado não confirmado/)).toBeVisible()
+  await expect(section.getByText(/10\/10 tentativas/)).toBeVisible()
   await expect(section.getByText('Verificação: Conferir CNPJ, inscrição estadual, regime (CRT), endereço, UF e município do emitente')).toBeVisible()
   await expect(section.getByText('Verificação: Forma de pagamento ainda requer suporte fiscal')).toBeVisible()
   expect(filterRequests).toContain('true')
