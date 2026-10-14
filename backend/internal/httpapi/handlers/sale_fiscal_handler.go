@@ -7,6 +7,7 @@ import (
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/audit"
+	"github.com/example/sistemaemgo/internal/modules/common"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -167,7 +168,11 @@ func (h *SaleFiscalHandler) DownloadSaleProcessedXML(w http.ResponseWriter, r *h
 	}
 	_, content, err := h.fiscal.DownloadAuthorizedNFCeProcessedXML(r.Context(), au.TenantID, *state.InvoiceID)
 	if err != nil {
-		writeError(w, r, http.StatusConflict, "conflict", "XML autorizado indisponivel ou com integridade comprometida", nil)
+		if errors.Is(err, common.ErrConflict) || errors.Is(err, common.ErrNotFound) {
+			writeError(w, r, http.StatusConflict, "conflict", "XML autorizado indisponivel ou com integridade comprometida", nil)
+		} else {
+			writeError(w, r, http.StatusInternalServerError, "internal_error", "falha ao acessar arquivo fiscal", nil)
+		}
 		return
 	}
 	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfce.nfe_proc.cashier_download",
