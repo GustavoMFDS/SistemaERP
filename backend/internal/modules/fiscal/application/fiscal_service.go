@@ -1458,6 +1458,7 @@ func (s *FiscalService) RenderNFCeDANFE(
 				  AND p.access_key=$3
 				  AND octet_length(p.processed_xml)>0
 				  AND octet_length(p.protocol_xml)>0
+				  AND p.sha256=encode(digest(p.processed_xml,'sha256'),'hex')
 			)
 		`, tenantID, invoiceID, reservation.AccessKey).Scan(&archivePresent)
 		if err != nil {
