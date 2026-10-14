@@ -456,15 +456,19 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if _, err := svc.ExecuteNFCeConsultationClaim(ctx, pool, ownerB, actor, claim); !errors.Is(err, fiscal.ErrNFCeConsultLeaseLost) {
 		t.Fatalf("replayed authorization after lease resolution must fail: %v", err)
 	}
-	// The other tenant's submitted document remains unresolved. Simulate
-	// a crash at the tenth consultation attempt, then escalate locally.
+	// A fresh third fictitious submitted invoice isolates the exhausted
+	// attempt case from the two already-finalized invoices above.
+	extraInvoice := makeSubmitted(tenantA, cnpjA, seriesStart+2)
+	if _, err := fiscal.PlanNFCeSubmittedConsultations(ctx,pool); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `
 		UPDATE nfce_consult_recovery_jobs SET
 		  attempt_count=10,state='awaiting_consultation',
 		  lease_owner=$3,lease_token=gen_random_uuid(),
 		  lease_until=now()+interval '2 minutes'
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`, tenantA, invoiceA, ownerA); err != nil {
+	`, tenantA, extraInvoice, ownerA); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := fiscal.ReconcileExhaustedNFCeConsultations(ctx, pool); err != nil || n != 0 {
@@ -473,7 +477,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		UPDATE nfce_consult_recovery_jobs SET lease_until=now()-interval '1 second'
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`, tenantA, invoiceA); err != nil {
+	`, tenantA, extraInvoice); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := fiscal.ReconcileExhaustedNFCeConsultations(ctx, pool); err != nil || n != 1 {
@@ -484,7 +488,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		SELECT j.state,i.status FROM nfce_consult_recovery_jobs j
 		JOIN invoices i ON i.tenant_id=j.tenant_id AND i.id=j.invoice_id
 		WHERE j.tenant_id=$1 AND j.invoice_id=$2
-	`, tenantA, invoiceA).Scan(&exhaustedState, &submittedStatus); err != nil || exhaustedState != "manual_review" || submittedStatus != "submitted" {
+	`, tenantA, extraInvoice).Scan(&exhaustedState, &submittedStatus); err != nil || exhaustedState != "manual_review" || submittedStatus != "submitted" {
 		t.Fatalf("consult escalation falsely authorized/rejected: %s %s %v",
 			exhaustedState, submittedStatus, err)
 	}
