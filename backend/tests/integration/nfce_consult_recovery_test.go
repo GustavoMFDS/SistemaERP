@@ -459,7 +459,7 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	// A fresh third fictitious submitted invoice isolates the exhausted
 	// attempt case from the two already-finalized invoices above.
 	extraInvoice := makeSubmitted(tenantA, cnpjA, seriesStart+2)
-	if _, err := fiscal.PlanNFCeSubmittedConsultations(ctx,pool); err != nil {
+	if _, err := fiscal.PlanNFCeSubmittedConsultations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
