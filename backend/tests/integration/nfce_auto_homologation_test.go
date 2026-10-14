@@ -117,18 +117,25 @@ func TestAutomaticNFCeHomologationPlansOnlyNewConfiguredSales(t *testing.T) {
 		}
 	}
 	claims, err := fiscal.ClaimNFCeAutomaticHomologation(ctx, pool, worker, 10, 2*time.Minute)
-	if err != nil { t.Fatal(err) }
-	var claim fiscal.NFCeAutoClaim
-	for _,candidate:=range claims {
-		if candidate.SaleID==newSale {claim=candidate;break}
+	if err != nil {
+		t.Fatal(err)
 	}
-	if claim.SaleID!=newSale {
-		t.Fatalf("new sale not claimed among due work: %+v",claims)
+	var claim fiscal.NFCeAutoClaim
+	for _, candidate := range claims {
+		if candidate.SaleID == newSale {
+			claim = candidate
+			break
+		}
+	}
+	if claim.SaleID != newSale {
+		t.Fatalf("new sale not claimed among due work: %+v", claims)
 	}
 	otherClaims, err := fiscal.ClaimNFCeAutomaticHomologation(ctx, pool, other, 10, 2*time.Minute)
-	if err != nil { t.Fatal(err) }
-	for _,candidate:=range otherClaims {
-		if candidate.SaleID==newSale {
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range otherClaims {
+		if candidate.SaleID == newSale {
 			t.Fatalf("duplicate worker claimed same sale: %+v", candidate)
 		}
 	}
