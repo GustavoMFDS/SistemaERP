@@ -182,6 +182,26 @@ func CompleteNFCeConsultation(
 	return nil
 }
 
+// ReconcileExhaustedNFCeConsultations catches a crash after the final
+// leased CONSULT attempt. No invoice status or SEFAZ record is altered;
+// the work is explicitly escalated for human investigation rather than
+// remaining indefinitely invisible in an unclaimable due queue.
+func ReconcileExhaustedNFCeConsultations(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, `
+		UPDATE nfce_consult_recovery_jobs j SET
+		  state='manual_review',last_result_code='manual_review',
+		  lease_token=NULL,lease_owner=NULL,lease_until=NULL,updated_at=now()
+		FROM invoices i
+		WHERE i.tenant_id=j.tenant_id AND i.id=j.invoice_id
+		  AND i.status='submitted' AND i.model=65
+		  AND i.environment='homologation' AND i.access_key=j.access_key
+		  AND j.state='awaiting_consultation' AND j.attempt_count>=10
+		  AND (j.lease_until IS NULL OR j.lease_until<=now())
+	`)
+	if err != nil { return 0, err }
+	return tag.RowsAffected(), nil
+}
+
 // StartNFCeConsultationPlanner tracks unresolved submissions automatically
 // without network calls, invoice-number reservation or any tax operation.
 // A SEFAZ consultation executor must be separately enabled only after
@@ -193,6 +213,10 @@ func StartNFCeConsultationPlanner(ctx context.Context, pool *pgxpool.Pool, logge
 			defer cancel()
 			if _, err := ResolveNFCeConsultationPlans(scanCtx, pool); err != nil && scanCtx.Err() == nil {
 				logger.Warn("nfce_consult_resolve_failed", slog.Any("err", err))
+				return
+			}
+			if _, err := ReconcileExhaustedNFCeConsultations(scanCtx, pool); err != nil {
+				if scanCtx.Err() == nil { logger.Warn("nfce_consult_exhausted_failed", slog.Any("err", err)) }
 				return
 			}
 			if _, err := PlanNFCeSubmittedConsultations(scanCtx, pool); err != nil && scanCtx.Err() == nil {
