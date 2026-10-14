@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { APIError, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
+import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
 import { useProductThumbnails } from '../lib/productThumbnails'
 import {
   claimLegacyQueue,
@@ -919,6 +919,21 @@ export default function PDVPage() {
     }
   }
 
+  async function downloadFiscalXML() {
+    if (!fiscalStatus?.authorized || !fiscalStatus?.printable ||
+        !fiscalStatus.access_key || fiscalStatus.sale_id !== fiscalSaleRef.current) return
+    setFiscalStatusError('')
+    try {
+      await apiDownload(
+        '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-xml',
+        fiscalStatus.access_key + '-procNFe.xml',
+        'application/xml',
+      )
+    } catch (error: unknown) {
+      setFiscalStatusError('Não foi possível baixar o XML autorizado: ' + errorMessage(error))
+    }
+  }
+
   async function printFiscalDANFE(previewOnly = false) {
     if (!fiscalStatus?.printable || printerSaving || printerLoading || printerError || fiscalStatus.sale_id !== fiscalSaleRef.current) return
     try {
@@ -1540,6 +1555,14 @@ export default function PDVPage() {
                 }}>
                 Copiar chave para entrega digital
               </button>
+              <button type="button"
+                onClick={() => void downloadFiscalXML()}
+                className="ml-2 mt-1 rounded-md border border-slate-300 px-3 py-2 text-xs">
+                Baixar XML autorizado
+              </button>
+              <p className="mt-2 text-xs text-slate-600">
+                O XML autorizado fica disponível mesmo que o cliente não queira imprimir o DANFE.
+              </p>
             </div>
           ) : null}
           {fiscalStatusError ? <p className="mt-2 text-red-700">{fiscalStatusError}</p> : null}
