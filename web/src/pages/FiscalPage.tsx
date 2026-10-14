@@ -26,6 +26,10 @@ type FiscalObligation = {
   processed_xml_available?: boolean
   dispatch_state?: string
   preflight_result?: string
+  automatic_state?: string
+  consultation_state?: string
+  consultation_result?: string
+  consultation_attempts?: number
 }
 type FiscalObligationsPage = {
   items: FiscalObligation[]
@@ -87,6 +91,7 @@ const fiscalObligationStatusLabel: Record<string, string> = {
   authorized: 'Autorizada',
   cancelled: 'Nota cancelada — revisar',
   xml_generated: 'XML preparado — sem autorização',
+  missing_processed_xml_review: 'ALERTA: nota marcada autorizada sem XML processado verificável',
 }
 
 type NFCeReadiness = {
@@ -628,6 +633,28 @@ export default function FiscalPage() {
                             <div>
                               Verificação: {fiscalPreflightLabel[item.preflight_result] ??
                                 'Revisão técnica necessária'}
+                            </div>
+                          )}
+                          {item.automatic_state && (
+                            <div className={item.automatic_state === 'manual_review' ? 'font-semibold text-red-700' : ''}>
+                              Emissão automática: {({
+                                queued: 'Aguardando processamento',
+                                awaiting_sefaz: 'Envio efetuado; aguarda consulta, sem reenvio',
+                                authorized: 'Arquivamento confirmado',
+                                manual_review: 'REVISÃO MANUAL — não reenviar nem gerar outro número',
+                              } as Record<string, string>)[item.automatic_state] ?? 'Acompanhar manualmente'}
+                            </div>
+                          )}
+                          {item.consultation_state && (
+                            <div className={item.consultation_state === 'manual_review' ? 'font-semibold text-red-700' : ''}>
+                              Consulta SEFAZ: {({
+                                awaiting_consultation: 'Aguardando consulta por chave',
+                                manual_review: 'REVISÃO MANUAL — resultado não confirmado',
+                                resolved: 'Situação fiscal reconciliada',
+                              } as Record<string, string>)[item.consultation_state] ?? 'Acompanhar manualmente'}
+                              {typeof item.consultation_attempts === 'number'
+                                ? ` · ${item.consultation_attempts}/10 tentativas` : ''}
+                              {item.consultation_result ? ` · ${item.consultation_result}` : ''}
                             </div>
                           )}
                         </div>
