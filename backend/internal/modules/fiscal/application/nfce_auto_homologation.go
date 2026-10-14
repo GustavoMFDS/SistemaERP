@@ -353,7 +353,14 @@ func StartAutomaticNFCeHomologation(
 				logger.Error("nfce_auto_worker_identity_expired", slog.Any("error", err))
 				return
 			}
-			_, _ = ObserveAuthorizedAutomaticNFCeJob(tickCtx, pool)
+			if _, err := ObserveAuthorizedAutomaticNFCeJob(tickCtx, pool); err != nil {
+				logger.Warn("nfce_auto_observe_failed", slog.Any("error", err))
+				return
+			}
+			if _, err := ReconcileNFCeAutomaticHomologationJobs(tickCtx, pool); err != nil {
+				logger.Warn("nfce_auto_reconcile_failed", slog.Any("error", err))
+				return
+			}
 			if _, err := PlanNFCeAutomaticHomologation(tickCtx, pool); err != nil {
 				if tickCtx.Err() == nil {
 					logger.Warn("nfce_auto_plan_error", slog.Any("error", err))
