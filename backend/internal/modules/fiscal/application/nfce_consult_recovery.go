@@ -72,6 +72,7 @@ func ResolveNFCeConsultationPlans(ctx context.Context, pool *pgxpool.Pool) (int6
 		    WHERE p.tenant_id=i.tenant_id AND p.invoice_id=i.id
 		      AND p.access_key=i.access_key
 		      AND octet_length(p.processed_xml)>0 AND octet_length(p.protocol_xml)>0
+		      AND p.sha256=encode(digest(p.processed_xml,'sha256'),'hex')
 		  )
 		  AND j.state<>'resolved'
 	`)
@@ -215,6 +216,7 @@ func EscalateTerminalNFCeConsultationReviews(ctx context.Context, pool *pgxpool.
 		          AND p.access_key=i.access_key
 		          AND octet_length(p.processed_xml)>0
 		          AND octet_length(p.protocol_xml)>0
+		          AND p.sha256=encode(digest(p.processed_xml,'sha256'),'hex')
 		      )
 		    ))
 		  )
