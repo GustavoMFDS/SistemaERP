@@ -24,6 +24,10 @@ type FiscalObligation struct {
 	ProcessedAvailable bool      `json:"processed_xml_available"`
 	DispatchState      string    `json:"dispatch_state"`
 	PreflightResult    *string   `json:"preflight_result,omitempty"`
+	AutomaticState     *string   `json:"automatic_state,omitempty"`
+	ConsultationState  *string   `json:"consultation_state,omitempty"`
+	ConsultationResult *string   `json:"consultation_result,omitempty"`
+	ConsultationTries  *int      `json:"consultation_attempts,omitempty"`
 }
 
 type FiscalObligationsPage struct {
@@ -49,13 +53,19 @@ LEFT JOIN invoice_authorized_xml_files p
   ON p.tenant_id=f.tenant_id AND p.invoice_id=i.id
 LEFT JOIN fiscal_dispatch_jobs j
   ON j.tenant_id=f.tenant_id AND j.sale_id=f.sale_id
+LEFT JOIN nfce_auto_homologation_jobs a
+  ON a.tenant_id=f.tenant_id AND a.sale_id=f.sale_id
+LEFT JOIN nfce_consult_recovery_jobs c
+  ON c.tenant_id=f.tenant_id AND c.invoice_id=i.id
 `
 
 const obligationAuthorization = `
 s.status='finalized'
 AND i.status='authorized'
 AND (
-	(f.document_kind='nfce' AND i.model=65) OR
+	(f.document_kind='nfce' AND i.model=65
+	  AND p.access_key=i.access_key
+	  AND octet_length(p.processed_xml)>0 AND octet_length(p.protocol_xml)>0) OR
 	(f.document_kind='nfe' AND i.model=55)
 )
 AND length(btrim(COALESCE(i.authorization_protocol,'')))>0
@@ -84,7 +94,9 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 			i.id::text, i.status,
 			COALESCE((`+obligationAuthorization+`), false) AS authorized,
     COALESCE(p.invoice_id IS NOT NULL AND (`+obligationAuthorization+`), false) AS processed_available,
-    j.state AS dispatch_state, j.last_result_code AS preflight_result
+    j.state AS dispatch_state, j.last_result_code AS preflight_result,
+    a.state AS automatic_state, c.state AS consultation_state,
+    c.last_result_code AS consultation_result, c.attempt_count AS consultation_attempts
 		`+obligationInvoiceJoin+where+`
 		ORDER BY f.created_at DESC, f.sale_id DESC LIMIT $3 OFFSET $4
 	`, tenant, unresolvedOnly, limit, offset)
@@ -99,7 +111,8 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 		var dispatchState *string
 		if err := rows.Scan(&item.SaleID, &item.CreatedAt, &item.DocumentKind,
 			&item.LegacyReview, &item.SaleStatus,
-			&item.InvoiceID, &invStatus, &authorized, &item.ProcessedAvailable, &dispatchState, &item.PreflightResult); err != nil {
+			&item.InvoiceID, &invStatus, &authorized, &item.ProcessedAvailable, &dispatchState, &item.PreflightResult,
+			&item.AutomaticState, &item.ConsultationState, &item.ConsultationResult, &item.ConsultationTries); err != nil {
 			return FiscalObligationsPage{}, err
 		}
 		item.Authorized = authorized != nil && *authorized
@@ -112,6 +125,9 @@ func (h *SaleFiscalHandler) QueryObligations(ctx context.Context, tenant string,
 			item.Status = "authorized"
 		case item.SaleStatus == "cancelled":
 			item.Status = "sale_cancelled_review"
+		case invStatus != nil && *invStatus == "authorized":
+			// An invoice row by itself does not prove SEFAZ authorization.
+			item.Status = "missing_processed_xml_review"
 		case invStatus != nil:
 			item.Status = *invStatus
 		case item.LegacyReview:
