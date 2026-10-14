@@ -136,6 +136,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(middleware.RequirePermission("sale:read")).Get("/{id}", h.Sales.Get)
 				rr.With(middleware.RequireAnyPermission("sale:read", "sale:write")).Get("/{id}/fiscal-status", h.SaleFiscal.Status)
 				rr.With(middleware.RequireAnyPermission("sale:read", "sale:write"), fiscalLimit).Get("/{id}/fiscal-danfe", h.SaleFiscal.PrintDANFE)
+				rr.With(middleware.RequireAnyPermission("sale:read", "sale:write"), fiscalLimit).Get("/{id}/fiscal-xml", h.SaleFiscal.DownloadSaleProcessedXML)
 				rr.With(middleware.RequirePermission("sale:write"), salesLimit).Post("/", h.Sales.CreateAndFinalize)
 				rr.With(middleware.RequirePermission("sale:return")).Post("/{id}/returns", h.Returns.CreateForSale)
 				rr.With(middleware.RequirePermission("sale:cancel")).Post("/{id}/cancel", h.Sales.Cancel)
