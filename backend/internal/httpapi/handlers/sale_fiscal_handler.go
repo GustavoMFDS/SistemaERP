@@ -132,6 +132,53 @@ func (h *SaleFiscalHandler) Status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
+// DownloadSaleProcessedXML lets a cashier recover the legally relevant
+// nfeProc independently of printing a DANFE. It requires the SAME validated,
+// tenant-scoped sale and archived authorization as the print route; the service
+// then re-verifies the archived XML's SHA-256 before returning any bytes.
+// Pending, cancelled, offline and model-55 documents are not downloadable
+// as an "authorized NFC-e" through this cashier route.
+func (h *SaleFiscalHandler) DownloadSaleProcessedXML(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	saleID := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(saleID); err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "ID de venda invalido", nil)
+		return
+	}
+	state, err := h.loadStatus(r, au.TenantID, saleID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "not_found", "venda nao encontrada", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar situacao fiscal", nil)
+		return
+	}
+	if !state.Authorized || !state.Printable || state.InvoiceID == nil ||
+		state.AccessKey == nil || h.fiscal == nil {
+		writeError(w, r, http.StatusConflict, "conflict", "XML indisponivel: NFC-e nao autorizada e arquivada", nil)
+		return
+	}
+	_, content, err := h.fiscal.DownloadAuthorizedNFCeProcessedXML(r.Context(), au.TenantID, *state.InvoiceID)
+	if err != nil {
+		writeError(w, r, http.StatusConflict, "conflict", "XML autorizado indisponivel ou com integridade comprometida", nil)
+		return
+	}
+	recordAudit(h.audit, r, au.TenantID, au.UserID, "fiscal.nfce.nfe_proc.cashier_download",
+		"invoice", *state.InvoiceID, "success", nil)
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+*state.InvoiceID+"-procNFe.xml\"")
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
+}
+
 func (h *SaleFiscalHandler) PrintDANFE(w http.ResponseWriter, r *http.Request) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
