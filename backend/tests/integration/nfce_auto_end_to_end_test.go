@@ -3,12 +3,12 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"bytes"
 	"strings"
 
 	"github.com/example/sistemaemgo/internal/config"
@@ -203,8 +203,8 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	// The final authorized path below uses the same JWT + tenant-scoped route.
 	webCfg := config.Config{
 		Env: "dev", FiscalProvider: "mvp",
-		JWTIssuer: "cashier-xml-integration",
-		JWTSecret: "disposable-cashier-xml-integration-secret",
+		JWTIssuer:      "cashier-xml-integration",
+		JWTSecret:      "disposable-cashier-xml-integration-secret",
 		AccessTokenTTL: time.Hour,
 	}
 	api := httpapi.NewRouter(webCfg, modules.New(webCfg, pool, nil, logger), logger)
@@ -215,7 +215,9 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 			"typ": "access", "iat": time.Now().Unix(),
 			"exp": time.Now().Add(time.Hour).Unix(),
 		}).SignedString([]byte(webCfg.JWTSecret))
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		return token
 	}
 	authToken := tokenFor(tenant)
@@ -223,7 +225,9 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet,
 			"/api/v1/sales/"+saleID+"/fiscal-xml", nil)
-		if token != "" { req.Header.Set("Authorization", "Bearer "+token) }
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, req)
 		return w
@@ -325,28 +329,33 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 		t.Fatalf("authorized cashier XML export failed: HTTP %d body=%s",
 			response.Code, response.Body.String())
 	}
-	if _, archivedXML, err := svc.DownloadAuthorizedNFCeProcessedXML(ctx, tenant, invoice);
-		err != nil || !bytes.Equal(archivedXML, response.Body.Bytes()) {
+	if _, archivedXML, err := svc.DownloadAuthorizedNFCeProcessedXML(ctx, tenant, invoice); err != nil || !bytes.Equal(archivedXML, response.Body.Bytes()) {
 		t.Fatalf("cashier XML differed from hash-validated archive: %v", err)
 	}
 	var originalHash string
-	if err := pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		SELECT sha256 FROM invoice_authorized_xml_files
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`, tenant, invoice).Scan(&originalHash); err != nil { t.Fatal(err) }
-	if _, err := pool.Exec(ctx,`
+	`, tenant, invoice).Scan(&originalHash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
 		UPDATE invoice_authorized_xml_files SET sha256=repeat('0',64)
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`, tenant, invoice); err != nil { t.Fatal(err) }
+	`, tenant, invoice); err != nil {
+		t.Fatal(err)
+	}
 	if response := getCashierXML(sale, authToken); response.Code != http.StatusConflict ||
 		bytes.Contains(response.Body.Bytes(), []byte("<nfeProc")) {
 		t.Fatalf("corrupted archive should be rejected: HTTP %d body=%s",
 			response.Code, response.Body.String())
 	}
-	if _, err := pool.Exec(ctx,`
+	if _, err := pool.Exec(ctx, `
 		UPDATE invoice_authorized_xml_files SET sha256=$3
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`, tenant, invoice, originalHash); err != nil { t.Fatal(err) }
+	`, tenant, invoice, originalHash); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, rendered, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err != nil || len(rendered) == 0 {
 		t.Fatalf("processed authorized invoice should be printable: %v", err)
