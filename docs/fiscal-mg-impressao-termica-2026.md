@@ -172,3 +172,38 @@ renderer Go, mede no Chromium a largura física simulada do QR Code,
 da régua e do corpo e verifica que a impressão não extrapola 58/80 mm.
 O teste de PDV verifica que a pré-visualização funciona **antes da
 venda**, sem criação de documento fiscal.
+
+
+## XML fiscal autorizado disponível também no caixa (14/10/2026)
+
+O botão **Baixar XML autorizado** do PDV aparece somente depois da
+autorização da NFC-e. Ele independe de escolher imprimir o DANFE ou
+**Não imprimir**. É útil para arquivamento ou para encaminhar o
+arquivo eletrônico ao responsável contábil; baixar o XML não gera
+uma nova nota fiscal nem tenta transmissão à SEF/MG.
+
+O download usa `GET /api/v1/sales/{saleID}/fiscal-xml`, autenticado e
+autorizado para usuários com `sale:read` ou `sale:write`, e consulta
+a venda da própria empresa. O backend exige venda finalizada,
+modelo 65, obrigação NFC-e, status `authorized`, protocolo, data,
+chave de acesso e **arquivo `nfeProc` + XML de protocolo não vazios**
+referentes à nota. O mesmo serviço da página Fiscal verifica novamente
+o **SHA-256** dos bytes arquivados antes de enviá-los.
+A resposta vem como `application/xml`, `attachment`, `no-store`
+e `nosniff`; o nome do arquivo deriva de um ID de invoice UUID
+validado (sem texto arbitrário do cadastro).
+
+A tela do caixa mantém o botão de cópia da chave de acesso
+de 44 dígitos. Para o consumidor que não deseja o DANFE impresso,
+a decisão **não** interrompe a geração e o arquivamento fiscal
+quando o emitente está configurado e autorizado. O arquivo pode ser
+salvo sem selecionar impressora.
+
+O teste E2E do PDV exige que o botão não exista com NFC-e pendente,
+seja habilitado após autorização simulada, baixe o arquivo com nome
+`-procNFe.xml` e **não** produza nova venda nem pedido de impressão.
+O teste integrado real com PostgreSQL/JWT exige HTTP 401 sem sessão,
+409 enquanto a nota está `submitted`, recusa outro CNPJ, entrega
+o conteúdo arquivado após autorização fictícia e retorna 409 quando
+o hash do arquivo é adulterado. Nenhum desses testes homologa uma nota
+fiscal real.
