@@ -12,6 +12,7 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   let salePosts = 0
   let fiscalReads = 0
   let danfeRequests = 0
+  let processedXMLDownloads = 0
   let sefazAuthorizedLater = false
   let printerWidthMM = 80
   let printerUpdates = 0
@@ -80,6 +81,16 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
         legacy_review: false,
       })
     }
+    if (url.pathname === `/api/v1/sales/${saleID}/fiscal-xml`) {
+      processedXMLDownloads += 1
+      if (!sefazAuthorizedLater) return reply({ message: 'NFC-e nao autorizada' }, 409)
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/xml; charset=utf-8',
+        headers: { 'Content-Disposition': 'attachment; filename="fixture-procNFe.xml"' },
+        body: '<?xml version="1.0"?><nfeProc><protNFe>fake authorization</protNFe></nfeProc>',
+      })
+    }
     if (url.pathname === `/api/v1/sales/${saleID}/fiscal-danfe`) {
       danfeRequests += 1
       if (!sefazAuthorizedLater) return reply({ message: 'DANFE indisponível' }, 409)
@@ -121,6 +132,8 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   expect(printerWidthMM).toBe(58)
   expect(calibrationRequests).toBe(1)
   await expect(page.getByText(/NFC-e ainda não autorizada/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Baixar XML autorizado' })).toHaveCount(0)
+  expect(processedXMLDownloads).toBe(0)
   expect(salePosts).toBe(1)
   expect(fiscalReads).toBeGreaterThan(0)
 
@@ -139,6 +152,11 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
     .toBeVisible({ timeout: 12000 })
   expect(fiscalReads).toBeGreaterThan(readsBeforeAuthorization)
   await expect(page.getByRole('status').filter({ hasText: 'NFC-e autorizada.' })).toBeVisible()
+  const xmlDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Baixar XML autorizado' }).click()
+  const xmlFile = await xmlDownload
+  expect(xmlFile.suggestedFilename()).toMatch(/-procNFe\.xml$/)
+  expect(processedXMLDownloads).toBe(1)
   expect(danfeRequests).toBe(0)
   expect(salePosts).toBe(1)
 
