@@ -1537,7 +1537,15 @@ export default function PDVPage() {
         ) : null}
       {saleId && !saleId.startsWith('offline:') ? (
         <section aria-label="Situação fiscal da venda" className="mt-3 rounded-xl border border-slate-300 bg-white p-4 text-sm">
-          <h3 className="font-semibold">Documento fiscal da venda</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold">Documento fiscal da venda</h3>
+            <button type="button"
+              disabled={!online || !saleId || saleId.startsWith('offline:')}
+              onClick={() => void refreshFiscalStatus(saleId)}
+              className="rounded-md border border-slate-300 px-3 py-2 text-xs disabled:opacity-50">
+              Atualizar situação fiscal
+            </button>
+          </div>
           <p className="mt-1" role="status">
             {fiscalStatus?.authorized
               ? 'NFC-e autorizada. O DANFE pode ser impresso em 58 ou 80 mm conforme a impressora configurada.'
