@@ -14,6 +14,8 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   let danfeRequests = 0
   let processedXMLDownloads = 0
   let sefazAuthorizedLater = false
+  let awaitingConsultation = false
+  let manualReview = false
   let printerWidthMM = 80
   let printerUpdates = 0
   let calibrationRequests = 0
@@ -74,9 +76,12 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
       fiscalReads += 1
       return reply({
         sale_id: saleID, required: true, document_kind: 'nfce',
-        status: sefazAuthorizedLater ? 'authorized' : 'pending',
+        status: sefazAuthorizedLater ? 'authorized' : awaitingConsultation ? 'submitted' : 'pending',
         authorized: sefazAuthorizedLater,
         printable: sefazAuthorizedLater,
+        automatic_state: manualReview ? 'manual_review' : awaitingConsultation ? 'awaiting_sefaz' : undefined,
+        consultation_state: manualReview ? 'manual_review' : awaitingConsultation ? 'awaiting_consultation' : undefined,
+        consultation_attempts: manualReview ? 10 : awaitingConsultation ? 2 : undefined,
         access_key: sefazAuthorizedLater ? '31261011222333000181650010000000011123456789' : undefined,
         legacy_review: false,
       })
@@ -146,6 +151,17 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   // Authorization can arrive asynchronously after the customer decides not
   // to print. The same finalized sale is refreshed automatically; issuing a
   // new sale or triggering silent printing would be wrong.
+  // Recovering a SOAP timeout never triggers a new sale or a blind resend.
+  awaitingConsultation = true
+  await expect(page.getByText(/NFC-e enviada. Aguardando consulta à SEFAZ/))
+    .toBeVisible({ timeout: 12000 })
+  manualReview = true
+  await expect(page.getByRole('alert').filter({ hasText: 'Não tente enviar outra NFC-e' }))
+    .toBeVisible({ timeout: 12000 })
+  await expect(page.getByText('Consultas realizadas: 10 de 10.')).toBeVisible()
+  expect(salePosts).toBe(1)
+  // After a simulated external reconciliation, real authorization status is
+  // restored from the server (never inferred from the browser or printing).
   const readsBeforeAuthorization = fiscalReads
   sefazAuthorizedLater = true
   await expect(page.getByRole('button', { name: 'Imprimir depois' }))
