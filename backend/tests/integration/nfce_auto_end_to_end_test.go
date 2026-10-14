@@ -6,6 +6,15 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"bytes"
+	"strings"
+
+	"github.com/example/sistemaemgo/internal/config"
+	"github.com/example/sistemaemgo/internal/httpapi"
+	"github.com/example/sistemaemgo/internal/modules"
+	"github.com/golang-jwt/jwt/v5"
 	"os"
 	"testing"
 	"time"
@@ -190,6 +199,45 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if invoiceStatus != "submitted" {
 		t.Fatalf("not submitted: %s", invoiceStatus)
 	}
+	// The exact cashier HTTP route cannot expose a submitted/uncertain note.
+	// The final authorized path below uses the same JWT + tenant-scoped route.
+	webCfg := config.Config{
+		Env: "dev", FiscalProvider: "mvp",
+		JWTIssuer: "cashier-xml-integration",
+		JWTSecret: "disposable-cashier-xml-integration-secret",
+		AccessTokenTTL: time.Hour,
+	}
+	api := httpapi.NewRouter(webCfg, modules.New(webCfg, pool, nil, logger), logger)
+	tokenFor := func(tenantID string) string {
+		t.Helper()
+		token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"iss": webCfg.JWTIssuer, "sub": actor, "tenant_id": tenantID,
+			"typ": "access", "iat": time.Now().Unix(),
+			"exp": time.Now().Add(time.Hour).Unix(),
+		}).SignedString([]byte(webCfg.JWTSecret))
+		if err != nil { t.Fatal(err) }
+		return token
+	}
+	authToken := tokenFor(tenant)
+	getCashierXML := func(saleID, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet,
+			"/api/v1/sales/"+saleID+"/fiscal-xml", nil)
+		if token != "" { req.Header.Set("Authorization", "Bearer "+token) }
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, req)
+		return w
+	}
+	if response := getCashierXML(sale, ""); response.Code != http.StatusUnauthorized {
+		t.Fatalf("XML without JWT: HTTP %d", response.Code)
+	}
+	if response := getCashierXML(sale, authToken); response.Code != http.StatusConflict {
+		t.Fatalf("XML of submitted invoice exposed: HTTP %d body=%s",
+			response.Code, response.Body.String())
+	}
+	if response := getCashierXML(sale, tokenFor(uuid.NewString())); response.Code == http.StatusOK {
+		t.Fatal("cross-tenant cashier retrieved XML")
+	}
 	var taxItems int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM invoice_item_tax_calculations
@@ -266,6 +314,40 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if finalInvoice != "authorized" || jobState != "authorized" {
 		t.Fatalf("not authorized with completed queue: invoice=%s job=%s", finalInvoice, jobState)
 	}
+	// Only this complete, tenant-scoped and hash-verified nfeProc can be
+	// exported. Neither copying paper nor printing a DANFE is required.
+	response := getCashierXML(sale, authToken)
+	if response.Code != http.StatusOK ||
+		!strings.HasPrefix(response.Header().Get("Content-Type"), "application/xml") ||
+		!strings.Contains(response.Header().Get("Content-Disposition"), "-procNFe.xml") ||
+		response.Header().Get("Cache-Control") != "private, no-store" ||
+		response.Body.Len() == 0 {
+		t.Fatalf("authorized cashier XML export failed: HTTP %d body=%s",
+			response.Code, response.Body.String())
+	}
+	if _, archivedXML, err := svc.DownloadAuthorizedNFCeProcessedXML(ctx, tenant, invoice);
+		err != nil || !bytes.Equal(archivedXML, response.Body.Bytes()) {
+		t.Fatalf("cashier XML differed from hash-validated archive: %v", err)
+	}
+	var originalHash string
+	if err := pool.QueryRow(ctx,`
+		SELECT sha256 FROM invoice_authorized_xml_files
+		WHERE tenant_id=$1 AND invoice_id=$2
+	`, tenant, invoice).Scan(&originalHash); err != nil { t.Fatal(err) }
+	if _, err := pool.Exec(ctx,`
+		UPDATE invoice_authorized_xml_files SET sha256=repeat('0',64)
+		WHERE tenant_id=$1 AND invoice_id=$2
+	`, tenant, invoice); err != nil { t.Fatal(err) }
+	if response := getCashierXML(sale, authToken); response.Code != http.StatusConflict ||
+		bytes.Contains(response.Body.Bytes(), []byte("<nfeProc")) {
+		t.Fatalf("corrupted archive should be rejected: HTTP %d body=%s",
+			response.Code, response.Body.String())
+	}
+	if _, err := pool.Exec(ctx,`
+		UPDATE invoice_authorized_xml_files SET sha256=$3
+		WHERE tenant_id=$1 AND invoice_id=$2
+	`, tenant, invoice, originalHash); err != nil { t.Fatal(err) }
+
 	if _, rendered, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err != nil || len(rendered) == 0 {
 		t.Fatalf("processed authorized invoice should be printable: %v", err)
 	}
