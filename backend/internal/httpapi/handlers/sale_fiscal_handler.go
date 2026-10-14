@@ -58,6 +58,8 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 	var accessKey *string
 	var authorizedAt *string
 	var processedXMLPresent bool
+	var autoState,consultState *string
+	var consultAttempts *int
 	err := h.db.QueryRow(r.Context(), `
 		SELECT s.status,
 			f.document_kind, f.legacy_review,
@@ -70,7 +72,7 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 			    AND octet_length(x.processed_xml)>0
 			    AND octet_length(x.protocol_xml)>0
 			    AND x.sha256=encode(digest(x.processed_xml,'sha256'),'hex')
-			)
+			), a.state, c.state, c.attempt_count
 		FROM sales s
 		LEFT JOIN sale_fiscal_intents f ON f.tenant_id=s.tenant_id AND f.sale_id=s.id
 		LEFT JOIN LATERAL (
@@ -79,11 +81,16 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 			WHERE tenant_id=s.tenant_id AND sale_id=s.id
 			ORDER BY created_at DESC, id DESC LIMIT 1
 		) i ON true
+		LEFT JOIN nfce_auto_homologation_jobs a ON a.tenant_id=s.tenant_id AND a.sale_id=s.id
+		LEFT JOIN nfce_consult_recovery_jobs c ON c.tenant_id=s.tenant_id AND c.invoice_id=i.id
 		WHERE s.tenant_id=$1 AND s.id=$2
-	`, tenantID, saleID).Scan(&saleStatus, &kind, &legacy, &invoiceID, &invoiceStatus, &invoiceModel, &protocol, &authorizedAt, &accessKey, &processedXMLPresent)
+	`, tenantID, saleID).Scan(&saleStatus, &kind, &legacy, &invoiceID, &invoiceStatus, &invoiceModel, &protocol, &authorizedAt, &accessKey, &processedXMLPresent, &autoState, &consultState, &consultAttempts)
 	if err != nil {
 		return out, err
 	}
+	out.AutomaticState=autoState
+	out.ConsultationState=consultState
+	out.ConsultationAttempts=consultAttempts
 	if kind != nil {
 		out.DocumentKind = *kind
 	}
