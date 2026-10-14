@@ -266,16 +266,16 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 		t.Fatalf("XML of submitted invoice exposed: HTTP %d body=%s",
 			response.Code, response.Body.String())
 	}
-	pendingStatusReq:=httptest.NewRequest(http.MethodGet,
-		"/api/v1/sales/"+sale+"/fiscal-status",nil)
-	pendingStatusReq.Header.Set("Authorization","Bearer "+authToken)
-	pendingStatusResponse:=httptest.NewRecorder()
-	api.ServeHTTP(pendingStatusResponse,pendingStatusReq)
-	if pendingStatusResponse.Code!=http.StatusOK ||
+	pendingStatusReq := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sales/"+sale+"/fiscal-status", nil)
+	pendingStatusReq.Header.Set("Authorization", "Bearer "+authToken)
+	pendingStatusResponse := httptest.NewRecorder()
+	api.ServeHTTP(pendingStatusResponse, pendingStatusReq)
+	if pendingStatusResponse.Code != http.StatusOK ||
 		!bytes.Contains(pendingStatusResponse.Body.Bytes(), []byte(`"automatic_state":"awaiting_sefaz"`)) ||
 		bytes.Contains(pendingStatusResponse.Body.Bytes(), []byte(`"authorized":true`)) {
 		t.Fatalf("cashier must show awaiting consultation, not authorization: HTTP %d body=%s",
-			pendingStatusResponse.Code,pendingStatusResponse.Body.String())
+			pendingStatusResponse.Code, pendingStatusResponse.Body.String())
 	}
 	if response := getCashierXML(sale, tokenFor(uuid.NewString())); response.Code == http.StatusOK {
 		t.Fatal("cross-tenant cashier retrieved XML")

@@ -29,18 +29,18 @@ func NewSaleFiscalHandler(pool *pgxpool.Pool, fiscal *fiscapp.FiscalService, aud
 }
 
 type saleFiscalStatus struct {
-	SaleID       string  `json:"sale_id"`
-	Required     bool    `json:"required"`
-	DocumentKind string  `json:"document_kind"`
-	Status       string  `json:"status"`
-	Authorized   bool    `json:"authorized"`
-	Printable    bool    `json:"printable"`
-	InvoiceID    *string `json:"invoice_id,omitempty"`
-	AccessKey    *string `json:"access_key,omitempty"`
-	LegacyReview bool    `json:"legacy_review"`
-	AutomaticState *string `json:"automatic_state,omitempty"`
-	ConsultationState *string `json:"consultation_state,omitempty"`
-	ConsultationAttempts *int `json:"consultation_attempts,omitempty"`
+	SaleID               string  `json:"sale_id"`
+	Required             bool    `json:"required"`
+	DocumentKind         string  `json:"document_kind"`
+	Status               string  `json:"status"`
+	Authorized           bool    `json:"authorized"`
+	Printable            bool    `json:"printable"`
+	InvoiceID            *string `json:"invoice_id,omitempty"`
+	AccessKey            *string `json:"access_key,omitempty"`
+	LegacyReview         bool    `json:"legacy_review"`
+	AutomaticState       *string `json:"automatic_state,omitempty"`
+	ConsultationState    *string `json:"consultation_state,omitempty"`
+	ConsultationAttempts *int    `json:"consultation_attempts,omitempty"`
 }
 
 // Status is derived from actual invoice authorization state, not an optimistic
@@ -58,7 +58,7 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 	var accessKey *string
 	var authorizedAt *string
 	var processedXMLPresent bool
-	var autoState,consultState *string
+	var autoState, consultState *string
 	var consultAttempts *int
 	err := h.db.QueryRow(r.Context(), `
 		SELECT s.status,
@@ -88,9 +88,9 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 	if err != nil {
 		return out, err
 	}
-	out.AutomaticState=autoState
-	out.ConsultationState=consultState
-	out.ConsultationAttempts=consultAttempts
+	out.AutomaticState = autoState
+	out.ConsultationState = consultState
+	out.ConsultationAttempts = consultAttempts
 	if kind != nil {
 		out.DocumentKind = *kind
 	}
