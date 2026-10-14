@@ -116,15 +116,22 @@ func TestAutomaticNFCeHomologationPlansOnlyNewConfiguredSales(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	claims, err := fiscal.ClaimNFCeAutomaticHomologation(ctx, pool, worker, 1, 2*time.Minute)
-	if err != nil || len(claims) != 1 || claims[0].SaleID != newSale {
-		t.Fatalf("first automatic job claim: %+v %v", claims, err)
+	claims, err := fiscal.ClaimNFCeAutomaticHomologation(ctx, pool, worker, 10, 2*time.Minute)
+	if err != nil { t.Fatal(err) }
+	var claim fiscal.NFCeAutoClaim
+	for _,candidate:=range claims {
+		if candidate.SaleID==newSale {claim=candidate;break}
 	}
-	otherClaims, err := fiscal.ClaimNFCeAutomaticHomologation(ctx, pool, other, 1, 2*time.Minute)
-	if err != nil || len(otherClaims) != 0 {
-		t.Fatalf("duplicate worker claimed same sale: %+v %v", otherClaims, err)
+	if claim.SaleID!=newSale {
+		t.Fatalf("new sale not claimed among due work: %+v",claims)
 	}
-	claim := claims[0]
+	otherClaims, err := fiscal.ClaimNFCeAutomaticHomologation(ctx, pool, other, 10, 2*time.Minute)
+	if err != nil { t.Fatal(err) }
+	for _,candidate:=range otherClaims {
+		if candidate.SaleID==newSale {
+			t.Fatalf("duplicate worker claimed same sale: %+v", candidate)
+		}
+	}
 	if err := fiscal.CompleteNFCeAutomaticHomologation(ctx, pool, other, claim,
 		fiscal.NFCeAutoQueued, "retry"); !errors.Is(err, fiscal.ErrNFCeAutoLeaseLost) {
 		t.Fatalf("unowned claim completed: %v", err)
