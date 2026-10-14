@@ -66,6 +66,7 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 			    AND x.access_key=i.access_key
 			    AND octet_length(x.processed_xml)>0
 			    AND octet_length(x.protocol_xml)>0
+			    AND x.sha256=encode(digest(x.processed_xml,'sha256'),'hex')
 			)
 		FROM sales s
 		LEFT JOIN sale_fiscal_intents f ON f.tenant_id=s.tenant_id AND f.sale_id=s.id
