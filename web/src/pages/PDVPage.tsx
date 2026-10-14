@@ -99,6 +99,9 @@ type SaleFiscalStatus = {
   invoice_id?: string
   access_key?: string
   legacy_review: boolean
+  automatic_state?: string
+  consultation_state?: string
+  consultation_attempts?: number
 }
 
 const CASH_MOVEMENT_ATTEMPT_NAMESPACE = 'sistemaemgo:cashMovementAttempt:v1'
@@ -1538,10 +1541,32 @@ export default function PDVPage() {
           <p className="mt-1" role="status">
             {fiscalStatus?.authorized
               ? 'NFC-e autorizada. O DANFE pode ser impresso em 58 ou 80 mm conforme a impressora configurada.'
-              : fiscalStatus?.status === 'legacy_review'
-                ? 'Venda anterior à obrigatoriedade automática: situação fiscal requer revisão.'
-                : 'NFC-e ainda não autorizada. Pendência fiscal permanece registrada, mesmo sem impressão.'}
+              : fiscalStatus?.consultation_state === 'manual_review' ||
+                fiscalStatus?.automatic_state === 'manual_review'
+                ? 'ATENÇÃO: emissão fiscal requer revisão manual. Não repita a venda e não gere outra nota sem consultar o responsável.'
+                : fiscalStatus?.consultation_state === 'awaiting_consultation' ||
+                  fiscalStatus?.automatic_state === 'awaiting_sefaz' ||
+                  fiscalStatus?.status === 'submitted'
+                  ? 'NFC-e enviada. Aguardando consulta à SEFAZ; não reenviar a nota nem refazer a venda.'
+                  : fiscalStatus?.status === 'signed' || fiscalStatus?.status === 'reserved'
+                    ? 'NFC-e em preparação. Documento ainda não autorizado.'
+                    : fiscalStatus?.status === 'legacy_review'
+                      ? 'Venda histórica: situação fiscal requer revisão.'
+                      : 'NFC-e ainda não autorizada. Pendência fiscal permanece registrada, mesmo sem impressão.'}
           </p>
+          {!fiscalStatus?.authorized && (
+            fiscalStatus?.consultation_state === 'manual_review' ||
+            fiscalStatus?.automatic_state === 'manual_review'
+          ) ? (
+            <p role="alert" className="mt-2 rounded border border-red-300 bg-red-50 p-2 text-xs font-semibold text-red-800">
+              Procure o responsável fiscal da loja para conferir a nota. Não tente enviar outra NFC-e para esta venda.
+            </p>
+          ) : null}
+          {!fiscalStatus?.authorized && typeof fiscalStatus?.consultation_attempts === 'number' ? (
+            <p className="mt-1 text-xs text-slate-600">
+              Consultas realizadas: {fiscalStatus.consultation_attempts} de 10.
+            </p>
+          ) : null}
           {fiscalStatus?.authorized && fiscalStatus.access_key ? (
             <div className="mt-2">
               <p className="text-xs text-slate-700">
