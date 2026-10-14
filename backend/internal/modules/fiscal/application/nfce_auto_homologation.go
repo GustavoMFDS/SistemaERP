@@ -169,6 +169,7 @@ func CompleteNFCeAutomaticHomologation(
 		      AND i.authorized_at IS NOT NULL
 		      AND octet_length(x.processed_xml)>0
 		      AND octet_length(x.protocol_xml)>0
+		      AND x.sha256=encode(digest(x.processed_xml,'sha256'),'hex')
 		  ))
 		  AND ($5<>'awaiting_sefaz' OR EXISTS (
 		    SELECT 1 FROM invoices i
@@ -200,6 +201,7 @@ func ObserveAuthorizedAutomaticNFCeJob(ctx context.Context, pool *pgxpool.Pool) 
 		  AND length(btrim(COALESCE(i.authorization_protocol,'')))>0
 		  AND i.authorized_at IS NOT NULL
 		  AND octet_length(x.processed_xml)>0 AND octet_length(x.protocol_xml)>0
+		  AND x.sha256=encode(digest(x.processed_xml,'sha256'),'hex')
 		  AND j.state IN ('queued','awaiting_sefaz','manual_review')
 	`)
 	if err != nil {
