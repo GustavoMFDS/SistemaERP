@@ -208,21 +208,23 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 		  attempt_count=12,lease_token=gen_random_uuid(),
 		  lease_owner=$3,lease_until=now()-interval '1 second'
 		WHERE tenant_id=$1 AND sale_id=$2
-	`, tenant,sale,owner);err!=nil{t.Fatal(err)}
-	if n,err:=fiscal.ReconcileNFCeAutomaticHomologationJobs(ctx,pool);
-		err!=nil || n!=1 {
-		t.Fatalf("submitted invoice not reconciled to CONSULT: %d %v",n,err)
+	`, tenant, sale, owner); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := fiscal.ReconcileNFCeAutomaticHomologationJobs(ctx, pool); err != nil || n != 1 {
+		t.Fatalf("submitted invoice not reconciled to CONSULT: %d %v", n, err)
 	}
 	var recoveredQueueState string
-	if err:=pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		SELECT state FROM nfce_auto_homologation_jobs
 		WHERE tenant_id=$1 AND sale_id=$2
-	`,tenant,sale).Scan(&recoveredQueueState);
-		err!=nil || recoveredQueueState!="awaiting_sefaz" {
+	`, tenant, sale).Scan(&recoveredQueueState); err != nil || recoveredQueueState != "awaiting_sefaz" {
 		t.Fatalf("crash recovery lost submitted document: %q %v",
-			recoveredQueueState,err)
+			recoveredQueueState, err)
 	}
-	if remote.authorizeCalls!=1 {t.Fatal("recovery caused a duplicate SEFAZ submission")}
+	if remote.authorizeCalls != 1 {
+		t.Fatal("recovery caused a duplicate SEFAZ submission")
+	}
 
 	// The exact cashier HTTP route cannot expose a submitted/uncertain note.
 	// The final authorized path below uses the same JWT + tenant-scoped route.
@@ -287,19 +289,25 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if _, _, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err == nil {
 		t.Fatal("authorized status without protocol/nfeProc archive printed DANFE")
 	}
-	manager:=handlers.NewSaleFiscalHandler(pool,svc,audit.New(pool,logger))
-	unarchivedPage,err:=manager.QueryObligations(ctx,tenant,100,0,false)
-	if err!=nil{t.Fatal(err)}
-	found:=false
-	for _,obligation:=range unarchivedPage.Items {
-		if obligation.SaleID!=sale{continue}
-		found=true
+	manager := handlers.NewSaleFiscalHandler(pool, svc, audit.New(pool, logger))
+	unarchivedPage, err := manager.QueryObligations(ctx, tenant, 100, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, obligation := range unarchivedPage.Items {
+		if obligation.SaleID != sale {
+			continue
+		}
+		found = true
 		if obligation.Authorized || obligation.ProcessedAvailable ||
-			obligation.Status!="missing_processed_xml_review" {
-			t.Fatalf("manager showed a non-archived note as authorized: %+v",obligation)
+			obligation.Status != "missing_processed_xml_review" {
+			t.Fatalf("manager showed a non-archived note as authorized: %+v", obligation)
 		}
 	}
-	if !found{t.Fatal("manager did not return synthetic sale")}
+	if !found {
+		t.Fatal("manager did not return synthetic sale")
+	}
 
 	if _, err := pool.Exec(ctx, `
 		UPDATE invoices SET status='submitted',
@@ -357,21 +365,27 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if finalInvoice != "authorized" || jobState != "authorized" {
 		t.Fatalf("not authorized with completed queue: invoice=%s job=%s", finalInvoice, jobState)
 	}
-	authorizedPage,err:=manager.QueryObligations(ctx,tenant,100,0,false)
-	if err!=nil {t.Fatal(err)}
-	found=false
-	for _,obligation:=range authorizedPage.Items {
-		if obligation.SaleID!=sale{continue}
-		found=true
+	authorizedPage, err := manager.QueryObligations(ctx, tenant, 100, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, obligation := range authorizedPage.Items {
+		if obligation.SaleID != sale {
+			continue
+		}
+		found = true
 		if !obligation.Authorized || !obligation.ProcessedAvailable ||
-			obligation.Status!="authorized" || obligation.AutomaticState==nil ||
-			*obligation.AutomaticState!="authorized" ||
-			obligation.ConsultationState==nil ||
-			*obligation.ConsultationState!="resolved" {
-			t.Fatalf("manager obscured recovered authorization: %+v",obligation)
+			obligation.Status != "authorized" || obligation.AutomaticState == nil ||
+			*obligation.AutomaticState != "authorized" ||
+			obligation.ConsultationState == nil ||
+			*obligation.ConsultationState != "resolved" {
+			t.Fatalf("manager obscured recovered authorization: %+v", obligation)
 		}
 	}
-	if !found{t.Fatal("manager did not return archived sale")}
+	if !found {
+		t.Fatal("manager did not return archived sale")
+	}
 
 	// Only this complete, tenant-scoped and hash-verified nfeProc can be
 	// exported. Neither copying paper nor printing a DANFE is required.

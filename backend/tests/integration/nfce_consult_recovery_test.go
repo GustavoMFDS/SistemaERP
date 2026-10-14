@@ -464,31 +464,31 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 		  lease_owner=$3,lease_token=gen_random_uuid(),
 		  lease_until=now()+interval '2 minutes'
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`, tenantA, invoiceA, ownerA);err!=nil{t.Fatal(err)}
-	if n,err:=fiscal.ReconcileExhaustedNFCeConsultations(ctx,pool);
-		err!=nil || n!=0 {
-		t.Fatalf("cannot steal live consultation lease: %d %v",n,err)
+	`, tenantA, invoiceA, ownerA); err != nil {
+		t.Fatal(err)
 	}
-	if _,err:=pool.Exec(ctx,`
+	if n, err := fiscal.ReconcileExhaustedNFCeConsultations(ctx, pool); err != nil || n != 0 {
+		t.Fatalf("cannot steal live consultation lease: %d %v", n, err)
+	}
+	if _, err := pool.Exec(ctx, `
 		UPDATE nfce_consult_recovery_jobs SET lease_until=now()-interval '1 second'
 		WHERE tenant_id=$1 AND invoice_id=$2
-	`,tenantA,invoiceA);err!=nil{t.Fatal(err)}
-	if n,err:=fiscal.ReconcileExhaustedNFCeConsultations(ctx,pool);
-		err!=nil || n!=1 {
-		t.Fatalf("exhausted consult not escalated: %d %v",n,err)
+	`, tenantA, invoiceA); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := fiscal.ReconcileExhaustedNFCeConsultations(ctx, pool); err != nil || n != 1 {
+		t.Fatalf("exhausted consult not escalated: %d %v", n, err)
 	}
 	var exhaustedState, submittedStatus string
-	if err:=pool.QueryRow(ctx,`
+	if err := pool.QueryRow(ctx, `
 		SELECT j.state,i.status FROM nfce_consult_recovery_jobs j
 		JOIN invoices i ON i.tenant_id=j.tenant_id AND i.id=j.invoice_id
 		WHERE j.tenant_id=$1 AND j.invoice_id=$2
-	`,tenantA,invoiceA).Scan(&exhaustedState,&submittedStatus);
-		err!=nil || exhaustedState!="manual_review" || submittedStatus!="submitted" {
+	`, tenantA, invoiceA).Scan(&exhaustedState, &submittedStatus); err != nil || exhaustedState != "manual_review" || submittedStatus != "submitted" {
 		t.Fatalf("consult escalation falsely authorized/rejected: %s %s %v",
-			exhaustedState,submittedStatus,err)
+			exhaustedState, submittedStatus, err)
 	}
-	if n,err:=fiscal.ReconcileExhaustedNFCeConsultations(ctx,pool);
-		err!=nil || n!=0 {
-		t.Fatalf("consult escalation not idempotent: %d %v",n,err)
+	if n, err := fiscal.ReconcileExhaustedNFCeConsultations(ctx, pool); err != nil || n != 0 {
+		t.Fatalf("consult escalation not idempotent: %d %v", n, err)
 	}
 }

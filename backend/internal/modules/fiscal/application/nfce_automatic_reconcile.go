@@ -10,7 +10,9 @@ import (
 // interruptions, without signing, issuing or talking to SEFAZ.
 func ReconcileNFCeAutomaticHomologationJobs(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
 	tx, err := pool.Begin(ctx)
-	if err != nil { return 0, err }
+	if err != nil {
+		return 0, err
+	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	submitted, err := tx.Exec(ctx, `
@@ -23,7 +25,9 @@ func ReconcileNFCeAutomaticHomologationJobs(ctx context.Context, pool *pgxpool.P
 		  AND i.status='submitted' AND j.state='queued'
 		  AND (j.lease_until IS NULL OR j.lease_until<=now())
 	`)
-	if err != nil { return 0, err }
+	if err != nil {
+		return 0, err
+	}
 
 	finalized, err := tx.Exec(ctx, `
 		UPDATE nfce_auto_homologation_jobs j SET
@@ -35,7 +39,9 @@ func ReconcileNFCeAutomaticHomologationJobs(ctx context.Context, pool *pgxpool.P
 		  AND j.state IN ('queued','awaiting_sefaz')
 		  AND (j.lease_until IS NULL OR j.lease_until<=now())
 	`)
-	if err != nil { return 0, err }
+	if err != nil {
+		return 0, err
+	}
 
 	exhausted, err := tx.Exec(ctx, `
 		UPDATE nfce_auto_homologation_jobs j SET
@@ -49,8 +55,12 @@ func ReconcileNFCeAutomaticHomologationJobs(ctx context.Context, pool *pgxpool.P
 		      AND i.status IN ('submitted','authorized')
 		  )
 	`)
-	if err != nil { return 0, err }
+	if err != nil {
+		return 0, err
+	}
 
-	if err := tx.Commit(ctx); err != nil { return 0, err }
-	return submitted.RowsAffected()+finalized.RowsAffected()+exhausted.RowsAffected(), nil
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return submitted.RowsAffected() + finalized.RowsAffected() + exhausted.RowsAffected(), nil
 }

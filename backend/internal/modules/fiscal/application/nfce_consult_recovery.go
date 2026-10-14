@@ -198,7 +198,9 @@ func ReconcileExhaustedNFCeConsultations(ctx context.Context, pool *pgxpool.Pool
 		  AND j.state='awaiting_consultation' AND j.attempt_count>=10
 		  AND (j.lease_until IS NULL OR j.lease_until<=now())
 	`)
-	if err != nil { return 0, err }
+	if err != nil {
+		return 0, err
+	}
 	return tag.RowsAffected(), nil
 }
 
@@ -216,7 +218,9 @@ func StartNFCeConsultationPlanner(ctx context.Context, pool *pgxpool.Pool, logge
 				return
 			}
 			if _, err := ReconcileExhaustedNFCeConsultations(scanCtx, pool); err != nil {
-				if scanCtx.Err() == nil { logger.Warn("nfce_consult_exhausted_failed", slog.Any("err", err)) }
+				if scanCtx.Err() == nil {
+					logger.Warn("nfce_consult_exhausted_failed", slog.Any("err", err))
+				}
 				return
 			}
 			if _, err := PlanNFCeSubmittedConsultations(scanCtx, pool); err != nil && scanCtx.Err() == nil {
