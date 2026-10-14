@@ -64,7 +64,15 @@ func ResolveNFCeConsultationPlans(ctx context.Context, pool *pgxpool.Pool) (int6
 		  updated_at=now()
 		FROM invoices i
 		WHERE i.tenant_id=j.tenant_id AND i.id=j.invoice_id
-		  AND i.status IN ('authorized','rejected','cancelled')
+		  AND i.status='authorized' AND i.model=65
+		  AND length(btrim(COALESCE(i.authorization_protocol,'')))>0
+		  AND i.authorized_at IS NOT NULL
+		  AND EXISTS (
+		    SELECT 1 FROM invoice_authorized_xml_files p
+		    WHERE p.tenant_id=i.tenant_id AND p.invoice_id=i.id
+		      AND p.access_key=i.access_key
+		      AND octet_length(p.processed_xml)>0 AND octet_length(p.protocol_xml)>0
+		  )
 		  AND j.state<>'resolved'
 	`)
 	if err != nil {
@@ -182,6 +190,39 @@ func CompleteNFCeConsultation(
 	return nil
 }
 
+// EscalateTerminalNFCeConsultationReviews highlights terminal states that
+// cannot be called "resolved with authorized XML". Rejections, cancellations
+// and a locally marked authorized note lacking archived protocol all need
+// operator investigation. Live leases are never overwritten.
+func EscalateTerminalNFCeConsultationReviews(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, `
+		UPDATE nfce_consult_recovery_jobs j SET
+		  state='manual_review',last_result_code='manual_review',
+		  lease_token=NULL,lease_owner=NULL,lease_until=NULL,updated_at=now()
+		FROM invoices i
+		WHERE i.tenant_id=j.tenant_id AND i.id=j.invoice_id
+		  AND j.state='awaiting_consultation'
+		  AND (j.lease_until IS NULL OR j.lease_until<=now())
+		  AND (
+		    i.status IN ('rejected','cancelled')
+		    OR (i.status='authorized' AND NOT (
+		      i.model=65
+		      AND length(btrim(COALESCE(i.authorization_protocol,'')))>0
+		      AND i.authorized_at IS NOT NULL
+		      AND EXISTS (
+		        SELECT 1 FROM invoice_authorized_xml_files p
+		        WHERE p.tenant_id=i.tenant_id AND p.invoice_id=i.id
+		          AND p.access_key=i.access_key
+		          AND octet_length(p.processed_xml)>0
+		          AND octet_length(p.protocol_xml)>0
+		      )
+		    ))
+		  )
+	`)
+	if err != nil { return 0, err }
+	return tag.RowsAffected(), nil
+}
+
 // ReconcileExhaustedNFCeConsultations catches a crash after the final
 // leased CONSULT attempt. No invoice status or SEFAZ record is altered;
 // the work is explicitly escalated for human investigation rather than
@@ -215,6 +256,10 @@ func StartNFCeConsultationPlanner(ctx context.Context, pool *pgxpool.Pool, logge
 			defer cancel()
 			if _, err := ResolveNFCeConsultationPlans(scanCtx, pool); err != nil && scanCtx.Err() == nil {
 				logger.Warn("nfce_consult_resolve_failed", slog.Any("err", err))
+				return
+			}
+			if _, err := EscalateTerminalNFCeConsultationReviews(scanCtx, pool); err != nil {
+				if scanCtx.Err() == nil { logger.Warn("nfce_consult_terminal_review_failed", slog.Any("err", err)) }
 				return
 			}
 			if _, err := ReconcileExhaustedNFCeConsultations(scanCtx, pool); err != nil {
