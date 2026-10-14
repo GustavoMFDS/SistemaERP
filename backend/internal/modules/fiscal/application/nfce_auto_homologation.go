@@ -165,8 +165,10 @@ func CompleteNFCeAutomaticHomologation(
 		    WHERE i.tenant_id=j.tenant_id AND i.sale_id=j.sale_id
 		      AND i.status='authorized' AND i.model=65
 		      AND i.access_key=x.access_key
-		      AND i.authorization_protocol IS NOT NULL
+		      AND length(btrim(COALESCE(i.authorization_protocol,'')))>0
 		      AND i.authorized_at IS NOT NULL
+		      AND octet_length(x.processed_xml)>0
+		      AND octet_length(x.protocol_xml)>0
 		  ))
 		  AND ($5<>'awaiting_sefaz' OR EXISTS (
 		    SELECT 1 FROM invoices i
@@ -195,8 +197,10 @@ func ObserveAuthorizedAutomaticNFCeJob(ctx context.Context, pool *pgxpool.Pool) 
 		WHERE i.tenant_id=j.tenant_id AND i.sale_id=j.sale_id
 		  AND i.model=65 AND i.status='authorized'
 		  AND i.access_key=x.access_key
-		  AND i.authorization_protocol IS NOT NULL AND i.authorized_at IS NOT NULL
-		  AND j.state IN ('queued','awaiting_sefaz')
+		  AND length(btrim(COALESCE(i.authorization_protocol,'')))>0
+		  AND i.authorized_at IS NOT NULL
+		  AND octet_length(x.processed_xml)>0 AND octet_length(x.protocol_xml)>0
+		  AND j.state IN ('queued','awaiting_sefaz','manual_review')
 	`)
 	if err != nil {
 		return 0, err
