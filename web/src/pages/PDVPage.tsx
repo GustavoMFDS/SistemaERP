@@ -1541,6 +1541,8 @@ export default function PDVPage() {
           <p className="mt-1" role="status">
             {fiscalStatus?.authorized
               ? 'NFC-e autorizada. O DANFE pode ser impresso em 58 ou 80 mm conforme a impressora configurada.'
+              : fiscalStatus?.status === 'authorized'
+                ? 'ALERTA: nota marcada como autorizada, mas seu XML processado não está íntegro. Procure o responsável fiscal e não emita outra nota.'
               : fiscalStatus?.consultation_state === 'manual_review' ||
                 fiscalStatus?.automatic_state === 'manual_review'
                 ? 'ATENÇÃO: emissão fiscal requer revisão manual. Não repita a venda e não gere outra nota sem consultar o responsável.'
@@ -1555,6 +1557,7 @@ export default function PDVPage() {
                       : 'NFC-e ainda não autorizada. Pendência fiscal permanece registrada, mesmo sem impressão.'}
           </p>
           {!fiscalStatus?.authorized && (
+            fiscalStatus?.status === 'authorized' ||
             fiscalStatus?.consultation_state === 'manual_review' ||
             fiscalStatus?.automatic_state === 'manual_review'
           ) ? (
