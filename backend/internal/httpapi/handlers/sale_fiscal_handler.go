@@ -38,6 +38,9 @@ type saleFiscalStatus struct {
 	InvoiceID    *string `json:"invoice_id,omitempty"`
 	AccessKey    *string `json:"access_key,omitempty"`
 	LegacyReview bool    `json:"legacy_review"`
+	AutomaticState *string `json:"automatic_state,omitempty"`
+	ConsultationState *string `json:"consultation_state,omitempty"`
+	ConsultationAttempts *int `json:"consultation_attempts,omitempty"`
 }
 
 // Status is derived from actual invoice authorization state, not an optimistic
