@@ -152,6 +152,37 @@ func TestAutomaticNFCeHomologationPlansOnlyNewConfiguredSales(t *testing.T) {
 	`, tenant, newSale).Scan(&state); err != nil || state != fiscal.NFCeAutoQueued {
 		t.Fatalf("unexpected retry state: %q %v", state, err)
 	}
+	// Simulate a worker crash on attempt 12 while it held a live lease.
+	// The maintenance pass must not steal that lease or retry the sale.
+	if _, err := pool.Exec(ctx, `
+		UPDATE nfce_auto_homologation_jobs
+		SET attempt_count=12,lease_token=gen_random_uuid(),
+			lease_owner=$3,lease_until=now()+interval '2 minutes'
+		WHERE tenant_id=$1 AND sale_id=$2 AND state='queued'
+	`, tenant, newSale, worker); err != nil {t.Fatal(err)}
+	if updated,err:=fiscal.ReconcileNFCeAutomaticHomologationJobs(ctx,pool);
+		err!=nil || updated!=0 {
+		t.Fatalf("active lease must not be stolen: %d %v",updated,err)
+	}
+	if _,err:=pool.Exec(ctx,`
+		UPDATE nfce_auto_homologation_jobs
+		SET lease_until=now()-interval '1 second'
+		WHERE tenant_id=$1 AND sale_id=$2
+	`,tenant,newSale);err!=nil{t.Fatal(err)}
+	if updated,err:=fiscal.ReconcileNFCeAutomaticHomologationJobs(ctx,pool);
+		err!=nil || updated!=1 {
+		t.Fatalf("expired final lease not escalated: %d %v",updated,err)
+	}
+	if err:=pool.QueryRow(ctx,`
+		SELECT state FROM nfce_auto_homologation_jobs
+		WHERE tenant_id=$1 AND sale_id=$2
+	`,tenant,newSale).Scan(&state);err!=nil || state!=fiscal.NFCeAutoManual {
+		t.Fatalf("exhausted state=%q %v",state,err)
+	}
+	if updated,err:=fiscal.ReconcileNFCeAutomaticHomologationJobs(ctx,pool);
+		err!=nil || updated!=0 {
+		t.Fatalf("reconciliation not idempotent: %d %v",updated,err)
+	}
 	// Queue state can never fabricate an invoice or an SEFAZ response.
 	var invoices int
 	if err := pool.QueryRow(ctx, `
