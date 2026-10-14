@@ -65,7 +65,8 @@ AND i.status='authorized'
 AND (
 	(f.document_kind='nfce' AND i.model=65
 	  AND p.access_key=i.access_key
-	  AND octet_length(p.processed_xml)>0 AND octet_length(p.protocol_xml)>0) OR
+	  AND octet_length(p.processed_xml)>0 AND octet_length(p.protocol_xml)>0
+	  AND p.sha256=encode(digest(p.processed_xml,'sha256'),'hex')) OR
 	(f.document_kind='nfe' AND i.model=55)
 )
 AND length(btrim(COALESCE(i.authorization_protocol,'')))>0
