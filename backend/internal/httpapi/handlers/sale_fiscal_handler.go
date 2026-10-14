@@ -63,6 +63,8 @@ func (h *SaleFiscalHandler) loadStatus(r *http.Request, tenantID, saleID string)
 			  SELECT 1 FROM invoice_authorized_xml_files x
 			  WHERE x.tenant_id=s.tenant_id AND x.invoice_id=i.id
 			    AND x.access_key=i.access_key
+			    AND octet_length(x.processed_xml)>0
+			    AND octet_length(x.protocol_xml)>0
 			)
 		FROM sales s
 		LEFT JOIN sale_fiscal_intents f ON f.tenant_id=s.tenant_id AND f.sale_id=s.id
