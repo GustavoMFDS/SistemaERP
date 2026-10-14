@@ -227,8 +227,12 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	`, claimsA[0].TenantID, claimsA[0].InvoiceID); err != nil {
 		t.Fatal(err)
 	}
-	if resolved, err := fiscal.ResolveNFCeConsultationPlans(ctx, pool); err != nil || resolved < 1 {
-		t.Fatalf("resolve external final state=%d err=%v", resolved, err)
+	if resolved, err := fiscal.ResolveNFCeConsultationPlans(ctx, pool); err != nil || resolved != 0 {
+		t.Fatalf("rejected invoice must not look like valid archived authorization: %d %v", resolved, err)
+	}
+	if reviewed,err:=fiscal.EscalateTerminalNFCeConsultationReviews(ctx,pool);
+		err!=nil || reviewed!=1 {
+		t.Fatalf("rejected invoice not escalated to manual review: %d %v",reviewed,err)
 	}
 	if again, err := fiscal.PlanNFCeSubmittedConsultations(ctx, pool); err != nil || again != 0 {
 		t.Fatalf("resolved work requeued=%d err=%v", again, err)
