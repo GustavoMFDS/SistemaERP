@@ -16,6 +16,7 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   let sefazAuthorizedLater = false
   let awaitingConsultation = false
   let manualReview = false
+  let corruptedArchive = false
   let printerWidthMM = 80
   let printerUpdates = 0
   let calibrationRequests = 0
@@ -77,8 +78,8 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
       return reply({
         sale_id: saleID, required: true, document_kind: 'nfce',
         status: sefazAuthorizedLater ? 'authorized' : awaitingConsultation ? 'submitted' : 'pending',
-        authorized: sefazAuthorizedLater,
-        printable: sefazAuthorizedLater,
+        authorized: sefazAuthorizedLater && !corruptedArchive,
+        printable: sefazAuthorizedLater && !corruptedArchive,
         automatic_state: manualReview ? 'manual_review' : awaitingConsultation ? 'awaiting_sefaz' : undefined,
         consultation_state: manualReview ? 'manual_review' : awaitingConsultation ? 'awaiting_consultation' : undefined,
         consultation_attempts: manualReview ? 10 : awaitingConsultation ? 2 : undefined,
@@ -186,5 +187,16 @@ test('PDV: escolher não imprimir preserva obrigação fiscal; DANFE não autori
   await popup.waitForURL(/^blob:/, { waitUntil: 'domcontentloaded' })
   await expect(popup.getByText('DANFE NFC-e AUTORIZADA - visualização de teste')).toBeVisible()
   expect(danfeRequests).toBe(1)
+  expect(salePosts).toBe(1)
+  await popup.close()
+  // Even an authorized note can become unavailable after a storage
+  // integrity incident. A manual refresh must revoke the print/download
+  // affordances and warn the cashier without creating another fiscal sale.
+  corruptedArchive = true
+  await page.getByRole('button', { name: 'Atualizar situação fiscal' }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Não tente enviar outra NFC-e' })).toBeVisible()
+  await expect(page.getByText(/XML processado não está íntegro/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Baixar XML autorizado' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Sim, abrir para imprimir' })).toBeDisabled()
   expect(salePosts).toBe(1)
 })
