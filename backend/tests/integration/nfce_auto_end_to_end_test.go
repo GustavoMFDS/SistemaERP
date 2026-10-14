@@ -419,11 +419,51 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 		t.Fatalf("corrupted archive should be rejected: HTTP %d body=%s",
 			response.Code, response.Body.String())
 	}
+	// A stored document whose SHA-256 does not match is not "ready for
+	// printing" in *any* backend route or management view, even though
+	// invoices.status still says authorized.
+	if _,_,err:=svc.RenderNFCeDANFE(ctx,tenant,invoice,80);err==nil {
+		t.Fatal("corrupted nfeProc rendered a DANFE")
+	}
+	corruptedPage,err:=manager.QueryObligations(ctx,tenant,100,0,false)
+	if err!=nil{t.Fatal(err)}
+	found=false
+	for _,row:=range corruptedPage.Items {
+		if row.SaleID!=sale{continue}
+		found=true
+		if row.Authorized || row.ProcessedAvailable ||
+			row.Status!="missing_processed_xml_review" {
+			t.Fatalf("corrupted nfeProc was represented as authorized: %+v",row)
+		}
+	}
+	if !found {t.Fatal("manager hid corrupted sale")}
+	statusReq:=httptest.NewRequest(http.MethodGet,
+		"/api/v1/sales/"+sale+"/fiscal-status",nil)
+	statusReq.Header.Set("Authorization","Bearer "+authToken)
+	statusResponse:=httptest.NewRecorder()
+	api.ServeHTTP(statusResponse,statusReq)
+	if statusResponse.Code!=http.StatusOK ||
+		bytes.Contains(statusResponse.Body.Bytes(),[]byte(`"authorized":true`)) ||
+		bytes.Contains(statusResponse.Body.Bytes(),[]byte(`"printable":true`)) {
+		t.Fatalf("cashier status falsely accepted altered archive: %d %s",
+			statusResponse.Code,statusResponse.Body.String())
+	}
+	if _,err:=pool.Exec(ctx,`
+		UPDATE nfce_auto_homologation_jobs SET state='queued'
+		WHERE tenant_id=$1 AND sale_id=$2
+	`,tenant,sale);err!=nil{t.Fatal(err)}
+	if n,err:=fiscal.ObserveAuthorizedAutomaticNFCeJob(ctx,pool);
+		err!=nil||n!=0 {t.Fatalf("corrupt archive completed queue: %d %v",n,err)}
+
 	if _, err := pool.Exec(ctx, `
 		UPDATE invoice_authorized_xml_files SET sha256=$3
 		WHERE tenant_id=$1 AND invoice_id=$2
 	`, tenant, invoice, originalHash); err != nil {
 		t.Fatal(err)
+	}
+	if n,err:=fiscal.ObserveAuthorizedAutomaticNFCeJob(ctx,pool);
+		err!=nil||n!=1 {
+		t.Fatalf("valid restored archive not observed: %d %v",n,err)
 	}
 
 	if _, rendered, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err != nil || len(rendered) == 0 {
