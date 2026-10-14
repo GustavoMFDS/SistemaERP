@@ -13,6 +13,7 @@ import (
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/httpapi"
+	"github.com/example/sistemaemgo/internal/httpapi/handlers"
 	"github.com/example/sistemaemgo/internal/modules"
 	"github.com/golang-jwt/jwt/v5"
 	"os"
@@ -199,6 +200,30 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if invoiceStatus != "submitted" {
 		t.Fatalf("not submitted: %s", invoiceStatus)
 	}
+	// A crash between SOAP delivery and local queue completion may leave a
+	// "queued" row with its final lease expired. Recovery must select
+	// CONSULT, never POST Authorize again, even after attempt exhaustion.
+	if _, err := pool.Exec(ctx, `
+		UPDATE nfce_auto_homologation_jobs SET state='queued',
+		  attempt_count=12,lease_token=gen_random_uuid(),
+		  lease_owner=$3,lease_until=now()-interval '1 second'
+		WHERE tenant_id=$1 AND sale_id=$2
+	`, tenant,sale,owner);err!=nil{t.Fatal(err)}
+	if n,err:=fiscal.ReconcileNFCeAutomaticHomologationJobs(ctx,pool);
+		err!=nil || n!=1 {
+		t.Fatalf("submitted invoice not reconciled to CONSULT: %d %v",n,err)
+	}
+	var recoveredQueueState string
+	if err:=pool.QueryRow(ctx,`
+		SELECT state FROM nfce_auto_homologation_jobs
+		WHERE tenant_id=$1 AND sale_id=$2
+	`,tenant,sale).Scan(&recoveredQueueState);
+		err!=nil || recoveredQueueState!="awaiting_sefaz" {
+		t.Fatalf("crash recovery lost submitted document: %q %v",
+			recoveredQueueState,err)
+	}
+	if remote.authorizeCalls!=1 {t.Fatal("recovery caused a duplicate SEFAZ submission")}
+
 	// The exact cashier HTTP route cannot expose a submitted/uncertain note.
 	// The final authorized path below uses the same JWT + tenant-scoped route.
 	webCfg := config.Config{
@@ -262,6 +287,20 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if _, _, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err == nil {
 		t.Fatal("authorized status without protocol/nfeProc archive printed DANFE")
 	}
+	manager:=handlers.NewSaleFiscalHandler(pool,svc,audit.New(pool,logger))
+	unarchivedPage,err:=manager.QueryObligations(ctx,tenant,100,0,false)
+	if err!=nil{t.Fatal(err)}
+	found:=false
+	for _,obligation:=range unarchivedPage.Items {
+		if obligation.SaleID!=sale{continue}
+		found=true
+		if obligation.Authorized || obligation.ProcessedAvailable ||
+			obligation.Status!="missing_processed_xml_review" {
+			t.Fatalf("manager showed a non-archived note as authorized: %+v",obligation)
+		}
+	}
+	if !found{t.Fatal("manager did not return synthetic sale")}
+
 	if _, err := pool.Exec(ctx, `
 		UPDATE invoices SET status='submitted',
 		  authorization_protocol=NULL,authorized_at=NULL
@@ -318,6 +357,22 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if finalInvoice != "authorized" || jobState != "authorized" {
 		t.Fatalf("not authorized with completed queue: invoice=%s job=%s", finalInvoice, jobState)
 	}
+	authorizedPage,err:=manager.QueryObligations(ctx,tenant,100,0,false)
+	if err!=nil {t.Fatal(err)}
+	found=false
+	for _,obligation:=range authorizedPage.Items {
+		if obligation.SaleID!=sale{continue}
+		found=true
+		if !obligation.Authorized || !obligation.ProcessedAvailable ||
+			obligation.Status!="authorized" || obligation.AutomaticState==nil ||
+			*obligation.AutomaticState!="authorized" ||
+			obligation.ConsultationState==nil ||
+			*obligation.ConsultationState!="resolved" {
+			t.Fatalf("manager obscured recovered authorization: %+v",obligation)
+		}
+	}
+	if !found{t.Fatal("manager did not return archived sale")}
+
 	// Only this complete, tenant-scoped and hash-verified nfeProc can be
 	// exported. Neither copying paper nor printing a DANFE is required.
 	response := getCashierXML(sale, authToken)
