@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 
@@ -46,7 +46,7 @@ export default function FinancialOverview() {
   const createKey = useRef('')
   const settlementKeys = useRef<Record<string, string>>({})
 
-  async function refresh(withTrend = true) {
+  const refresh = useCallback(async (withTrend = true) => {
     setLoading(true)
     setError('')
     try {
@@ -69,7 +69,7 @@ export default function FinancialOverview() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [view, pageOffset, days])
 
   useEffect(() => {
     let active = true
@@ -79,7 +79,7 @@ export default function FinancialOverview() {
     return () => { active = false }
   }, [])
 
-  useEffect(() => { void refresh() }, [days, view, pageOffset]) // requested period and account page
+  useEffect(() => { void refresh() }, [refresh]) // requested period and account page
 
   const visible = accounts // already tenant-scoped and filtered/paginated by the API
   const chartMax = Math.max(1, ...trends.flatMap((item) => [Math.max(0, item.inflow), Math.abs(item.outflow)]))
