@@ -93,3 +93,42 @@ Reexecutado no **HEAD após a remoção**, em clone temporário no computador co
 **Gates ainda não comprovados:** suíte Playwright inteira, integração real com PostgreSQL/Redis, migrações up/down e homologação fiscal oficial; execução do workflow CI no próprio GitHub e versão alvo (Go 1.25/Node 22). O PR continua **draft e sem merge**.
 
 **Classificação final de código morto no escopo examinado:** duas implementações inteiras sem importadores + tipos/helpers/métodos de compatibilidade não usados eliminados. Não se reivindica 100% de ausência de código morto em caminhos com reflexão, dados de produção ou possíveis combinações de build tags.
+
+## Rodada estendida — integração real, avisos React e E2E (15/10/2026)
+
+### Remoção de avisos e validação
+
+- `dd812106`: 7 efeitos React de consultas assíncronas passaram a invalidar respostas por `active=false` no cleanup; permanece verificação de ID da requisição + empresa/sessão. Não deixar uma resposta antiga sobrescrever o estado após troca de escopo.
+- `d86950be`: estabilização de atualização de contas com `useCallback`; `useEffectEvent` para carregamentos de montagem que não devem disparar toda vez que filtros de formulário mudam.
+- Resultado em clone do PR: **`npm run lint`: 0 erros e 0 avisos** (eram 12 no começo da auditoria); **`npm run build`: aprovado**, Vite/TypeScript, 58 módulos transformados.
+- `033760fa` e `b3ba56a`: manutenção dos cenários Playwright (seletores alinhados à UI real, formulário de dinheiro dentro de `details` e interceptação de API sem porta fixa). Sem mudança de produção nesses commits.
+
+### Banco, migrations e integração Go reais
+
+- Projeto Compose **isolado** `erp-audit-pr34-20261015`, PostgreSQL 16 e Redis 7.4, portas temporárias `55433` e `56379`; volume novo, **nenhuma conexão com banco real de loja**.
+- `migrate up` de **v1 até v48**: **aprovado**, `schema_migrations = 48 / dirty=false`. Seed demonstrativo específico do ambiente de teste: **aprovado**.
+- `go test -tags=integration -count=1 -p 1 -parallel 1 -timeout 12m ./tests/integration/...` com `TEST_DATABASE_URL`, `TEST_REDIS_ADDR` e `TEST_FISCAL_DISPOSABLE_DB=1`: **aprovado**, exit 0. Isso **executa** cenários PostgreSQL/Redis, diferente da mera compilação na rodada anterior.
+- Serviço de API em `127.0.0.1:18080` com `APP_ENV=test`, `FISCAL_PROVIDER=mvp` e flags SEFAZ **desligadas**; Vite em `127.0.0.1:5183`. **Nenhuma transmissão fiscal verdadeira**.
+- `go test -cover ./...` aprovado (cobertura **unitária por pacote**, não soma automaticamente os casos de integração): `fiscal/domain` **78,8%**, `fiscal/providers/sefaz` **64,9%**, `fiscal/application` **2,6%**, `finance/application` **2,9%**, `team` **2,9%**, `httpapi/handlers` **7,1%**, `inventory/application` **9,5%** e `sales/application` **30,6%**. Esses números indicam **lacunas de teste, não prova de código morto**.
+
+### E2E — resultados e falhas remanescentes
+
+- Primeira execução da suíte Chromium (121 casos) foi comprometida por limites reais de login: observados `HTTP 429`. Recriado o banco de teste e usada taxa alta **apenas no processo local descartável** (sem editar configuração padrão do produto).
+- Segunda execução: 120 selecionados (excluído caso antigo que espera criar XML fiscal sem a preparação exigida), com `--workers=1 --max-failures=8`: **18 passaram, 8 falharam, 2 ignorados, 92 não chegaram a executar**. Não reportar a suíte completa como aprovada.
+- Falhas de testes identificadas: título antigo `Produtos` versus UI `Produtos da loja`; ausência da região antiga `Sessão de caixa`; `Prontidão para homologação` versus `Diagnóstico local da configuração fiscal`; tentativa de preencher input escondido em `details`; rota mock com host/porta `127.0.0.1:8080` fixos; estado de caixa aberto deixado por falha anterior, contaminando cenários posteriores.
+- **Retestes bem-sucedidos após as correções:** diagnóstico fiscal Chromium **1 passed**; retorno ao login após refresh recusado **1 passed**; smoke de navegação/PDV Chromium **1 passed**; idempotência de movimentação de caixa após reload em banco limpo **1 passed**.
+- Firefox e WebKit: teste **não executável neste dispositivo**; executáveis Playwright ausentes. Não declarar compatibilidade cross-browser validada.
+- Permanecem tarefas de **isolamento por teste** (abertura/fechamento de caixa, snapshots entre testes e seed), teste integral no navegador e atualização de cenário fiscal que pressupõe geração de XML fora das novas pré-condições. É necessário preservar as regras fiscais ao ajustar a expectativa, não afrouxá-las.
+
+### Rollback fiscal fail-closed: evidência
+
+O ensaio de rollback no **banco descartável com seed e histórico criado por testes** executou `down 13` em v48, mas a migração de identidade/auditoria fiscal protegeu o histórico, emitindo `cannot discard technical fiscal principal or preflight audit history`. O banco descartável ficou **v42, dirty=true**; `up` recusou continuar sobre versão dirty, como esperado. **Não foi aplicado `force`, não foi removido histórico para mascarar o resultado e nenhum banco real foi tocado.** Um ciclo `48 → 35 → 48` em esquema vazio permanece **pendente** de comprovação separada. Esse comportamento mostra proteção de retenção deliberada, mas também a necessidade de procedimento documentado de atualização/recuperação em ambiente operacional.
+
+### Próximos gates
+
+1. Suíte Chromium completa em ambiente que isole o caixa e dados demo por cenário, com todos os 121 resultados registrados, mais Firefox/WebKit se forem instalados.
+2. Cobertura de orquestração fiscal, financeiro e handlers; teste de `go test -race` onde toolchain suportar.
+3. Reversibilidade de migrações **apenas em banco vazio/descartável**, sem burlar controles fail-closed. Backup/restore real com dados fictícios continua necessário.
+4. CI do GitHub (runners executando passos), Go 1.25, Node 22, e homologação fiscal com credenciais oficiais reais — **não comprovados aqui**.
+
+**Integração proibida por enquanto:** PR #34 permanece draft, dependente do PR #25, sem merge automático e sem autorização de NFC-e em produção.

@@ -111,7 +111,29 @@ npm run lint
 npm run build
 ```
 
-Playwright exige aplicação/serviços de teste preparados; rode `npm run test:e2e` **somente** em ambiente apropriado. Os testes de integração podem exigir PostgreSQL/Redis descartáveis, variáveis de proteção e migrações; veja `.github/workflows/ci.yml` e `docs/smoke-test.md`. **Não confundir comandos recomendados com resultados já executados**.
+### Integração com banco de teste
+
+Prepare **PostgreSQL e Redis descartáveis, com banco exclusivo**, aplique as migrações e carregue o seed demonstrativo apenas nesse banco. Configure `TEST_DATABASE_URL` (DSN do banco de teste) e `TEST_REDIS_ADDR` (Redis do teste). Use `TEST_FISCAL_DISPOSABLE_DB=1` **exclusivamente nesse ambiente isolado**, pois libera cenários que alteram dados fiscais de teste.
+
+```bash
+cd backend
+go test -tags=integration -count=1 -p 1 -parallel 1 -timeout 12m ./tests/integration/...
+```
+
+**Nunca** use uma base da loja ou de homologação com dados reais nesses testes. Algumas migrações têm rollback **fail-closed** quando há registros fiscais/auditoria e podem deixar a versão em `dirty=true` ao recusar a exclusão; não force a versão nem apague histórico operacional para contornar o bloqueio.
+
+### E2E do navegador
+
+Inicie a API com o banco **de teste**, a UI Vite apontando para a API de teste (`VITE_API_BASE_URL`) e execute em outro terminal:
+
+```bash
+cd web
+npm run test:e2e -- --project=chromium --workers=1
+```
+
+Configure `E2E_BASE_URL` quando a UI não estiver em `http://127.0.0.1:5173`. Os cenários misturam API real e respostas simuladas. Os testes que abrem caixa, finalizam venda ou usam contas demo exigem isolamento/limpeza de estado entre execuções. Muitos logins automatizados podem acionar o rate limiter: ajuste limites **somente no processo descartável de teste**, jamais no ambiente real. Chromium, Firefox e WebKit precisam dos respectivos navegadores instalados. A suíte integral ainda **não** é gate verde; consulte a [auditoria com resultados e falhas](docs/auditoria-codigo-20261015.md).
+
+Outras referências: `.github/workflows/ci.yml` e `docs/smoke-test.md`. **Não confundir comandos recomendados com resultados realmente executados.**
 
 ## Segurança e operação fiscal
 
