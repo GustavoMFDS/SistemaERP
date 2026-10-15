@@ -454,6 +454,32 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if !found {
 		t.Fatal("manager hid corrupted sale")
 	}
+	// A document can become corrupted AFTER the authorization was observed.
+	// Both locally resolved queues must be reopened for human review rather
+	// than continuing to advertise an intact government authorization.
+	if n, err := fiscal.ReconcileNFCeArchivedIntegrity(ctx, pool); err != nil || n != 2 {
+		t.Fatalf("archive drift did not escalate both completed queues: %d %v", n, err)
+	}
+	var autoDriftState, consultDriftState, stillInvoiceStatus string
+	if err := pool.QueryRow(ctx, `
+		SELECT a.state,c.state,i.status
+		FROM invoices i
+		JOIN nfce_auto_homologation_jobs a
+		  ON a.tenant_id=i.tenant_id AND a.sale_id=i.sale_id
+		JOIN nfce_consult_recovery_jobs c
+		  ON c.tenant_id=i.tenant_id AND c.invoice_id=i.id
+		WHERE i.tenant_id=$1 AND i.id=$2
+	`, tenant, invoice).Scan(&autoDriftState,&consultDriftState,&stillInvoiceStatus); err != nil {
+		t.Fatal(err)
+	}
+	if autoDriftState!="manual_review" || consultDriftState!="manual_review" ||
+		stillInvoiceStatus!="authorized" {
+		t.Fatalf("archive drift must affect queues only: %s %s %s",
+			autoDriftState,consultDriftState,stillInvoiceStatus)
+	}
+	if n,err:=fiscal.ReconcileNFCeArchivedIntegrity(ctx,pool);err!=nil || n!=0 {
+		t.Fatalf("integrity sweep not idempotent: %d %v",n,err)
+	}
 	statusReq := httptest.NewRequest(http.MethodGet,
 		"/api/v1/sales/"+sale+"/fiscal-status", nil)
 	statusReq.Header.Set("Authorization", "Bearer "+authToken)
@@ -483,6 +509,9 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	}
 	if n, err := fiscal.ObserveAuthorizedAutomaticNFCeJob(ctx, pool); err != nil || n != 1 {
 		t.Fatalf("valid restored archive not observed: %d %v", n, err)
+	}
+	if n,err:=fiscal.ResolveNFCeConsultationPlans(ctx,pool);err!=nil || n!=1 {
+		t.Fatalf("valid restored archive did not reconcile consultation: %d %v",n,err)
 	}
 
 	if _, rendered, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err != nil || len(rendered) == 0 {
