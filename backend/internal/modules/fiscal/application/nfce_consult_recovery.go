@@ -45,7 +45,8 @@ func PlanNFCeSubmittedConsultations(ctx context.Context, pool *pgxpool.Pool) (in
 		WHERE i.model=65 AND i.status='submitted'
 		  AND i.environment='homologation'
 		  AND upper(btrim(c.address_state))='MG'
-		  AND i.access_key ~ '^31[0-9]{42}
+		  AND i.access_key ~ '^31[0-9]{42}$'
+		  AND i.document_number IS NOT NULL
 		ON CONFLICT (tenant_id,invoice_id) DO NOTHING
 	`)
 	if err != nil {
