@@ -107,3 +107,44 @@ desconhecido.
 A ausência de dados fiscais reais não impede desenvolver,
 operar e testar o **PDV no navegador**, mas impede afirmar
 que notas reais já podem ser emitidas legalmente.
+
+
+## Vigilância local de integridade pós-autorização (15/10/2026)
+
+O serviço que planeja consultas NFC-e executa periodicamente
+`ReconcileNFCeArchivedIntegrity`, além das verificações de estados
+terminais e tentativas esgotadas. Mesmo **depois** de uma fila ter sido
+declarada `authorized` ou `resolved`, um documento com chave não
+correspondente, protocolo ausente, `nfeProc` vazio ou SHA-256 divergente
+faz o estado **local** dessa fila passar para `manual_review`.
+A mesma defesa alcança filas ainda `queued`, `awaiting_sefaz` ou
+`awaiting_consultation` se a nota já está marcada `authorized` mas
+o arquivo processado não está íntegro.
+
+A operação é transacional no PostgreSQL, verifica que nenhum lease
+continua válido, não muda `invoices.status`, não inventa protocolo,
+não elimina o conteúdo para perícia e **não realiza chamadas SOAP ou
+transmissão SEFAZ**. O sistema emite um aviso técnico de quantos
+trabalhos locais foram colocados em revisão, sem registrar o XML ou
+dados pessoais no log. É possível repetir a verificação: sem alterações
+novas, ela não modifica as mesmas filas novamente.
+
+A rotina de planejamento `PlanNFCeSubmittedConsultations` também
+descarta chaves que não estejam no formato de **44 dígitos numéricos
+iniciados por 31 (MG)**, evitando que uma chave de outro estado ou
+um dado legado malformado interrompa o processamento de todas as
+consultas. Essa pré-filtragem não substitui a validação da chave
+completa, executada antes de qualquer consulta remota.
+
+O teste de integração cria, com dados **exclusivamente fictícios**, um
+XML autorizado íntegro, modifica seu hash **após** a conclusão,
+confirma a quarentena das filas e bloqueio das saídas fiscais,
+exige idempotência, restaura a integridade e comprova a reconciliação.
+Outro cenário mistura uma chave com UF incorreta e uma chave MG
+válida: a incorreta é ignorada, sem atrasar o documento válido.
+
+**Ação do operador:** uma fila marcada para revisão por corrupção é
+um alerta de integridade, não uma rejeição SEFAZ. Preserve o original
+e os registros, faça backup e solicite investigação; jamais tente
+consertar o incidente criando um novo documento fiscal para a
+mesma venda.
