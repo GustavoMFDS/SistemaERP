@@ -74,3 +74,22 @@ Os 239 caminhos listados por `gofmt -l .` no clone Windows resultaram do `core.a
 **Invariantes preservadas:** autenticação por cookie HttpOnly e refresh real `RefreshWithSubject`; isolamento por empresa, armazenamento/caches reais, `FiscalRepo.MarkNFCeSubmitted` (usado pelo processamento fiscal), rotas, adapters SEFAZ, migrações, PWA e cenários offline.
 
 **Pendente mesmo após a segunda rodada:** repetir unitários, vet, lint, build e análises no **novo** SHA; executar testes E2E integrados e banco descartável; homologação SEFAZ com dados reais continua fora de escopo e não deve ser inferida.
+
+## Validação final do commit de limpeza `36ebe2309b1f67452720a02941b355f992b04ec5`
+
+Reexecutado no **HEAD após a remoção**, em clone temporário no computador conectado:
+
+- `go test ./...`: **aprovado**, código 0.
+- `go vet ./...`: **aprovado**, código 0.
+- `go run honnef.co/go/tools/cmd/staticcheck@latest ./...`: **aprovado, sem diagnósticos**, código 0.
+- `npm run lint`: **aprovado**, 0 erros e **10 avisos** React restantes (antes 12).
+- `npm run build`: **aprovado**, código 0, 58 módulos Vite transformados.
+- `go test -tags=integration -run '^$' ./tests/integration/...`: compilação de teste integrada **aprovada** sem executar os testes (não requer nem valida Postgres real).
+- `go run golang.org/x/tools/cmd/deadcode@latest -test ./...`: resta **um** símbolo reportado como inalcançável: `NewFiscalService`, **preservado por aparecer em cinco testes de integração marcados com a build tag `integration`**. Essa divergência mostra por que não se pode apagar indiscriminadamente todo aviso da ferramenta.
+- Playwright Chromium, Vite servido em `127.0.0.1:5183`, testes `product-photos.spec.ts` e `pdv-fiscal-print-choice.spec.ts`: **2 passaram** (23,3s); ambos dependem de API simulada, não provam backend/banco reais.
+- `go mod tidy`: **aprovado**, código 0; `git diff -w -- go.mod go.sum` vazio. O modo `go mod tidy -diff` detectou apenas o churn de finais de linha do checkout Windows `core.autocrlf=true` (sem diferença semântica); não foi commitada formatação em massa nem mudança de módulos. Após o experimento, `go.mod` e `go.sum` foram restaurados do commit.
+- O servidor Vite de validação foi encerrado após os testes.
+
+**Gates ainda não comprovados:** suíte Playwright inteira, integração real com PostgreSQL/Redis, migrações up/down e homologação fiscal oficial; execução do workflow CI no próprio GitHub e versão alvo (Go 1.25/Node 22). O PR continua **draft e sem merge**.
+
+**Classificação final de código morto no escopo examinado:** duas implementações inteiras sem importadores + tipos/helpers/métodos de compatibilidade não usados eliminados. Não se reivindica 100% de ausência de código morto em caminhos com reflexão, dados de produção ou possíveis combinações de build tags.
