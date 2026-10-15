@@ -1,13 +1,15 @@
-# SistemaEmGo
+# Esterium ERP
 
-SistemaEmGo is a multi-tenant ERP/POS and backoffice system for sales, inventory, finance, fiscal operations, auditability, and privacy/LGPD technical workflows.
+Esterium ERP (historically SistemaEmGo) is a multi-tenant ERP/POS and backoffice system for sales, inventory, finance, fiscal operations, auditability, and privacy/LGPD technical workflows.
+
+**Branding:** Esterium ERP is the product name adopted on 2026-10-15. The existing GitHub repository, Go module, database identifiers and local storage namespaces remain unchanged for compatibility. The Brazilian trademark registry was not conclusively checked; usage as a brand is not a claim of INPI registration or exclusive rights. Other unrelated uses of Esterium exist internationally. Registration and trademark clearance are separate from naming the software.
 
 The project is currently a pre-production / staging candidate. It implements technical controls that support LGPD compliance, but final legal, accounting, DPO, infrastructure, and operational validation is required before real production use.
 
 ## Catálogo funcional e pendências
 
 O inventário **mais atual de funcionalidades, pendências e melhorias** está no
-[Catálogo funcional do SistemaEmGo](docs/catalogo-funcional-sistema.md):
+[Catálogo funcional do Esterium ERP](docs/catalogo-funcional-sistema.md):
 checklist por módulo com distinção entre **implementação localizada no
 código**, **funcionalidade parcial**, **pendência** e **validação efetiva**.
 A matriz de prioridades P0–P3 ajuda a planejar as próximas entregas.
