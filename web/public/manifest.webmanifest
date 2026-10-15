@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "SistemaEmGo — Gestão da Loja",
-  "short_name": "SistemaEmGo",
-  "description": "Caixa, produtos, estoque e gestão para a sua loja.",
+  "name": "Esterium ERP — Gestão Comercial",
+  "short_name": "Esterium",
+  "description": "PDV, produtos, estoque, financeiro e gestão comercial em um só lugar.",
   "lang": "pt-BR",
   "start_url": "/home",
   "scope": "/",
