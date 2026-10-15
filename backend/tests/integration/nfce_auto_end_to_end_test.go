@@ -469,16 +469,16 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 		JOIN nfce_consult_recovery_jobs c
 		  ON c.tenant_id=i.tenant_id AND c.invoice_id=i.id
 		WHERE i.tenant_id=$1 AND i.id=$2
-	`, tenant, invoice).Scan(&autoDriftState,&consultDriftState,&stillInvoiceStatus); err != nil {
+	`, tenant, invoice).Scan(&autoDriftState, &consultDriftState, &stillInvoiceStatus); err != nil {
 		t.Fatal(err)
 	}
-	if autoDriftState!="manual_review" || consultDriftState!="manual_review" ||
-		stillInvoiceStatus!="authorized" {
+	if autoDriftState != "manual_review" || consultDriftState != "manual_review" ||
+		stillInvoiceStatus != "authorized" {
 		t.Fatalf("archive drift must affect queues only: %s %s %s",
-			autoDriftState,consultDriftState,stillInvoiceStatus)
+			autoDriftState, consultDriftState, stillInvoiceStatus)
 	}
-	if n,err:=fiscal.ReconcileNFCeArchivedIntegrity(ctx,pool);err!=nil || n!=0 {
-		t.Fatalf("integrity sweep not idempotent: %d %v",n,err)
+	if n, err := fiscal.ReconcileNFCeArchivedIntegrity(ctx, pool); err != nil || n != 0 {
+		t.Fatalf("integrity sweep not idempotent: %d %v", n, err)
 	}
 	statusReq := httptest.NewRequest(http.MethodGet,
 		"/api/v1/sales/"+sale+"/fiscal-status", nil)
@@ -510,8 +510,8 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	if n, err := fiscal.ObserveAuthorizedAutomaticNFCeJob(ctx, pool); err != nil || n != 1 {
 		t.Fatalf("valid restored archive not observed: %d %v", n, err)
 	}
-	if n,err:=fiscal.ResolveNFCeConsultationPlans(ctx,pool);err!=nil || n!=1 {
-		t.Fatalf("valid restored archive did not reconcile consultation: %d %v",n,err)
+	if n, err := fiscal.ResolveNFCeConsultationPlans(ctx, pool); err != nil || n != 1 {
+		t.Fatalf("valid restored archive did not reconcile consultation: %d %v", n, err)
 	}
 
 	if _, rendered, err := svc.RenderNFCeDANFE(ctx, tenant, invoice, 80); err != nil || len(rendered) == 0 {
