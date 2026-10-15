@@ -262,6 +262,12 @@ func StartNFCeConsultationPlanner(ctx context.Context, pool *pgxpool.Pool, logge
 				logger.Warn("nfce_consult_resolve_failed", slog.Any("err", err))
 				return
 			}
+			if _, err := ReconcileNFCeArchivedIntegrity(scanCtx, pool); err != nil {
+				if scanCtx.Err() == nil {
+					logger.Warn("nfce_archive_integrity_reconcile_failed", slog.Any("err", err))
+				}
+				return
+			}
 			if _, err := EscalateTerminalNFCeConsultationReviews(scanCtx, pool); err != nil {
 				if scanCtx.Err() == nil {
 					logger.Warn("nfce_consult_terminal_review_failed", slog.Any("err", err))
