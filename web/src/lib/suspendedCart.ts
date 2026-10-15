@@ -66,7 +66,3 @@ export function removeSuspendedCart(id: string): void {
   save(getSuspendedCarts().filter((item) => item.id !== id))
 }
 
-export function clearSuspendedCarts(): void {
-  const key = storageKey()
-  if (key) localStorage.removeItem(key)
-}

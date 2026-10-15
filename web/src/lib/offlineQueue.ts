@@ -258,11 +258,6 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   return true
 }
 
-export function clearOfflineQueue(): void {
-  const key = queueKey()
-  if (key) localStorage.removeItem(key)
-}
-
 function sanitizeQueuedHeaders(headers?: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(headers ?? {})) {
