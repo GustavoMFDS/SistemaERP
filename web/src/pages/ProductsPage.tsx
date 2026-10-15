@@ -117,7 +117,6 @@ export default function ProductsPage() {
         setPendingImport(writable ? readPendingProductImport() : null)
       })
       .catch((e: unknown) => setError(errorMessage(e)))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

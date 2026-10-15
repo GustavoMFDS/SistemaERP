@@ -26,14 +26,6 @@ type CancellationEventInput struct {
 	Justification         string
 }
 
-type eventEnvelopeXML struct {
-	XMLName xml.Name `xml:"envEvento"`
-	Xmlns   string   `xml:"xmlns,attr"`
-	Version string   `xml:"versao,attr"`
-	IDLot   string   `xml:"idLote"`
-	Event   eventXML `xml:"evento"`
-}
-
 type eventXML struct {
 	XMLName   xml.Name     `xml:"evento"`
 	Xmlns     string       `xml:"xmlns,attr"`

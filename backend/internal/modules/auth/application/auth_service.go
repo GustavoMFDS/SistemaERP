@@ -142,11 +142,6 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenStr string) (userI
 	return claims.Subject, claims.TenantID, nil
 }
 
-func (s *AuthService) Refresh(ctx context.Context, tokenStr string) (TokenResponse, error) {
-	resp, _, _, err := s.RefreshWithSubject(ctx, tokenStr)
-	return resp, err
-}
-
 func (s *AuthService) RefreshWithSubject(ctx context.Context, tokenStr string) (TokenResponse, string, string, error) {
 	claims, err := s.validateRefreshToken(tokenStr)
 	if err != nil {
@@ -237,11 +232,6 @@ func (s *AuthService) GetUserPermissions(ctx context.Context, userID string, ten
 		out[p] = true
 	}
 	return out, nil
-}
-
-func (s *AuthService) InvalidateUserPermissions(userID string) {
-	// Permissions are read from the tenant-scoped repository on every request.
-	// Kept for compatibility with callers that may explicitly invalidate.
 }
 
 func (s *AuthService) GetUserInfo(ctx context.Context, userID string, tenantID string) (AuthUserInfo, error) {

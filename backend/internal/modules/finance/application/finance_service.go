@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -541,6 +540,4 @@ func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actor
 	return refundID, status, remainingAfter, true, nil
 }
 
-func IsFinanceNotFound(err error) bool {
-	return errors.Is(err, common.ErrNotFound)
-}
+

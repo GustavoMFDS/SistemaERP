@@ -9,7 +9,7 @@
 3. Revisão do README, `.env.example`, Docker Compose e `backend/internal/config/config.go` para verificar inicialização real e coerência da conexão PostgreSQL.
 4. Triagem conservadora de módulos Go, fiscal, segredos, migrações, testes, PWA e histórico: somente remover itens com evidência forte de desuso. Exportação de função, cobertura de teste incompleta, feature flag desligada ou arquivo histórico de migração **não bastam** para classificar algo como morto.
 
-**Limite:** esta foi uma auditoria **estática** sobre o repositório remoto, sem checkout executável local. Não foi possível executar `go test`, `go vet`, `npm run lint`, `npm run build`, Playwright, integração PostgreSQL ou homologação SEFAZ neste ambiente. Esta revisão **não** certifica cobertura integral de código morto ou regressão zero. O PR deve permanecer draft até a validação real no SHA final.
+**Limite da primeira rodada:** a inspeção inicial foi estática. **Na segunda rodada foi criado um clone isolado no dispositivo conectado** e executados os comandos de testes e análise indicados adiante. Esses resultados são anteriores ao commit desta segunda rodada e devem ser reexecutados no SHA final. E2E de navegador com backend/banco, migrações reais e SEFAZ permanecem sem validação nesta limpeza.
 
 ## Removidos: arquivos sem uso operacional identificado
 
@@ -49,3 +49,28 @@
 5. Não declarar emissão fiscal em produção, testagem end-to-end completa ou CI verde com base neste relatório.
 
 **Resultado:** remoções de baixo risco e correções documentais aplicadas em branch isolada. A auditoria de código morto mais profunda do backend permanece dependente de compilação/análise estática e regressão real para evitar perda de comportamento.
+
+## Segunda rodada — verificações executadas em clone isolado (15/10/2026)
+
+Clone temporário Windows, HEAD inicial do PR #34: `415caddb249c1ce31d2f918953aeaab876d2dd87`, Go **1.26.2**, Node **24.11.0** e npm **11.6.1** (ambiente de execução diferente do alvo Go 1.25/Node 22 do CI).
+
+| Comando | Resultado |
+| --- | --- |
+| `go test ./...` | **Aprovado** (exit 0); testes unitários, sem banco real |
+| `go vet ./...` | **Aprovado** (exit 0) |
+| `npm ci --no-audit --no-fund` | **Aprovado** |
+| `npm run lint` | **Aprovado com 12 avisos**, dos quais 2 eram comentários `eslint-disable` sem efeito |
+| `npm run build` | **Aprovado** |
+| `go run honnef.co/go/tools/cmd/staticcheck@latest ./...` | 2 tipos não usados (`refreshRequest`, `eventEnvelopeXML`) + 1 melhoria de conversão no mapeamento de pagamento; corrigidos neste commit |
+| `go run golang.org/x/tools/cmd/deadcode@latest -test ./...` | 28 funções/métodos reportados como inalcançáveis, classificados antes de remover |
+| `GOFLAGS=-tags=integration go test -run '^$' ./tests/integration/...` | **Compilação aprovada**, execução dos testes de banco não realizada |
+| `GOFLAGS=-tags=integration go run golang.org/x/tools/cmd/deadcode@latest -test ./...` | Repetiu a lista de candidatos; `NewFiscalService` é **mantido** por ter referências explícitas em testes marcados `integration` |
+| `npx --yes knip@latest --no-progress` | 3 tipos exportados apenas localmente (removidos os `export`); falso positivo `public/sw.js` (registrado na PWA), imports E2E dinâmicos não resolvidos; **não** eliminar esses arquivos |
+
+Os 239 caminhos listados por `gofmt -l .` no clone Windows resultaram do `core.autocrlf=true` global e conversão CRLF no checkout: o diff de `gofmt -d` mostrou apenas alteração de fim de linha para o exemplo inspecionado. Não fazer reformatação em massa por esse diagnóstico. O CI/Linux deve verificar `gofmt` após normalização.
+
+**Remoções adicionais verificadas:** pacote independente `internal/platform/cache/product_cache.go` (Redis legado, não importado; cache de produtos em `internal/modules/inventory/infrastructure/products_repo_cached.go` permanece); pacote independente `internal/platform/tracing/tracing.go` (não importado; telemetria ativa em `internal/platform/observability` permanece); construtos/funções mortos localizados por análise estática, incluindo wrapper `AuthService.Refresh`, invalidator de permissões vazio, helper de finance/not-found, configurador de deadline sem consumidores e wrapper manual não utilizado de submissão NFC-e. **A implementação efetiva de submissão/reconciliação fiscal permanece intacta.**
+
+**Invariantes preservadas:** autenticação por cookie HttpOnly e refresh real `RefreshWithSubject`; isolamento por empresa, armazenamento/caches reais, `FiscalRepo.MarkNFCeSubmitted` (usado pelo processamento fiscal), rotas, adapters SEFAZ, migrações, PWA e cenários offline.
+
+**Pendente mesmo após a segunda rodada:** repetir unitários, vet, lint, build e análises no **novo** SHA; executar testes E2E integrados e banco descartável; homologação SEFAZ com dados reais continua fora de escopo e não deve ser inferida.

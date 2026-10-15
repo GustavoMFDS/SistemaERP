@@ -8,7 +8,7 @@ export type SetupStep = {
   detail: string
 }
 
-export type SetupPermissions = {
+type SetupPermissions = {
   permissions: string[]
   roles: string[]
 }

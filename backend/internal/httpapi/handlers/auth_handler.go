@@ -27,10 +27,6 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-type refreshRequest struct {
-	Token string `json:"token"`
-}
-
 func NewAuthHandler(cfg config.Config, auth *authapp.AuthService, auditSvc *audit.Service, rdb *redis.Client, logger *slog.Logger) *AuthHandler {
 	return &AuthHandler{cfg: cfg, auth: auth, audit: auditSvc, rdb: rdb, logger: logger}
 }

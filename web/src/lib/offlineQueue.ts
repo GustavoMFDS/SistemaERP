@@ -1,7 +1,7 @@
 import { APIError, apiJson, errorMessage } from './api'
 import { scopedStorageKey } from './auth'
 
-export type QueueState = 'pending' | 'attention'
+type QueueState = 'pending' | 'attention'
 export type AttentionReason = 'expired' | 'request_rejected' | 'legacy_migration'
 
 export type QueuedRequest = {
