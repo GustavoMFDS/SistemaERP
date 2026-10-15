@@ -1,76 +1,71 @@
-# SistemaEmGo
+# SistemaERP — PDV e gestão de lojas
 
-SistemaEmGo is a multi-tenant ERP/POS and backoffice system for sales, inventory, finance, fiscal operations, auditability, and privacy/LGPD technical workflows.
+> **Nome no GitHub:** SistemaERP. **Nome ainda usado por partes do aplicativo e das configurações:** SistemaEmGo. A mudança de marca está sendo preparada separadamente; não renomeie chaves de armazenamento, emissor JWT, módulo Go ou identificadores de banco por simples substituição de texto.
 
-The project is currently a pre-production / staging candidate. It implements technical controls that support LGPD compliance, but final legal, accounting, DPO, infrastructure, and operational validation is required before real production use.
+Sistema web de gestão comercial com PDV, produtos, estoque, compras, devoluções, clientes, financeiro e preparação fiscal para empresas brasileiras. Cada loja/CNPJ é uma **empresa independente**, com dados, permissões e parametrização fiscal próprios — não uma filial automática das demais lojas da família.
 
-## Catálogo funcional e pendências
+**Situação:** desenvolvimento/piloto, **não liberado para operação fiscal real**. Há implementações em branches e PRs ainda não integrados à `main`. A presença de um módulo no código **não comprova** build, testes E2E, homologação SEFAZ nem aptidão para produção. Consulte o [catálogo funcional](docs/catalogo-funcional-sistema.md) e os PRs abertos antes de decidir um deploy.
 
-O inventário **mais atual de funcionalidades, pendências e melhorias** está no
-[Catálogo funcional do SistemaEmGo](docs/catalogo-funcional-sistema.md):
-checklist por módulo com distinção entre **implementação localizada no
-código**, **funcionalidade parcial**, **pendência** e **validação efetiva**.
-A matriz de prioridades P0–P3 ajuda a planejar as próximas entregas.
+## Funcionalidades existentes no código de integração
 
-**Não interpretar itens marcados como implementados como CI aprovado:**
-o PR de integração #15 continua dependente de execução real do pipeline.
-A emissão de NFC-e em produção não foi homologada.
+- Vendas/PDV, controle de caixa, leitura de código de barras, carrinhos suspensos e prevenção de duplicidade por chave de idempotência.
+- Produtos, fotos e miniaturas, cadastro/importação CSV, movimentações de estoque e alertas de estoque mínimo.
+- Compras e fornecedores, devoluções/reembolsos, clientes, contas financeiras e conciliação.
+- Contas de acesso, funcionários, convites e permissões isoladas por empresa.
+- PWA instalável e fila local de intenções de venda com sincronização assistida. **Venda preservada offline não é nota autorizada.**
+- Fiscal: pendências por venda, preparação de emitente, perfis tributários, documentos e mecanismos técnicos de NFC-e, incluindo componentes de comunicação SEFAZ em **homologação controlada**. **Não é emissão automática de produção**, nem substitui validação tributária real.
+- Auditoria, controles técnicos de privacidade/LGPD, métricas, logs e testes automatizados.
 
-## Features
+O que funciona e o que ainda está pendente consta em [docs/catalogo-funcional-sistema.md](docs/catalogo-funcional-sistema.md), [docs/fiscal-mg-automacao-homologacao-2026.md](docs/fiscal-mg-automacao-homologacao-2026.md) e [docs/pdv-impressao-fiscal-semi-automatica.md](docs/pdv-impressao-fiscal-semi-automatica.md).
 
-- Multi-tenant POS/backoffice with tenant-scoped RBAC.
-- Sales creation, server-side price calculation, barcode lookup/scanner support, idempotent offline retry, discounts with RBAC, suspended carts, and sale cancellation.
-- Inventory balances, movements, low-stock checks, stock validation, and dedicated purchase/return movement provenance.
-- Supplier and procurement workflows with tenant-scoped RBAC, partial receiving, stock/cost updates on receipt, and optional accounts payable linkage.
-- Returns/exchanges with quantity guards, optional restock, refund-due calculation, and cancellation protection after a return.
-- Finance ledger/dashboard, immutable initial digital-payment reconciliation, audited reconciliation adjustments/history, partial/multimethod refund settlement, and per-method cash-session closing.
-- NFC-e model 65 preparation with tenant-scoped issuer/config readiness, product NCM/CEST data, secret-store references, and a development-only non-fiscal preview. Real SEFAZ authorization remains disabled in staging/production.
-- Offline POS queue with TTL/idempotency plus tenant+user-scoped product cache with a 24-hour freshness limit.
-- JWT access tokens plus HttpOnly refresh-token cookies with rotation.
-- Standardized JSON API errors with request IDs.
-- Audit logging with sanitized metadata.
-- Privacy/LGPD technical workflows for data subject requests, exports, anonymization/blocking, and consent records.
-- Observability with health checks, structured logs, tracing hooks, and protected Prometheus metrics.
+## Tecnologias e estrutura
 
-## Tech Stack
+| Área | Tecnologia / local |
+| --- | --- |
+| Backend | Go 1.25, API HTTP em `backend/cmd/api`, módulos em `backend/internal` |
+| Frontend | React 19, TypeScript, Vite, Tailwind, em `web/` |
+| Persistência | PostgreSQL 16, migrações incrementais em `backend/migrations/` |
+| Sessões e cache | Redis |
+| Infra local | `docker-compose.yml`; observabilidade complementar em `docker-compose.observability.yml` |
+| Testes | Go (unitários e integração), ESLint, TypeScript, Vite e Playwright em `web/e2e` |
+| Documentação | `docs/` (API, implantação, segurança, fiscal, operação e relatórios de validação) |
 
-- Go `1.25.0` for the backend.
-- React 19, TypeScript, and Vite for the frontend.
-- PostgreSQL for persistent data.
-- Redis for refresh-token rotation, rate limiting, and optional caches.
-- Docker Compose for local dependencies, migrations, and development seed.
-- GitHub Actions CI for backend and frontend validation.
+Requisitos: Go **1.25.x**, Node.js **22.x**, npm compatível e Docker com Compose, ou PostgreSQL e Redis configurados separadamente.
 
-## Repository Structure
+## Execução local para desenvolvimento
 
-- `backend/`: Go API, modules, migrations, seed files, and backend tests.
-- `web/`: React/Vite frontend.
-- `docs/`: API, security, privacy, deployment, and smoke-test documentation.
-- `.github/workflows/ci.yml`: CI validation using `go test`, `go vet`, `gofmt`, `npm ci`, lint, and build.
-
-## Prerequisites
-
-- Go `1.25.x`.
-- Node.js `22.x`.
-- Docker and Docker Compose.
-- PostgreSQL and Redis if running without Docker Compose.
-
-## Quick Start For Development
+Na **raiz do repositório**, crie seu arquivo privado de configuração:
 
 ```bash
 cp .env.example .env
 docker compose up -d db redis migrate
-docker compose up seed
+docker compose run --rm seed
 ```
 
-Run the backend:
+No Windows, copie `.env.example` para `.env` pelo Explorer ou PowerShell com `Copy-Item .env.example .env`.
+
+**Atenção:** `.env` é usado automaticamente pelo **Docker Compose** para interpolação. O binário **Go não lê arquivos `.env`**: ele recebe apenas variáveis do ambiente do processo (ver `backend/internal/config/config.go`). Antes de iniciar a API, carregue essas variáveis no terminal. No Linux/macOS, a partir da raiz:
 
 ```bash
+set -a
+source .env
+set +a
 cd backend
 go run ./cmd/api
 ```
 
-Run the frontend:
+No PowerShell, a partir da raiz (para o arquivo de exemplo sem valores multiline):
+
+```powershell
+Get-Content .env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
+  $nome, $valor = $_ -split '=', 2
+  [Environment]::SetEnvironmentVariable($nome, $valor, 'Process')
+}
+Set-Location backend
+go run ./cmd/api
+```
+
+Em outro terminal, na raiz do repositório:
 
 ```bash
 cd web
@@ -78,55 +73,25 @@ npm ci
 npm run dev
 ```
 
-The development seed is guarded by `ALLOW_DEMO_SEED=1` inside the Docker Compose seed service. Do not run the demo seed in staging or production.
+Frontend: `http://localhost:5173` | API: `http://localhost:8080`.
 
-## Environment Variables
+**Banco e senhas locais:** `.env.example` fornece `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` e `DATABASE_URL` compatíveis entre si. A senha é **apenas de desenvolvimento**: substitua por segredo próprio fora do ambiente de teste. Se já existir um volume PostgreSQL inicializado com outra senha, alterar `.env` **não altera** automaticamente o usuário do banco; ajuste as credenciais ou recrie **somente um volume de teste descartável**. Nunca use `docker compose down -v` em dados reais.
 
-`.env` is local-only. It is ignored by Git and Docker packaging rules and must never be committed, shipped in source archives, attached to tickets, or copied into logs. Keep only safe examples in source control: `.env.example`, `.env.dev.example`, and `.env.prod.example`.
+**Seed:** `backend/seed/seed.sql` é **somente para demo/desenvolvimento**, não execute em homologação ou produção. O serviço `seed` no Compose é explicitamente destinado a esse uso. `backend/seed/seed.prod.sql` não cria administrador com senha padrão.
 
-Use `.env.example` for local development and `.env.prod.example` for staging/production. Replace every production placeholder with a real secret or environment-specific value before startup.
+## Configuração importante
 
-Important variables:
+- `APP_ENV`: `dev`, `test`, `staging` ou `prod`.
+- `DATABASE_URL`: conexão PostgreSQL; produção/staging requer TLS validado conforme `docs/security.md`.
+- `REDIS_ADDR` para desenvolvimento; `REDIS_URL` com `rediss://` em produção/staging.
+- `JWT_SECRET`: segredo aleatório forte; gere em `backend/` com `go run ./cmd/gensecret -format base64url -bytes 32`.
+- `CORS_ALLOWED_ORIGINS`, `TRUSTED_PROXY_CIDRS`, `METRICS_BEARER_TOKEN` e `PRIVACY_CONTACT_EMAIL`: configurar conforme ambiente.
+- `VITE_API_BASE_URL`: URL da API usada pelo frontend; padrão local `http://localhost:8080`.
+- `FISCAL_PROVIDER` e `NFCE_*`: integração fiscal e caminhos para certificados/esquemas devem ser explicitamente configurados. **Flags desligadas por padrão não autorizam transmissão.**
 
-- `APP_ENV`: `dev`, `test`, `staging`, or `prod`.
-- `DATABASE_URL`: PostgreSQL connection string; staging/production require `sslmode=verify-full`.
-- `REDIS_URL`: required `rediss://` connection string for staging/production.
-- `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`: split Redis configuration for development/legacy deployments only.
-- `JWT_SECRET`: strong signing secret, at least 32 characters.
-- `ACCESS_TOKEN_TTL_MINUTES`, `REFRESH_TOKEN_TTL_MINUTES`: token lifetimes.
-- `CORS_ALLOWED_ORIGINS`: explicit origins in staging/production.
-- `TRUSTED_PROXY_CIDRS`: reverse-proxy networks allowed to supply forwarded client IP headers; leave empty for direct exposure.
-- `METRICS_BEARER_TOKEN` or `METRICS_BASIC_USER` / `METRICS_BASIC_PASS`: required for metrics in staging/production.
-- `RATE_LIMIT_*`: sensitive endpoint rate limits.
-- `FISCAL_PROVIDER`: `mvp` only for development/test preview; use `disabled` in staging/production until a SEFAZ-ready provider is implemented and homologated.
-- `PRIVACY_CONTACT_EMAIL`, `APP_PUBLIC_URL`: privacy/DPO contact and public URL.
+**Nunca** comite `.env`, certificados PFX/PEM, senhas, token CSC ou dados reais de clientes. Para habilitar qualquer tentativa real de homologação NFC-e em MG, consulte [o guia fiscal](docs/fiscal-mg-guia-operador-2026.md), [a preparação de MG](docs/fiscal-mg-configuracao-sem-legado-2026.md) e [a automação de homologação](docs/fiscal-mg-automacao-homologacao-2026.md). NF-e modelo 55 não deve ser tratada como emissor de produção pronto.
 
-See [docs/security.md](docs/security.md), [.env.example](.env.example), and [.env.prod.example](.env.prod.example) for configuration details.
-
-## Database Migrations
-
-Apply migrations locally:
-
-```bash
-docker compose up -d db redis migrate
-```
-
-Validate migrations on a clean local database:
-
-```bash
-docker compose down -v
-docker compose up -d db redis migrate
-```
-
-Production seed safety:
-
-- `backend/seed/seed.prod.sql` contains production-safe reference data only.
-- `backend/seed/seed.sql` is development/demo seed and requires explicit `ALLOW_DEMO_SEED=1`.
-- Production bootstrap must create the first admin through a controlled operational procedure, not default credentials.
-
-See [docs/deployment.md](docs/deployment.md) for clean migration validation, backup, restore, and rollback procedures.
-
-## Running Tests And Validation
+## Validação antes de integrar ou implantar
 
 Backend:
 
@@ -146,89 +111,19 @@ npm run lint
 npm run build
 ```
 
-A prior production-readiness pass validated the production build. The current retail-integration PR changes backend, frontend, migrations and E2E coverage, so its final SHA must rerun the complete GitHub Actions matrix before merge. See `docs/production-validation-report.md` for the current evidence status.
+Playwright exige aplicação/serviços de teste preparados; rode `npm run test:e2e` **somente** em ambiente apropriado. Os testes de integração podem exigir PostgreSQL/Redis descartáveis, variáveis de proteção e migrações; veja `.github/workflows/ci.yml` e `docs/smoke-test.md`. **Não confundir comandos recomendados com resultados já executados**.
 
-Smoke testing:
+## Segurança e operação fiscal
 
-```bash
-# Follow the checklist in docs/smoke-test.md after deploying to staging.
-```
+O servidor isola operações por empresa/tenant e aplica RBAC; continua necessária revisão de segurança, integrações externas, regras tributárias, backup/restore, implantação e procedimentos operacionais. O sistema mantém fila de obrigações fiscais por venda, mas **obrigação registrada ≠ documento autorizado pela SEFAZ**. A opção do cliente de não imprimir não cancela a obrigação fiscal. DANFE em papel depende de documento realmente autorizado e não substitui a emissão.
 
-## Security Overview
+A **produção** depende de credenciamento, dados reais por CNPJ, certificado adequado, esquema oficial, tributação validada com contador, execução de homologação e evidências de ponta a ponta. Consulte também:
 
-- Access tokens are short-lived JWTs.
-- Protected requests recheck current user status and tenant membership, so deactivated or de-scoped users are rejected before token expiration.
-- Refresh tokens are stored only in an HttpOnly, `SameSite=Strict` cookie and rotated on refresh; logout is considered complete only after the server confirms revocation/cookie clearing.
-- Refresh/logout endpoints validate trusted `Origin` or `Referer` headers.
-- Login is rate-limited by IP, by hashed normalized identifier, and by IP plus identifier.
-- RBAC is tenant-scoped through `user_tenant_roles`; a role in tenant A does not grant tenant B permissions.
-- Tenant fallback to the first company is disabled in staging/production.
-- `/metrics` requires bearer token or basic auth in staging/production.
-- Audit metadata is recursively sanitized and size-limited before storage and API output.
-- API errors are standardized JSON and avoid leaking stack traces, SQL details, secrets, or tokens.
+- [Arquitetura](docs/architecture.md), [API](docs/api.md), [regras de negócio](docs/business-rules.md).
+- [Implantação](docs/deployment.md), [segurança](docs/security.md), [smoke tests](docs/smoke-test.md).
+- [PDV offline](docs/offline-pdv.md), [privacidade/LGPD](docs/privacy/data-inventory.md).
+- [Auditoria de manutenção e código morto](docs/auditoria-codigo-20261015.md).
 
-See [docs/security.md](docs/security.md) for the detailed security model.
+## Licença e contribuição
 
-## Privacy / LGPD Technical Controls
-
-The system provides technical controls for:
-
-- Data subject request creation, listing, viewing, and status transitions.
-- Personal data export for supported `customer` and `user` subjects.
-- Anonymization/blocking where legally applicable.
-- Consent recording, listing, and revocation.
-- Audit logging for privacy operations.
-- Retention and disposal documentation.
-
-Terminal privacy request statuses (`completed`, `rejected`, `cancelled`) are immutable through the status endpoint. Fiscal/accounting records are not hard-deleted by privacy endpoints when legal retention applies.
-
-See [docs/privacy/data-inventory.md](docs/privacy/data-inventory.md), [docs/privacy/retention-policy.md](docs/privacy/retention-policy.md), and [docs/privacy/ropa.md](docs/privacy/ropa.md).
-
-## Observability
-
-- `/health/live` checks process liveness; `/health/ready` verifies PostgreSQL and Redis readiness.
-- Prometheus metrics are exposed through `/metrics` and protected outside development.
-- Structured logs include request IDs.
-- Audit logs support incident investigation without storing secrets or excessive personal data.
-
-## Deployment
-
-Use [docs/deployment.md](docs/deployment.md) for:
-
-- Migration validation.
-- Production configuration checklist.
-- Backup and restore commands.
-- Redis recovery considerations.
-- Application and migration rollback strategy.
-- Staging restore drill.
-
-Use [docs/smoke-test.md](docs/smoke-test.md) for critical functional validation before promoting a release.
-
-## Production Readiness Checklist
-
-- CI is green for backend and frontend.
-- Frontend production build has been validated with `npm run build`; run `npm ci`, lint, and build again after frontend dependency or source changes.
-- Backend `gofmt`, tests, and vet pass with Go `1.25.x`.
-- Clean database migrations through schema 34 (including staff/customer changes) must be validated on the final integration PR head; this is pending runner-backed evidence.
-- Production secrets are strong and not placeholders.
-- CORS origins are explicit.
-- Metrics are protected.
-- Demo seed is disabled.
-- Tenant memberships and tenant-scoped roles are configured.
-- Backup/restore drill has been executed and evidenced in the target staging environment.
-- Monitoring alerts, bounded load smoke, and dependency-failure recovery have been evidenced in the target staging environment.
-- Smoke test checklist has passed.
-- Legal/accounting/DPO review has approved retention and privacy procedures.
-
-## License / Status
-
-License: define before public distribution.
-
-Status: pre-production / staging candidate.
-
-
-### NFC-e / SEFAZ
-
-A emissão real permanece desativada por padrão. Para homologação controlada, configure o certificado A1 por referência externa, monte um bundle XSD oficial pinado e habilite explicitamente `NFCE_SEFAZ_HOMOLOGATION_ENABLED=true` apenas fora de produção. O fluxo valida o XML contra XSD antes da assinatura, assina com o A1 e usa consulta por chave para recuperar tentativas ambíguas sem retransmissão cega.
-
-O cancelamento NFC-e de homologação usa o evento `110111`, persiste o XML assinado e o retorno SEFAZ, e não cancela/reverte automaticamente a venda, estoque ou caixa.
+Ainda não há licença definida no repositório. Isso **não** significa permissão automática para redistribuição. Mudanças significativas devem seguir por branch e PR com validação no HEAD final, sem merge com testes pendentes.
