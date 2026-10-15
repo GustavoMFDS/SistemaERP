@@ -42,6 +42,7 @@ export default function StaffPage() {
 
   useEffect(() => {
     const seqID = ++seq.current
+    let active = true
     const currentScope = getSessionScope()
     setPermissions(null)
     setCurrentUser('')
@@ -50,14 +51,14 @@ export default function StaffPage() {
     setInvitations([])
     void apiJson<{ id: string; permissions: string[] }>('/api/v1/auth/me')
       .then((data) => {
-        if (seqID !== seq.current || currentScope !== getSessionScope()) return
+        if (!active || seqID !== seq.current || currentScope !== getSessionScope()) return
         setPermissions(data.permissions)
         setCurrentUser(data.id)
       }).catch((cause: unknown) => {
-        if (seqID !== seq.current || currentScope !== getSessionScope()) return
+        if (!active || seqID !== seq.current || currentScope !== getSessionScope()) return
         setError(errorMessage(cause))
       })
-    return () => { ++seq.current }
+    return () => { active = false }
   }, [scope])
 
   async function reload() {
