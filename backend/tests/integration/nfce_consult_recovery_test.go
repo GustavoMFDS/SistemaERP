@@ -502,25 +502,28 @@ func TestNFCeConsultationRecoveryIsTenantScopedAndFenced(t *testing.T) {
 	// for another state. It must not break MG queue planning, nor be treated
 	// as a valid consultation target for this company's issuer.
 	wrongUFInvoice := makeSubmitted(tenantA, cnpjA, seriesStart+3)
-	if _,err:=pool.Exec(ctx,`
+	if _, err := pool.Exec(ctx, `
 		UPDATE invoices SET access_key='35'||substring(access_key,3)
 		WHERE tenant_id=$1 AND id=$2
-	`,tenantA,wrongUFInvoice);err!=nil{t.Fatal(err)}
-	validMGInvoice := makeSubmitted(tenantA, cnpjA, seriesStart+4)
-	if n,err:=fiscal.PlanNFCeSubmittedConsultations(ctx,pool);
-		err!=nil || n!=1 {
-		t.Fatalf("MG planner should skip invalid-UF key without blocking valid notes: %d %v",n,err)
+	`, tenantA, wrongUFInvoice); err != nil {
+		t.Fatal(err)
 	}
-	for _,check:=range []struct{invoice string; expected int}{
-		{wrongUFInvoice,0},{validMGInvoice,1},
+	validMGInvoice := makeSubmitted(tenantA, cnpjA, seriesStart+4)
+	if n, err := fiscal.PlanNFCeSubmittedConsultations(ctx, pool); err != nil || n != 1 {
+		t.Fatalf("MG planner should skip invalid-UF key without blocking valid notes: %d %v", n, err)
+	}
+	for _, check := range []struct {
+		invoice  string
+		expected int
 	}{
+		{wrongUFInvoice, 0}, {validMGInvoice, 1},
+	} {
 		var count int
-		if err:=pool.QueryRow(ctx,`
+		if err := pool.QueryRow(ctx, `
 			SELECT count(*) FROM nfce_consult_recovery_jobs
 			WHERE tenant_id=$1 AND invoice_id=$2
-		`,tenantA,check.invoice).Scan(&count);
-			err!=nil || count!=check.expected {
-			t.Fatalf("wrong consultation planning for %s: %d %v",check.invoice,count,err)
+		`, tenantA, check.invoice).Scan(&count); err != nil || count != check.expected {
+			t.Fatalf("wrong consultation planning for %s: %d %v", check.invoice, count, err)
 		}
 	}
 }

@@ -482,19 +482,24 @@ func TestAutoHomologationSaleToSubmittedToAuthorizedWithFakeSEFAZ(t *testing.T) 
 	}
 	// A crash can leave an archived-but-invalid invoice with its local
 	// queues still nonterminal. Neither should claim authorization.
-	if _,err:=pool.Exec(ctx,`
+	if _, err := pool.Exec(ctx, `
 		UPDATE nfce_auto_homologation_jobs
 		SET state='awaiting_sefaz' WHERE tenant_id=$1 AND sale_id=$2
-	`,tenant,sale);err!=nil{t.Fatal(err)}
-	if _,err:=pool.Exec(ctx,`
+	`, tenant, sale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
 		UPDATE nfce_consult_recovery_jobs
 		SET state='awaiting_consultation' WHERE tenant_id=$1 AND invoice_id=$2
-	`,tenant,invoice);err!=nil{t.Fatal(err)}
-	if n,err:=fiscal.ReconcileNFCeArchivedIntegrity(ctx,pool);
-		err!=nil || n!=2 {
-		t.Fatalf("incomplete queues should quarantine bad archived invoice: %d %v",n,err)
+	`, tenant, invoice); err != nil {
+		t.Fatal(err)
 	}
-	if remote.authorizeCalls!=1 {t.Fatal("integrity sweep attempted a second fiscal emission")}
+	if n, err := fiscal.ReconcileNFCeArchivedIntegrity(ctx, pool); err != nil || n != 2 {
+		t.Fatalf("incomplete queues should quarantine bad archived invoice: %d %v", n, err)
+	}
+	if remote.authorizeCalls != 1 {
+		t.Fatal("integrity sweep attempted a second fiscal emission")
+	}
 	statusReq := httptest.NewRequest(http.MethodGet,
 		"/api/v1/sales/"+sale+"/fiscal-status", nil)
 	statusReq.Header.Set("Authorization", "Bearer "+authToken)
