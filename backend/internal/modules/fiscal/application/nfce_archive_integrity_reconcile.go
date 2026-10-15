@@ -9,7 +9,8 @@ import (
 // ReconcileNFCeArchivedIntegrity detects a previously completed automatic
 // emission or consultation whose persisted authorization archive no longer
 // satisfies the same tenant, access-key, protocol and SHA-256 requirements
-// enforced by the DANFE/download routes. It changes only LOCAL queue state:
+// enforced by the DANFE/download routes, including unfinished queues
+// after a crashed archive step. It changes only LOCAL queue state:
 // no invoice is rejected, reissued or changed, and no SEFAZ request is made.
 //
 // A bad archive is an incident to investigate, not permission to resend.
@@ -31,7 +32,7 @@ func ReconcileNFCeArchivedIntegrity(
 		FROM invoices i
 		WHERE i.tenant_id=j.tenant_id AND i.sale_id=j.sale_id
 		  AND i.model=65 AND i.status='authorized'
-		  AND j.state='authorized'
+		  AND j.state IN ('authorized','queued','awaiting_sefaz')
 		  AND (j.lease_until IS NULL OR j.lease_until<=clock_timestamp())
 		  AND NOT (
 		    length(btrim(COALESCE(i.authorization_protocol,'')))>0
@@ -58,7 +59,7 @@ func ReconcileNFCeArchivedIntegrity(
 		FROM invoices i
 		WHERE i.tenant_id=j.tenant_id AND i.id=j.invoice_id
 		  AND i.model=65 AND i.status='authorized'
-		  AND j.state='resolved'
+		  AND j.state IN ('resolved','awaiting_consultation')
 		  AND (j.lease_until IS NULL OR j.lease_until<=clock_timestamp())
 		  AND NOT (
 		    length(btrim(COALESCE(i.authorization_protocol,'')))>0
