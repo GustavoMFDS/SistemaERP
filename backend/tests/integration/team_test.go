@@ -389,4 +389,65 @@ func testStaffPasswordRecovery(
 	`, staffID, tenantA); err != nil {
 		t.Fatal(err)
 	}
+	// A once-valid reset link must not survive a subsequent association
+	// with another company, because the password belongs to the user.
+	_, transferToken, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO user_tenants(user_id,tenant_id,active) VALUES($1,$2,false)
+	`, staffID, tenantB); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CompletePasswordReset(ctx, transferToken, strongPassword, "", "", ""); !errors.Is(err, team.ErrPasswordResetUnavailable) {
+		t.Fatalf("reset link remained valid after second company association: %v", err)
+	}
+	if _, _, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", ""); !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("shared identity accepted a tenant-local password reset: %v", err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM user_tenants WHERE user_id=$1 AND tenant_id=$2`, staffID, tenantB); err != nil {
+		t.Fatal(err)
+	}
+	// Two simultaneous submissions of a single-use link must not write
+	// the password twice or advance auth_version more than once.
+	_, parallelToken, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var versionBeforeParallel int64
+	if err := db.QueryRow(ctx, `SELECT auth_version FROM users WHERE id=$1`, staffID).Scan(&versionBeforeParallel); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			results <- svc.CompletePasswordReset(ctx, parallelToken, strongPassword, "", "", "")
+		}()
+	}
+	close(start)
+	succeeded, unavailable := 0, 0
+	for i := 0; i < 2; i++ {
+		switch err := <-results; {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, team.ErrPasswordResetUnavailable):
+			unavailable++
+		default:
+			t.Fatalf("unexpected concurrent reset error: %v", err)
+		}
+	}
+	if succeeded != 1 || unavailable != 1 {
+		t.Fatalf("same link accepted in concurrent requests: %d success / %d unavailable", succeeded, unavailable)
+	}
+	var versionAfterParallel int64
+	if err := db.QueryRow(ctx, `SELECT auth_version FROM users WHERE id=$1`, staffID).Scan(&versionAfterParallel); err != nil {
+		t.Fatal(err)
+	}
+	if versionAfterParallel != versionBeforeParallel+1 {
+		t.Fatalf("concurrent reset changed credential version more than once: %d => %d",
+			versionBeforeParallel, versionAfterParallel)
+	}
 }
