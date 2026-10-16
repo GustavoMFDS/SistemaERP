@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
+import FiscalDailyReview from '../components/FiscalDailyReview'
 const FiscalSetupGuide = lazy(() => import('../components/FiscalSetupGuide'))
 
 type XMLFile = {
@@ -454,6 +455,8 @@ export default function FiscalPage() {
           {loading ? 'Atualizando…' : 'Atualizar'}
         </button>
       </div>
+
+      <FiscalDailyReview />
 
       <Suspense fallback={<p className="mt-5 text-sm text-slate-600">Carregando guia fiscal…</p>}>
         <FiscalSetupGuide

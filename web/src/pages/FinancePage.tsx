@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 import TopProductsReport from '../components/TopProductsReport'
 import FinancialOverview from '../components/FinancialOverview'
+import OperationalReports from '../components/OperationalReports'
 
 type Payment = {
   id: string
@@ -341,6 +342,7 @@ export default function FinancePage() {
       <h2 className="text-2xl font-bold tracking-tight text-slate-900">Finanças da loja</h2>
       <p className="mt-2 text-sm text-slate-600">Acompanhe entradas e saídas, contas a pagar e receber e a conciliação das vendas.</p>
       <div className="mt-6"><FinancialOverview /></div>
+      <OperationalReports />
       <div className="mt-6"><TopProductsReport /></div>
       <details className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <summary className="cursor-pointer text-base font-bold text-slate-900">Conciliação avançada de pagamentos e devoluções</summary>
