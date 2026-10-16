@@ -37,8 +37,8 @@ type ProductCreateRequest struct {
 	PromoPrice   *platform.Money   `json:"promo_price" validate:"omitempty,gt=0"`
 	MinStock     platform.Quantity `json:"min_stock" validate:"min=0"`
 	Active       bool              `json:"active"`
-	ReturnPolicy *string           `json:"return_policy"`
-	ReturnDays   *int              `json:"return_days"`
+	ReturnPolicy *string           `json:"return_policy,omitempty"`
+	ReturnDays   *int              `json:"return_days,omitempty"`
 }
 
 type ProductUpdateRequest = ProductCreateRequest
