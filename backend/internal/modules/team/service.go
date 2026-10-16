@@ -23,12 +23,12 @@ import (
 var ErrInviteUnavailable = errors.New("invitation expired, used or unavailable")
 
 type Member struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Email  string `json:"email"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
 	Username string `json:"username"`
-	Role   string `json:"role"`
-	Active bool   `json:"active"`
+	Role     string `json:"role"`
+	Active   bool   `json:"active"`
 }
 
 type Invitation struct {

@@ -1290,7 +1290,12 @@ jobs:
             migrate/migrate:v4.17.1 \
             -path=/migrations \
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_policy?sslmode=disable" \
-            up
+            goto 49
+
+          # Fresh migration runs before the role seed. The admin role and
+          # its complete grants are provisioned by the trusted installer.
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_policy \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
 
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_policy -v ON_ERROR_STOP=1 <<'SQL'
           DO $check$

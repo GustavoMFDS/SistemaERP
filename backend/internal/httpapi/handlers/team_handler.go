@@ -20,10 +20,10 @@ func NewTeamHandler(svc *team.Service) *TeamHandler {
 }
 
 type inviteStaffRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
 	Username string `json:"username"`
-	Role  string `json:"role"`
+	Role     string `json:"role"`
 }
 
 type acceptStaffRequest struct {
