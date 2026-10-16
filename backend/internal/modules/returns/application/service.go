@@ -39,7 +39,7 @@ type ItemRequest struct {
 
 type CreateRequest struct {
 	Kind   ret.Kind      `json:"kind" validate:"required,oneof=return exchange"`
-	Basis  string        `json:"basis" validate:"omitempty,oneof=voluntary consumer_rights"`
+	Basis  string        `json:"basis,omitempty" validate:"omitempty,oneof=voluntary consumer_rights"`
 	Reason string        `json:"reason" validate:"required,min=3,max=250"`
 	Items  []ItemRequest `json:"items" validate:"required,min=1,dive"`
 }
@@ -68,9 +68,6 @@ func (s *Service) Get(ctx context.Context, tenantID, id string) (ret.SaleReturn,
 
 func normalizeCreateRequest(req CreateRequest) CreateRequest {
 	req.Reason = strings.TrimSpace(req.Reason)
-	if req.Basis == "" {
-		req.Basis = "voluntary"
-	}
 	sort.Slice(req.Items, func(i, j int) bool { return req.Items[i].SaleItemID < req.Items[j].SaleItemID })
 	return req
 }
@@ -114,6 +111,11 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 	hash, err := requestHash(req, saleID)
 	if err != nil {
 		return "", 0, false, common.ErrValidation
+	}
+	// Preserve the exact legacy idempotency hash for requests predating the
+	// optional basis field; normalize only after hashing.
+	if req.Basis == "" {
+		req.Basis = "voluntary"
 	}
 
 	tx, err := s.uow.Begin(ctx)
