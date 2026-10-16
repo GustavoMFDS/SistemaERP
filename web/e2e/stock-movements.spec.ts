@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page, email = 'gerente@sis
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 function movement(index: number, product: string) {
@@ -41,7 +41,7 @@ test('histórico mostra entradas e saídas com paginação e filtro por produto'
     })
   })
   await login(page)
-  await page.getByRole('link', { name: 'Movimentações', exact: true }).click()
+  await page.goto('/stock-movements')
   await expect(page).toHaveURL(/\/stock-movements$/)
   const table = page.getByRole('table')
   await expect(table.getByRole('row')).toHaveCount(21)
