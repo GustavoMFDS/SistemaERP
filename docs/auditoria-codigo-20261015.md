@@ -138,3 +138,33 @@ O ensaio de rollback no **banco descartável com seed e histórico criado por te
 O PR #25 avançou **5 commits** do SHA `715a5b01900a2cfec2a1540b5eef54ccb72a6a95` até `aacb199f74fcf2f06c089fcc85db477a83330826`, modificando `README.md`, `web/index.html`, `web/public/manifest.webmanifest`, `web/src/components/Layout.tsx` e `web/src/pages/LoginPage.tsx`. O PR #34 inicialmente indicava conflito (`mergeable_state=dirty`).
 
 Foi preparada uma reconciliação **sem force-push e sem merge para main**, preservando integralmente os quatro arquivos visuais da nova base e mesclando manualmente o README detalhado com a marca **Esterium ERP**. A marca não está declarada registrada pelo INPI. Commit de dois pais: HEAD da auditoria e HEAD da base. Os testes precisam ser repetidos para esse novo HEAD, especialmente o frontend e a navegação/branding.
+
+## Revisão de 16/10/2026 — gates reais do GitHub Actions
+
+### Reconciliando a branch-base em movimento
+
+O PR #25 continuou recebendo commits. Após a primeira reconciliação de branding, a base avançou novamente de `aacb199f74fcf2f06c089fcc85db477a83330826` para `e1dca432d6b64f493dd5a360b119308e0e9d3131`, alterando `README.md` e acrescentando o [catálogo geral do Esterium ERP](catalogo-geral-esterium-2026-10-16.md). O PR #34 recebeu uma segunda reconciliação de **dois pais**, preservando os dois catálogos e atualizando o README, sem force-push e sem merge na `main`. O comparativo deve ser revalidado após qualquer avanço posterior da base.
+
+### Falhas realmente observadas no runner Linux
+
+Run [CI #1740](https://github.com/GustavoMFDS/SistemaERP/actions/runs/38844211373) do HEAD `857510546194d702fa644836a97469c5063d58ba` (antes das correções finais):
+
+- `frontend`, `integration`, `e2e-prodlike`: **success**, com jobs e passos executados.
+- `backend`: **failure** no passo `gofmt check`. O log completo apontou **12 arquivos Go** com diferenças de formatação efetivas no Linux. Essas diferenças foram corrigidas usando `gofmt -w` especificamente nos arquivos identificados, sem reformatar a árvore inteira por causa de CRLF Windows.
+- `security`: **failure** no `govulncheck` com **12 caminhos vulneráveis alcançáveis**, em Go 1.25.14, `golang.org/x/net v0.57.0` e `golang.org/x/text v0.40.0`. Exemplo: GO-2026-6617 em HTTP/2. Não foi permitido ignorar/desabilitar o scanner.
+- `e2e` geral: estava em andamento na última checagem dessa execução; nenhuma aprovação foi inferida.
+
+### Correção de segurança aplicada à branch
+
+- `go 1.25.0` → **`go 1.26.9`** (lançado em 08/10/2026); `.github/workflows/ci.yml` atualizado em **5 jobs Go** para usar exatamente `go-version: '1.26.9'`.
+- Atualizações mínimas necessárias pelo grafo Go: `golang.org/x/crypto v0.57.0`, `x/net v0.60.0`, `x/sync v0.23.0`, `x/sys v0.48.0`, `x/text v0.42.0` e `go.sum` regenerado com `go mod tidy`.
+- Execução local via toolchain **go1.26.9** (Windows): `go test ./...` **aprovado**, `go vet ./...` **aprovado**, `govulncheck@v1.7.0 ./...` **aprovado**, **0 vulnerabilidades alcançáveis**. O scanner identificou outras 5 vulnerabilidades em pacotes importados e 1 em módulo requerido **sem caminho de chamada identificado**; não são liberadas por suposição de ausência de risco e devem continuar monitoradas.
+- `gofmt` restrito aos 12 arquivos apontados pelo Linux, `git diff --check` aprovado. O CI permanece habilitado e é necessário confirmar novamente os gates no HEAD final. **Não se pode concluir produção pronta só por esses reparos.**
+
+### Migrações: ciclo vazio confirmado, proteção de histórico mantida
+
+Num **projeto Compose novo, sem seed**, schema inicial aplicado de `1 → 48` (**exit 0**, `dirty=false`), rollback de **13 migrações, `48 → 35`** (**exit 0**, `dirty=false`), seguido de reaplicação **`35 → 48`** (**exit 0**, `dirty=false`). Os contêineres, rede e volume **somente desse projeto descartável** foram removidos no final com `docker compose down -v` (**exit 0**).
+
+O ensaio anterior, com histórico fiscal gravado, **continuou fail-closed** na versão 42, e foi corretamente descartado sem `force`. As duas condições não são contraditórias: *esquema vazio é reversível; dados fiscais/auditoria protegidos impedem destruição de histórico*.
+
+**Situação de aceite:** PR #34 ainda draft. Exigir `backend`, `security` e E2E aprovados em GitHub Actions no SHA final; não ativar SEFAZ de produção sem homologação e revisão fiscal real.
