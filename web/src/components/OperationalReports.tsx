@@ -38,7 +38,7 @@ export default function OperationalReports() {
       setBusy(false)
     }
   }, [])
-  useEffect(() => { void refresh(from, to) }, []) // initial snapshot, manual refresh afterwards
+  useEffect(() => { void refresh(localDate(-13), localDate(0)) }, [refresh]) // initial snapshot, manual refresh afterwards
 
   const hourly = Array.from({ length: 24 }, (_, hour) =>
     report?.hourly.find((h) => h.hour === hour) ?? { hour, count: 0, total: 0 })
