@@ -55,7 +55,7 @@ critical="$(psql -v ON_ERROR_STOP=1 -At -c "SELECT count(*) FROM information_sch
 ledger="$(psql -v ON_ERROR_STOP=1 -At -c "SELECT to_regclass('public.schema_migrations') IS NOT NULL")"
 if [ "$ledger" = t ]; then
   schema="$(psql -v ON_ERROR_STOP=1 -At -F '|' -c 'SELECT version, dirty FROM schema_migrations LIMIT 1')"
-  [[ "$schema" =~ ^[0-9]+\\|f$ ]] || { echo "dirty or missing migration ledger" >&2; exit 1; }
+  [[ "${schema%%|*}" =~ ^[0-9]+$ && "${schema#*|}" = f ]] || { echo "dirty or missing migration ledger" >&2; exit 1; }
 else
   echo "WARNING: no migration ledger; independent restore and schema verification are mandatory" >&2
 fi
