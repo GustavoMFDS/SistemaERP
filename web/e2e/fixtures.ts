@@ -7,14 +7,14 @@ import { test as base, expect } from '@playwright/test'
  * runner to assert the dialog is shown, hidden, and repeated correctly.
  */
 export const test = base.extend({
-  page: async ({ page }, use) => {
+  page: async ({ page }, runScenario) => {
     await page.addLocatorHandler(
       page.getByRole('dialog', { name: 'Sua configuração fiscal ainda não está concluída' }),
       async (dialog) => {
         await dialog.getByRole('button', { name: 'Agora não' }).click()
       },
     )
-    await use(page)
+    await runScenario(page)
   },
 })
 
