@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 import AttentionCenter from '../components/AttentionCenter'
+import FiscalSetupReminderDialog from '../components/FiscalSetupReminderDialog'
+import { fiscalReminderAlreadyShown, markFiscalReminderShown } from '../lib/fiscalReminderSession'
+import type { FiscalReadinessData } from '../lib/setupProgress'
 
 type Overview = {
   sales_after_cancellations: number
@@ -22,7 +25,7 @@ type StockProduct = {
 }
 
 type StockResponse = { items: StockProduct[]; total: number }
-type Me = { name: string; permissions: string[] }
+type Me = { name: string; tenant_id?: string; roles?: string[]; permissions: string[] }
 
 const money = (amount: number) => new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL',
@@ -64,6 +67,8 @@ function saveCSV(rows: string[][], name: string) {
 }
 
 export default function HomePage() {
+  const navigate = useNavigate()
+  const [showFiscalReminder, setShowFiscalReminder] = useState(false)
   const [me, setMe] = useState<Me | null>(null)
   const [from, setFrom] = useState(localDate(-6))
   const [to, setTo] = useState(localDate())
@@ -113,6 +118,22 @@ export default function HomePage() {
         if (cancelled) return
         setMe(data)
         void refresh(localDate(-6), localDate(), data.permissions)
+        // A local preparation check never implies SEFAZ authorization.
+        if (data.tenant_id && data.roles?.includes('admin') &&
+            data.permissions.includes('invoice:read') &&
+            !fiscalReminderAlreadyShown()) {
+          void apiJson<FiscalReadinessData>('/api/v1/fiscal/nfce/readiness')
+            .then((readiness) => {
+              if (cancelled || readiness.tenant_id !== data.tenant_id ||
+                  readiness.ready_for_homologation_data !== false ||
+                  fiscalReminderAlreadyShown()) return
+              markFiscalReminderShown()
+              setShowFiscalReminder(true)
+            })
+            .catch(() => {
+              // Unknown readiness must never be presented as incomplete.
+            })
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(errorMessage(e))
@@ -157,6 +178,12 @@ export default function HomePage() {
 
   return (
     <div className="space-y-7">
+      {showFiscalReminder ? (
+        <FiscalSetupReminderDialog
+          onDismiss={() => setShowFiscalReminder(false)}
+          onContinue={() => { setShowFiscalReminder(false); navigate('/fiscal') }}
+        />
+      ) : null}
       <header className="relative overflow-hidden rounded-3xl bg-slate-900 p-7 text-white sm:p-9">
         <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full border-[32px] border-white/10" aria-hidden="true" />
         <div className="relative z-10">
