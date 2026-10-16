@@ -36,6 +36,7 @@ export default function StaffPage() {
   const [role, setRole] = useState<'manager' | 'cashier'>('cashier')
   const [inviteLink, setInviteLink] = useState('')
   const [resetLink, setResetLink] = useState('')
+  const [resetLinkId, setResetLinkId] = useState('')
   const [loading, setLoading] = useState(false)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
@@ -52,6 +53,7 @@ export default function StaffPage() {
     setCurrentUser('')
     setInviteLink('')
     setResetLink('')
+    setResetLinkId('')
     setMembers([])
     setInvitations([])
     void apiJson<{ id: string; permissions: string[] }>('/api/v1/auth/me')
@@ -127,16 +129,36 @@ export default function StaffPage() {
     setError('')
     setMessage('')
     setResetLink('')
+    setResetLinkId('')
     const session = getSessionScope()
     try {
-      const response = await apiJson<{ token: string }>(
+      const response = await apiJson<{ token: string; reset: { id: string } }>(
         '/api/v1/staff/' + member.id + '/password-reset', { method: 'POST' })
       if (session !== getSessionScope()) return
       setInviteLink('')
       setResetLink(window.location.origin + '/reset-password#token=' + response.token)
+      setResetLinkId(response.reset.id)
       setMessage('Link temporário criado. Entregue pessoalmente ao funcionário. Validade: 30 minutos.')
     } catch (cause: unknown) {
       if (session === getSessionScope()) setError(errorMessage(cause))
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function revokeResetLink() {
+    if (!resetLinkId || !canManage || working) return
+    setWorking(true)
+    setError('')
+    const scopeAtStart = getSessionScope()
+    try {
+      await apiJson('/api/v1/staff/password-resets/' + resetLinkId, { method: 'DELETE' })
+      if (scopeAtStart !== getSessionScope()) return
+      setResetLink('')
+      setResetLinkId('')
+      setMessage('Link de recuperação cancelado. A senha anterior continua válida.')
+    } catch (cause: unknown) {
+      if (scopeAtStart === getSessionScope()) setError(errorMessage(cause))
     } finally {
       setWorking(false)
     }
@@ -268,6 +290,10 @@ export default function StaffPage() {
                 .then(() => setMessage('Link copiado.'))
                 .catch(() => setError('Selecione o link para copiar manualmente.'))}
                 className="mt-2 rounded-md border px-3 py-2 text-xs">Copiar link</button>
+              <button type="button" disabled={working} onClick={() => void revokeResetLink()}
+                className="mt-2 ml-2 rounded-md border px-3 py-2 text-xs disabled:opacity-50">
+                Cancelar link
+              </button>
             </section>
           ) : null}
           <details className="mt-6 rounded-2xl border border-slate-200 p-5" aria-label="Adicionar novo acesso">

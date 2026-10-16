@@ -200,3 +200,19 @@ func (h *TeamHandler) CompletePasswordReset(w http.ResponseWriter, r *http.Reque
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "password_changed"})
 }
+
+func (h *TeamHandler) RevokePasswordReset(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	requestID, ip, agent := audit.RequestContext(r)
+	if err := h.svc.RevokePasswordReset(r.Context(), au.TenantID, au.UserID,
+		chi.URLParam(r, "id"), requestID, ip, agent); err != nil {
+		writeTeamError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

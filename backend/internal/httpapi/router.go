@@ -63,6 +63,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(trustedOrigin).Put("/{id}/role", h.Team.SetRole)
 				rr.With(trustedOrigin).Put("/{id}/status", h.Team.SetStatus)
 				rr.With(trustedOrigin, productImportLimit).Post("/{id}/password-reset", h.Team.IssuePasswordReset)
+				rr.With(trustedOrigin).Delete("/password-resets/{id}", h.Team.RevokePasswordReset)
 			})
 
 			// Only fiscal managers may record non-authoritative setup reviews.
