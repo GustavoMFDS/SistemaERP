@@ -150,6 +150,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/finance", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("finance:read")).Get("/accounts", h.FinanceAccounts.List)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/trends", h.FinanceAccounts.Trends)
+				rr.With(middleware.RequirePermission("finance:read")).Get("/operational-reports", h.FinanceAccounts.OperationalReports)
 				rr.With(middleware.RequirePermission("finance:reconcile"), trustedOrigin).Post("/accounts", h.FinanceAccounts.Create)
 				rr.With(middleware.RequirePermission("finance:reconcile"), trustedOrigin).Post("/accounts/{kind}/{id}/settle", h.FinanceAccounts.Settle)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/dashboard", h.Finance.Dashboard)
