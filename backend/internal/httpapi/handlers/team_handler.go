@@ -71,7 +71,16 @@ func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeTeamError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"members": members, "invitations": invitations})
+	pendingResets, err := h.svc.ListPasswordResets(r.Context(), au.TenantID, au.UserID)
+	if err != nil {
+		writeTeamError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"members": members,
+		"invitations": invitations,
+		"password_resets": pendingResets,
+	})
 }
 
 func (h *TeamHandler) Invite(w http.ResponseWriter, r *http.Request) {
