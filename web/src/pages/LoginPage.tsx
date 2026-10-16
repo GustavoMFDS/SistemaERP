@@ -48,17 +48,17 @@ export default function LoginPage() {
         <div className="rounded-lg border bg-white p-6">
           <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>Esterium ERP</p>
           <h1 className="text-lg font-semibold">Bem-vindo de volta</h1>
-          <p className="mt-1 text-sm text-gray-600">Entre com seu e-mail e sua senha para acessar a loja.</p>
+          <p className="mt-1 text-sm text-gray-600">Entre com seu e-mail ou nome de usuário e sua senha para acessar a loja.</p>
 
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
             <label className="block">
-              <span className="text-sm text-gray-700">E-mail</span>
+              <span className="text-sm text-gray-700">E-mail ou nome de usuário</span>
               <input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                type="email"
+                type="text"
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                autoComplete="email"
+                autoComplete="username"
                 required
               />
             </label>

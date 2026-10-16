@@ -20,9 +20,10 @@ func NewTeamHandler(svc *team.Service) *TeamHandler {
 }
 
 type inviteStaffRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
 }
 
 type acceptStaffRequest struct {
@@ -85,7 +86,7 @@ func (h *TeamHandler) Invite(w http.ResponseWriter, r *http.Request) {
 	}
 	requestID, ip, agent := audit.RequestContext(r)
 	invite, secret, err := h.svc.Invite(r.Context(), au.TenantID, au.UserID,
-		req.Name, req.Email, req.Role, requestID, ip, agent)
+		req.Name, req.Email, req.Role, requestID, ip, agent, req.Username)
 	if err != nil {
 		writeTeamError(w, r, err)
 		return

@@ -10,7 +10,6 @@ import (
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
-	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -50,10 +49,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, user, err := h.auth.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		status := http.StatusUnauthorized
-		if err == common.ErrInactiveUser {
-			status = http.StatusForbidden
-		}
+		// Do not reveal whether a login identifier exists or is disabled.
 		requestID, ip, userAgent := audit.RequestContext(r)
 		h.audit.Record(r.Context(), audit.Event{
 			Action:       "auth.login",
@@ -64,7 +60,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			IP:           ip,
 			UserAgent:    userAgent,
 		})
-		writeError(w, r, status, "authentication_error", "credenciais invalidas", nil)
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "credenciais invalidas", nil)
 		return
 	}
 	setRefreshCookie(w, h.cfg, resp.RefreshToken, h.cfg.RefreshTokenTTL)

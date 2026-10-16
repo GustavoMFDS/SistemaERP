@@ -62,7 +62,7 @@ export default function AcceptStaffInvitePage() {
           </p>
           {completed ? (
             <div role="status" className="mt-4 rounded-md border p-3 text-sm">
-              Conta ativada. Agora você pode entrar com seu e-mail e sua nova senha.
+              Conta ativada. Entre com seu e-mail ou nome de usuário e sua nova senha.
               <Link to="/login" className="mt-3 block text-blue-700 underline">Ir para o login</Link>
             </div>
           ) : !token ? (

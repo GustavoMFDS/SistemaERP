@@ -35,3 +35,29 @@ func TestOnlyOperationalRolesCanBeAssigned(t *testing.T) {
 		}
 	}
 }
+
+func TestStaffUsernamesDoNotRequireEmail(t *testing.T) {
+	for _, tc := range []struct {
+		username string
+		email    string
+		ok       bool
+	}{
+		{username: "operador1", ok: true},
+		{username: "caixa.loja-1", ok: true},
+		{email: "joana@example.com", ok: true},
+		{username: "operador1", email: "joana@example.com", ok: true},
+		{username: "ABc", ok: false},
+		{username: "ab", ok: false},
+		{username: "joana@example.com", ok: false},
+		{username: "usuario/1", ok: false},
+		{username: "abc def", ok: false},
+		{username: "operador1", email: "bad email", ok: false},
+		{username: "", email: "", ok: false},
+	} {
+		t.Run(tc.username+"_"+tc.email, func(t *testing.T) {
+			if got := validNewInvite("Joana Silva", tc.email, "cashier", tc.username); got != tc.ok {
+				t.Fatalf("got %v, want %v", got, tc.ok)
+			}
+		})
+	}
+}

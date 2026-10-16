@@ -22,14 +22,14 @@ func NewUsersRepo(db *pgxpool.Pool, allowTenantFallback bool) *UsersRepo {
 
 func (r *UsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
 	var u authdomain.User
-	err := r.db.QueryRow(ctx, `SELECT id::text, email::text, name, password_hash, active FROM users WHERE email=$1`, email).
+	err := r.db.QueryRow(ctx, `SELECT id::text, COALESCE(email::text,''), name, password_hash, active FROM users WHERE email=$1 OR username=$1`, email).
 		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active)
 	return u, err
 }
 
 func (r *UsersRepo) GetByID(ctx context.Context, id string) (authdomain.User, error) {
 	var u authdomain.User
-	err := r.db.QueryRow(ctx, `SELECT id::text, email::text, name, password_hash, active FROM users WHERE id=$1`, id).
+	err := r.db.QueryRow(ctx, `SELECT id::text, COALESCE(email::text,''), name, password_hash, active FROM users WHERE id=$1`, id).
 		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active)
 	return u, err
 }
@@ -55,7 +55,19 @@ func (r *UsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (stri
 		if !r.allowTenantFallback {
 			return "", common.ErrForbidden
 		}
-		// Legacy development/test fallback for pre-user_tenants local databases only.
+		// Never return the store fallback for a user who already has a
+		// membership, even when ALL memberships are suspended. That would
+		// reauthorize a deactivated employee in dev/demo mode.
+		var alreadyLinked bool
+		if checkErr := r.db.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1)`,
+			userID).Scan(&alreadyLinked); checkErr != nil {
+			return "", checkErr
+		}
+		if alreadyLinked {
+			return "", common.ErrForbidden
+		}
+		// Legacy fallback is solely for identities predating user_tenants.
 		return r.fallbackCompanyTenantID(ctx)
 	}
 	var pgErr *pgconn.PgError

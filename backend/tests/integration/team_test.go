@@ -132,8 +132,17 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 		t.Fatalf("same token must never activate twice: %v", err)
 	}
 	members, invites, err := svc.List(ctx, tenantA)
-	if err != nil || len(invites) != 0 || len(members) != 2 {
-		t.Fatalf("activated membership/consumed invite invalid: %+v %+v err=%v", members, invites, err)
+	if err != nil || len(invites) != 1 || invites[0].ID != expired.ID || len(members) != 2 {
+		t.Fatalf("activated membership / expired invite visibility invalid: %+v %+v err=%v", members, invites, err)
+	}
+	// An expired invitation stays visible so the original store admin can
+	// explicitly revoke and release its globally reserved username.
+	if err := svc.Revoke(ctx, tenantA, ownerID, expired.ID, "", "", ""); err != nil {
+		t.Fatalf("expired invite must be revocable: %v", err)
+	}
+	_, invites, err = svc.List(ctx, tenantA)
+	if err != nil || len(invites) != 0 {
+		t.Fatalf("revoked expired invite still visible: %+v err=%v", invites, err)
 	}
 	for _, member := range members {
 		if member.Email == email {
@@ -207,6 +216,12 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 	has, err = repo.UserHasTenant(ctx, staffID, tenantA)
 	if err != nil || has {
 		t.Fatalf("disabled membership still authorizes existing token: %v %v", has, err)
+	}
+	// Development's legacy tenant fallback must not resurrect an employee
+	// suspended from the only company to which the identity is linked.
+	devRepo := authinfra.NewUsersRepo(db, true)
+	if _, err := devRepo.GetDefaultTenantID(ctx, staffID); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("suspended employee gained access through legacy tenant fallback: %v", err)
 	}
 	perms, err = repo.ListUserPermissions(ctx, staffID, tenantA)
 	if err != nil || len(perms) != 0 {
