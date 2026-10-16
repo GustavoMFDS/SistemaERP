@@ -54,7 +54,8 @@ test('caixa não recebe formulário de empresa ou acesso a dados fiscais', async
 
 test('revisão manual fica registrada entre recargas, sem virar aprovação fiscal', async ({ page }) => {
   let stockReviewedAt = ''
-  await page.route('**/api/v1/setup/reviews**', async (route) => {
+  await page.route(/\/api\/v1\/setup\/reviews(?:\/stock)?(?:\?.*)?$/, async (route) => {
+    if (route.request().method() === 'OPTIONS') return route.continue()
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200, contentType: 'application/json',
