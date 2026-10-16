@@ -9,8 +9,8 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await expect(page).toHaveURL(/\/products$/)
 }
 
-const sample = 'sku;nome;preco;unidade\nE2E-RECOVER-PROD;12,50;un\n'
-const changed = 'sku;nome;preco;unidade\nE2E-DIFFERENT;20,00;un\n'
+const sample = 'sku;nome;preco;unidade\nE2E-RECOVER-PROD;Produto de Recuperação;12,50;un\n'
+const changed = 'sku;nome;preco;unidade\nE2E-DIFFERENT;Produto diferente;20,00;un\n'
 
 async function upload(page: import('@playwright/test').Page, csv: string) {
   await expandDisclosure(page, 'Importar uma planilha de produtos')
