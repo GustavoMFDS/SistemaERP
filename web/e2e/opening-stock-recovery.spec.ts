@@ -14,6 +14,9 @@ async function login(page: import('@playwright/test').Page, email: string) {
 const sampleCSV = 'sku;quantidade\nSTOCK-RESUME-TEST;5,500\n'
 const differentCSV = 'sku;quantidade\nSTOCK-DIFFERENT;8\n'
 
+// Match only an individual UUID receipt; never mock the /batches/history listing.
+const batchReceiptRoute = /\/api\/v1\/inventory\/opening-stock\/batches\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\?.*)?$/
+
 async function selectFile(page: import('@playwright/test').Page, csv: string) {
   await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
   await page.getByLabel('Escolher planilha CSV').setInputFiles({
@@ -39,7 +42,7 @@ test('resposta ambígua mantém chave; recarga só aceita CSV idêntico e replay
       body: JSON.stringify({ batch_id: '00000000-0000-4000-8000-000000000010', item_count: 1, replayed: true }),
     })
   })
-  await page.route('**/api/v1/inventory/opening-stock/batches/*', (route) =>
+  await page.route(batchReceiptRoute, (route) =>
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' }))
   page.on('dialog', (dialog) => void dialog.accept())
   await login(page, 'gerente@sistema.local')
@@ -88,7 +91,7 @@ test('consulta de lote confirmado encerra recuperação sem novo POST', async ({
     writes += 1
     await route.abort('failed')
   })
-  await page.route('**/api/v1/inventory/opening-stock/batches/*', (route) =>
+  await page.route(batchReceiptRoute, (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ batch_id: '00000000-0000-4000-8000-000000000020', item_count: 1, replayed: true }),

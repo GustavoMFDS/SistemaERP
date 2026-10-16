@@ -14,6 +14,9 @@ async function login(page: import('@playwright/test').Page, email: string) {
 const sample = 'sku;nome;preco;unidade\nE2E-RECOVER-PROD;Produto de Recuperação;12,50;un\n'
 const changed = 'sku;nome;preco;unidade\nE2E-DIFFERENT;Produto diferente;20,00;un\n'
 
+// Match only an individual UUID receipt; never mock the /import-batches/history listing.
+const batchReceiptRoute = /\/api\/v1\/products\/import-batches\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\?.*)?$/
+
 async function upload(page: import('@playwright/test').Page, csv: string) {
   await expandDisclosure(page, 'Importar uma planilha de produtos')
   await page.getByLabel('Escolher arquivo CSV').setInputFiles({
@@ -39,7 +42,7 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
       }),
     })
   })
-  await page.route('**/api/v1/products/import-batches/*', (route) =>
+  await page.route(batchReceiptRoute, (route) =>
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' }))
   page.on('dialog', (dialog) => void dialog.accept())
 
@@ -83,7 +86,7 @@ test('consulta do lote confirmado evita novo POST depois de queda de conexão', 
     posts += 1
     return route.abort('failed')
   })
-  await page.route('**/api/v1/products/import-batches/*', (route) =>
+  await page.route(batchReceiptRoute, (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: '{"batch_id":"00000000-0000-4000-8000-000000000032","item_count":1,"replayed":true}',
