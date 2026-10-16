@@ -90,7 +90,6 @@ func validNewInvite(name, email, role string, usernames ...string) bool {
 	return err == nil && addr.Address == email && !strings.ContainsAny(email, " \t\r\n")
 }
 
-
 // validStaffPassword counts actual Unicode code points, not bytes, for the
 // 12-character minimum. bcrypt accepts at most 72 UTF-8 bytes.
 func validStaffPassword(password string) bool {
