@@ -264,3 +264,19 @@
 | Banco/testes | backend/migrations/0001–0048; backend/tests/integration; web/e2e |
 
 **Regra de manutenção:** toda nova entrega altera o módulo correspondente neste catálogo indicando commit, validação efetivamente executada e pendências. Não substituir pendência por “concluído” só porque existe uma função, um botão ou um teste escrito.
+
+
+## 18. Refinamento operacional iniciado em 16/10/2026 — PR #25
+
+**Nova referência:** [refinamento-final-esterium-2026-10-16.md](refinamento-final-esterium-2026-10-16.md).
+
+| Solicitação | Código entregue | Validação obtida | Ainda não concluído |
+|---|---|---|---|
+| 2. Backup/restauração | Scripts Linux e PowerShell Windows; checksums, retenção, lock, monitor de falha/atraso | Windows demo: dump válido e restauração em banco descartável com 65 tabelas e contagens iguais | Agendamento de tarefa na infraestrutura de produção, cópia externa criptografada, RPO/RTO, restore real por loja |
+| 3. Atenção no Início | `AttentionCenter` + status fiscal, estoque, financeiro e backup com RBAC | Teste focalizado Chromium com API simulada aprovado | Testes reais multiempresa, alertas de certificados/filas offline de outros dispositivos e monitoramento do agendador em produção |
+| 4. Conferência diária Fiscal | Rota `/api/v1/fiscal/daily-close` protegida + UI e CSV; contagem total por dia/CNPJ, não limitada à paginação | Go compila, verificação de rota sem token retorna 401, interface focalizada aprovada com mock | Homologação SEF/MG, validação de consulta autenticada com banco real e conferência contábil; NF-e 55 não é emissor completo |
+| 5. Relatórios Financeiros | Rota `/api/v1/finance/operational-reports` + UI por período até 93 dias | Go compila, rota sem token retorna 401, interface focalizada aprovada com mock | Validar agregações em bancos de duas empresas com saldos/vendas/devoluções reais e regras de custo/precificação |
+
+**Limites de evidência:** `go test ./...` e `go vet ./...` aprovaram; `npm run build` e `npm run lint` aprovaram com 12 advertências preexistentes; Playwright Chromium focalizado **1/1** após corrigir a navegação do teste para respeitar token apenas em memória. **Não** há aprovação do E2E integral, CI em runner real, ambiente fiscal oficial ou audit de segurança no SHA final.
+
+**Atualização da interpretação de P0:** testar restauração com dados demo **não** fecha o P0 de recuperação após perda de infraestrutura; backup SHA válido **não** comprova restore. A apresentação por navegador pode ser usada para conferir o andamento das telas, sem autorização fiscal de produção.
