@@ -24,4 +24,18 @@ ALTER TABLE sale_items ADD CONSTRAINT sale_items_return_policy_snapshot_check
     (return_policy_snapshot IN ('allowed', 'denied') AND return_days_snapshot IS NULL) OR
     (return_policy_snapshot = 'within_days' AND return_days_snapshot BETWEEN 1 AND 3650)
   );
+-- A privileged employee can document a protected consumer-rights case.
+ALTER TABLE sale_returns
+  ADD COLUMN return_basis text NOT NULL DEFAULT 'voluntary'
+  CONSTRAINT sale_returns_basis_check CHECK (return_basis IN ('voluntary','consumer_rights'));
+
+INSERT INTO permissions (id, code, description)
+VALUES (gen_random_uuid(), 'sale:return:override', 'Analisar devolução por direito legal ou exceção')
+ON CONFLICT (code) DO NOTHING;
+INSERT INTO role_permissions(role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.name = 'admin' AND p.code = 'sale:return:override'
+ON CONFLICT DO NOTHING;
+
 COMMIT;
