@@ -208,6 +208,18 @@ test('offline catalog cache expires after the safe window', async ({ page }) => 
   await expect(page).toHaveURL(/\/pdv$/)
   await expect(page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().locator('option')).not.toHaveCount(1)
 
+  // The select can initially contain zero options before the catalog request
+  // completes. Wait for the exact scoped cache written after the API response.
+  await expect.poll(async () => page.evaluate(async () => {
+    const { scopedStorageKey } = await import('/src/lib/auth.ts')
+    const key = scopedStorageKey('sistemaemgo:productsCache:v2')
+    if (!key) return false
+    const raw = localStorage.getItem(key)
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as { savedAt?: number; items?: unknown[] }
+    return Number.isFinite(parsed.savedAt) && Array.isArray(parsed.items) && parsed.items.length > 0
+  })).toBe(true)
+
   const cacheKey = await page.evaluate(async () => {
     const auth = await import('/src/lib/auth.ts')
     const key = auth.scopedStorageKey('sistemaemgo:productsCache:v2')

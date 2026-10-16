@@ -20,8 +20,9 @@ export async function expandDisclosure(page: Page, title: string): Promise<void>
     // navigation or backend state. Never force-open inaccessible sections.
     const summaries = await page.locator('details summary').allTextContents().catch(() => [])
     const alerts = await page.getByRole('alert').allTextContents().catch(() => [])
+    const visibleText = (await page.locator('body').innerText().catch(() => '')).slice(0, 800)
     throw new Error(
-      `Painel "${title}" indisponível em ${page.url()}. Seções: ${JSON.stringify(summaries)}. Avisos: ${JSON.stringify(alerts)}. Motivo: ${String(error)}`,
+      `Painel "${title}" indisponível em ${page.url()}. Seções: ${JSON.stringify(summaries)}. Avisos: ${JSON.stringify(alerts)}. Tela: ${JSON.stringify(visibleText)}. Motivo: ${String(error)}`,
     )
   }
 }
