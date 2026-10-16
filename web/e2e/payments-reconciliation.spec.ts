@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expandDisclosure } from './expandDisclosure'
 
 async function login(page: import('@playwright/test').Page) {
   await page.goto('/login')
@@ -565,7 +566,8 @@ test('reconciles digital payments and settles return refunds without double-coun
 
   await page.getByRole('link', { name: 'Financeiro' }).click()
   await expect(page).toHaveURL(/\/finance$/)
-  await expect(page.getByText('Financeiro e conciliação')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Finanças da loja' })).toBeVisible()
+  await expandDisclosure(page, 'Conciliação avançada de pagamentos e devoluções')
 
   const paymentRow = page.locator('tbody tr').filter({ hasText: result.saleId }).first()
   await expect(paymentRow).toBeVisible()
@@ -811,6 +813,7 @@ test('finance UI retries lost responses with the original idempotency key', asyn
 
   await page.getByRole('link', { name: 'Financeiro' }).click()
   await expect(page).toHaveURL(/\/finance$/)
+  await expandDisclosure(page, 'Conciliação avançada de pagamentos e devoluções')
 
   const paymentKeys: string[] = []
   let losePaymentResponse = true

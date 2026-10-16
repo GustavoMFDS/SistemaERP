@@ -117,7 +117,6 @@ export default function ProductsPage() {
         setPendingImport(writable ? readPendingProductImport() : null)
       })
       .catch((e: unknown) => setError(errorMessage(e)))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -609,7 +608,7 @@ export default function ProductsPage() {
       </div>
 
       {canWrite ? (
-        <details open={Boolean(pendingImport)} className="mt-6 rounded-2xl border border-slate-200 p-5">
+        <details open={Boolean(pendingImport || importResult)} className="mt-6 rounded-2xl border border-slate-200 p-5">
           <summary className="cursor-pointer text-base font-bold">Importar uma planilha de produtos</summary>
           <div className="mt-4">
           <p className="mt-1 text-xs text-gray-600">

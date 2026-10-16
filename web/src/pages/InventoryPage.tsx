@@ -395,7 +395,7 @@ export default function InventoryPage() {
       </section>
 
       {canAdjustPermission ? (
-        <details open={Boolean(pendingOpening)} className="mt-5 rounded-2xl border border-slate-200 p-5">
+        <details open={Boolean(pendingOpening || openingMessage)} className="mt-5 rounded-2xl border border-slate-200 p-5">
           <summary className="cursor-pointer text-base font-bold">Cadastrar estoque inicial por planilha</summary>
           <div className="mt-4">
           <p className="mt-1 text-sm text-gray-600">

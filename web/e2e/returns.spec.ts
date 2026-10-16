@@ -197,7 +197,7 @@ test('partial return is idempotent, bounded by sold quantity and blocks full can
 
   await page.getByRole('link', { name: 'Devoluções/Trocas' }).click()
   await expect(page).toHaveURL(/\/returns$/)
-  await expect(page.getByText('Últimas devoluções/trocas')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Últimas devoluções e trocas' })).toBeVisible()
 })
 
 
@@ -286,10 +286,11 @@ test('returns UI keeps the same key after an interrupted response', async ({ pag
   }, suffix)
 
   await page.getByRole('link', { name: 'Devoluções/Trocas' }).click()
-  await page.getByLabel('ID da venda').fill(setup.saleId)
+  await page.getByLabel('Ou procure pelo código completo da venda').fill(setup.saleId)
   await page.getByRole('button', { name: 'Buscar' }).click()
 
   const qtyInput = page.locator('table tbody input[type="number"]').first()
+  await expect(qtyInput).toBeVisible()
   await qtyInput.fill('1')
   await page.getByLabel('Motivo').fill('Resposta interrompida E2E')
 

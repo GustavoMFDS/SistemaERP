@@ -66,6 +66,7 @@ export default function UnifiedImportHistoryPage() {
 
   useEffect(() => {
     const requestID = ++requests.current
+    let active = true
     if (!authorized || !scope) {
       setPage(null)
       setLoading(false)
@@ -82,16 +83,16 @@ export default function UnifiedImportHistoryPage() {
     setLoading(true)
     setError('')
     void apiJson<PageResponse>(`/api/v1/imports/history?${params.toString()}`).then((data) => {
-      if (requestID !== requests.current || originalScope !== getSessionScope()) return
+      if (!active || requestID !== requests.current || originalScope !== getSessionScope()) return
       setPage(data)
       setLoading(false)
     }).catch((cause: unknown) => {
-      if (requestID !== requests.current || originalScope !== getSessionScope()) return
+      if (!active || requestID !== requests.current || originalScope !== getSessionScope()) return
       setPage(null)
       setError(errorMessage(cause))
       setLoading(false)
     })
-    return () => { ++requests.current }
+    return () => { active = false }
   }, [authorized, scope, offset, from, to, refresh])
 
   function applyDates() {

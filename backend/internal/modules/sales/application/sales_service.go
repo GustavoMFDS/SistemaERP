@@ -415,11 +415,7 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 		payload.Items = append(payload.Items, item{ProductID: it.ProductID, Qty: it.Qty, DiscountValue: it.DiscountValue})
 	}
 	for _, p := range req.Payments {
-		payload.Payments = append(payload.Payments, payment{
-			Method: p.Method, Amount: p.Amount, Provider: p.Provider,
-			TransactionRef: p.TransactionRef, AuthorizationCode: p.AuthorizationCode,
-			Installments: p.Installments,
-		})
+		payload.Payments = append(payload.Payments, payment(p))
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {

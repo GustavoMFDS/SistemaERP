@@ -1,9 +1,9 @@
-import OperationalReports from '../components/OperationalReports'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 import TopProductsReport from '../components/TopProductsReport'
 import FinancialOverview from '../components/FinancialOverview'
+import OperationalReports from '../components/OperationalReports'
 
 type Payment = {
   id: string
@@ -149,8 +149,10 @@ export default function FinancePage() {
     }
   }
 
+  // Initial load only: filter edits are applied explicitly through the search form.
+  const loadInitially = useEffectEvent(loadAll)
   useEffect(() => {
-    void loadAll()
+    void loadInitially()
   }, [])
 
   function choosePayment(payment: Payment) {

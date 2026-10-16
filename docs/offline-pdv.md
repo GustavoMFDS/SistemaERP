@@ -48,7 +48,7 @@ Migração:
 - A fila guarda somente o payload necessario para recriar a venda, o cabecalho `Idempotency-Key` e metadados mínimos de reconciliação (estado/erro/última tentativa).
 - Evite incluir dados pessoais sensiveis no payload de venda offline. Quando o cliente for opcional, prefira venda sem identificacao.
 - `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
-- A funcao `clearOfflineQueue()` permite limpeza manual controlada quando o operador precisar descartar pendencias locais.
+- O descarte de pendências deve ocorrer pelo fluxo de revisão e confirmação individual no PDV; não há atalho global exposto para apagar a fila sem conciliação.
 - Caixa, cache de produtos e fila usam chaves derivadas de `tenant_id + user_id`, impedindo acesso cruzado pelo aplicativo no mesmo navegador. Logout limpa a referência local de caixa e o cache de catálogo, mas não apaga fila offline nem carrinhos suspensos.
 - A fila legada global `sistemaemgo:offlineQueue:v1` nunca é executada automaticamente. Se detectada após upgrade, o operador pode importá-la explicitamente para revisão; os itens entram em `attention` e exigem retry manual.
 - Ao vincular um item de atenção a um caixa atual, a `Idempotency-Key` original é preservada. Se a operação original já tiver sido commitada com payload diferente, o backend responde conflito em vez de aceitar uma segunda venda sob uma chave nova.

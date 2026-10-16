@@ -163,14 +163,14 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
 test('failed refresh immediately returns the UI to login', async ({ page }) => {
   await login(page, 'admin@sistema.local')
 
-  await page.route(/http:\/\/127\.0\.0\.1:8080\/api\/v1\/products\?probe=session-expired/, async (route) => {
+  await page.route(/\/api\/v1\/products\?probe=session-expired$/, async (route) => {
     await route.fulfill({
       status: 401,
       contentType: 'application/json',
       body: JSON.stringify({ message: 'expired' }),
     })
   })
-  await page.route('http://127.0.0.1:8080/api/v1/auth/refresh', async (route) => {
+  await page.route(/\/api\/v1\/auth\/refresh$/, async (route) => {
     await route.fulfill({
       status: 401,
       contentType: 'application/json',

@@ -117,7 +117,7 @@ func TestParseInutilizationResponseRegistered(t *testing.T) {
 func TestDuplicateInutilizationIsPendingNotRejected(t *testing.T) {
 	input := InutilizationInput{
 		Environment: EnvironmentHomologation,
-		IssuerUF: "MG", IssuerCNPJ: "12.ABC.345/01DE-35",
+		IssuerUF:    "MG", IssuerCNPJ: "12.ABC.345/01DE-35",
 		Year: 2026, Series: 1, StartNumber: 101, EndNumber: 110,
 	}
 	response := InutilizationResponse{

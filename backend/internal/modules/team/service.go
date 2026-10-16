@@ -65,7 +65,6 @@ func isUniqueError(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
-
 // lockAdminTenant serializes administrative changes and verifies the
 // actor's current active admin membership in the same transaction. Route RBAC
 // remains mandatory; this second check prevents an internal caller bypassing it.

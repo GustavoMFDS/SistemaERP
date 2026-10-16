@@ -1584,36 +1584,6 @@ func (s *FiscalService) StoreSignedNFCeXML(
 	return xmlID, nil
 }
 
-func (s *FiscalService) MarkNFCeSubmitted(
-	ctx context.Context,
-	tenantID, actorUserID, invoiceID, accessKey string,
-) error {
-	invoiceID = strings.TrimSpace(invoiceID)
-	accessKey = strings.TrimSpace(accessKey)
-	if s.validate.Var(invoiceID, "required,uuid") != nil ||
-		fisc.ValidateNFCeAccessKey(accessKey) != nil {
-		return common.ErrValidation
-	}
-
-	tx, err := s.uow.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := s.fiscal.MarkNFCeSubmitted(ctx, tx, tenantID, invoiceID, accessKey); err != nil {
-		return err
-	}
-	if err := s.audit.RecordTx(ctx, tx, audit.Event{
-		TenantID: tenantID, ActorUserID: actorUserID, Action: "fiscal.nfce.submit",
-		ResourceType: "invoice", ResourceID: invoiceID, Outcome: "success",
-		Metadata: map[string]any{"access_key": accessKey},
-	}); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
 func (s *FiscalService) InutilizeNFCeNumbers(
 	ctx context.Context,
 	tenantID, actorUserID string,

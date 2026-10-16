@@ -45,6 +45,7 @@ export default function StockMovementsPage() {
 
   useEffect(() => {
     const id = ++seq.current
+    let active = true
     const originalScope = getSessionScope()
     setItems([])
     setTotal(0)
@@ -58,16 +59,16 @@ export default function StockMovementsPage() {
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) })
     if (product) params.set('product_id', product.id)
     void apiJson<PageResponse>(`/api/v1/inventory/movements?${params.toString()}`).then((data) => {
-      if (id !== seq.current || originalScope !== getSessionScope()) return
+      if (!active || id !== seq.current || originalScope !== getSessionScope()) return
       setItems(data.items ?? [])
       setTotal(data.total)
       setLoading(false)
     }).catch((cause: unknown) => {
-      if (id !== seq.current || originalScope !== getSessionScope()) return
+      if (!active || id !== seq.current || originalScope !== getSessionScope()) return
       setError(errorMessage(cause))
       setLoading(false)
     })
-    return () => { ++seq.current }
+    return () => { active = false }
   }, [offset, product, reload, scope])
 
   return (

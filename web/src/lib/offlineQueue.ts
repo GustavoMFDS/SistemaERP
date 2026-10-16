@@ -1,7 +1,7 @@
 import { APIError, apiJson, errorMessage } from './api'
 import { scopedStorageKey } from './auth'
 
-export type QueueState = 'pending' | 'attention'
+type QueueState = 'pending' | 'attention'
 export type AttentionReason = 'expired' | 'request_rejected' | 'legacy_migration'
 
 export type QueuedRequest = {
@@ -256,11 +256,6 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   delete item.lastError
   saveQueue(queue)
   return true
-}
-
-export function clearOfflineQueue(): void {
-  const key = queueKey()
-  if (key) localStorage.removeItem(key)
 }
 
 function sanitizeQueuedHeaders(headers?: Record<string, string>): Record<string, string> {

@@ -3,7 +3,7 @@ import { scopedStorageKey } from './auth'
 const SUSPENDED_CART_NAMESPACE = 'sistemaemgo:suspendedCarts:v1'
 const MAX_SUSPENDED_CARTS = 20
 
-export type SuspendedCartItem = {
+type SuspendedCartItem = {
   product_id: string
   qty: number
   unit_price: number
@@ -66,7 +66,3 @@ export function removeSuspendedCart(id: string): void {
   save(getSuspendedCarts().filter((item) => item.id !== id))
 }
 
-export function clearSuspendedCarts(): void {
-  const key = storageKey()
-  if (key) localStorage.removeItem(key)
-}

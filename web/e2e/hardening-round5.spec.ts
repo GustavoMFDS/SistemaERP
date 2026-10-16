@@ -25,8 +25,8 @@ test('write-ahead storage failure prevents any sale request from leaving the bro
   await login(page)
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
-  await page.getByLabel('Produto').selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   let salePosts = 0
   await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {

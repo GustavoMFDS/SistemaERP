@@ -64,6 +64,7 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
 
   useEffect(() => {
     const requestID = ++requestSequence.current
+    let active = true
     const requestScope = getSessionScope()
     if (!requestScope) {
       setPage(null)
@@ -78,16 +79,21 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
     if (from) params.set('from', from)
     if (to) params.set('to', to)
     void apiJson<Page>(`${endpoint}?${params.toString()}`).then((data) => {
-      if (requestID !== requestSequence.current || requestScope !== getSessionScope()) return
+      if (!active || requestID !== requestSequence.current || requestScope !== getSessionScope()) return
+      // An HTTP 200 with the wrong response shape must not crash the whole ERP.
+      // Surface a recoverable history error, leaving the current page available.
+      if (!data || !Array.isArray(data.items)) {
+        throw new Error('O servidor devolveu dados incompletos para o histórico de importações.')
+      }
       setPage(data)
       setLoading(false)
     }).catch((cause: unknown) => {
-      if (requestID !== requestSequence.current || requestScope !== getSessionScope()) return
+      if (!active || requestID !== requestSequence.current || requestScope !== getSessionScope()) return
       setPage(null)
       setError(errorMessage(cause))
       setLoading(false)
     })
-    return () => { ++requestSequence.current }
+    return () => { active = false }
   }, [endpoint, offset, refreshCounter, refreshVersion, scope, from, to])
 
   function applyFilters() {

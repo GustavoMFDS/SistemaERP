@@ -37,22 +37,24 @@ export default function CustomersPage() {
 
   useEffect(() => {
     const requestID = ++authSequence.current
+    let active = true
     const currentScope = getSessionScope()
     setPermissions(null)
     setItems([])
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me').then((data) => {
-      if (requestID !== authSequence.current || currentScope !== getSessionScope()) return
+      if (!active || requestID !== authSequence.current || currentScope !== getSessionScope()) return
       setPermissions(data.permissions)
     }).catch((cause: unknown) => {
-      if (requestID !== authSequence.current || currentScope !== getSessionScope()) return
+      if (!active || requestID !== authSequence.current || currentScope !== getSessionScope()) return
       setError(errorMessage(cause))
       setLoading(false)
     })
-    return () => { ++authSequence.current }
+    return () => { active = false }
   }, [scope])
 
   useEffect(() => {
     const requestID = ++listSequence.current
+    let active = true
     const currentScope = getSessionScope()
     if (!canRead || !currentScope) {
       setItems([])
@@ -65,18 +67,18 @@ export default function CustomersPage() {
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) })
     if (query) params.set('q', query)
     void apiJson<CustomerPage>(`/api/v1/customers?${params.toString()}`).then((data) => {
-      if (requestID !== listSequence.current || currentScope !== getSessionScope()) return
+      if (!active || requestID !== listSequence.current || currentScope !== getSessionScope()) return
       setItems(data.items ?? [])
       setTotal(data.total)
       setLoading(false)
     }).catch((cause: unknown) => {
-      if (requestID !== listSequence.current || currentScope !== getSessionScope()) return
+      if (!active || requestID !== listSequence.current || currentScope !== getSessionScope()) return
       setError(errorMessage(cause))
       setItems([])
       setTotal(0)
       setLoading(false)
     })
-    return () => { ++listSequence.current }
+    return () => { active = false }
   }, [canRead, scope, offset, query, refresh])
 
   function startEdit(item: Customer) {

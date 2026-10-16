@@ -1,7 +1,7 @@
-import FiscalDailyReview from '../components/FiscalDailyReview'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
+import FiscalDailyReview from '../components/FiscalDailyReview'
 const FiscalSetupGuide = lazy(() => import('../components/FiscalSetupGuide'))
 
 type XMLFile = {
@@ -340,8 +340,10 @@ export default function FiscalPage() {
     }
   }
 
+  // Load once per mount; later refreshes are controlled by fiscal actions.
+  const loadInitially = useEffectEvent(load)
   useEffect(() => {
-    void load()
+    void loadInitially()
     void loadObligations(0, false)
   }, [])
 

@@ -44,6 +44,7 @@ export default function TopProductsReport() {
 
   useEffect(() => {
     const id = ++requestSeq.current
+    let active = true
     if (!scope || !applied) return
     const originalScope = scope
     setLoading(true)
@@ -51,15 +52,15 @@ export default function TopProductsReport() {
     setResult(null)
     const params = new URLSearchParams({ ...applied, limit: '20' })
     void apiJson<Result>(`/api/v1/finance/products-ranking?${params.toString()}`).then((data) => {
-      if (id !== requestSeq.current || originalScope !== getSessionScope()) return
+      if (!active || id !== requestSeq.current || originalScope !== getSessionScope()) return
       setResult(data)
       setLoading(false)
     }).catch((cause: unknown) => {
-      if (id !== requestSeq.current || originalScope !== getSessionScope()) return
+      if (!active || id !== requestSeq.current || originalScope !== getSessionScope()) return
       setError(errorMessage(cause))
       setLoading(false)
     })
-    return () => { ++requestSeq.current }
+    return () => { active = false }
   }, [applied, scope])
 
   const valid = start.length === 10 && end.length === 10 &&

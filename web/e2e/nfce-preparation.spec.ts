@@ -78,8 +78,8 @@ test('NFC-e preparation stays disabled and never exposes secret references', asy
   }
 
   await page.goto('/fiscal')
-  await expect(page.getByRole('heading', { name: 'Fiscal — preparação NFC-e' })).toBeVisible()
-  await expect(page.getByText('Esta tela não transmite nem autoriza documentos na SEFAZ.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Nota fiscal da loja' })).toBeVisible()
+  await expect(page.getByText('Veja o que falta para preparar a emissão de notas. Esta tela não transmite notas para a SEFAZ.')).toBeVisible()
   await expect(page.getByRole('button', { name: /Gerar XML|Emitir|Transmitir/i })).toHaveCount(0)
 })
 
