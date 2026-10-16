@@ -46,7 +46,7 @@ test('write-ahead storage failure prevents any sale request from leaving the bro
   })
 
   await page.getByRole('button', { name: 'Finalizar' }).click()
-  await expect(page.getByText(/Nenhuma venda foi enviada/)).toBeVisible()
+  await expect(page.getByText(/Nenhuma solicitação de venda foi enviada ao servidor/)).toBeVisible()
   expect(salePosts).toBe(0)
 
   await page.evaluate(() => {

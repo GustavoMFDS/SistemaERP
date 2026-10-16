@@ -116,7 +116,7 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
   await page.getByRole('button', { name: 'Importar para revisão' }).click()
 
   await expect(page.getByText('Reconciliação offline')).toBeVisible()
-  await expect(page.getByText(/legacy_migration/)).toBeVisible()
+  await expect(page.getByText(/Venda de versão anterior/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Abrir' }).click()
   let currentCash = ''
