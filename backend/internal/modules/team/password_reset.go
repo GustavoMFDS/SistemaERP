@@ -188,6 +188,21 @@ func (s *Service) CompletePasswordReset(
 	if membershipCount != 1 || originalTenantCount != 1 {
 		return ErrPasswordResetUnavailable
 	}
+	// Do not reset a privileged account if its role changed to admin after
+	// the recovery link was issued.
+	var nowAdmin bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM user_tenant_roles ur
+			JOIN roles role ON role.id=ur.role_id AND role.name='admin'
+			WHERE ur.user_id=$1 AND ur.tenant_id=$2
+		)
+	`, userID, tenantID).Scan(&nowAdmin); err != nil {
+		return err
+	}
+	if nowAdmin {
+		return ErrPasswordResetUnavailable
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE users SET password_hash=$1,auth_version=auth_version+1,updated_at=now()
 		WHERE id=$2
