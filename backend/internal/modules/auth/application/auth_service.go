@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"time"
 
@@ -14,6 +13,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// Use the same bcrypt cost when a login identifier has no user. A cheap
+// string comparison leaks account existence through response timing.
+var unknownUserPasswordHash = func() []byte {
+	hash, err := bcrypt.GenerateFromPassword([]byte("timing-guard-not-a-user"), bcrypt.DefaultCost)
+	if err != nil {
+		panic("could not initialize login timing guard")
+	}
+	return hash
+}()
 
 type AuthService struct {
 	cfg     config.Config
@@ -29,8 +38,8 @@ func NewAuthService(cfg config.Config, users UsersRepository, refresh RefreshTok
 func (s *AuthService) Login(ctx context.Context, email, password string) (TokenResponse, AuthUserInfo, error) {
 	u, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
-		// mitigate timing
-		slowEqual(password, "")
+		// Consume comparable bcrypt work for an unknown identifier.
+		_ = bcrypt.CompareHashAndPassword(unknownUserPasswordHash, []byte(password))
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
@@ -281,6 +290,4 @@ func (s *AuthService) ensureUserTenantAccess(ctx context.Context, userID string,
 	return nil
 }
 
-func slowEqual(a, b string) {
-	_ = subtle.ConstantTimeCompare([]byte(a), []byte(b))
-}
+
