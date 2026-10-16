@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 
@@ -18,7 +18,7 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
   const [loading, setLoading] = useState(false)
   const [refreshed, setRefreshed] = useState(false)
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
     const checks: Promise<Alert | null>[] = []
@@ -50,12 +50,12 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
     setError(failures.length ? 'Não foi possível verificar todas as áreas. Alguns avisos podem estar ausentes. ' +
       errorMessage((failures[0] as PromiseRejectedResult).reason) : '')
     setLoading(false)
-  }
+  }, [canBackup, canFinance, canFiscal, canStock])
 
   useEffect(() => {
     if (!canFiscal && !canFinance && !canStock && !canBackup) return
     void refresh()
-  }, [canFiscal, canFinance, canStock, canBackup])
+  }, [canFiscal, canFinance, canStock, canBackup, refresh])
 
   if (!canFiscal && !canFinance && !canStock && !canBackup) return null
   return (
