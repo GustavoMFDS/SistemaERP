@@ -111,6 +111,7 @@ type Protocol struct {
 	ReceivedAt  string
 	Protocol    string
 	DigestValue string
+	RawXML      []byte
 	StatusCode  int
 	Reason      string
 }
@@ -179,6 +180,10 @@ func ParseAuthorizationResponse(content []byte) (AuthorizationResponse, error) {
 		}
 	}
 	if raw.ProtNFe != nil {
+		protoXML, err := ExtractProtocolXML(content)
+		if err != nil {
+			return AuthorizationResponse{}, err
+		}
 		protoCode, err := parseStatusCode(raw.ProtNFe.InfProt.CStat)
 		if err != nil {
 			return AuthorizationResponse{}, fmt.Errorf("protocol cStat: %w", err)
@@ -193,6 +198,7 @@ func ParseAuthorizationResponse(content []byte) (AuthorizationResponse, error) {
 			AccessKey: accessKey, ReceivedAt: strings.TrimSpace(raw.ProtNFe.InfProt.DhRecbto),
 			Protocol:    strings.TrimSpace(raw.ProtNFe.InfProt.NProt),
 			DigestValue: strings.TrimSpace(raw.ProtNFe.InfProt.DigVal),
+			RawXML:      protoXML,
 			StatusCode:  protoCode, Reason: strings.TrimSpace(raw.ProtNFe.InfProt.XMotivo),
 		}
 	}
@@ -292,6 +298,10 @@ func ParseConsultationResponse(content []byte) (ConsultationResponse, error) {
 		}
 	}
 	if raw.ProtNFe != nil {
+		protoXML, err := ExtractProtocolXML(content)
+		if err != nil {
+			return ConsultationResponse{}, err
+		}
 		protoCode, err := parseStatusCode(raw.ProtNFe.InfProt.CStat)
 		if err != nil {
 			return ConsultationResponse{}, err
@@ -301,6 +311,7 @@ func ParseConsultationResponse(content []byte) (ConsultationResponse, error) {
 			ReceivedAt:  strings.TrimSpace(raw.ProtNFe.InfProt.DhRecbto),
 			Protocol:    strings.TrimSpace(raw.ProtNFe.InfProt.NProt),
 			DigestValue: strings.TrimSpace(raw.ProtNFe.InfProt.DigVal),
+			RawXML:      protoXML,
 			StatusCode:  protoCode, Reason: strings.TrimSpace(raw.ProtNFe.InfProt.XMotivo),
 		}
 	}

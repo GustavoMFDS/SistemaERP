@@ -71,11 +71,11 @@ type ibsMunTotalXML struct {
 }
 
 type cbsTotalXML struct {
-	PresumedCredit    string `xml:"vCredPres"`
-	SuspendedPresumed string `xml:"vCredPresCondSus"`
 	Deferred          string `xml:"vDif"`
 	Returned          string `xml:"vDevTrib"`
 	Value             string `xml:"vCBS"`
+	PresumedCredit    string `xml:"vCredPres"`
+	SuspendedPresumed string `xml:"vCredPresCondSus"`
 }
 
 type rtcTotalsAccumulator struct {

@@ -11,6 +11,7 @@ import (
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/httpapi"
 	"github.com/example/sistemaemgo/internal/modules"
+	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/example/sistemaemgo/internal/platform/observability"
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,8 +102,29 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	}
 
 	startIdempotencyMaintenance(ctx, pool, logger)
+	// Only reconciles local fiscal dispatch diagnostics. Never reserves or transmits.
+	fiscapp.StartFiscalDispatchReconciliation(ctx, pool, logger)
+	// Local inspections use expiring database leases; no SEFAZ traffic.
+	fiscapp.StartFiscalPreflightDiagnostics(ctx, pool, logger)
+	// Submitted NFC-e gets a durable *consultation-only* recovery plan.
+	// This loop never contacts SEFAZ, resends XML or marks fiscal outcomes.
+	fiscapp.StartNFCeConsultationPlanner(ctx, pool, logger)
 
 	mods := modules.New(cfg, pool, rdb, logger)
+	// Explicit opt-in for homologation only. No certificate, schema bundle
+	// or deployment enablement means no worker and zero SEFAZ traffic.
+	if cfg.NFCeAutoHomologationEnabled {
+		if !mods.Fiscal.NFCeHomologationAutomationReady() {
+			pool.Close()
+			if rdb != nil {
+				_ = rdb.Close()
+			}
+			_ = telemetryShutdown(ctx)
+			return nil, errors.New("NFC-e auto homologation requires working signing, XSD, SEFAZ and processed XML adapters")
+		}
+		fiscapp.StartAutomaticNFCeHomologation(ctx, pool, mods.Fiscal, logger)
+		fiscapp.StartAutomaticNFCeConsultation(ctx, pool, mods.Fiscal, logger)
+	}
 	router := httpapi.NewRouter(cfg, mods, logger)
 
 	return &App{DB: pool, Redis: rdb, Router: router, telemetryShutdown: telemetryShutdown, logger: logger}, nil

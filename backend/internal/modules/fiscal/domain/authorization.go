@@ -15,6 +15,7 @@ type NFCeAuthorizationResult struct {
 	Status           string
 	AccessKey        string
 	Protocol         string
+	ProtocolXML      []byte
 	AuthorizedAt     time.Time
 	RejectionCode    string
 	RejectionMessage string

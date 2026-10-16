@@ -7,9 +7,9 @@ import (
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/modules/audit"
-	"github.com/example/sistemaemgo/internal/modules/customers"
 	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
 	authinfra "github.com/example/sistemaemgo/internal/modules/auth/infrastructure"
+	"github.com/example/sistemaemgo/internal/modules/customers"
 	finapp "github.com/example/sistemaemgo/internal/modules/finance/application"
 	fininfra "github.com/example/sistemaemgo/internal/modules/finance/infrastructure"
 	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
@@ -24,10 +24,10 @@ import (
 	procinfra "github.com/example/sistemaemgo/internal/modules/procurement/infrastructure"
 	retapp "github.com/example/sistemaemgo/internal/modules/returns/application"
 	retinfra "github.com/example/sistemaemgo/internal/modules/returns/infrastructure"
-	"github.com/example/sistemaemgo/internal/modules/setup"
-	"github.com/example/sistemaemgo/internal/modules/team"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	salesinfra "github.com/example/sistemaemgo/internal/modules/sales/infrastructure"
+	"github.com/example/sistemaemgo/internal/modules/setup"
+	"github.com/example/sistemaemgo/internal/modules/team"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/example/sistemaemgo/internal/platform/events"
 	"github.com/go-playground/validator/v10"
@@ -97,6 +97,12 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	var refreshStore authapp.RefreshTokenStore
 	if rdb != nil {
 		refreshStore = authinfra.NewRefreshTokenStore(rdb)
+	} else if !cfg.IsProdLike() {
+		// Developer-only session rotation when a local Redis instance is not
+		// available. Never permit ephemeral, non-distributed auth in prod.
+		refreshStore = authinfra.NewMemoryRefreshTokenStore()
+		logger.Warn("dev_refresh_tokens_in_memory",
+			slog.String("impact", "sessions expire on restart; not for multiple backend replicas"))
 	}
 	authSvc := authapp.NewAuthService(cfg, usersRepo, refreshStore, logger)
 	productsSvc := invapp.NewProductsService(uow, productsRepo, auditSvc, v, logger)
@@ -111,6 +117,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.
 	fiscalSvc := fiscapp.NewFiscalServiceWithProvider(uow, fiscalRepo, salesRepo, productsRepo, nfeProvider, auditSvc, v, logger)
 	documentBuilder := fiscsefaz.NewDocumentBuilder(cfg.AppVersion)
 	fiscalSvc.SetNFCeDocumentBuilder(documentBuilder)
+	fiscalSvc.SetNFCeProcessedDocumentBuilder(fiscsefaz.NewProcessedDocumentBuilder())
 	fiscalSvc.SetNFCeCancellationBuilder(documentBuilder)
 	fiscalSvc.SetNFCeInutilizationBuilder(documentBuilder)
 	fiscalSvc.SetNFCeDANFERenderer(fiscsefaz.NewDANFERenderer())

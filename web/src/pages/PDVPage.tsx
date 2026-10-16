@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { APIError, apiJson, errorMessage } from '../lib/api'
+import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
+import { useProductThumbnails } from '../lib/productThumbnails'
 import {
   claimLegacyQueue,
   discardLegacyQueue,
@@ -17,6 +18,7 @@ import {
   type QueuedRequest,
 } from '../lib/offlineQueue'
 import {
+  getSessionScope,
   clearCashSessionId,
   getCashSessionId,
   setCashSessionId,
@@ -46,6 +48,8 @@ type MeResponse = {
 }
 
 type ProductsListResponse = { items: Product[]; total: number }
+type ProductVariant = Product & { option_label: string; is_base: boolean }
+type ProductFamilyResponse = { parent_id: string; items: ProductVariant[] }
 type ProductCache = { savedAt: number; items: Product[] }
 
 type CashMovementAttempt = {
@@ -85,19 +89,19 @@ type SaleItem = {
 
 type SalePayment = { method: string; amount: number }
 
-type ReceiptSnapshot = {
-  saleId: string
-  total: number
-  saleDiscount: number
-  paymentMethod: string
-  createdAt: string
-  items: Array<{
-    label: string
-    qty: number
-    unitPrice: number
-    discountValue: number
-    lineTotal: number
-  }>
+type SaleFiscalStatus = {
+  sale_id: string
+  required: boolean
+  document_kind: 'nfce' | 'nfe'
+  status: string
+  authorized: boolean
+  printable: boolean
+  invoice_id?: string
+  access_key?: string
+  legacy_review: boolean
+  automatic_state?: string
+  consultation_state?: string
+  consultation_attempts?: number
 }
 
 const CASH_MOVEMENT_ATTEMPT_NAMESPACE = 'sistemaemgo:cashMovementAttempt:v1'
@@ -110,15 +114,6 @@ const CLOSE_METHODS = [
   ['transfer', 'Transferência'],
   ['voucher', 'Voucher'],
 ] as const
-
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: 'Dinheiro',
-  pix: 'PIX',
-  debit: 'Débito',
-  credit: 'Crédito',
-  transfer: 'Transferência',
-  voucher: 'Voucher',
-}
 
 function loadCashMovementAttempt(): CashMovementAttempt | null {
   const key = scopedStorageKey(CASH_MOVEMENT_ATTEMPT_NAMESPACE)
@@ -162,6 +157,27 @@ function productSalePrice(product: Product): number {
   return Number(product.price_cash) || 0
 }
 
+// Newly discovered SKUs may fall outside the first 200 catalog rows. Preserve
+// them in the *existing*, tenant/user-scoped offline snapshot without extending
+// its age or creating an untrusted partial catalog from scratch.
+function cacheOnlineFamilyForOffline(items: Product[]): void {
+  const key = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
+  if (!key) return
+  const raw = localStorage.getItem(key)
+  if (!raw) return
+  const saved = JSON.parse(raw) as ProductCache
+  if (!saved || !Array.isArray(saved.items) ||
+      !Number.isFinite(saved.savedAt) ||
+      Date.now() - saved.savedAt > PRODUCTS_CACHE_MAX_AGE_MS) return
+  const combined = new Map(saved.items.map((product) => [product.id, product]))
+  for (const product of items) {
+    if (product.active) combined.set(product.id, product)
+  }
+  localStorage.setItem(key, JSON.stringify({
+    savedAt: saved.savedAt, items: Array.from(combined.values()),
+  } satisfies ProductCache))
+}
+
 export default function PDVPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
@@ -192,6 +208,7 @@ export default function PDVPage() {
   const productSearchRef = useRef<HTMLInputElement>(null)
   const [productQuery, setProductQuery] = useState('')
   const [itemProductId, setItemProductId] = useState('')
+  const [selectedFamily, setSelectedFamily] = useState<ProductFamilyResponse | null>(null)
   const [itemQty, setItemQty] = useState<number>(1)
   const [items, setItems] = useState<SaleItem[]>([])
   const [saleDiscount, setSaleDiscount] = useState(0)
@@ -201,7 +218,15 @@ export default function PDVPage() {
   const [payMethod, setPayMethod] = useState('pix')
   const [saleId, setSaleId] = useState('')
   const [saleTotal, setSaleTotal] = useState<number>(0)
-  const [receipt, setReceipt] = useState<ReceiptSnapshot | null>(null)
+  const [fiscalStatus, setFiscalStatus] = useState<SaleFiscalStatus | null>(null)
+  const [fiscalStatusError, setFiscalStatusError] = useState('')
+  const [printDecisionOpen, setPrintDecisionOpen] = useState(false)
+  const [printerWidthMM, setPrinterWidthMM] = useState<58 | 80>(80)
+  const [printerSaving, setPrinterSaving] = useState(false)
+  const [printerLoading, setPrinterLoading] = useState(!!getCashSessionId())
+  const [printerReloadSeq, setPrinterReloadSeq] = useState(0)
+  const [printerError, setPrinterError] = useState('')
+  const fiscalSaleRef = useRef('')
   const [finalizing, setFinalizing] = useState(false)
   const finalizeInFlight = useRef(false)
   const cashMovementAttempt = useRef<CashMovementAttempt | null>(loadCashMovementAttempt())
@@ -220,6 +245,8 @@ export default function PDVPage() {
     }
     return map
   }, [products])
+
+  const productThumbnails = useProductThumbnails(products.map((product) => product.id))
 
   const filteredProducts = useMemo(() => {
     const q = productQuery.trim().toLowerCase()
@@ -253,6 +280,38 @@ export default function PDVPage() {
     }, 300)
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [productQuery, online])
+
+  useEffect(() => {
+    if (!itemProductId || !online) {
+      setSelectedFamily(null)
+      return
+    }
+    let cancelled = false
+    const scope = getSessionScope()
+    setSelectedFamily(null)
+    apiJson<ProductFamilyResponse>('/api/v1/products/' + encodeURIComponent(itemProductId) + '/variations')
+      .then((family) => {
+        if (cancelled || scope !== getSessionScope()) return
+        if (family.items.length < 2) return
+        setSelectedFamily(family)
+        try {
+          cacheOnlineFamilyForOffline(family.items)
+        } catch {
+          // Failure to persist an optional cache must never prevent an online
+          // checkout. The server remains the authority on stock.
+          setError('Opções carregadas, mas não foi possível salvá-las para uso offline neste dispositivo.')
+        }
+        // Some family options may be beyond the first 200 catalog rows;
+        // merge them without discarding cart item metadata or offline hints.
+        setProducts((previous) => {
+          const next = new Map(previous.map((item) => [item.id, item]))
+          for (const item of family.items) if (item.active) next.set(item.id, item)
+          return Array.from(next.values())
+        })
+      })
+      .catch(() => { if (!cancelled) setSelectedFamily(null) })
+    return () => { cancelled = true }
+  }, [itemProductId, online])
 
   const computedTotal = useMemo(() => {
     let t = 0
@@ -293,7 +352,13 @@ export default function PDVPage() {
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
       if (cacheKey) {
         const cache: ProductCache = { savedAt: Date.now(), items: active }
-        localStorage.setItem(cacheKey, JSON.stringify(cache))
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(cache))
+        } catch {
+          // A storage quota/privacy failure must not masquerade as an API
+          // outage or discard a successfully loaded live product catalog.
+          setError('Catálogo online carregado, mas o cache offline não pôde ser atualizado neste navegador.')
+        }
       }
     } catch (e: unknown) {
       const canUseOfflineCache =
@@ -320,7 +385,7 @@ export default function PDVPage() {
             Date.now() - parsed.savedAt <= PRODUCTS_CACHE_MAX_AGE_MS
           ) {
             setProducts(parsed.items.filter((product) => product.active))
-            setError('Catálogo carregado do cache local porque o servidor está indisponível.')
+            setError('Catálogo carregado do cache local. Saldos e preços podem estar desatualizados; as vendas serão revalidadas pelo servidor ao sincronizar.')
             return
           }
           setError('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.')
@@ -755,6 +820,136 @@ export default function PDVPage() {
     [cashSessionId, items.length, computedTotal],
   )
 
+  async function refreshFiscalStatus(id: string) {
+    if (!id || id.startsWith('offline:')) return
+    setFiscalStatusError('')
+    try {
+      const status = await apiJson<SaleFiscalStatus>(
+        '/api/v1/sales/' + encodeURIComponent(id) + '/fiscal-status',
+      )
+      if (fiscalSaleRef.current === id) setFiscalStatus(status)
+    } catch (error: unknown) {
+      if (fiscalSaleRef.current === id) {
+        setFiscalStatusError('Não foi possível consultar a situação fiscal: ' + errorMessage(error))
+      }
+    }
+  }
+
+  // A finalized sale always keeps its fiscal obligation, even while an
+  // automated issuer prepares/signs/transmits it. Only enable printing once
+  // the backend confirms a real authorized and archived document.
+  useEffect(() => {
+    if (!saleId || saleId.startsWith('offline:') ||
+        fiscalStatus?.authorized || fiscalStatus?.status === 'legacy_review') return
+
+    let requestInFlight = false
+    const interval = window.setInterval(() => {
+      if (requestInFlight || fiscalSaleRef.current !== saleId) return
+      requestInFlight = true
+      void apiJson<SaleFiscalStatus>(
+        '/api/v1/sales/' + encodeURIComponent(saleId) + '/fiscal-status',
+      ).then((next) => {
+        if (fiscalSaleRef.current === saleId) {
+          setFiscalStatus(next)
+          setFiscalStatusError('')
+        }
+      }).catch((error: unknown) => {
+        if (fiscalSaleRef.current === saleId) {
+          setFiscalStatusError('Não foi possível atualizar a situação fiscal: ' + errorMessage(error))
+        }
+      }).finally(() => { requestInFlight = false })
+    }, 5000)
+    return () => window.clearInterval(interval)
+  }, [saleId, fiscalStatus?.authorized, fiscalStatus?.status])
+
+  useEffect(() => {
+    if (!cashSessionId || !online) return
+    let cancelled = false
+    const scope = getSessionScope()
+    setPrinterLoading(true)
+    setPrinterError('')
+    void apiJson<{ paper_width_mm: number }>(
+      '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer',
+    ).then((settings) => {
+      if (cancelled || scope !== getSessionScope()) return
+      if (settings.paper_width_mm !== 58 && settings.paper_width_mm !== 80) {
+        setPrinterError('O servidor retornou uma bobina inválida. Confira a configuração.')
+        return
+      }
+      setPrinterWidthMM(settings.paper_width_mm)
+    }).catch(() => {
+      if (!cancelled && scope === getSessionScope()) {
+        setPrinterError('Não foi possível carregar a bobina configurada neste caixa.')
+      }
+    }).finally(() => {
+      if (!cancelled && scope === getSessionScope()) setPrinterLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [cashSessionId, online, printerReloadSeq])
+
+  async function setPrinterPaperWidth(width: 58 | 80) {
+    if (!cashSessionId || printerSaving || printerLoading || !online) return
+    const previousWidth = printerWidthMM
+    setPrinterSaving(true)
+    setPrinterError('')
+    try {
+      const settings = await apiJson<{ paper_width_mm: number }>(
+        '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer',
+        { method: 'PUT', body: { paper_width_mm: width } },
+      )
+      if (settings.paper_width_mm !== 58 && settings.paper_width_mm !== 80) {
+        throw new Error('O servidor retornou uma largura de bobina inválida.')
+      }
+      setPrinterWidthMM(settings.paper_width_mm)
+    } catch (error: unknown) {
+      setPrinterWidthMM(previousWidth)
+      setPrinterError('Não foi possível salvar a bobina: ' + errorMessage(error))
+    } finally {
+      setPrinterSaving(false)
+    }
+  }
+
+  async function printPrinterCalibration(previewOnly = false) {
+    if (!cashSessionId || !online || printerSaving || printerLoading || printerError) return
+    try {
+      // A non-fiscal test coupon only: no sale, note, certificate or SEFAZ.
+      await apiOpenPrintable(
+        '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer/test',
+        !previewOnly,
+      )
+    } catch (error: unknown) {
+      setPrinterError('Não foi possível abrir o teste da impressora: ' + errorMessage(error))
+    }
+  }
+
+  async function downloadFiscalXML() {
+    if (!fiscalStatus?.authorized || !fiscalStatus?.printable ||
+        !fiscalStatus.access_key || fiscalStatus.sale_id !== fiscalSaleRef.current) return
+    setFiscalStatusError('')
+    try {
+      await apiDownload(
+        '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-xml',
+        fiscalStatus.access_key + '-procNFe.xml',
+        'application/xml',
+      )
+    } catch (error: unknown) {
+      setFiscalStatusError('Não foi possível baixar o XML autorizado: ' + errorMessage(error))
+    }
+  }
+
+  async function printFiscalDANFE(previewOnly = false) {
+    if (!fiscalStatus?.printable || printerSaving || printerLoading || printerError || fiscalStatus.sale_id !== fiscalSaleRef.current) return
+    try {
+      await apiOpenPrintable(
+        '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-danfe',
+        !previewOnly,
+      )
+      if (!previewOnly) setPrintDecisionOpen(false)
+    } catch (error: unknown) {
+      setFiscalStatusError('Não foi possível abrir o DANFE: ' + errorMessage(error))
+    }
+  }
+
   async function finalizeSale() {
     if (!canFinalize || finalizeInFlight.current) return
 
@@ -763,7 +958,10 @@ export default function PDVPage() {
     setError('')
     setSaleId('')
     setSaleTotal(0)
-    setReceipt(null)
+    setFiscalStatus(null)
+    setFiscalStatusError('')
+    setPrintDecisionOpen(false)
+    fiscalSaleRef.current = ''
 
     const payments: SalePayment[] = [{ method: payMethod, amount: computedTotal }]
     const body = {
@@ -816,29 +1014,11 @@ export default function PDVPage() {
 
       discardQueueItem(queuedId)
       refreshPending()
-      const receiptItems = items.map((item) => {
-        const product = productById.get(item.product_id)
-        const unitPrice = Number(item.unit_price) || 0
-        const qty = Number(item.qty) || 0
-        const discountValue = Number(item.discount_value) || 0
-        return {
-          label: product ? `${product.sku} — ${product.name}` : item.product_id,
-          qty,
-          unitPrice,
-          discountValue,
-          lineTotal: Math.round((unitPrice * qty - discountValue) * 100) / 100,
-        }
-      })
-      setReceipt({
-        saleId: res.id,
-        total: res.total,
-        saleDiscount: canDiscount ? saleDiscount : 0,
-        paymentMethod: payMethod,
-        createdAt: new Date().toISOString(),
-        items: receiptItems,
-      })
       setSaleId(res.id)
       setSaleTotal(res.total)
+      fiscalSaleRef.current = res.id
+      setPrintDecisionOpen(true)
+      void refreshFiscalStatus(res.id)
       setItems([])
       setSaleDiscount(0)
       void loadProducts()
@@ -870,76 +1050,6 @@ export default function PDVPage() {
       setFinalizing(false)
       barcodeInputRef.current?.focus()
     }
-  }
-
-  function printNonFiscalReceipt() {
-    if (!receipt) return
-
-    const popup = window.open('', '_blank', 'width=420,height=640')
-    if (!popup) {
-      setError('O navegador bloqueou a janela do comprovante. Libere pop-ups e tente novamente.')
-      return
-    }
-    popup.opener = null
-    const doc = popup.document
-    doc.title = 'Comprovante não fiscal'
-
-    const style = doc.createElement('style')
-    style.textContent =
-      'body{font-family:ui-monospace,monospace;max-width:380px;margin:20px auto;padding:0 12px;color:#111}' +
-      'h1{font-size:18px;text-align:center;margin:0 0 4px}' +
-      '.warn{text-align:center;font-weight:700;border:2px solid #111;padding:8px;margin:8px 0}' +
-      '.muted{font-size:11px;color:#444}.row{display:flex;justify-content:space-between;gap:12px}' +
-      '.item{border-top:1px dashed #777;padding:6px 0}.total{font-size:18px;font-weight:700;border-top:2px solid #111;padding-top:8px;margin-top:8px}' +
-      '@media print{body{margin:0 auto}.no-print{display:none}}'
-    doc.head.appendChild(style)
-
-    const addText = (tag: 'h1' | 'div' | 'p', text: string, className?: string) => {
-      const node = doc.createElement(tag)
-      node.textContent = text
-      if (className) node.className = className
-      doc.body.appendChild(node)
-      return node
-    }
-
-    addText('h1', 'SistemaEmGo')
-    addText('div', 'COMPROVANTE NÃO FISCAL', 'warn')
-    addText('p', 'Não é documento fiscal e não substitui NFC-e/NF-e.', 'muted')
-    addText('p', `Venda: ${receipt.saleId}`, 'muted')
-    addText('p', `Data/hora do terminal: ${new Date(receipt.createdAt).toLocaleString('pt-BR')}`, 'muted')
-
-    for (const item of receipt.items) {
-      const box = doc.createElement('div')
-      box.className = 'item'
-      const label = doc.createElement('div')
-      label.textContent = item.label
-      box.appendChild(label)
-      const detail = doc.createElement('div')
-      detail.className = 'row muted'
-      const left = doc.createElement('span')
-      left.textContent = `${item.qty.toFixed(3)} x R$ ${item.unitPrice.toFixed(2)}`
-      const right = doc.createElement('span')
-      right.textContent = `R$ ${item.lineTotal.toFixed(2)}`
-      detail.append(left, right)
-      box.appendChild(detail)
-      if (item.discountValue > 0) {
-        const discount = doc.createElement('div')
-        discount.className = 'muted'
-        discount.textContent = `Desconto do item: R$ ${item.discountValue.toFixed(2)}`
-        box.appendChild(discount)
-      }
-      doc.body.appendChild(box)
-    }
-
-    if (receipt.saleDiscount > 0) {
-      addText('p', `Desconto da venda: R$ ${receipt.saleDiscount.toFixed(2)}`, 'muted')
-    }
-    addText('p', `Pagamento: ${PAYMENT_LABELS[receipt.paymentMethod] ?? receipt.paymentMethod}`, 'muted')
-    addText('div', `TOTAL R$ ${receipt.total.toFixed(2)}`, 'total')
-    addText('p', 'Guarde apenas como comprovante comercial interno/ao cliente.', 'muted')
-
-    popup.focus()
-    popup.print()
   }
 
   useEffect(() => {
@@ -997,6 +1107,55 @@ export default function PDVPage() {
         </div>
         {cashSessionId ? (
           <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h4 className="text-sm font-semibold text-slate-900">Impressora térmica do caixa</h4>
+              <p className="mt-1 text-xs text-slate-600">
+                Configure e teste a impressora antes da primeira venda. O cupom de teste não registra venda nem emite NFC-e.
+              </p>
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <label className="text-xs font-semibold text-slate-900">
+                  Bobina deste caixa
+                  <select
+                    aria-label="Largura da bobina do DANFE"
+                    className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    value={printerWidthMM}
+                    disabled={!cashSessionId || !online || printerSaving || printerLoading}
+                    onChange={(event) => {
+                      const width = Number(event.target.value)
+                      if (width === 58 || width === 80) void setPrinterPaperWidth(width)
+                    }}
+                  >
+                    <option value={58}>58 mm</option>
+                    <option value={80}>80 mm</option>
+                  </select>
+                </label>
+                <span className="text-xs text-slate-600">Use o mesmo tamanho no driver da impressora.</span>
+              </div>
+              {printerLoading ? <p role="status" className="mt-2 text-xs text-slate-600">Carregando bobina do caixa…</p> : null}
+              {printerSaving ? <p role="status" className="mt-2 text-xs text-slate-600">Salvando largura da bobina…</p> : null}
+              {printerError ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <p role="alert" className="text-xs text-red-700">{printerError}</p>
+                  <button type="button" className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs"
+                    onClick={() => setPrinterReloadSeq((value) => value + 1)}
+                    disabled={!online || printerLoading || printerSaving}>
+                    Tentar carregar bobina novamente
+                  </button>
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" disabled={!online || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printPrinterCalibration(true)}
+                  className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm disabled:opacity-50">
+                  Pré-visualizar teste
+                </button>
+                <button type="button" disabled={!online || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printPrinterCalibration()}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+                  Imprimir cupom de teste
+                </button>
+              </div>
+            </div>
             <details className="rounded-xl bg-slate-50 p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-700">Movimentar dinheiro (entrada ou retirada)</summary>
               <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -1107,6 +1266,26 @@ export default function PDVPage() {
               ))}
             </select>
           </label>
+          {selectedFamily && selectedFamily.items.length > 1 ? (
+            <label className="block md:col-span-8">
+              <span className="text-xs font-medium text-slate-700">Cor ou tamanho deste produto</span>
+              <select
+                value={itemProductId}
+                onChange={(e) => setItemProductId(e.target.value)}
+                aria-label="Cor ou tamanho para vender"
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              >
+                {selectedFamily.items.map((option) => (
+                  <option key={option.id} value={option.id} disabled={!option.active}>
+                    {option.is_base ? 'Padrão' : option.option_label} — {option.sku} • estoque {option.qty_on_hand}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-slate-600">
+                Cada opção tem seu próprio saldo. Selecione a correta antes de adicionar.
+              </span>
+            </label>
+          ) : null}
           <label className="block md:col-span-1">
             <span className="text-xs text-gray-600">Qtd</span>
             <input
@@ -1139,6 +1318,9 @@ export default function PDVPage() {
                 <button key={product.id} type="button" onClick={() => addProductToCart(product)}
                   aria-label={`Adicionar ${product.name} à venda`}
                   className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:border-slate-500 hover:bg-white focus-visible:outline-2">
+                  {productThumbnails[product.id] ? (
+                    <img src={productThumbnails[product.id]} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
+                  ) : null}
                   <span className="min-w-0"><strong className="block truncate text-sm text-slate-900">{product.name}</strong>
                     <span className="text-xs text-slate-500">{product.sku} • saldo {product.qty_on_hand ?? '—'}</span></span>
                   <span className="shrink-0 text-sm font-bold text-slate-900">R$ {productSalePrice(product).toFixed(2)} <span aria-hidden="true">+</span></span>
@@ -1346,19 +1528,111 @@ export default function PDVPage() {
             ) : (
               <>
                 Venda finalizada: <span className="font-mono text-xs">{saleId}</span> • Total R$ {saleTotal.toFixed(2)}
-                {receipt ? (
-                  <button
-                    type="button"
-                    onClick={printNonFiscalReceipt}
-                    className="ml-3 rounded border border-green-300 px-2 py-1 text-xs"
-                  >
-                    Imprimir comprovante não fiscal
-                  </button>
-                ) : null}
+                <span className="mt-2 block font-semibold">
+                  Obrigação fiscal registrada. A emissão só é concluída após autorização fiscal.
+                </span>
               </>
             )}
           </div>
         ) : null}
+      {saleId && !saleId.startsWith('offline:') ? (
+        <section aria-label="Situação fiscal da venda" className="mt-3 rounded-xl border border-slate-300 bg-white p-4 text-sm">
+          <h3 className="font-semibold">Documento fiscal da venda</h3>
+          <p className="mt-1" role="status">
+            {fiscalStatus?.authorized
+              ? 'NFC-e autorizada. O DANFE pode ser impresso em 58 ou 80 mm conforme a impressora configurada.'
+              : fiscalStatus?.status === 'authorized'
+                ? 'ALERTA: nota marcada como autorizada, mas seu XML processado não está íntegro. Procure o responsável fiscal e não emita outra nota.'
+              : fiscalStatus?.consultation_state === 'manual_review' ||
+                fiscalStatus?.automatic_state === 'manual_review'
+                ? 'ATENÇÃO: emissão fiscal requer revisão manual. Não repita a venda e não gere outra nota sem consultar o responsável.'
+                : fiscalStatus?.consultation_state === 'awaiting_consultation' ||
+                  fiscalStatus?.automatic_state === 'awaiting_sefaz' ||
+                  fiscalStatus?.status === 'submitted'
+                  ? 'NFC-e enviada. Aguardando consulta à SEFAZ; não reenviar a nota nem refazer a venda.'
+                  : fiscalStatus?.status === 'signed' || fiscalStatus?.status === 'reserved'
+                    ? 'NFC-e em preparação. Documento ainda não autorizado.'
+                    : fiscalStatus?.status === 'legacy_review'
+                      ? 'Venda histórica: situação fiscal requer revisão.'
+                      : 'NFC-e ainda não autorizada. Pendência fiscal permanece registrada, mesmo sem impressão.'}
+          </p>
+          {!fiscalStatus?.authorized && (
+            fiscalStatus?.status === 'authorized' ||
+            fiscalStatus?.consultation_state === 'manual_review' ||
+            fiscalStatus?.automatic_state === 'manual_review'
+          ) ? (
+            <p role="alert" className="mt-2 rounded border border-red-300 bg-red-50 p-2 text-xs font-semibold text-red-800">
+              Procure o responsável fiscal da loja para conferir a nota. Não tente enviar outra NFC-e para esta venda.
+            </p>
+          ) : null}
+          {!fiscalStatus?.authorized && typeof fiscalStatus?.consultation_attempts === 'number' ? (
+            <p className="mt-1 text-xs text-slate-600">
+              Consultas realizadas: {fiscalStatus.consultation_attempts} de 10.
+            </p>
+          ) : null}
+          {fiscalStatus?.authorized && fiscalStatus.access_key ? (
+            <div className="mt-2">
+              <p className="text-xs text-slate-700">
+                Chave de acesso da NFC-e autorizada: <span className="font-mono break-all">{fiscalStatus.access_key}</span>
+              </p>
+              <button type="button" className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(fiscalStatus.access_key ?? '').catch(() => {
+                    setFiscalStatusError('Não foi possível copiar a chave. Selecione o texto manualmente.')
+                  })
+                }}>
+                Copiar chave para entrega digital
+              </button>
+              <button type="button"
+                onClick={() => void downloadFiscalXML()}
+                className="ml-2 mt-1 rounded-md border border-slate-300 px-3 py-2 text-xs">
+                Baixar XML autorizado
+              </button>
+              <p className="mt-2 text-xs text-slate-600">
+                O XML autorizado fica disponível mesmo que o cliente não queira imprimir o DANFE.
+              </p>
+            </div>
+          ) : null}
+          {fiscalStatusError ? <p className="mt-2 text-red-700">{fiscalStatusError}</p> : null}
+          {printDecisionOpen ? (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <p className="font-semibold">O cliente deseja imprimir o DANFE NFC-e?</p>
+              <p className="mt-1 text-xs">
+                Escolher não imprimir não cancela a venda nem a obrigação fiscal.
+                Sem autorização da SEFAZ, nenhum documento fiscal será apresentado como emitido.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => setPrintDecisionOpen(false)}
+                  className="rounded-md border border-slate-400 bg-white px-3 py-2">
+                  Não imprimir
+                </button>
+                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printFiscalDANFE(true)}
+                  className="rounded-md border border-slate-500 bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50">
+                  Pré-visualizar DANFE
+                </button>
+                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printFiscalDANFE()}
+                  className="rounded-md bg-slate-900 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50">
+                  Sim, abrir para imprimir
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => void refreshFiscalStatus(saleId)}
+              className="rounded-md border border-slate-300 px-3 py-2 text-xs">
+              Atualizar situação fiscal
+            </button>
+            {fiscalStatus?.printable && !printDecisionOpen ? (
+              <button type="button" onClick={() => setPrintDecisionOpen(true)}
+                className="rounded-md border border-slate-300 px-3 py-2 text-xs">
+                Imprimir depois
+              </button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
       {legacyQueueCount > 0 ? (
         <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">
           <h3 className="text-sm font-semibold text-amber-900">Fila offline legada detectada</h3>

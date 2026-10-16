@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
+import AttentionCenter from '../components/AttentionCenter'
 
 type Overview = {
   sales_after_cancellations: number
@@ -180,6 +181,8 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      {me ? <AttentionCenter permissions={me.permissions} /> : null}
 
       {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p> : null}
 

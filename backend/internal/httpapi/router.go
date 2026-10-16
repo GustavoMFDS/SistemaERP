@@ -72,6 +72,13 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.With(middleware.RequireAnyPermission("product:write", "inventory:adjust")).Get("/imports/history", h.Products.ListUnifiedImportHistory)
 
 			pr.Route("/products", func(rr chi.Router) {
+				rr.With(middleware.RequirePermission("product:read")).Get("/images/previews", h.ProductImages.Previews)
+				rr.With(middleware.RequirePermission("product:read")).Get("/{id}/images", h.ProductImages.List)
+				rr.With(middleware.RequirePermission("product:read")).Get("/{id}/variations", h.ProductVariations.List)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/{id}/variations", h.ProductVariations.Create)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/{id}/images", h.ProductImages.Upload)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin).Delete("/{id}/images/{photoID}", h.ProductImages.Delete)
+				rr.With(middleware.RequirePermission("product:write"), trustedOrigin).Patch("/{id}/images/{photoID}/caption", h.ProductImages.SetCaption)
 				rr.With(middleware.RequirePermission("product:read")).Get("/", h.Products.List)
 				rr.With(middleware.RequirePermission("product:read")).Get("/barcode/{barcode}", h.Products.GetByBarcode)
 				rr.With(middleware.RequirePermission("product:write"), trustedOrigin, productImportLimit).Post("/import-batches", h.Products.ImportBatch)
@@ -116,6 +123,9 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 			pr.Route("/cash", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("cash:open")).Get("/sessions/current", h.Cash.CurrentSession)
+				rr.With(middleware.RequirePermission("cash:open")).Get("/sessions/{id}/printer", h.SaleFiscal.GetCashPrinter)
+				rr.With(middleware.RequirePermission("cash:open")).Get("/sessions/{id}/printer/test", h.SaleFiscal.GetCashPrinterCalibration)
+				rr.With(middleware.RequirePermission("cash:open"), trustedOrigin).Put("/sessions/{id}/printer", h.SaleFiscal.SetCashPrinter)
 				rr.With(middleware.RequirePermission("cash:open")).Post("/sessions/open", h.Cash.OpenSession)
 				rr.With(middleware.RequirePermission("cash:move")).Post("/sessions/{id}/movements", h.Cash.RecordMovement)
 				rr.With(middleware.RequirePermission("cash:close")).Post("/sessions/{id}/close", h.Cash.CloseSession)
@@ -124,6 +134,9 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/sales", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("sale:read")).Get("/", h.Sales.List)
 				rr.With(middleware.RequirePermission("sale:read")).Get("/{id}", h.Sales.Get)
+				rr.With(middleware.RequireAnyPermission("sale:read", "sale:write")).Get("/{id}/fiscal-status", h.SaleFiscal.Status)
+				rr.With(middleware.RequireAnyPermission("sale:read", "sale:write"), fiscalLimit).Get("/{id}/fiscal-danfe", h.SaleFiscal.PrintDANFE)
+				rr.With(middleware.RequireAnyPermission("sale:read", "sale:write"), fiscalLimit).Get("/{id}/fiscal-xml", h.SaleFiscal.DownloadSaleProcessedXML)
 				rr.With(middleware.RequirePermission("sale:write"), salesLimit).Post("/", h.Sales.CreateAndFinalize)
 				rr.With(middleware.RequirePermission("sale:return")).Post("/{id}/returns", h.Returns.CreateForSale)
 				rr.With(middleware.RequirePermission("sale:cancel")).Post("/{id}/cancel", h.Sales.Cancel)
@@ -137,6 +150,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/finance", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("finance:read")).Get("/accounts", h.FinanceAccounts.List)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/trends", h.FinanceAccounts.Trends)
+				rr.With(middleware.RequirePermission("finance:read")).Get("/operational-reports", h.FinanceAccounts.OperationalReports)
 				rr.With(middleware.RequirePermission("finance:reconcile"), trustedOrigin).Post("/accounts", h.FinanceAccounts.Create)
 				rr.With(middleware.RequirePermission("finance:reconcile"), trustedOrigin).Post("/accounts/{kind}/{id}/settle", h.FinanceAccounts.Settle)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/dashboard", h.Finance.Dashboard)
@@ -153,12 +167,18 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 			if mods.Fiscal != nil {
 				pr.Route("/fiscal", func(rr chi.Router) {
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/obligations", h.SaleFiscal.ListObligations)
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/daily-close", h.SaleFiscal.DailyClose)
+					// Machine-preflight audit, never exposes lease tokens or human identity.
+					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/obligations/{saleID}/preflight-audit", h.SaleFiscal.ListFiscalPreflightAudit)
+					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/obligations/{saleID}/preparation", h.SaleFiscal.GetFiscalPreparation)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/readiness", h.Fiscal.NFCeReadiness)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/reservations", h.Fiscal.ReserveNFCeDraft)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/reservations/offline-contingency", h.Fiscal.ReserveNFCeOfflineContingency)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/inutilizations", h.Fiscal.InutilizeNFCeNumbers)
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/nfce/invoices/{invoiceID}/tax-calculations", h.Fiscal.ListInvoiceTaxCalculations)
 					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/danfe", h.Fiscal.DownloadNFCeDANFE)
+					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/processed-xml", h.Fiscal.DownloadAuthorizedNFCeProcessedXML)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Get("/nfce/invoices/{invoiceID}/xml-candidate", h.Fiscal.PreviewNFCeXMLCandidate)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/sign", h.Fiscal.SignNFCeReserved)
 					rr.With(middleware.RequirePermission("invoice:generate"), fiscalLimit).Post("/nfce/invoices/{invoiceID}/authorize", h.Fiscal.AuthorizeNFCe)
@@ -197,6 +217,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 			pr.Route("/audit", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("audit:read")).Get("/logs", h.Audit.List)
+				rr.With(middleware.RequirePermission("audit:read")).Get("/backup-status", h.Audit.BackupStatus)
 			})
 		})
 	})

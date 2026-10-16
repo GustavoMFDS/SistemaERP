@@ -1,6 +1,9 @@
 package sefaz
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -61,10 +64,86 @@ func TestDANFERendererRendersAuthorizedNFCe(t *testing.T) {
 		"3126 0912 3456 7800 0195 6500 1000 0000 4211 2345 6789",
 		"data:image/png;base64,",
 		"width: 32mm",
+		"width: 100%; max-width: 80mm;",
+		"overflow-wrap: anywhere;",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("DANFE missing %q", want)
 		}
+	}
+	// The same authorized XML prints with both common thermal roll sizes.
+	// Invalid dimensions never reach html/template (no CSS injection).
+	narrow, err := NewDANFERenderer().RenderWithPaperWidth(reservation, xml, 58)
+	if err != nil {
+		t.Fatalf("58mm paper: %v", err)
+	}
+	narrowHTML := string(narrow)
+	for _, want := range []string{
+		"max-width: 58mm;", "width: 32mm", "break-inside: avoid;",
+		"page-break-inside: avoid;", "data:image/png;base64,",
+		"Produto &amp; teste", "EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO",
+	} {
+		if !strings.Contains(narrowHTML, want) {
+			t.Fatalf("58mm DANFE missing %q", want)
+		}
+	}
+	if strings.Contains(narrowHTML, "max-width: 80mm;") {
+		t.Fatal("58mm print CSS used the larger roll size")
+	}
+	if _, err := NewDANFERenderer().RenderWithPaperWidth(reservation, xml, 60); err == nil {
+		t.Fatal("unsupported roll size must fail closed")
+	}
+	wide, err := NewDANFERenderer().RenderWithPaperWidth(reservation, xml, 80)
+	if err != nil {
+		t.Fatalf("80mm paper: %v", err)
+	}
+	if !strings.Contains(string(wide), "max-width: 80mm;") {
+		t.Fatal("80mm layout not selected")
+	}
+	for _, check := range []struct {
+		html string
+		want []string
+	}{
+		{narrowHTML, []string{
+			`class="receipt-58"`, ".receipt-58 .items-table tr {",
+			"grid-template-columns: minmax(0, 1fr) max-content;",
+		}},
+		{string(wide), []string{
+			`class="receipt-80"`, "th:first-child { width: 48%; }",
+		}},
+	} {
+		for _, snippet := range check.want {
+			if !strings.Contains(check.html, snippet) {
+				t.Fatalf("DANFE paper layout missing %q", snippet)
+			}
+		}
+	}
+	// Optional, completely fictitious HTML fixtures for Playwright geometry
+	// tests. No certificate, real company or SEFAZ data is present.
+	if directory := os.Getenv("DANFE_TEST_BROWSER_DIR"); directory != "" {
+		longProductXML := []byte(strings.Replace(string(xml),
+			"Produto &amp; teste",
+			"Produto &amp; teste - embalagem econômica de produto muito comprido com acentuação",
+			1))
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, width := range []int{58, 80} {
+			rendered, err := NewDANFERenderer().RenderWithPaperWidth(
+				reservation, longProductXML, width)
+			if err != nil {
+				t.Fatalf("render browser fixture %dmm: %v", width, err)
+			}
+			if err := os.WriteFile(filepath.Join(directory,
+				fmt.Sprintf("danfe-%d.html", width)), rendered, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// Never force a fixed 80mm body: with a 58mm thermal paper driver,
+	// the DANFE must adapt to the print-area width without clipping columns.
+	if strings.Contains(got, "body { width: 80mm;") {
+		t.Fatal("DANFE forces 80mm and would clip on 58mm thermal paper")
 	}
 	if strings.Contains(got, "#ZgotmplZ") {
 		t.Fatal("QR Code data URL was sanitized by html/template")

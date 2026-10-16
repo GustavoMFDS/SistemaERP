@@ -38,6 +38,7 @@ export default function LoginPage() {
     <div className="min-h-full bg-gray-50">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
         <div className="rounded-lg border bg-white p-6">
+          <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>Esterium ERP</p>
           <h1 className="text-lg font-semibold">Entrar</h1>
           <p className="mt-1 text-sm text-gray-600">Use seu e-mail e senha.</p>
 

@@ -1,16 +1,30 @@
-# SistemaEmGo
+# Esterium ERP
 
-SistemaEmGo is a multi-tenant ERP/POS and backoffice system for sales, inventory, finance, fiscal operations, auditability, and privacy/LGPD technical workflows.
+Esterium ERP (historically SistemaEmGo) is a multi-tenant ERP/POS and backoffice system for sales, inventory, finance, fiscal operations, auditability, and privacy/LGPD technical workflows.
+
+**Branding:** Esterium ERP is the product name adopted on 2026-10-15. The existing GitHub repository, Go module, database identifiers and local storage namespaces remain unchanged for compatibility. The Brazilian trademark registry was not conclusively checked; usage as a brand is not a claim of INPI registration or exclusive rights. Other unrelated uses of Esterium exist internationally. Registration and trademark clearance are separate from naming the software.
 
 The project is currently a pre-production / staging candidate. It implements technical controls that support LGPD compliance, but final legal, accounting, DPO, infrastructure, and operational validation is required before real production use.
 
 ## Catálogo funcional e pendências
 
-O inventário **mais atual de funcionalidades, pendências e melhorias** está no
-[Catálogo funcional do SistemaEmGo](docs/catalogo-funcional-sistema.md):
-checklist por módulo com distinção entre **implementação localizada no
-código**, **funcionalidade parcial**, **pendência** e **validação efetiva**.
-A matriz de prioridades P0–P3 ajuda a planejar as próximas entregas.
+O inventário **atualizado em 16/10/2026** está no
+[Catálogo geral do Esterium ERP](docs/catalogo-geral-esterium-2026-10-16.md),
+com **15 telas React, 121 registros de rotas HTTP, 13 módulos Go e 48 migrações SQL**,
+classificação de implementação/limitações, evidência dos testes locais e matriz
+de prioridades. O [catálogo funcional histórico](docs/catalogo-funcional-sistema.md)
+preserva o detalhamento e as decisões da evolução anterior, mas suas contagens
+de 09/10/2026 e alguns itens marcados como pendentes estão desatualizados.
+
+**Importante:** presença no código não equivale a prontidão operacional,
+homologação fiscal ou aprovação de testes ponta a ponta no commit final.
+
+**Refinamento operacional de 16/10/2026:** [plano, operação e limitações](docs/refinamento-final-esterium-2026-10-16.md).
+Inclui backup PostgreSQL verificado para Linux/Windows (agendamento a configurar),
+Central de Atenção na Home, conferência de obrigações por dia na tela Fiscal e
+relatórios operacionais por período no Financeiro. O ensaio local de recuperação
+foi feito exclusivamente com banco fictício; não substitui backup externo,
+homologação SEF/MG ou validação de segurança e operação real.
 
 **Não interpretar itens marcados como implementados como CI aprovado:**
 o PR de integração #15 continua dependente de execução real do pipeline.

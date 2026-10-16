@@ -111,7 +111,8 @@ export default function Layout() {
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
           <Link to="/home" className="text-sm font-semibold">
-            SistemaEmGo
+            <span aria-hidden="true" className="mr-1.5 text-blue-600">✦</span>
+            Esterium ERP
           </Link>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {appInstall.available ? (

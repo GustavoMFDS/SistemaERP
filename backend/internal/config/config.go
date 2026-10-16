@@ -54,6 +54,7 @@ type Config struct {
 	NFCeInutilizationSchemaEntrypoint string
 	NFCeSEFAZHomologationEnabled      bool
 	NFCeSEFAZProductionEnabled        bool
+	NFCeAutoHomologationEnabled       bool
 	DisableRedis                      bool
 	PrivacyContactEmail               string
 	AppPublicURL                      string
@@ -124,6 +125,7 @@ func LoadFromEnv() (Config, error) {
 		NFCeInutilizationSchemaEntrypoint: strings.TrimSpace(os.Getenv("NFCE_INUTILIZATION_SCHEMA_ENTRYPOINT")),
 		NFCeSEFAZHomologationEnabled:      getEnvBool("NFCE_SEFAZ_HOMOLOGATION_ENABLED", false),
 		NFCeSEFAZProductionEnabled:        getEnvBool("NFCE_SEFAZ_PRODUCTION_ENABLED", false),
+		NFCeAutoHomologationEnabled:       getEnvBool("NFCE_AUTO_HOMOLOGATION_ENABLED", false),
 		DisableRedis:                      getEnvBool("DISABLE_REDIS", false),
 		PrivacyContactEmail:               strings.TrimSpace(os.Getenv("PRIVACY_CONTACT_EMAIL")),
 		AppPublicURL:                      strings.TrimSpace(os.Getenv("APP_PUBLIC_URL")),
@@ -256,6 +258,11 @@ func (c Config) Validate() error {
 		errs = append(errs, "NFCE_SCHEMA_DIR is required when NFCE_INUTILIZATION_SCHEMA_ENTRYPOINT is configured")
 	}
 
+	if c.NFCeAutoHomologationEnabled && (!c.NFCeSEFAZHomologationEnabled ||
+		c.NFCeSEFAZProductionEnabled || fiscalProvider != "sefaz" ||
+		e == "prod" || e == "production") {
+		errs = append(errs, "NFCE_AUTO_HOMOLOGATION_ENABLED requires SEFAZ homologation only, FISCAL_PROVIDER=sefaz and non-production APP_ENV")
+	}
 	if c.NFCeSEFAZHomologationEnabled && c.NFCeSEFAZProductionEnabled {
 		errs = append(errs, "SEFAZ homologation and production transmission flags are mutually exclusive")
 	}

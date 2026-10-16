@@ -144,12 +144,28 @@ func authorizationOutcome(
 		return fisc.NFCeRemoteOutcome{}, fmt.Errorf("authorization outcome access key mismatch")
 	}
 	if response.Protocol.StatusCode == 100 {
+		// A successful code without a matching access key, nonempty
+		// SEFAZ protocol and receipt timestamp is NOT authorization.
+		// Treat ambiguous or malformed responses as errors; never
+		// manufacture protocol fields for the final fiscal artifact.
+		if strings.TrimSpace(response.Protocol.AccessKey) != expectedAccessKey ||
+			strings.TrimSpace(response.Protocol.Protocol) == "" {
+			return fisc.NFCeRemoteOutcome{}, fmt.Errorf("authorized SEFAZ response has missing protocol or access key")
+		}
 		receivedAt, err := parseProtocolTime(response.Protocol.ReceivedAt)
 		if err != nil {
 			return fisc.NFCeRemoteOutcome{}, err
 		}
 		out.FinalStatus = fisc.NFCeStatusAuthorized
+		out.ProtocolXML = append([]byte(nil), response.Protocol.RawXML...)
 		out.ReceivedAt = receivedAt
+		return out, nil
+	}
+	// A duplicate-access-key response cannot prove a *new* rejection:
+	// a previous send might already have been authorized by SEFAZ.
+	// Leave the invoice submitted and require consultation/manual review.
+	if out.StatusCode == 101 || out.StatusCode == 110 ||
+		out.StatusCode == 204 || out.StatusCode == 539 {
 		return out, nil
 	}
 	out.FinalStatus = fisc.NFCeStatusRejected
@@ -178,15 +194,28 @@ func consultationOutcome(
 	out.Reason = strings.TrimSpace(response.Protocol.Reason)
 	out.Protocol = strings.TrimSpace(response.Protocol.Protocol)
 	if response.Protocol.StatusCode == 100 {
+		// A successful code without a matching access key, nonempty
+		// SEFAZ protocol and receipt timestamp is NOT authorization.
+		// Treat ambiguous or malformed responses as errors; never
+		// manufacture protocol fields for the final fiscal artifact.
+		if strings.TrimSpace(response.Protocol.AccessKey) != expectedAccessKey ||
+			strings.TrimSpace(response.Protocol.Protocol) == "" {
+			return fisc.NFCeRemoteOutcome{}, fmt.Errorf("authorized SEFAZ response has missing protocol or access key")
+		}
 		receivedAt, err := parseProtocolTime(response.Protocol.ReceivedAt)
 		if err != nil {
 			return fisc.NFCeRemoteOutcome{}, err
 		}
 		out.FinalStatus = fisc.NFCeStatusAuthorized
+		out.ProtocolXML = append([]byte(nil), response.Protocol.RawXML...)
 		out.ReceivedAt = receivedAt
 		return out, nil
 	}
-	out.FinalStatus = fisc.NFCeStatusRejected
+	// Consultation is not a new authorization request. cStat other than
+	// 100 includes not found (217), canceled (101), denied (110), duplicate,
+	// transient errors and mismatched business state. None proves that this
+	// local submission is safe to transition to 'rejected'/reissue.
+	// Keep it submitted for subsequent consultation and operator escalation.
 	return out, nil
 }
 

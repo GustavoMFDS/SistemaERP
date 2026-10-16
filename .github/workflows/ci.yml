@@ -1165,6 +1165,119 @@ jobs:
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             up 1
 
+      - name: Verify product photos migration v36 upgrade, rollback and reapply
+        run: |
+          # The dedicated upgrade database is at v34 here.
+          # Apply account migration 0035, then the new photo migration 0036.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 2
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.product_images') IS NULL THEN
+              RAISE EXCEPTION 'photos table missing after v36';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='product_images_product_tenant_fk'
+            ) THEN
+              RAISE EXCEPTION 'tenant-scoped composite FK missing after v36';
+            END IF;
+          END
+          $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.product_images') IS NOT NULL THEN RAISE EXCEPTION 'rollback v36 left product_images'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify captions migration v37 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption missing'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption rollback failed'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify variants migration v38 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          VARIANT_TABLE="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT to_regclass('public.product_variations')")"
+          if [ "$VARIANT_TABLE" != "product_variations" ]; then
+            echo "migration 0038 did not create product_variations"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          VARIANT_TABLE="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT to_regclass('public.product_variations')")"
+          if [ -n "$VARIANT_TABLE" ]; then
+            echo "migration 0038 rollback left product_variations behind"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify product gallery tenant isolation at DB level
+        run: |
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 \
+            < backend/tests/integration/product_images_isolation.sql
+
       - name: Run tagged integration tests
         working-directory: backend
         env:

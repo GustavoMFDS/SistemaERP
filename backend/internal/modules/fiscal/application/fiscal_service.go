@@ -19,6 +19,7 @@ import (
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
+	"github.com/jackc/pgx/v5"
 )
 
 type FiscalService struct {
@@ -32,6 +33,7 @@ type FiscalService struct {
 	nfceSigner         NFCeXMLSigner
 	nfceValidator      NFCeSchemaValidator
 	nfceAuthorizer     NFCeRemoteAuthorizer
+	nfceProcessed      NFCeProcessedDocumentBuilder
 	nfceCancelBuilder  NFCeCancellationEventBuilder
 	nfceCancelSigner   NFCeCancellationEventSigner
 	nfceEventValidator NFCeSchemaValidator
@@ -124,6 +126,19 @@ func (s *FiscalService) SetNFCeXMLSigner(signer NFCeXMLSigner) {
 
 func (s *FiscalService) SetNFCeSchemaValidator(schemaValidator NFCeSchemaValidator) {
 	s.nfceValidator = schemaValidator
+}
+
+func (s *FiscalService) SetNFCeProcessedDocumentBuilder(builder NFCeProcessedDocumentBuilder) {
+	s.nfceProcessed = builder
+}
+
+// NFCeHomologationAutomationReady checks that all required adapters were
+// installed successfully. This is NOT a certificate/cadastral authorization;
+// those are resolved for each tenant and tested again before each operation.
+func (s *FiscalService) NFCeHomologationAutomationReady() bool {
+	return s != nil && s.nfceDoc != nil && s.nfceSigner != nil &&
+		s.nfceValidator != nil && s.nfceAuthorizer != nil &&
+		s.nfceProcessed != nil && s.uow != nil && s.audit != nil
 }
 
 func (s *FiscalService) SetNFCeRemoteAuthorizer(authorizer NFCeRemoteAuthorizer) {
@@ -246,6 +261,26 @@ func (s *FiscalService) DownloadXML(ctx context.Context, tenantID string, id str
 	return s.fiscal.GetXMLContent(ctx, tenantID, id)
 }
 
+// The only endpoint for distributing an authorized NFC-e must return
+// a previously archived nfeProc. A signed standalone NFe is a draft,
+// never an official downloadable authorized document.
+func (s *FiscalService) DownloadAuthorizedNFCeProcessedXML(
+	ctx context.Context, tenantID, invoiceID string,
+) (string, []byte, error) {
+	if s.validate.Var(strings.TrimSpace(invoiceID), "required,uuid") != nil {
+		return "", nil, common.ErrValidation
+	}
+	name, content, storedHash, err := s.fiscal.GetAuthorizedNFCeProcessedXML(ctx, tenantID, invoiceID)
+	if err != nil {
+		return "", nil, err
+	}
+	sum := sha256.Sum256(content)
+	if hex.EncodeToString(sum[:]) != storedHash {
+		return "", nil, common.ErrConflict
+	}
+	return name, content, nil
+}
+
 func uniqueProductIDs(items []sales.SaleItem) []string {
 	if len(items) == 0 {
 		return nil
@@ -274,11 +309,29 @@ func (s *FiscalService) NFCeReadiness(ctx context.Context, tenantID string) (fis
 	if err != nil {
 		return fisc.NFCeReadiness{}, err
 	}
-	if err := fisc.ValidateCNPJ(profile.CNPJ); err != nil {
-		readiness.IssuerIdentityConfigured = false
+	// Do not let a superficial presence check certify an issuer: report each
+	// incomplete field to the operator, while maintaining old general blockers
+	// for clients that already consume them. No SEF/MG request is made here.
+	for _, reason := range fisc.NFCeMGIssuerLocalBlockers(profile) {
 		readiness.ReadyForHomologationData = false
-		if !containsReadinessReason(readiness.BlockingReasons, "issuer_identity") {
-			readiness.BlockingReasons = append(readiness.BlockingReasons, "issuer_identity")
+		switch reason {
+		case "issuer_legal_name_missing", "issuer_cnpj_invalid",
+			"issuer_ie_missing", "issuer_crt_invalid":
+			readiness.IssuerIdentityConfigured = false
+			if !containsReadinessReason(readiness.BlockingReasons, "issuer_identity") {
+				readiness.BlockingReasons = append(readiness.BlockingReasons, "issuer_identity")
+			}
+		case "issuer_street_missing", "issuer_number_missing",
+			"issuer_neighborhood_missing", "issuer_city_missing", "issuer_zip_invalid":
+			readiness.IssuerAddressConfigured = false
+			if !containsReadinessReason(readiness.BlockingReasons, "issuer_address") {
+				readiness.BlockingReasons = append(readiness.BlockingReasons, "issuer_address")
+			}
+		case "issuer_municipality_uf_mismatch", "issuer_uf_unsupported":
+			readiness.MunicipalityCodeConfigured = false
+		}
+		if !containsReadinessReason(readiness.BlockingReasons, reason) {
+			readiness.BlockingReasons = append(readiness.BlockingReasons, reason)
 		}
 	}
 	return readiness, nil
@@ -428,7 +481,8 @@ func (s *FiscalService) reserveNFCeDraftWithMode(
 		AddressState:        reservationContext.Issuer.AddressState,
 		AddressZIP:          reservationContext.Issuer.AddressZIP,
 	}
-	if s.validate.Struct(issuerReq) != nil || fisc.ValidateCNPJ(reservationContext.Issuer.CNPJ) != nil {
+	if s.validate.Struct(issuerReq) != nil ||
+		len(fisc.NFCeMGIssuerLocalBlockers(reservationContext.Issuer)) != 0 {
 		return fisc.NFCeReservation{}, false, common.ErrFiscalNotReady
 	}
 	if !reservationContext.Config.CertificateReferenceConfigured {
@@ -1278,9 +1332,9 @@ func (s *FiscalService) SignNFCeReserved(
 	if err != nil {
 		return "", "", err
 	}
-	if err := s.nfceValidator.Validate(ctx, unsigned); err != nil {
-		return "", "", fmt.Errorf("validate NFC-e candidate against pinned XSD: %w", err)
-	}
+	// The official nfe_v4.00.xsd describes a signed NFe: it requires
+	// ds:Signature after infNFeSupl. Validate the *signed* artifact,
+	// not the unsigned candidate which cannot satisfy that schema.
 	cfg, err := s.fiscal.GetNFCeConfig(ctx, tenantID)
 	if err != nil {
 		return "", "", err
@@ -1301,6 +1355,9 @@ func (s *FiscalService) SignNFCeReserved(
 	if err != nil {
 		return "", "", err
 	}
+	if err := s.nfceValidator.Validate(ctx, signed); err != nil {
+		return "", "", fmt.Errorf("validate signed NFC-e against configured official XSD: %w", err)
+	}
 	fileName := "NFCe-" + draft.Reservation.AccessKey + ".xml"
 	xmlID, err := s.StoreSignedNFCeXML(
 		ctx,
@@ -1320,7 +1377,18 @@ func (s *FiscalService) SignNFCeReserved(
 func (s *FiscalService) RenderNFCeDANFE(
 	ctx context.Context,
 	tenantID, invoiceID string,
+	paperWidths ...int,
 ) (string, []byte, error) {
+	paperWidthMM := 0
+	if len(paperWidths) > 1 {
+		return "", nil, common.ErrValidation
+	}
+	if len(paperWidths) == 1 {
+		paperWidthMM = paperWidths[0]
+	}
+	if paperWidthMM != 0 && paperWidthMM != 58 && paperWidthMM != 80 {
+		return "", nil, common.ErrValidation
+	}
 	invoiceID = strings.TrimSpace(invoiceID)
 	if s.nfceDANFE == nil ||
 		s.validate.Var(invoiceID, "required,uuid") != nil {
@@ -1338,6 +1406,24 @@ func (s *FiscalService) RenderNFCeDANFE(
 	)
 	if err != nil {
 		return "", nil, err
+	}
+	// Reprints from the Fiscal page must use the paper width of the
+	// original sale's register as well; 0 means derive from the database.
+	if paperWidthMM == 0 {
+		if err := tx.QueryRow(ctx, `
+			SELECT cr.danfe_paper_width_mm
+			FROM sales sa
+			JOIN cash_sessions cs ON cs.id=sa.cash_session_id
+			  AND cs.tenant_id=sa.tenant_id
+			JOIN cash_registers cr ON cr.id=cs.cash_register_id
+			  AND cr.tenant_id=sa.tenant_id
+			WHERE sa.tenant_id=$1 AND sa.id=$2
+		`, tenantID, reservation.SaleID).Scan(&paperWidthMM); err != nil {
+			return "", nil, err
+		}
+		if paperWidthMM != 58 && paperWidthMM != 80 {
+			return "", nil, common.ErrFiscalNotReady
+		}
 	}
 	offlinePending := reservation.Status == fisc.NFCeStatusSigned &&
 		reservation.EmissionType == fisc.NFCeOfflineContingencyEmissionType
@@ -1359,6 +1445,29 @@ func (s *FiscalService) RenderNFCeDANFE(
 		reservation.AuthorizedAt.IsZero() {
 		return "", nil, common.ErrFiscalNotReady
 	}
+	// The fiscal-page reprint route is not the cashier-safe status route.
+	// Apply the same archive requirement here so that a locally marked
+	// authorized/cancelled invoice with no persisted genuine nfeProc cannot
+	// be presented as a legally authorized paper document.
+	if !offlinePending {
+		var archivePresent bool
+		err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM invoice_authorized_xml_files p
+				WHERE p.tenant_id=$1 AND p.invoice_id=$2
+				  AND p.access_key=$3
+				  AND octet_length(p.processed_xml)>0
+				  AND octet_length(p.protocol_xml)>0
+				  AND p.sha256=encode(digest(p.processed_xml,'sha256'),'hex')
+			)
+		`, tenantID, invoiceID, reservation.AccessKey).Scan(&archivePresent)
+		if err != nil {
+			return "", nil, err
+		}
+		if !archivePresent {
+			return "", nil, common.ErrFiscalNotReady
+		}
+	}
 	_, signedXML, err := s.fiscal.GetLatestNFCeXMLContent(
 		ctx, tx, tenantID, invoiceID,
 	)
@@ -1369,7 +1478,16 @@ func (s *FiscalService) RenderNFCeDANFE(
 		return "", nil, err
 	}
 
-	content, err := s.nfceDANFE.Render(reservation, signedXML)
+	var content []byte
+	if paperWidthMM == 80 {
+		content, err = s.nfceDANFE.Render(reservation, signedXML)
+	} else if sized, ok := s.nfceDANFE.(interface {
+		RenderWithPaperWidth(fisc.NFCeReservation, []byte, int) ([]byte, error)
+	}); ok {
+		content, err = sized.RenderWithPaperWidth(reservation, signedXML, paperWidthMM)
+	} else {
+		return "", nil, common.ErrFiscalNotReady
+	}
 	if err != nil {
 		return "", nil, err
 	}
@@ -2261,6 +2379,7 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 	if outcome.Authorized() {
 		result.Status = fisc.NFCeStatusAuthorized
 		result.Protocol = outcome.Protocol
+		result.ProtocolXML = append([]byte(nil), outcome.ProtocolXML...)
 		result.AuthorizedAt = outcome.ReceivedAt
 	} else if outcome.Rejected() {
 		result.Status = fisc.NFCeStatusRejected
@@ -2277,10 +2396,26 @@ func (s *FiscalService) AuthorizeNFCeHomologation(
 	return outcome, nil
 }
 
+// ApplyNFCeAuthorizationResult is the existing interactive authorization path.
+// The recovery executor uses the same atomic processing with an additional
+// database lease fence; this legacy method does not bypass the recovery path.
 func (s *FiscalService) ApplyNFCeAuthorizationResult(
 	ctx context.Context,
 	tenantID, actorUserID, invoiceID string,
 	result fisc.NFCeAuthorizationResult,
+) error {
+	return s.applyNFCeAuthorizationResult(ctx, tenantID, actorUserID, invoiceID, result, nil)
+}
+
+type nfceConsultFence struct {
+	owner string
+	token string
+}
+
+func (s *FiscalService) applyNFCeAuthorizationResult(
+	ctx context.Context,
+	tenantID, actorUserID, invoiceID string,
+	result fisc.NFCeAuthorizationResult, fence *nfceConsultFence,
 ) error {
 	invoiceID = strings.TrimSpace(invoiceID)
 	result.AccessKey = strings.TrimSpace(result.AccessKey)
@@ -2313,8 +2448,80 @@ func (s *FiscalService) ApplyNFCeAuthorizationResult(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if fence != nil {
+		// Lock the recovery lease for this entire archive/authorization tx.
+		// A remote reply received after lease expiry or worker fencing can
+		// NEVER mark an invoice authorized or write a processed XML.
+		if !result.IsAuthorized() || !fiscalLeaseOwnerPattern.MatchString(fence.owner) {
+			return common.ErrValidation
+		}
+		var valid bool
+		err := tx.QueryRow(ctx, `
+			SELECT true
+			FROM nfce_consult_recovery_jobs j
+			JOIN invoices i ON i.tenant_id=j.tenant_id AND i.id=j.invoice_id
+			JOIN fiscal_worker_identities w ON w.owner_name=j.lease_owner
+			WHERE j.tenant_id=$1 AND j.invoice_id=$2
+			  AND j.access_key=$3 AND j.environment='homologation'
+			  AND j.state='awaiting_consultation'
+			  AND j.lease_token=$4::uuid AND j.lease_owner=$5
+			  AND j.lease_until>clock_timestamp()
+			  AND w.revoked_at IS NULL AND w.active_until>clock_timestamp()
+			  AND i.status='submitted' AND i.model=65
+			  AND i.environment='homologation' AND i.access_key=j.access_key
+			  AND EXISTS (
+			    SELECT 1 FROM user_tenants ut
+			    WHERE ut.tenant_id=j.tenant_id AND ut.user_id=$6::uuid
+			  )
+			  AND EXISTS (
+			    SELECT 1 FROM companies c
+			    JOIN nfce_configs cfg ON cfg.tenant_id=c.id
+			    WHERE c.id=j.tenant_id AND upper(btrim(c.address_state))='MG'
+			      AND cfg.environment='homologation'
+			      AND nullif(btrim(cfg.certificate_secret_ref),'') IS NOT NULL
+			  )
+			FOR UPDATE OF j
+		`, tenantID, invoiceID, result.AccessKey, fence.token, fence.owner, actorUserID).Scan(&valid)
+		if err != nil || !valid {
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			return ErrNFCeConsultLeaseLost
+		}
+	}
+
+	var processed []byte
+	var processedSHA string
+	if result.IsAuthorized() {
+		// No update to authorized is committed without the real SEFAZ
+		// protocol being bound to our signed XML and archived as nfeProc.
+		// An ambiguous response remains submitted and is consulted again.
+		if s.nfceProcessed == nil || len(result.ProtocolXML) == 0 {
+			return common.ErrFiscalNotReady
+		}
+		_, signedXML, err := s.fiscal.GetLatestNFCeXMLContent(ctx, tx, tenantID, invoiceID)
+		if err != nil {
+			return err
+		}
+		processed, err = s.nfceProcessed.Build(
+			signedXML, result.ProtocolXML, result.AccessKey, result.Protocol, result.AuthorizedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("SEFAZ protocol / signed NFC-e mismatch: %w", err)
+		}
+		sum := sha256.Sum256(processed)
+		processedSHA = hex.EncodeToString(sum[:])
+	}
 	if err := s.fiscal.ApplyNFCeAuthorizationResult(ctx, tx, tenantID, invoiceID, result); err != nil {
 		return err
+	}
+	if result.IsAuthorized() {
+		if err := s.fiscal.StoreAuthorizedNFCeProcessedXML(
+			ctx, tx, tenantID, invoiceID, result.AccessKey,
+			result.AccessKey+"-procNFe.xml", result.ProtocolXML, processed, processedSHA,
+		); err != nil {
+			return err
+		}
 	}
 	action := "fiscal.nfce.rejected"
 	metadata := map[string]any{
@@ -2334,6 +2541,24 @@ func (s *FiscalService) ApplyNFCeAuthorizationResult(
 		Metadata: metadata,
 	}); err != nil {
 		return err
+	}
+	if fence != nil {
+		// Invoice, real protocol XML, nfeProc, audit and lease resolution
+		// commit together. A failed archive rolls everything back.
+		tag, err := tx.Exec(ctx, `
+			UPDATE nfce_consult_recovery_jobs SET
+			  state='resolved',lease_owner=NULL,lease_token=NULL,
+			  lease_until=NULL,last_status_code=100,updated_at=now()
+			WHERE tenant_id=$1 AND invoice_id=$2 AND access_key=$3
+			  AND lease_token=$4::uuid AND lease_owner=$5
+			  AND state='awaiting_consultation' AND lease_until>clock_timestamp()
+		`, tenantID, invoiceID, result.AccessKey, fence.token, fence.owner)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNFCeConsultLeaseLost
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -2530,7 +2755,10 @@ func (s *FiscalService) SetNFCeProductionTransmission(
 			!s.productionTransmissionStackReady() {
 			return fisc.NFCeConfig{}, common.ErrFiscalNotReady
 		}
-		readiness, err := s.fiscal.GetNFCeReadiness(ctx, tenantID)
+		// Use the same tenant-scoped detailed local checks exposed to the
+		// operator. Bypassing them here could enable production with a
+		// formally-shaped but invalid CNPJ or mismatched MG municipality.
+		readiness, err := s.NFCeReadiness(ctx, tenantID)
 		if err != nil {
 			return fisc.NFCeConfig{}, err
 		}

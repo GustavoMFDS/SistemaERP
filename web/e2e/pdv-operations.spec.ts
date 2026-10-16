@@ -82,15 +82,30 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
 
-  const openResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/v1/cash/sessions/open') &&
-      response.request().method() === 'POST',
-  )
-  await page.getByRole('button', { name: 'Abrir' }).click()
-  const openResponse = await openResponsePromise
-  expect(openResponse.ok()).toBe(true)
-  const opened = (await openResponse.json()) as { id: string }
+  // A seeded disposable database may already have an open cash session
+  // from a previous suite. Reuse it rather than trying to open another.
+  const priorCash = await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    try {
+      return await apiJson<{ id: string; status: string }>('/api/v1/cash/sessions/current')
+    } catch {
+      return null
+    }
+  })
+  let opened: { id: string }
+  if (priorCash?.status === 'open') {
+    opened = priorCash
+  } else {
+    const openResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/cash/sessions/open') &&
+        response.request().method() === 'POST',
+    )
+    await page.getByRole('button', { name: 'Abrir' }).click()
+    const openResponse = await openResponsePromise
+    expect(openResponse.ok()).toBe(true)
+    opened = (await openResponse.json()) as { id: string }
+  }
 
   const recoveredCash = await page.evaluate(async () => {
     const { apiJson } = await import('/src/lib/api.ts')
@@ -129,9 +144,9 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   await expect(quickSearch).toBeFocused()
   await quickSearch.fill(`E2E-PDV-${suffix}`)
 
-  await page.getByLabel('Produto').selectOption(setup.productId)
+  await page.locator('select').filter({ has: page.locator(`option[value="${setup.productId}"]`) }).selectOption(setup.productId)
   await page.getByLabel('Qtd').fill('1')
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   const qtyInput = page.getByLabel(/Quantidade de E2E-PDV-/)
   await expect(qtyInput).toHaveValue('1')
@@ -201,16 +216,41 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(adminSaleDetail.items[0].cost_unit).toBe(4)
 
   await expect(page.getByText(/Venda finalizada:/)).toBeVisible()
-  const printButton = page.getByRole('button', { name: 'Imprimir comprovante não fiscal' })
-  await expect(printButton).toBeVisible()
-
-  const popupPromise = page.waitForEvent('popup')
-  await printButton.click()
-  const receiptPage = await popupPromise
-  await expect(receiptPage.getByText('COMPROVANTE NÃO FISCAL', { exact: true })).toBeVisible()
-  await expect(receiptPage.getByText(`Venda: ${sale.id}`, { exact: true })).toBeVisible()
-  await expect(receiptPage.getByText('TOTAL R$ 12.00', { exact: true })).toBeVisible()
-  await receiptPage.close()
+  // The cash sale always persists its fiscal obligation in PostgreSQL.
+  // Declining paper must not mark a pending invoice as authorized or undo it.
+  await expect(page.getByRole('button', { name: 'Não imprimir' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sim, abrir para imprimir' })).toBeDisabled()
+  const fiscalBefore = await page.evaluate(async (saleID) => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    const fiscal = await apiJson<{
+      required: boolean; document_kind: string; status: string;
+      printable: boolean; legacy_review: boolean
+    }>(`/api/v1/sales/${saleID}/fiscal-status`)
+    let printStatus = 0
+    try {
+      await apiJson(`/api/v1/sales/${saleID}/fiscal-danfe`)
+      printStatus = 200
+    } catch (err) {
+      if (err instanceof APIError) printStatus = err.status
+      else throw err
+    }
+    return { fiscal, printStatus }
+  }, sale.id)
+  expect(fiscalBefore.fiscal.required).toBe(true)
+  expect(fiscalBefore.fiscal.document_kind).toBe('nfce')
+  expect(fiscalBefore.fiscal.legacy_review).toBe(false)
+  expect(fiscalBefore.fiscal.status).toBe('pending')
+  expect(fiscalBefore.fiscal.printable).toBe(false)
+  expect(fiscalBefore.printStatus).toBe(409)
+  await page.getByRole('button', { name: 'Não imprimir' }).click()
+  await expect(page.getByRole('button', { name: 'Não imprimir' })).toHaveCount(0)
+  const fiscalAfter = await page.evaluate(async (saleID) => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    return apiJson<{ required: boolean; status: string }>(
+      `/api/v1/sales/${saleID}/fiscal-status`,
+    )
+  }, sale.id)
+  expect(fiscalAfter).toMatchObject({ required: true, status: 'pending' })
 
   await page.evaluate(
     async ({ cashId }) => {
