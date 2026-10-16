@@ -8,11 +8,16 @@ The project is currently a pre-production / staging candidate. It implements tec
 
 ## Catálogo funcional e pendências
 
-O inventário **mais atual de funcionalidades, pendências e melhorias** está no
-[Catálogo funcional do Esterium ERP](docs/catalogo-funcional-sistema.md):
-checklist por módulo com distinção entre **implementação localizada no
-código**, **funcionalidade parcial**, **pendência** e **validação efetiva**.
-A matriz de prioridades P0–P3 ajuda a planejar as próximas entregas.
+O inventário **atualizado em 16/10/2026** está no
+[Catálogo geral do Esterium ERP](docs/catalogo-geral-esterium-2026-10-16.md),
+com **15 telas React, 121 registros de rotas HTTP, 13 módulos Go e 48 migrações SQL**,
+classificação de implementação/limitações, evidência dos testes locais e matriz
+de prioridades. O [catálogo funcional histórico](docs/catalogo-funcional-sistema.md)
+preserva o detalhamento e as decisões da evolução anterior, mas suas contagens
+de 09/10/2026 e alguns itens marcados como pendentes estão desatualizados.
+
+**Importante:** presença no código não equivale a prontidão operacional,
+homologação fiscal ou aprovação de testes ponta a ponta no commit final.
 
 **Não interpretar itens marcados como implementados como CI aprovado:**
 o PR de integração #15 continua dependente de execução real do pipeline.
