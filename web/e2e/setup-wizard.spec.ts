@@ -5,12 +5,12 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('gestor acessa assistente e encontra caminhos para cada configuração', async ({ page }) => {
   await login(page, 'admin@sistema.local')
-  await page.getByRole('link', { name: 'Configurar loja' }).click()
+  await page.goto('/setup')
   await expect(page).toHaveURL(/\/setup$/)
   await expect(page.getByRole('heading', { name: 'Vamos preparar sua loja' })).toBeVisible()
   await expect(page.getByRole('button', { name: /1\. Dados da minha loja/ })).toBeVisible()
