@@ -63,7 +63,7 @@ test('refino final: alertas, resumo fiscal e relatórios com permissões', async
   await expect(page.getByRole('heading', { name: 'Atenção da loja' })).toBeVisible()
   await expect(page.getByText('3 venda(s) com obrigação fiscal pendente')).toBeVisible()
   await expect(page.getByText('2 produto(s) em reposição')).toBeVisible()
-  await expect(page.getByText(/Verificar backup: failed/)).toBeVisible()
+  await expect(page.getByText(/Cópia de segurança precisa de atenção/)).toBeVisible()
 
   await page.getByText('Mais áreas do sistema').click()
   await page.getByRole('link', { name: 'Fiscal', exact: true }).click()

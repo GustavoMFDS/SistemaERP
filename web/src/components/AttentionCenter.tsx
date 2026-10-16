@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { apiJson } from '../lib/api'
 
 type Fiscal = { total: number }
 type Finance = { summary?: { overdue_open: number } }
@@ -37,8 +37,8 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
         to: '/inventory', severity: 'info' as const } : null))
     if (canBackup) checks.push(apiJson<Backup>('/api/v1/audit/backup-status').then((d) => {
       if (d.configured && d.state === 'ok') return null
-      return { title: d.configured ? 'Verificar backup: ' + d.state : 'Backup automático sem monitoramento',
-        detail: d.configured ? 'O último backup não está comprovadamente recente e válido. Confira o agendamento e execute ensaio de restauração.' :
+      return { title: d.configured ? 'Cópia de segurança precisa de atenção' : 'Cópia de segurança ainda sem monitoramento',
+        detail: d.configured ? 'Não há comprovação suficiente de uma cópia recente e íntegra. Confira o agendamento e teste a restauração.' :
           'Configure a rotina de backup no servidor e conecte o arquivo de status. Sem esse controle não podemos garantir recuperação.',
         to: '/home', severity: 'warning' as const }
     }))
@@ -47,8 +47,7 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
     const failures = result.filter((r) => r.status === 'rejected')
     setAlerts(items)
     setRefreshed(true)
-    setError(failures.length ? 'Não foi possível verificar todas as áreas. Alguns avisos podem estar ausentes. ' +
-      errorMessage((failures[0] as PromiseRejectedResult).reason) : '')
+    setError(failures.length ? 'Não foi possível verificar todas as áreas. Alguns avisos podem estar ausentes. Atualize os avisos ou consulte a área desejada.' : '')
     setLoading(false)
   }, [canBackup, canFinance, canFiscal, canStock])
 
@@ -69,7 +68,7 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
       </div>
       {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
       {!loading && refreshed && alerts.length === 0 && !error && (
-        <p className="mt-3 text-sm text-slate-600">Nenhuma pendência encontrada nas áreas consultadas. Não inclui verificação da SEFAZ em tempo real nem do backup.</p>
+        <p className="mt-3 text-sm text-slate-600">Nenhuma pendência encontrada nas áreas consultadas. Isso não confirma autorização de notas pela SEFAZ ou recuperação de backups.</p>
       )}
       {alerts.length > 0 && <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {alerts.map((item) => (
