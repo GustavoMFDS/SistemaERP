@@ -132,3 +132,9 @@ O ensaio de rollback no **banco descartável com seed e histórico criado por te
 4. CI do GitHub (runners executando passos), Go 1.25, Node 22, e homologação fiscal com credenciais oficiais reais — **não comprovados aqui**.
 
 **Integração proibida por enquanto:** PR #34 permanece draft, dependente do PR #25, sem merge automático e sem autorização de NFC-e em produção.
+
+## Reconciliando a base que avançou (16/10/2026)
+
+O PR #25 avançou **5 commits** do SHA `715a5b01900a2cfec2a1540b5eef54ccb72a6a95` até `aacb199f74fcf2f06c089fcc85db477a83330826`, modificando `README.md`, `web/index.html`, `web/public/manifest.webmanifest`, `web/src/components/Layout.tsx` e `web/src/pages/LoginPage.tsx`. O PR #34 inicialmente indicava conflito (`mergeable_state=dirty`).
+
+Foi preparada uma reconciliação **sem force-push e sem merge para main**, preservando integralmente os quatro arquivos visuais da nova base e mesclando manualmente o README detalhado com a marca **Esterium ERP**. A marca não está declarada registrada pelo INPI. Commit de dois pais: HEAD da auditoria e HEAD da base. Os testes precisam ser repetidos para esse novo HEAD, especialmente o frontend e a navegação/branding.

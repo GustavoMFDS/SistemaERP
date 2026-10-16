@@ -1,6 +1,6 @@
-# SistemaERP — PDV e gestão de lojas
+# Esterium ERP — PDV e gestão de empresas independentes
 
-> **Nome no GitHub:** SistemaERP. **Nome ainda usado por partes do aplicativo e das configurações:** SistemaEmGo. A mudança de marca está sendo preparada separadamente; não renomeie chaves de armazenamento, emissor JWT, módulo Go ou identificadores de banco por simples substituição de texto.
+> **Marca adotada:** Esterium ERP (15/10/2026). **Repositório no GitHub:** SistemaERP. **Identificadores internos ainda existentes:** SistemaEmGo. A alteração de marca não renomeia chaves de armazenamento, emissor JWT, módulo Go nem identificadores do banco, por razões de compatibilidade. **A disponibilidade ou exclusividade do nome no INPI ainda não foi confirmada.** A adoção visual do nome não equivale ao registro da marca.
 
 Sistema web de gestão comercial com PDV, produtos, estoque, compras, devoluções, clientes, financeiro e preparação fiscal para empresas brasileiras. Cada loja/CNPJ é uma **empresa independente**, com dados, permissões e parametrização fiscal próprios — não uma filial automática das demais lojas da família.
 
