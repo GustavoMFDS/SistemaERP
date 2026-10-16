@@ -258,7 +258,7 @@ func (s *Service) RevokePasswordReset(
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
 		TenantID: tenantID, ActorUserID: actorID,
-		Action: "team.password_reset.revoke",
+		Action:       "team.password_reset.revoke",
 		ResourceType: "staff_password_reset", ResourceID: resetID,
 		RequestID: requestID, IP: ip, UserAgent: userAgent,
 	}); err != nil {
