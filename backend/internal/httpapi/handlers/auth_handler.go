@@ -10,7 +10,6 @@ import (
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/audit"
 	authapp "github.com/example/sistemaemgo/internal/modules/auth/application"
-	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/redis/go-redis/v9"
 )
 
