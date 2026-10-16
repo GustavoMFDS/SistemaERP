@@ -7,6 +7,7 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/products$/)
+  await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
 }
 
 const sample = 'sku;nome;preco;unidade\nE2E-RECOVER-PROD;Produto de Recuperação;12,50;un\n'

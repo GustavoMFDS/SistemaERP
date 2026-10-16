@@ -7,6 +7,7 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/products$/)
+  await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
 }
 
 const sampleCSV = 'sku;quantidade\nSTOCK-RESUME-TEST;5,500\n'
@@ -41,7 +42,8 @@ test('resposta ambígua mantém chave; recarga só aceita CSV idêntico e replay
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' }))
   page.on('dialog', (dialog) => void dialog.accept())
   await login(page, 'gerente@sistema.local')
-  await page.goto('/inventory')
+  await page.getByRole('link', { name: 'Estoque', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Estoque da loja' })).toBeVisible()
   await selectFile(page, sampleCSV)
   await expect(page.getByText(/1 válida\(s\), 0 com erro/)).toBeVisible()
   await page.getByLabel('Conferi os códigos e as quantidades').check()
@@ -91,7 +93,8 @@ test('consulta de lote confirmado encerra recuperação sem novo POST', async ({
     }))
   page.on('dialog', (dialog) => void dialog.accept())
   await login(page, 'gerente@sistema.local')
-  await page.goto('/inventory')
+  await page.getByRole('link', { name: 'Estoque', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Estoque da loja' })).toBeVisible()
   await selectFile(page, sampleCSV)
   await page.getByLabel('Conferi os códigos e as quantidades').check()
   await page.getByRole('button', { name: /Confirmar estoque inicial de 1 produto/ }).click()
