@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson } from '../lib/api'
 import { setToken } from '../lib/auth'
 import { resetFiscalReminderForLogin } from '../lib/fiscalReminderSession'
 
@@ -30,7 +30,13 @@ export default function LoginPage() {
       resetFiscalReminderForLogin()
       navigate('/home', { replace: true })
     } catch (e: unknown) {
-      setError(errorMessage(e))
+      if (e instanceof APIError && e.status === 429) {
+        setError('Muitas tentativas de acesso. Aguarde um pouco antes de tentar novamente.')
+      } else if (e instanceof APIError && (e.status === 400 || e.status === 401 || e.status === 403)) {
+        setError('Não foi possível entrar. Confira seus dados de acesso e tente novamente.')
+      } else {
+        setError('Não foi possível acessar o sistema agora. Confira sua conexão e tente novamente.')
+      }
     } finally {
       setLoading(false)
     }
