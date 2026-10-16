@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { expandDisclosure } from './expandDisclosure'
 
 async function signIn(page: import('@playwright/test').Page, email: string) {

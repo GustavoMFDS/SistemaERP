@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('contas financeiras integradas: cadastrar, dar baixa e consultar evolução', async ({ page }) => {
   const pageErrors: string[] = []

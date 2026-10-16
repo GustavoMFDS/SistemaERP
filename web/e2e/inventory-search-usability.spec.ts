@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('estoque: busca de produto além dos primeiros 200 sem rolagem', async ({ page }) => {
   await page.goto('/login')

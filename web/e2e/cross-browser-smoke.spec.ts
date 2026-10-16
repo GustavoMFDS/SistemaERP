@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('authenticated shell and PDV render across browser engines', async ({ page }) => {
   await page.goto('/login')
