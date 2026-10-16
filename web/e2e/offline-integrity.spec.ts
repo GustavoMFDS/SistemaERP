@@ -25,8 +25,8 @@ test('lost sale response reuses the original idempotency key', async ({ page }) 
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
-  await page.getByLabel('Produto').selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   const idempotencyKeys: string[] = []
   let loseFirstResponse = true
@@ -205,7 +205,7 @@ test('offline catalog cache expires after the safe window', async ({ page }) => 
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
-  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().locator('option')).not.toHaveCount(1)
 
   const cacheKey = await page.evaluate(async () => {
     const auth = await import('/src/lib/auth.ts')
@@ -225,8 +225,8 @@ test('offline catalog cache expires after the safe window', async ({ page }) => 
   })
 
   await page.reload()
-  await expect(page.getByText('Catálogo carregado do cache local porque o servidor está indisponível.')).toBeVisible()
-  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+  await expect(page.getByText('Catálogo carregado do cache local. Saldos e preços podem estar desatualizados; as vendas serão revalidadas pelo servidor ao sincronizar.')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().locator('option')).not.toHaveCount(1)
 
   await page.evaluate((key) => {
     const parsed = JSON.parse(localStorage.getItem(key) ?? '{}') as {
@@ -241,7 +241,7 @@ test('offline catalog cache expires after the safe window', async ({ page }) => 
   await expect(
     page.getByText('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.'),
   ).toBeVisible()
-  await expect(page.getByLabel('Produto').locator('option')).toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().locator('option')).toHaveCount(1)
 })
 
 
@@ -254,7 +254,7 @@ test('product authorization errors never fall back to offline cache', async ({ p
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
-  await expect(page.getByLabel('Produto').locator('option')).not.toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().locator('option')).not.toHaveCount(1)
 
   await page.route('**/api/v1/products?**', async (route) => {
     await route.fulfill({
@@ -266,7 +266,7 @@ test('product authorization errors never fall back to offline cache', async ({ p
 
   await page.reload()
   await expect(page.getByText('permissao revogada')).toBeVisible()
-  await expect(page.getByLabel('Produto').locator('option')).toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().locator('option')).toHaveCount(1)
 })
 
 test('expired access token cannot address tenant scoped local storage', async ({ page }) => {

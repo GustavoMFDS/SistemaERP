@@ -23,8 +23,8 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
   await page.getByRole('button', { name: 'Abrir' }).click()
   await expect(page.getByText(/cash_session_id/)).toBeVisible()
 
-  await page.getByLabel('Produto').selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   await context.setOffline(true)
   await page.getByRole('button', { name: 'Finalizar' }).click()
