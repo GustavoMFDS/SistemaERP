@@ -71,6 +71,8 @@ test('catálogo: foto opcional, miniatura e exclusão sem afetar estoque', async
   await page.getByLabel('E-mail').fill('teste@loja.local')
   await page.getByLabel('Senha').fill('teste1234')
   await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/home$/)
+  await page.goto('/products')
   await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
   await page.getByRole('button', { name: 'Fotos', exact: true }).click()
   const gallery = page.getByRole('region', { name: 'Fotos de Caderno Brochurão 96 folhas' })
