@@ -128,11 +128,11 @@ func (r *Repo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID, saleI
 	err := tx.QueryRow(ctx, `
 		SELECT id::text, cash_session_id::text, customer_id::text, status,
 		       subtotal::text, discount_value::text, total::text, profit_estimated::text,
-		       created_by_user_id::text, cancel_reason
+		       created_by_user_id::text, cancel_reason, finalized_at
 		FROM sales
 		WHERE tenant_id=$1 AND id=$2
 		FOR UPDATE
-	`, tenantID, saleID).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason)
+	`, tenantID, saleID).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason, &s.FinalizedAt)
 	if err != nil {
 		return s, nil, mapErr(err)
 	}
@@ -151,7 +151,8 @@ func (r *Repo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID, saleI
 
 	rows, err := tx.Query(ctx, `
 		SELECT id::text, sale_id::text, product_id::text, qty::text,
-		       unit_price::text, discount_value::text, subtotal::text, cost_unit::text
+		       unit_price::text, discount_value::text, subtotal::text, cost_unit::text,
+		       return_policy_snapshot, return_days_snapshot
 		FROM sale_items
 		WHERE tenant_id=$1 AND sale_id=$2
 		ORDER BY created_at, id
@@ -164,7 +165,7 @@ func (r *Repo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID, saleI
 	for rows.Next() {
 		var item sales.SaleItem
 		var qty, unitPrice, discountValue, lineSubtotal, costUnit string
-		if err := rows.Scan(&item.ID, &item.SaleID, &item.ProductID, &qty, &unitPrice, &discountValue, &lineSubtotal, &costUnit); err != nil {
+		if err := rows.Scan(&item.ID, &item.SaleID, &item.ProductID, &qty, &unitPrice, &discountValue, &lineSubtotal, &costUnit, &item.ReturnPolicySnapshot, &item.ReturnDaysSnapshot); err != nil {
 			return s, nil, err
 		}
 		if item.Qty, err = platform.ParseQuantity(qty); err != nil {

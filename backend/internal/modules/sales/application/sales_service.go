@@ -179,6 +179,8 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 			UnitPrice:     p.EffectiveSalePrice(),
 			DiscountValue: it.DiscountValue,
 			CostUnit:      p.CostPrice,
+			ReturnPolicySnapshot: &p.ReturnPolicy,
+			ReturnDaysSnapshot: p.ReturnDays,
 		})
 	}
 

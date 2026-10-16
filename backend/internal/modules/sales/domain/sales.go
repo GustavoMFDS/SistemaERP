@@ -1,12 +1,16 @@
 package domain
 
-import "github.com/example/sistemaemgo/internal/platform"
+import (
+	"time"
+	"github.com/example/sistemaemgo/internal/platform"
+)
 
 type Sale struct {
 	ID              string         `json:"id"`
 	CashSessionID   string         `json:"cash_session_id"`
 	CustomerID      *string        `json:"customer_id"`
 	Status          string         `json:"status"`
+	FinalizedAt     time.Time      `json:"finalized_at"`
 	Subtotal        platform.Money `json:"subtotal"`
 	DiscountValue   platform.Money `json:"discount_value"`
 	Total           platform.Money `json:"total"`
@@ -127,6 +131,8 @@ type SaleItem struct {
 	DiscountValue platform.Money    `json:"discount_value"`
 	Subtotal      platform.Money    `json:"subtotal"`
 	CostUnit      platform.Money    `json:"cost_unit"`
+	ReturnPolicySnapshot *string `json:"return_policy_snapshot"`
+	ReturnDaysSnapshot *int `json:"return_days_snapshot"`
 }
 
 func (it SaleItem) CalcularSubtotal() (lineGross platform.Money, lineNet platform.Money, err error) {
