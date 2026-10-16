@@ -151,15 +151,17 @@ func (s *Service) CompletePasswordReset(
 	if err != nil {
 		return err
 	}
-	var membershipCount int
+	var membershipCount, originalTenantCount int
 	err = tx.QueryRow(ctx, `
-		SELECT count(*) FROM user_tenants WHERE user_id=$1
-	`, userID).Scan(&membershipCount)
+		SELECT count(*), count(*) FILTER (WHERE tenant_id=$2)
+		FROM user_tenants WHERE user_id=$1
+	`, userID, tenantID).Scan(&membershipCount, &originalTenantCount)
 	if err != nil {
 		return err
 	}
-	// Do not change the global credential of a subsequently linked user.
-	if membershipCount != 1 {
+	// Block both new multi-tenant links and transfers after issuance. A reset
+	// link cannot modify the password of an identity in another company.
+	if membershipCount != 1 || originalTenantCount != 1 {
 		return ErrPasswordResetUnavailable
 	}
 	tag, err := tx.Exec(ctx, `
