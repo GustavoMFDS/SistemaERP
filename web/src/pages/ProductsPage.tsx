@@ -278,7 +278,9 @@ export default function ProductsPage() {
       const resolved = family.items.find((item) => item.id === family.parent_id)
       if (!resolved) throw new Error('O produto-base não foi encontrado nesta loja.')
       parentId = family.parent_id
-      parent = { ...product, ...resolved }
+      // Always inherit from the actual parent, not from a selected sibling.
+      // Every variation stores its own policy after creation.
+      parent = await apiJson<Product>('/api/v1/products/' + encodeURIComponent(parentId))
     } catch (e: unknown) {
       if (scope === getSessionScope()) setError('Não foi possível consultar as opções do produto: ' + errorMessage(e))
       return
