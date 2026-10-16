@@ -59,11 +59,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 	}
 
 	roles, _ := s.users.ListUserRoles(ctx, u.ID, tenantID)
-	accessTok, accessExp, err := s.issueAccessToken(u.ID, tenantID)
+	accessTok, accessExp, err := s.issueAccessToken(u.ID, tenantID, u.AuthVersion)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
-	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, u.ID, tenantID)
+	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, u.ID, tenantID, u.AuthVersion)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
@@ -78,7 +78,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 		}, nil
 }
 
-func (s *AuthService) issueAccessToken(userID, tenantID string) (string, time.Time, error) {
+func (s *AuthService) issueAccessToken(userID, tenantID string, version int64) (string, time.Time, error) {
 	now := time.Now()
 	exp := now.Add(s.cfg.AccessTokenTTL)
 	claims := Claims{RegisteredClaims: jwt.RegisteredClaims{
@@ -86,13 +86,13 @@ func (s *AuthService) issueAccessToken(userID, tenantID string) (string, time.Ti
 		Subject:   userID,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(exp),
-	}, Type: "access", TenantID: tenantID}
+	}, Type: "access", TenantID: tenantID, AuthVersion: version}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := t.SignedString([]byte(s.cfg.JWTSecret))
 	return signed, exp, err
 }
 
-func (s *AuthService) issueRefreshToken(ctx context.Context, userID, tenantID string) (string, time.Time, error) {
+func (s *AuthService) issueRefreshToken(ctx context.Context, userID, tenantID string, version int64) (string, time.Time, error) {
 	if s.refresh == nil {
 		return "", time.Time{}, common.ErrInvalidCredentials
 	}
@@ -110,7 +110,7 @@ func (s *AuthService) issueRefreshToken(ctx context.Context, userID, tenantID st
 		ID:        jti,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(exp),
-	}, Type: "refresh", TenantID: tenantID}
+	}, Type: "refresh", TenantID: tenantID, AuthVersion: version}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := t.SignedString([]byte(s.cfg.JWTSecret))
 	if err != nil {
@@ -142,7 +142,7 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenStr string) (userI
 	if claims.Subject == "" || claims.TenantID == "" {
 		return "", "", common.ErrInvalidCredentials
 	}
-	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+	if err := s.ensureTokenVersion(ctx, claims.Subject, claims.AuthVersion); err != nil {
 		return "", "", err
 	}
 	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
@@ -166,17 +166,17 @@ func (s *AuthService) RefreshWithSubject(ctx context.Context, tokenStr string) (
 	if !ok {
 		return TokenResponse{}, "", "", common.ErrInvalidCredentials
 	}
-	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+	if err := s.ensureTokenVersion(ctx, claims.Subject, claims.AuthVersion); err != nil {
 		return TokenResponse{}, "", "", err
 	}
 	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
 		return TokenResponse{}, "", "", err
 	}
-	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID)
+	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID, claims.AuthVersion)
 	if err != nil {
 		return TokenResponse{}, "", "", err
 	}
-	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, claims.Subject, claims.TenantID)
+	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, claims.Subject, claims.TenantID, claims.AuthVersion)
 	if err != nil {
 		return TokenResponse{}, "", "", err
 	}
@@ -268,13 +268,16 @@ func (s *AuthService) GetUserInfo(ctx context.Context, userID string, tenantID s
 	}, nil
 }
 
-func (s *AuthService) ensureUserActive(ctx context.Context, userID string) error {
+func (s *AuthService) ensureTokenVersion(ctx context.Context, userID string, version int64) error {
 	u, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return common.ErrInvalidCredentials
 	}
 	if !u.Active {
 		return common.ErrInactiveUser
+	}
+	if u.AuthVersion != version {
+		return common.ErrInvalidCredentials
 	}
 	return nil
 }
