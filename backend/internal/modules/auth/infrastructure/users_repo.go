@@ -22,15 +22,15 @@ func NewUsersRepo(db *pgxpool.Pool, allowTenantFallback bool) *UsersRepo {
 
 func (r *UsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
 	var u authdomain.User
-	err := r.db.QueryRow(ctx, `SELECT id::text, COALESCE(email::text,''), name, password_hash, active FROM users WHERE email=$1 OR username=$1`, email).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active)
+	err := r.db.QueryRow(ctx, `SELECT id::text, COALESCE(email::text,''), name, password_hash, active, auth_version FROM users WHERE email=$1 OR username=$1`, email).
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active, &u.AuthVersion)
 	return u, err
 }
 
 func (r *UsersRepo) GetByID(ctx context.Context, id string) (authdomain.User, error) {
 	var u authdomain.User
-	err := r.db.QueryRow(ctx, `SELECT id::text, COALESCE(email::text,''), name, password_hash, active FROM users WHERE id=$1`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active)
+	err := r.db.QueryRow(ctx, `SELECT id::text, COALESCE(email::text,''), name, password_hash, active, auth_version FROM users WHERE id=$1`, id).
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active, &u.AuthVersion)
 	return u, err
 }
 

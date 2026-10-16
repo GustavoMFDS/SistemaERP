@@ -1,6 +1,7 @@
 package team
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,28 @@ func TestStaffUsernamesDoNotRequireEmail(t *testing.T) {
 		t.Run(tc.username+"_"+tc.email, func(t *testing.T) {
 			if got := validNewInvite("Joana Silva", tc.email, "cashier", tc.username); got != tc.ok {
 				t.Fatalf("got %v, want %v", got, tc.ok)
+			}
+		})
+	}
+}
+
+func TestValidStaffPasswordUnicodeAndBcryptLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		password string
+		accepted bool
+	}{
+		{"twelve ASCII", "DozeCaracteres", true},
+		{"eleven ASCII", "OnzeCaracte", false},
+		{"six multibyte", "éééééé", false},
+		{"twelve multibyte", "éééééééééééé", true},
+		{"too many UTF8 bytes", strings.Repeat("é", 37), false},
+		{"exact max bytes", strings.Repeat("a", 72), true},
+		{"invalid UTF8", string([]byte{0xff, 0xfe, 0xfd}), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validStaffPassword(tc.password); got != tc.accepted {
+				t.Fatalf("accepted=%v expected=%v", got, tc.accepted)
 			}
 		})
 	}

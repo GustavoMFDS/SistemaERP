@@ -19,7 +19,8 @@ type Invitation = {
   role: string
   expires_at: string
 }
-type TeamResponse = { members: Member[]; invitations: Invitation[] }
+type PendingReset = { id: string; employee_name: string; username: string; expires_at: string }
+type TeamResponse = { members: Member[]; invitations: Invitation[]; password_resets: PendingReset[] }
 type InviteResponse = { invitation: Invitation; token: string }
 
 const roleName = (role: string) =>
@@ -30,11 +31,14 @@ export default function StaffPage() {
   const [currentUser, setCurrentUser] = useState('')
   const [members, setMembers] = useState<Member[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
+  const [pendingResets, setPendingResets] = useState<PendingReset[]>([])
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [role, setRole] = useState<'manager' | 'cashier'>('cashier')
   const [inviteLink, setInviteLink] = useState('')
+  const [resetLink, setResetLink] = useState('')
+  const [resetLinkId, setResetLinkId] = useState('')
   const [loading, setLoading] = useState(false)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
@@ -50,8 +54,11 @@ export default function StaffPage() {
     setPermissions(null)
     setCurrentUser('')
     setInviteLink('')
+    setResetLink('')
+    setResetLinkId('')
     setMembers([])
     setInvitations([])
+    setPendingResets([])
     void apiJson<{ id: string; permissions: string[] }>('/api/v1/auth/me')
       .then((data) => {
         if (!active || seqID !== seq.current || currentScope !== getSessionScope()) return
@@ -74,10 +81,12 @@ export default function StaffPage() {
       if (session !== getSessionScope()) return
       setMembers(data.members ?? [])
       setInvitations(data.invitations ?? [])
+      setPendingResets(data.password_resets ?? [])
     } catch (cause: unknown) {
       if (session !== getSessionScope()) return
       setMembers([])
       setInvitations([])
+      setPendingResets([])
       setError(errorMessage(cause))
     } finally {
       if (session === getSessionScope()) setLoading(false)
@@ -113,6 +122,52 @@ export default function StaffPage() {
       await reload()
     } catch (cause: unknown) {
       if (originalScope === getSessionScope()) setError(errorMessage(cause))
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function issuePasswordReset(member: Member) {
+    if (!canManage || working || member.id === currentUser || member.role === 'admin') return
+    if (!window.confirm(`Gerar link para ${member.name} criar outra senha? O link anterior será invalidado.`)) return
+    setWorking(true)
+    setError('')
+    setMessage('')
+    setResetLink('')
+    setResetLinkId('')
+    const session = getSessionScope()
+    try {
+      const response = await apiJson<{ token: string; reset: { id: string } }>(
+        '/api/v1/staff/' + member.id + '/password-reset', { method: 'POST' })
+      if (session !== getSessionScope()) return
+      setInviteLink('')
+      setResetLink(window.location.origin + '/reset-password#token=' + response.token)
+      setResetLinkId(response.reset.id)
+      setMessage('Link temporário criado. Entregue pessoalmente ao funcionário. Validade: 30 minutos.')
+      await reload()
+    } catch (cause: unknown) {
+      if (session === getSessionScope()) setError(errorMessage(cause))
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function revokeResetLink(id = resetLinkId) {
+    if (!id || !canManage || working) return
+    setWorking(true)
+    setError('')
+    const scopeAtStart = getSessionScope()
+    try {
+      await apiJson('/api/v1/staff/password-resets/' + id, { method: 'DELETE' })
+      if (scopeAtStart !== getSessionScope()) return
+      if (id === resetLinkId) {
+        setResetLink('')
+        setResetLinkId('')
+      }
+      setMessage('Link de recuperação cancelado. A senha anterior continua válida.')
+      await reload()
+    } catch (cause: unknown) {
+      if (scopeAtStart === getSessionScope()) setError(errorMessage(cause))
     } finally {
       setWorking(false)
     }
@@ -214,6 +269,9 @@ export default function StaffPage() {
                               Mudar para {member.role === 'cashier' ? 'gerente' : 'caixa'}
                             </button>
                             <button type="button" disabled={working || loading}
+                              onClick={() => void issuePasswordReset(member)}
+                              className="rounded-md border px-2 py-1 disabled:opacity-50">Recuperar senha</button>
+                            <button type="button" disabled={working || loading}
                               onClick={() => void changeMember(member, 'status', !member.active)}
                               className="rounded-md border px-2 py-1 disabled:opacity-50">
                               {member.active ? 'Suspender acesso' : 'Reativar acesso'}
@@ -228,6 +286,50 @@ export default function StaffPage() {
               {!loading && members.length === 0 ? <p className="py-3 text-xs">Nenhum membro listado.</p> : null}
             </div>
           </section>
+          {resetLink ? (
+            <section className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label="Link de recuperação">
+              <h3 className="font-semibold text-sm">Link de recuperação — exibido uma única vez</h3>
+              <p className="mt-1 text-xs">Somente o funcionário deve abrir o link e criar sua senha. Não compartilhe com outras pessoas.</p>
+              <label className="block mt-3 text-xs">Link temporário
+                <input aria-label="Link para recuperar senha" readOnly value={resetLink}
+                  onFocus={(event) => event.target.select()}
+                  className="mt-1 block w-full rounded-md border px-3 py-2 text-xs" />
+              </label>
+              <button type="button" onClick={() => void navigator.clipboard.writeText(resetLink)
+                .then(() => setMessage('Link copiado.'))
+                .catch(() => setError('Selecione o link para copiar manualmente.'))}
+                className="mt-2 rounded-md border px-3 py-2 text-xs">Copiar link</button>
+              <button type="button" disabled={working} onClick={() => void revokeResetLink()}
+                className="mt-2 ml-2 rounded-md border px-3 py-2 text-xs disabled:opacity-50">
+                Cancelar link
+              </button>
+            </section>
+          ) : null}
+          {pendingResets.length > 0 ? (
+            <details className="mt-4 rounded-xl border border-slate-200 p-4" aria-label="Recuperações pendentes">
+              <summary className="cursor-pointer text-sm font-semibold">
+                Links de recuperação pendentes ({pendingResets.length})
+              </summary>
+              <p className="mt-2 text-xs text-slate-600">
+                Links vencidos também podem ser cancelados. O conteúdo secreto não pode ser recuperado ou mostrado novamente.
+              </p>
+              <div className="mt-3 space-y-2">
+                {pendingResets.map((reset) => (
+                  <div key={reset.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2">
+                    <div className="text-xs">
+                      <strong>{reset.employee_name}</strong> {reset.username ? `(${reset.username})` : ''}
+                      <span className="block text-slate-600">Validade: {new Date(reset.expires_at).toLocaleString('pt-BR')}</span>
+                    </div>
+                    <button type="button" disabled={working}
+                      onClick={() => void revokeResetLink(reset.id)}
+                      className="rounded-md border px-2 py-1 text-xs disabled:opacity-50">
+                      Cancelar link
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
           <details className="mt-6 rounded-2xl border border-slate-200 p-5" aria-label="Adicionar novo acesso">
             <summary className="cursor-pointer font-semibold">Adicionar outro funcionário</summary>
             <p className="mt-1 text-xs text-gray-600">

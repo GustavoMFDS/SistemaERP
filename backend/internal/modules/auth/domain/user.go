@@ -6,4 +6,5 @@ type User struct {
 	Name         string
 	PasswordHash string
 	Active       bool
+	AuthVersion  int64
 }

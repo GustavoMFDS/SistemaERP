@@ -48,6 +48,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 		api.With(authRefreshLimit, trustedOrigin).Post("/auth/refresh", h.Auth.Refresh)
 		api.With(authLogoutLimit, trustedOrigin).Post("/auth/logout", h.Auth.Logout)
 		api.With(authLoginLimit, trustedOrigin).Post("/staff/accept-invite", h.Team.Accept)
+		api.With(authLoginLimit, trustedOrigin).Post("/staff/complete-password-reset", h.Team.CompletePasswordReset)
 		api.With(middleware.AuthJWT(cfg, mods.Auth, logger)).Get("/auth/me", h.Auth.Me)
 
 		api.Group(func(pr chi.Router) {
@@ -61,6 +62,8 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 				rr.With(trustedOrigin).Delete("/invitations/{id}", h.Team.Revoke)
 				rr.With(trustedOrigin).Put("/{id}/role", h.Team.SetRole)
 				rr.With(trustedOrigin).Put("/{id}/status", h.Team.SetStatus)
+				rr.With(trustedOrigin, productImportLimit).Post("/{id}/password-reset", h.Team.IssuePasswordReset)
+				rr.With(trustedOrigin).Delete("/password-resets/{id}", h.Team.RevokePasswordReset)
 			})
 
 			// Only fiscal managers may record non-authoritative setup reviews.

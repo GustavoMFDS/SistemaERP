@@ -90,6 +90,12 @@ func validNewInvite(name, email, role string, usernames ...string) bool {
 	return err == nil && addr.Address == email && !strings.ContainsAny(email, " \t\r\n")
 }
 
+// validStaffPassword counts actual Unicode code points, not bytes, for the
+// 12-character minimum. bcrypt accepts at most 72 UTF-8 bytes.
+func validStaffPassword(password string) bool {
+	return utf8.ValidString(password) && utf8.RuneCountInString(password) >= 12 && len(password) <= 72
+}
+
 func isUniqueError(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
@@ -290,7 +296,7 @@ func (s *Service) Revoke(ctx context.Context, tenantID, actorID, inviteID, reque
 // strong user-chosen password. Invites cannot link a pre-existing global user
 // silently, and the single-use row is locked for concurrent submissions.
 func (s *Service) Accept(ctx context.Context, tokenHex, password string, requestID, ip, userAgent string) error {
-	if len(tokenHex) != 64 || len(password) < 12 || len(password) > 72 {
+	if len(tokenHex) != 64 || !validStaffPassword(password) {
 		return common.ErrValidation
 	}
 	raw, err := hex.DecodeString(tokenHex)

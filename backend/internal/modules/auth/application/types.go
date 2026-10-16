@@ -21,6 +21,7 @@ type TokenResponse struct {
 
 type Claims struct {
 	jwt.RegisteredClaims
-	Type     string `json:"typ,omitempty"`
-	TenantID string `json:"tenant_id,omitempty"`
+	Type        string `json:"typ,omitempty"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	AuthVersion int64  `json:"auth_ver,omitempty"`
 }

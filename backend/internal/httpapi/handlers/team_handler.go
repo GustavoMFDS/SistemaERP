@@ -52,6 +52,8 @@ func writeTeamError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusConflict, "conflict", "nao foi possivel criar ou atualizar este acesso", nil)
 	case errors.Is(err, team.ErrInviteUnavailable):
 		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "convite invalido, expirado ou utilizado", nil)
+	case errors.Is(err, team.ErrPasswordResetUnavailable):
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "link de recuperacao invalido ou expirado", nil)
 	default:
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "nao foi possivel concluir a operacao", nil)
 	}
@@ -69,7 +71,16 @@ func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeTeamError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"members": members, "invitations": invitations})
+	pendingResets, err := h.svc.ListPasswordResets(r.Context(), au.TenantID, au.UserID)
+	if err != nil {
+		writeTeamError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"members":         members,
+		"invitations":     invitations,
+		"password_resets": pendingResets,
+	})
 }
 
 func (h *TeamHandler) Invite(w http.ResponseWriter, r *http.Request) {
@@ -165,4 +176,52 @@ func (h *TeamHandler) Accept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"status": "registered"})
+}
+
+func (h *TeamHandler) IssuePasswordReset(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	requestID, ip, agent := audit.RequestContext(r)
+	link, token, err := h.svc.IssuePasswordReset(r.Context(), au.TenantID, au.UserID,
+		chi.URLParam(r, "id"), requestID, ip, agent)
+	if err != nil {
+		writeTeamError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"reset": link, "token": token})
+}
+
+func (h *TeamHandler) CompletePasswordReset(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	var req acceptStaffRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "validation_error", "dados de recuperacao invalidos", nil)
+		return
+	}
+	requestID, ip, agent := audit.RequestContext(r)
+	if err := h.svc.CompletePasswordReset(r.Context(), req.Token, req.Password, requestID, ip, agent); err != nil {
+		writeTeamError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "password_changed"})
+}
+
+func (h *TeamHandler) RevokePasswordReset(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	requestID, ip, agent := audit.RequestContext(r)
+	if err := h.svc.RevokePasswordReset(r.Context(), au.TenantID, au.UserID,
+		chi.URLParam(r, "id"), requestID, ip, agent); err != nil {
+		writeTeamError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -12,6 +12,7 @@ import LoginPage from './pages/LoginPage'
 import StaffPage from './pages/StaffPage'
 import CustomersPage from './pages/CustomersPage'
 import AcceptStaffInvitePage from './pages/AcceptStaffInvitePage'
+import ResetStaffPasswordPage from './pages/ResetStaffPasswordPage'
 import PDVPage from './pages/PDVPage'
 import ProductsPage from './pages/ProductsPage'
 import PurchasesPage from './pages/PurchasesPage'
@@ -23,6 +24,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/accept-invite" element={<AcceptStaffInvitePage />} />
+      <Route path="/reset-password" element={<ResetStaffPasswordPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
