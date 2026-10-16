@@ -30,7 +30,7 @@ test('double finalize intent produces only one sale request', async ({ page }) =
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
   await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   let salePosts = 0
   const keys: string[] = []
@@ -181,7 +181,7 @@ test('network failure during logout does not pretend the HttpOnly session was re
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
   await page.getByRole('button', { name: 'Suspender' }).click()
   const suspendedBefore = await page.evaluate(async () => {
     const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
