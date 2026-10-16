@@ -6,7 +6,8 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
+  await page.goto('/products')
 }
 
 test('histórico de produtos mostra apenas recibos confirmados e permite paginar', async ({ page }) => {
