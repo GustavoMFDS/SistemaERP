@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 
 type Report = {
@@ -24,7 +24,7 @@ export default function OperationalReports() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  async function refresh(a: string, b: string) {
+  const refresh = useCallback(async (a: string, b: string) => {
     setBusy(true)
     setError('')
     setReport(null)
@@ -37,8 +37,8 @@ export default function OperationalReports() {
     } finally {
       setBusy(false)
     }
-  }
-  useEffect(() => { void refresh(from, to) }, []) // initial snapshot, manual refresh afterwards
+  }, [])
+  useEffect(() => { void refresh(localDate(-13), localDate(0)) }, [refresh]) // initial snapshot, manual refresh afterwards
 
   const hourly = Array.from({ length: 24 }, (_, hour) =>
     report?.hourly.find((h) => h.hour === hour) ?? { hour, count: 0, total: 0 })

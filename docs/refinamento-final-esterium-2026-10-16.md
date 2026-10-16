@@ -49,6 +49,45 @@ Sem configuração, mostra uma pendência em vez de sinal verde.
 O estado `ok` prova apenas que o dump foi gerado, listado e
 teve checksum verificado; **não prova que possa ser restaurado**.
 
+## Backup no Windows (Task Scheduler / servidor Windows)
+
+Também existe `scripts/postgres-daily-backup.ps1`, equivalente para
+Windows. Ele usa `pg_dump.exe`, `pg_restore.exe`, SHA-256,
+lock exclusivo de arquivo e limpeza após sucesso. A rotina aceita
+`-BackupDir`, `-PostgresBin` e `-RetentionDays`; fornece o mesmo
+`backup-status.json` consumido pela Central de Atenção.
+
+```powershell
+# Exemplo de operação assistida; ajustar para o servidor protegido.
+$env:PGHOST='127.0.0.1'
+$env:PGPORT='5432'
+$env:PGUSER='esterium_backup'
+$env:PGDATABASE='esterium'
+$env:PGPASSFILE='C:\ProgramData\Esterium\secrets\pgpass.conf'
+.\scripts\postgres-daily-backup.ps1 -BackupDir 'D:\EsteriumBackups'
+```
+
+Para automação, configurar o **Agendador de Tarefas do Windows**
+com uma conta de serviço de acesso mínimo, variáveis do PostgreSQL
+protegidas e execução regular da chamada acima. Configurar repetição,
+tratamento de falhas e cópia criptografada fora do computador.
+O arquivo `ESTERIUM_BACKUP_STATUS_PATH` deve ser montado/leído pela
+API em somente leitura. **Nenhuma tarefa foi registrada automaticamente
+na máquina ou em produção por este commit; o agendamento é uma etapa
+de implantação**.
+
+**Ensaio local de 16/10/2026:** no Windows de demonstração
+`sistemaerp_demo`, o PowerShell gerou um arquivo `esterium-*.dump`
+com SHA-256 e `backup-status.json` indicando `ok`.
+Uma restauração isolada de backup da mesma base foi realizada em
+`esterium_restore_validation_20261016`: 65 tabelas e contagens de
+empresas, usuários, produtos, vendas, saldos, notas, obrigações
+fiscais e variantes **idênticas** às da origem. O ambiente demo
+não possui a tabela `schema_migrations`, portanto a checagem foi
+baseada nas tabelas reais, sem inventar uma versão persistida.
+Esses testes **não** exercitam desastre com disco perdido, backup
+off-site ou restauração de empresas verdadeiras.
+
 ## Ensaio de restauração (obrigatório antes do piloto)
 
 Usar `scripts/postgres-backup-drill.sh` com

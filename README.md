@@ -8,6 +8,8 @@ Sistema web de gestão comercial com PDV, produtos, estoque, compras, devoluçõ
 
 **Inventário mais recente:** o [catálogo geral do Esterium ERP](docs/catalogo-geral-esterium-2026-10-16.md) contabiliza 15 telas React, 121 registros de rotas HTTP, 13 módulos Go e 48 migrações SQL, distinguindo implementação de validação efetiva. O [catálogo funcional histórico](docs/catalogo-funcional-sistema.md) permanece disponível, mas algumas contagens e pendências estão desatualizadas. A emissão NFC-e em produção não está homologada.
 
+**Refinamento operacional de 16/10/2026:** o [plano de refinamento](docs/refinamento-final-esterium-2026-10-16.md) documenta backup PostgreSQL verificado em Linux/Windows (agendamento ainda a configurar), Central de Atenção, conferência fiscal diária e relatórios operacionais por período. Recuperação ensaiada apenas com banco fictício; isso não comprova backup externo, homologação SEF/MG nem prontidão operacional.
+
 ## Funcionalidades existentes no código de integração
 
 - Vendas/PDV, controle de caixa, leitura de código de barras, carrinhos suspensos e prevenção de duplicidade por chave de idempotência.
