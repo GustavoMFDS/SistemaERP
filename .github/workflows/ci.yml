@@ -1425,6 +1425,52 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_username WITH (FORCE);"
 
+      - name: Verify password recovery v51 schema and safe rollback
+        run: |
+          set -euo pipefail
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_pwdreset WITH (FORCE);" \
+            -c "CREATE DATABASE sistemaemgo_pwdreset OWNER sistemaemgo;"
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_pwdreset?sslmode=disable" \
+            goto 51
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_pwdreset -v ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='users' AND column_name='auth_version')
+              OR to_regclass('public.staff_password_resets') IS NULL
+              OR NOT EXISTS (SELECT 1 FROM pg_indexes
+                             WHERE indexname='staff_password_reset_one_pending_per_user') THEN
+              RAISE EXCEPTION 'migration 0051 recovery schema incomplete';
+            END IF;
+          END $verify$;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_pwdreset?sslmode=disable" \
+            down 1
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_pwdreset -v ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='users' AND column_name='auth_version')
+              OR to_regclass('public.staff_password_resets') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0051 did not revert the recovery schema';
+            END IF;
+          END $verify$;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_pwdreset?sslmode=disable" \
+            up 1
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_pwdreset WITH (FORCE);"
+
       - name: Run tagged integration tests
         working-directory: backend
         env:
