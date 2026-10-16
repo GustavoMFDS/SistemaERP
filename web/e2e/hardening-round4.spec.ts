@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page) {
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 async function waitForCashClosed(page: import('@playwright/test').Page) {
@@ -211,7 +211,7 @@ test('network failure during logout does not pretend the HttpOnly session was re
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
   const suspendedAfterSuccess = await page.evaluate(async () => {
     const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
     return getSuspendedCarts().length
@@ -247,7 +247,7 @@ test('logout is blocked while offline finalized sales are preserved', async ({ p
   })
 
   await page.getByRole('button', { name: 'Sair' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
   await expect(
     page.getByText(/Não é possível sair enquanto existirem 1 venda\(s\) offline preservada\(s\)/),
   ).toBeVisible()
@@ -354,7 +354,7 @@ test('logout is blocked while legacy offline work is unresolved', async ({ page 
   })
 
   await page.getByRole('button', { name: 'Sair' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
   await expect(page.getByText(/fila offline legada ainda não revisada/)).toBeVisible()
   expect(logoutCalls).toBe(0)
 
