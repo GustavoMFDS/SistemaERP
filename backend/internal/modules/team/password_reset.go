@@ -293,3 +293,52 @@ func (s *Service) RevokePasswordReset(
 	}
 	return tx.Commit(ctx)
 }
+
+type PasswordResetOverview struct {
+	ID           string    `json:"id"`
+	EmployeeName string    `json:"employee_name"`
+	Username     string    `json:"username"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+// Only a current administrator of the requested company can list revocable
+// links. The response contains metadata but never a reusable secret.
+func (s *Service) ListPasswordResets(ctx context.Context, tenantID, actorID string) ([]PasswordResetOverview, error) {
+	var allowed bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM user_tenant_roles ur
+			JOIN roles role ON role.id=ur.role_id AND role.name='admin'
+			JOIN user_tenants ut ON ut.user_id=ur.user_id
+			  AND ut.tenant_id=ur.tenant_id AND ut.active=true
+			JOIN users u ON u.id=ur.user_id AND u.active=true
+			WHERE ur.tenant_id=$1 AND ur.user_id=$2
+		)
+	`, tenantID, actorID).Scan(&allowed)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, common.ErrForbidden
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT reset.id::text, u.name, COALESCE(u.username::text,''), reset.expires_at
+		FROM staff_password_resets reset
+		JOIN users u ON u.id=reset.user_id
+		WHERE reset.tenant_id=$1 AND reset.consumed_at IS NULL AND reset.revoked_at IS NULL
+		ORDER BY reset.created_at DESC LIMIT 100
+	`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]PasswordResetOverview, 0)
+	for rows.Next() {
+		var item PasswordResetOverview
+		if err := rows.Scan(&item.ID, &item.EmployeeName, &item.Username, &item.ExpiresAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
