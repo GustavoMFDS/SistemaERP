@@ -7,10 +7,10 @@ func returnDaysPtr(v int) *int { return &v }
 
 func TestValidateVoluntaryReturnPolicy(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name   string
 		policy *string
-		days *int
-		valid bool
+		days   *int
+		valid  bool
 	}{
 		{"legacy client", nil, nil, true},
 		{"allowed", returnPolicyPtr("allowed"), nil, true},
