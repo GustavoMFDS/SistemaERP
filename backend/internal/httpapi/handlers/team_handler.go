@@ -77,8 +77,8 @@ func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"members": members,
-		"invitations": invitations,
+		"members":         members,
+		"invitations":     invitations,
 		"password_resets": pendingResets,
 	})
 }
