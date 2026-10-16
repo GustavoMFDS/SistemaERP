@@ -79,7 +79,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(setup.inventoryAdjustAuditCount).toBe(1)
   expect(setup.reservedMovementStatus).toBe(422)
 
-  await page.getByRole('link', { name: 'PDV' }).click()
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'PDV', exact: true }).click()
   await expect(page).toHaveURL(/\/pdv$/)
 
   // A seeded disposable database may already have an open cash session

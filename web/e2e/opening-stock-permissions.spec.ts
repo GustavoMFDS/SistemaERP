@@ -11,7 +11,7 @@ async function login(page: import('@playwright/test').Page, email: string) {
 
 test('gerente confirma prévia de estoque inicial sem alterar o banco na seleção', async ({ page }) => {
   await login(page, 'gerente@sistema.local')
-  await page.getByRole('link', { name: 'Estoque' }).click()
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Estoque', exact: true }).click()
   await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
   const input = page.getByLabel('Escolher planilha CSV')
   await input.setInputFiles({

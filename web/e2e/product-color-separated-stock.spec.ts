@@ -63,7 +63,7 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
   await page.getByLabel('Senha').fill('teste1234')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
-  await page.goto('/products')
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Produtos', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
   const parentRow = page.getByRole('row', { name: /CAD-BASE/ })
   await expect(parentRow).toContainText('15.00')
