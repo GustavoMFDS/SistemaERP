@@ -150,6 +150,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			pr.Route("/finance", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("finance:read")).Get("/accounts", h.FinanceAccounts.List)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/trends", h.FinanceAccounts.Trends)
+				rr.With(middleware.RequirePermission("finance:read")).Get("/operational-reports", h.FinanceAccounts.OperationalReports)
 				rr.With(middleware.RequirePermission("finance:reconcile"), trustedOrigin).Post("/accounts", h.FinanceAccounts.Create)
 				rr.With(middleware.RequirePermission("finance:reconcile"), trustedOrigin).Post("/accounts/{kind}/{id}/settle", h.FinanceAccounts.Settle)
 				rr.With(middleware.RequirePermission("finance:read")).Get("/dashboard", h.Finance.Dashboard)
@@ -167,6 +168,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 			if mods.Fiscal != nil {
 				pr.Route("/fiscal", func(rr chi.Router) {
 					rr.With(middleware.RequirePermission("invoice:read")).Get("/obligations", h.SaleFiscal.ListObligations)
+					rr.With(middleware.RequirePermission("invoice:read")).Get("/daily-close", h.SaleFiscal.DailyClose)
 					// Machine-preflight audit, never exposes lease tokens or human identity.
 					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/obligations/{saleID}/preflight-audit", h.SaleFiscal.ListFiscalPreflightAudit)
 					rr.With(middleware.RequirePermission("invoice:read"), fiscalLimit).Get("/obligations/{saleID}/preparation", h.SaleFiscal.GetFiscalPreparation)
