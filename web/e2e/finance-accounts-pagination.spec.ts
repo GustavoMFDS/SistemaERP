@@ -5,8 +5,8 @@ test('paginacao de contas usa saldos totais do servidor', async ({ page }) => {
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
-  await page.getByRole('link', { name: 'Financeiro' }).click()
+  await expect(page).toHaveURL(/\/home$/)
+  await page.goto('/finance')
   await expect(page.getByRole('heading', { name: 'Contas da loja' })).toBeVisible()
 
   const before = await page.evaluate(async () => {
@@ -37,7 +37,7 @@ test('navegar entre páginas preserva saldo global calculado no servidor', async
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 
   await page.route('**/api/v1/finance/accounts?*', async (route) => {
     const offset = Number(new URL(route.request().url()).searchParams.get('offset') ?? '0')
@@ -55,7 +55,7 @@ test('navegar entre páginas preserva saldo global calculado no servidor', async
       },
     })
   })
-  await page.getByRole('link', { name: 'Financeiro' }).click()
+  await page.goto('/finance')
   await expect(page.getByText('Primeira conta')).toBeVisible()
   await expect(page.getByText('Exibindo 1–1 de 161 contas')).toBeVisible()
   await expect(page.getByText('R$ 1.234,56')).toBeVisible()
@@ -74,10 +74,10 @@ test('servidor antigo não quebra a página nem inventa totais financeiros', asy
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
   await page.route('**/api/v1/finance/accounts?*', (route) =>
     route.fulfill({ status: 200, json: { items: [], total: 0, truncated: false } }))
-  await page.getByRole('link', { name: 'Financeiro' }).click()
+  await page.goto('/finance')
   await expect(page.getByRole('alert').filter({ hasText: 'O servidor precisa ser atualizado' })).toBeVisible()
   await expect(page.getByText('Os totais estão indisponíveis')).toBeVisible()
   expect(errors).toEqual([])

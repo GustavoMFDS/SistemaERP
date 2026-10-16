@@ -5,7 +5,7 @@ test('cash movement retries reuse the committed result', async ({ page }) => {
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 
   const result = await page.evaluate(async () => {
     const { APIError, apiJson } = await import('/src/lib/api.ts')

@@ -8,7 +8,7 @@ async function login(
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('partial return is idempotent, bounded by sold quantity and blocks full cancellation', async ({ page }) => {
@@ -195,7 +195,7 @@ test('partial return is idempotent, bounded by sold quantity and blocks full can
   expect(result.returnCount).toBe(2)
   expect(result.returnMovementCount).toBe(1)
 
-  await page.getByRole('link', { name: 'Devoluções/Trocas' }).click()
+  await page.goto('/returns')
   await expect(page).toHaveURL(/\/returns$/)
   await expect(page.getByRole('heading', { name: 'Últimas devoluções e trocas' })).toBeVisible()
 })
@@ -285,7 +285,7 @@ test('returns UI keeps the same key after an interrupted response', async ({ pag
     return { saleId: sale.id }
   }, suffix)
 
-  await page.getByRole('link', { name: 'Devoluções/Trocas' }).click()
+  await page.goto('/returns')
   await page.getByLabel('Ou procure pelo código completo da venda').fill(setup.saleId)
   await page.getByRole('button', { name: 'Buscar' }).click()
 

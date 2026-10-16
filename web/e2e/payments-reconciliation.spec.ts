@@ -6,7 +6,7 @@ async function login(page: import('@playwright/test').Page) {
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('reconciles digital payments and settles return refunds without double-counting cash', async ({ page }) => {
@@ -564,7 +564,7 @@ test('reconciles digital payments and settles return refunds without double-coun
   expect(result.paymentFeeLedgerCount).toBe(2)
   expect(result.paymentFeeLedgerTotal).toBe(-2)
 
-  await page.getByRole('link', { name: 'Financeiro' }).click()
+  await page.goto('/finance')
   await expect(page).toHaveURL(/\/finance$/)
   await expect(page.getByRole('heading', { name: 'Finanças da loja' })).toBeVisible()
   await expandDisclosure(page, 'Conciliação avançada de pagamentos e devoluções')
@@ -811,7 +811,7 @@ test('finance UI retries lost responses with the original idempotency key', asyn
     }
   }, suffix)
 
-  await page.getByRole('link', { name: 'Financeiro' }).click()
+  await page.goto('/finance')
   await expect(page).toHaveURL(/\/finance$/)
   await expandDisclosure(page, 'Conciliação avançada de pagamentos e devoluções')
 

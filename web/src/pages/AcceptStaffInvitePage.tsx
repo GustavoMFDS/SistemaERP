@@ -26,7 +26,7 @@ export default function AcceptStaffInvitePage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    document.title = 'Ativar conta — SistemaEmGo'
+    document.title = 'Ativar acesso — Esterium ERP'
     return () => { initialInviteToken = '' }
   }, [])
 
@@ -54,10 +54,11 @@ export default function AcceptStaffInvitePage() {
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
         <div className="rounded-lg border bg-white p-6">
+          <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>Esterium ERP</p>
           <h1 className="text-lg font-semibold">Ativar acesso à loja</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Defina uma senha pessoal. O vínculo com a empresa e a função
-            foram escolhidos pelo administrador que enviou o convite.
+            Seu acesso já foi preparado pelo responsável da loja.
+            Crie uma senha pessoal para começar. Não é necessário receber o link por e-mail.
           </p>
           {completed ? (
             <div role="status" className="mt-4 rounded-md border p-3 text-sm">
@@ -66,7 +67,7 @@ export default function AcceptStaffInvitePage() {
             </div>
           ) : !token ? (
             <p role="alert" className="mt-4 text-sm text-red-700">
-              Não há um link de convite válido nesta página. Peça um novo ao responsável pela loja.
+              Este link está ausente ou inválido. Peça um novo ao responsável pela loja.
             </p>
           ) : (
             <form onSubmit={(event) => void submit(event)} className="mt-4 space-y-3">
@@ -85,7 +86,7 @@ export default function AcceptStaffInvitePage() {
               {password && confirm && password !== confirm ? (
                 <p role="alert" className="text-xs text-red-700">As senhas devem ser iguais.</p>
               ) : null}
-              {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+              {error ? <p role="alert" className="text-sm text-red-700">Não foi possível ativar o acesso: {error}. Se o link venceu ou foi utilizado, peça outro ao responsável pela loja.</p> : null}
               <button type="submit" disabled={busy || !password || password !== confirm || password.length < 12}
                 className="w-full rounded-md bg-gray-900 px-4 py-2 text-white disabled:opacity-50">
                 {busy ? 'Ativando…' : 'Ativar minha conta'}

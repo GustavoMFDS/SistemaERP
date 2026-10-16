@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('financeiro exibe ranking do CNPJ e período somente após consulta', async ({ page }) => {
@@ -26,7 +26,7 @@ test('financeiro exibe ranking do CNPJ e período somente após consulta', async
     })
   })
   await login(page, 'gerente@sistema.local')
-  await page.goto('/finance')
+  await page.goto('/reports')
   const section = page.getByRole('region', { name: 'Produtos mais vendidos' })
   await expect(section.getByText(/não é lucro/)).toBeVisible()
   expect(requests).toHaveLength(0)
@@ -46,7 +46,9 @@ test('financeiro exibe ranking do CNPJ e período somente após consulta', async
 
 test('caixa recebe 403 para ranking financeiro e não vê a página no menu', async ({ page }) => {
   await login(page, 'caixa@sistema.local')
-  await expect(page.getByRole('link', { name: 'Financeiro', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Relatórios', exact: true })).toHaveCount(0)
+  await page.goto('/reports')
+  await expect(page.getByRole('alert')).toContainText('Sua função não permite consultar relatórios')
   const status = await page.evaluate(async () => {
     const { apiJson, APIError } = await import('/src/lib/api.ts')
     try {

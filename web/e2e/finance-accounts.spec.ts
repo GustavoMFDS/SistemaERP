@@ -7,7 +7,8 @@ test('contas financeiras integradas: cadastrar, dar baixa e consultar evolução
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await page.getByRole('link', { name: 'Financeiro' }).click()
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByText('Mais áreas do sistema').click()
+  await page.getByRole('link', { name: 'Financeiro', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Finanças da loja' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Contas da loja' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Movimento financeiro' })).toBeVisible()
@@ -31,7 +32,7 @@ test('operador de caixa não acessa contas financeiras', async ({ page }) => {
   await page.getByLabel('E-mail').fill('caixa@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
   await expect(page.getByRole('link', { name: 'Financeiro' })).toHaveCount(0)
   const status = await page.evaluate(async () => {
     const { apiJson, APIError } = await import('/src/lib/api.ts')

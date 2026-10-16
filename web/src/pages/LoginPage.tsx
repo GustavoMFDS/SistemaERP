@@ -11,8 +11,8 @@ type LoginResponse = {
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState(import.meta.env.DEV ? 'admin@sistema.local' : '')
-  const [password, setPassword] = useState(import.meta.env.DEV ? 'admin123' : '')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -26,7 +26,7 @@ export default function LoginPage() {
         body: { email, password },
       })
       setToken(data.token.access_token)
-      navigate('/products', { replace: true })
+      navigate('/home', { replace: true })
     } catch (e: unknown) {
       setError(errorMessage(e))
     } finally {
@@ -39,8 +39,8 @@ export default function LoginPage() {
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
         <div className="rounded-lg border bg-white p-6">
           <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>Esterium ERP</p>
-          <h1 className="text-lg font-semibold">Entrar</h1>
-          <p className="mt-1 text-sm text-gray-600">Use seu e-mail e senha.</p>
+          <h1 className="text-lg font-semibold">Bem-vindo de volta</h1>
+          <p className="mt-1 text-sm text-gray-600">Entre com seu e-mail e sua senha para acessar a loja.</p>
 
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
             <label className="block">
@@ -68,7 +68,7 @@ export default function LoginPage() {
             </label>
 
             {error ? (
-              <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+              <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
                 {error}
               </div>
             ) : null}
@@ -80,10 +80,7 @@ export default function LoginPage() {
               {loading ? 'Entrando…' : 'Entrar'}
             </button>
 
-            <div className="text-xs text-gray-500">
-              API base: {import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'}
-              {import.meta.env.DEV ? ' • Demo: admin@sistema.local / admin123' : ''}
-            </div>
+            <p className="text-center text-xs text-gray-500">Acesso pessoal e protegido. Não compartilhe sua senha.</p>
           </form>
         </div>
       </div>

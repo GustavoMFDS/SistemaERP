@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('administrador cadastra, pesquisa e edita cliente sem selecionar CNPJ', async ({ page }) => {
@@ -40,6 +40,7 @@ test('administrador cadastra, pesquisa e edita cliente sem selecionar CNPJ', asy
     }) })
   })
   await login(page, 'admin@sistema.local')
+  await page.getByText('Mais áreas do sistema').click()
   await page.getByRole('link', { name: 'Clientes', exact: true }).click()
   await expect(page).toHaveURL(/\/customers$/)
   const form = page.getByRole('form', { name: 'Cadastro de cliente' })

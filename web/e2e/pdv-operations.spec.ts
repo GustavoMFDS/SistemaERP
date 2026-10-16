@@ -8,7 +8,7 @@ async function login(
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('PDV supports shortcuts, quick search, suspended carts, quantity editing and authorized discount', async ({ page }) => {
@@ -79,7 +79,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(setup.inventoryAdjustAuditCount).toBe(1)
   expect(setup.reservedMovementStatus).toBe(422)
 
-  await page.getByRole('link', { name: 'PDV' }).click()
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'PDV', exact: true }).click()
   await expect(page).toHaveURL(/\/pdv$/)
 
   // A seeded disposable database may already have an open cash session
@@ -300,7 +300,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   await expect(page.getByRole('heading', { name: 'Cadastrar produto' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Salvar' })).toHaveCount(0)
 
-  await page.getByRole('link', { name: 'Estoque' }).click()
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Estoque', exact: true }).click()
   await expect(page).toHaveURL(/\/inventory$/)
   await expect(page.getByRole('heading', { name: 'Ajuste de estoque' })).toHaveCount(0)
 

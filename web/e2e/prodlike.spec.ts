@@ -17,7 +17,7 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 
   const cookies = await context.cookies()
   const refresh = cookies.find((cookie) => cookie.name === '__Host-refresh_token')

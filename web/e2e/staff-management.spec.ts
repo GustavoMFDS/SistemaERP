@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page, email = 'admin@siste
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('administrador convida, altera papel e suspende funcionário somente da loja', async ({ page }) => {
@@ -48,7 +48,7 @@ test('administrador convida, altera papel e suspende funcionário somente da loj
     await route.fulfill({ status: 204, body: '' })
   })
   await login(page)
-  await page.getByRole('link', { name: 'Funcionários', exact: true }).click()
+  await page.goto('/staff')
   await expect(page).toHaveURL(/\/staff$/)
   const form = page.locator('details[aria-label="Adicionar novo acesso"]')
   await form.locator('summary').click()

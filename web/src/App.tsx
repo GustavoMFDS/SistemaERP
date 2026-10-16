@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import FinancePage from './pages/FinancePage'
+import ReportsPage from './pages/ReportsPage'
 import HomePage from './pages/HomePage'
 import FiscalPage from './pages/FiscalPage'
 import InventoryPage from './pages/InventoryPage'
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="/returns" element={<ReturnsPage />} />
           <Route path="/pdv" element={<PDVPage />} />
           <Route path="/finance" element={<FinancePage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/fiscal" element={<FiscalPage />} />
         </Route>
       </Route>

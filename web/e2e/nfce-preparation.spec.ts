@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page) {
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('NFC-e preparation stays disabled and never exposes secret references', async ({ page }) => {

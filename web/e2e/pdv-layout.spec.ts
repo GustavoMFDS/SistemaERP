@@ -5,7 +5,7 @@ async function openPDV(page: import('@playwright/test').Page) {
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('link', { name: 'PDV', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'PDV', exact: true })).toBeVisible()
 }
