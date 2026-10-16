@@ -67,4 +67,31 @@ test('funcionário sem e-mail ativa seu acesso e entra por nome de usuário', as
     }
   }, username)
   expect(status).toBe(409)
+
+  // Suspension in the original company immediately prevents another login.
+  await page.goto('/login')
+  await page.getByLabel('E-mail ou nome de usuário').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/home$/)
+  const disabled = await page.evaluate(async (username) => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    const team = await apiJson<{
+      members: Array<{ id: string; username?: string }>
+    }>('/api/v1/staff')
+    const target = team.members.find((person) => person.username === username)
+    if (!target) throw new Error('Funcionário ativado não encontrado na própria loja')
+    await apiJson('/api/v1/staff/' + target.id + '/status', {
+      method: 'PUT', body: { active: false },
+    })
+    return target.id
+  }, username)
+  expect(disabled).toBeTruthy()
+
+  await page.goto('/login')
+  await page.getByLabel('E-mail ou nome de usuário').fill(username)
+  await page.getByLabel('Senha').fill(password)
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+  await expect(page.getByRole('alert')).toContainText('Não foi possível entrar')
 })

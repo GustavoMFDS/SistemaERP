@@ -33,11 +33,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 		slowEqual(password, "")
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
-	if !u.Active {
-		return TokenResponse{}, AuthUserInfo{}, common.ErrInactiveUser
-	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if !u.Active {
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInactiveUser
 	}
 	_ = s.users.UpdateLastLogin(ctx, u.ID)
 
