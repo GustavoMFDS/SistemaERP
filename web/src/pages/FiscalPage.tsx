@@ -1,3 +1,4 @@
+import FiscalDailyReview from '../components/FiscalDailyReview'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
@@ -452,6 +453,8 @@ export default function FiscalPage() {
           {loading ? 'Atualizando…' : 'Atualizar'}
         </button>
       </div>
+
+      <FiscalDailyReview />
 
       <Suspense fallback={<p className="mt-5 text-sm text-slate-600">Carregando guia fiscal…</p>}>
         <FiscalSetupGuide
