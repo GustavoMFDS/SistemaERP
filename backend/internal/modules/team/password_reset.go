@@ -139,12 +139,24 @@ func (s *Service) CompletePasswordReset(
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// IssuePasswordReset locks the user first, then any old reset row. Match
-	// that order to avoid a lock cycle when a link is reissued concurrently.
-	var userID string
+	// All flows lock the company before the user and reset row.
+	// The audit insert references the company through a foreign key, so
+	// locking the user first could deadlock against the admin's company lock.
+	var userID, tokenTenantID string
 	err = tx.QueryRow(ctx, `
-		SELECT user_id::text FROM staff_password_resets WHERE token_hash=$1
-	`, hash[:]).Scan(&userID)
+		SELECT user_id::text,tenant_id::text
+		FROM staff_password_resets WHERE token_hash=$1
+	`, hash[:]).Scan(&userID, &tokenTenantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrPasswordResetUnavailable
+	}
+	if err != nil {
+		return err
+	}
+	var lockedTenantID string
+	err = tx.QueryRow(ctx,
+		`SELECT id::text FROM companies WHERE id=$1 FOR KEY SHARE`, tokenTenantID).
+		Scan(&lockedTenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrPasswordResetUnavailable
 	}
@@ -172,7 +184,7 @@ func (s *Service) CompletePasswordReset(
 	if err != nil {
 		return err
 	}
-	if scopedUserID != userID {
+	if scopedUserID != userID || tenantID != tokenTenantID {
 		return ErrPasswordResetUnavailable
 	}
 	var membershipCount, originalTenantCount int
