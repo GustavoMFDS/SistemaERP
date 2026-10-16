@@ -109,10 +109,12 @@ func (s *ProductsService) ImportProducts(
 	createdIDs := make([]string, 0, len(items))
 	for _, item := range items {
 		policy := "allowed"
-		if item.ReturnPolicy != nil { policy = *item.ReturnPolicy }
+		if item.ReturnPolicy != nil {
+			policy = *item.ReturnPolicy
+		}
 		p := inv.Product{
 			ReturnPolicy: policy,
-			ReturnDays: item.ReturnDays,
+			ReturnDays:   item.ReturnDays,
 			CategoryID:  item.CategoryID,
 			SKU:         item.SKU,
 			Barcode:     item.Barcode,
