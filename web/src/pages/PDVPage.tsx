@@ -613,7 +613,7 @@ export default function PDVPage() {
   }
 
   function discardAttention(id: string) {
-    if (!window.confirm('Descartar esta venda offline preservada? Esta ação não pode ser desfeita.')) {
+    if (!window.confirm('Descartar a cópia local desta venda? Antes, confira no servidor se ela já foi registrada. A perda do registro local não pode ser desfeita.')) {
       return
     }
     discardQueueItem(id)
@@ -624,7 +624,7 @@ export default function PDVPage() {
     if (!cashSessionId) return
     if (
       !window.confirm(
-        'Recriar esta venda para o caixa atual preservando a Idempotency-Key original? Se a venda antiga já tiver sido processada, o backend bloqueará a duplicação.',
+        'Vincular esta venda pendente ao caixa atual e conferir novamente o resultado? O sistema mantém a identificação original da operação para evitar uma venda duplicada.',
       )
     ) {
       return
@@ -644,7 +644,7 @@ export default function PDVPage() {
   }
 
   function removeLegacyQueue() {
-    if (!window.confirm('Descartar a fila offline legada deste navegador?')) return
+    if (!window.confirm('Descartar todas as vendas pendentes da versão anterior neste dispositivo? Antes, confira no servidor se já foram registradas. Essa perda local não pode ser desfeita.')) return
     discardLegacyQueue()
     refreshPending()
   }
@@ -990,7 +990,7 @@ export default function PDVPage() {
       refreshPending()
     } catch (e: unknown) {
       setError(
-        `Não foi possível preservar a intenção de venda no navegador. Nenhuma venda foi enviada. ${errorMessage(e)}`,
+        `Não foi possível salvar esta venda com segurança neste dispositivo. Nenhuma solicitação de venda foi enviada ao servidor. ${errorMessage(e)}`,
       )
       finalizeInFlight.current = false
       setFinalizing(false)
@@ -1044,7 +1044,7 @@ export default function PDVPage() {
       setItems([])
       setSaleDiscount(0)
       refreshPending()
-      setError(`Venda preservada para reenvio seguro: ${msg}`)
+      setError(`Venda salva neste dispositivo, mas o resultado no servidor ainda não foi confirmado. Não refaça a venda. Abra as pendências para conferir e sincronizar com segurança. Detalhe: ${msg}`)
     } finally {
       finalizeInFlight.current = false
       setFinalizing(false)
@@ -1086,7 +1086,7 @@ export default function PDVPage() {
 
       {(!online || pendingSync > 0 || attentionSync > 0) ? (
         <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {!online ? 'Sem internet. Vendas pendentes precisam ser sincronizadas. ' : ''}
+          {!online ? 'Sem internet. Vendas salvas neste dispositivo ainda precisam de confirmação no servidor. ' : ''}
           {pendingSync > 0 ? `${pendingSync} venda(s) aguardando sincronização. ` : ''}
           {attentionSync > 0 ? `${attentionSync} operação(ões) precisam de revisão.` : ''}
         </div>
@@ -1522,7 +1522,7 @@ export default function PDVPage() {
             : 'rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900'}>
             {saleId.startsWith('offline:') ? (
               <>
-                Venda registrada offline (pendente sync): <span className="font-mono text-xs">{saleId.replace('offline:', '')}</span> • Total R$ {saleTotal.toFixed(2)}
+                Venda salva neste dispositivo (não confirmada pelo servidor): <span className="font-mono text-xs">{saleId.replace('offline:', '')}</span> • Total R$ {saleTotal.toFixed(2)}
                 <span className="mt-2 block font-semibold">Aguardando confirmação no servidor. Confira as pendências antes de encerrar o caixa.</span>
               </>
             ) : (
@@ -1668,7 +1668,7 @@ export default function PDVPage() {
                 <div key={item.id} className="rounded-md border p-2 text-xs">
                   <div className="font-mono">{item.id}</div>
                   <div className="mt-1 text-gray-700">
-                    Motivo: {item.attentionReason ?? 'revisao'} •{' '}
+                    Motivo: {item.attentionReason === 'expired' ? 'Prazo de sincronização excedido' : item.attentionReason === 'request_rejected' ? 'Servidor pediu revisão' : item.attentionReason === 'legacy_migration' ? 'Venda de versão anterior' : 'Conferência necessária'} •{' '}
                     {item.lastError ?? 'sem detalhe'}
                   </div>
                   <div className="mt-2 flex gap-2">

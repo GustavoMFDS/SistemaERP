@@ -48,7 +48,7 @@ test('lost sale response reuses the original idempotency key', async ({ page }) 
   })
 
   await page.getByRole('button', { name: 'Finalizar' }).click()
-  await expect(page.getByText(/Venda registrada offline/)).toBeVisible()
+  await expect(page.getByText(/Venda salva neste dispositivo \(não confirmada pelo servidor\)/)).toBeVisible()
   // Confirm the persisted offline intent before explicitly replaying it.
   await expect(page.getByText(/1 venda\(s\) aguardando sincronização/)).toBeVisible()
 
