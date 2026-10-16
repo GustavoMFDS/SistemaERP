@@ -82,7 +82,15 @@ test('revisão manual fica registrada entre recargas, sem virar aprovação fisc
   await reviewSection.getByRole('button', { name: 'Registrar revisão' }).click()
   await expect(reviewSection).toContainText('Revisão registrada em')
   await expect(page.getByRole('button', { name: /3\. Estoque inicial/ })).toContainText('Conferir')
+  expect(stockReviewedAt).toBe('2026-10-08T20:00:00Z')
+  const reviewsAfterReload = page.waitForResponse((response) =>
+    response.url().endsWith('/api/v1/setup/reviews') &&
+    response.request().method() === 'GET' && response.status() === 200,
+  )
   await page.reload()
+  expect(await (await reviewsAfterReload).json()).toEqual({
+    items: [{ step: 'stock', reviewed_at: stockReviewedAt }],
+  })
   await page.getByRole('button', { name: /3\. Estoque inicial/ }).click()
   await expect(page.getByRole('region', { name: 'Revisão registrada da etapa' })).toContainText('Revisão registrada em')
   await reviewSection.getByRole('button', { name: 'Reabrir revisão' }).click()
