@@ -359,7 +359,7 @@ export default function ReturnsPage() {
                   Motivo do atendimento
                   <select className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                     value={basis} onChange={(e) => setBasis(e.target.value as 'voluntary' | 'consumer_rights')}>
-                    <option value="voluntary">Devolução conforme a política da loja</option>
+                    <option value="voluntary">Devolução ou troca conforme a política da loja</option>
                     {canOverride ? <option value="consumer_rights">Direito do consumidor — análise do responsável</option> : null}
                   </select>
                 </label>
@@ -374,7 +374,7 @@ export default function ReturnsPage() {
                   </p>
                 ) : null}
               </div>
-            ) : null}
+            )}
 
             {kind === 'exchange' ? (
               <p className="mt-2 text-xs text-gray-600">
