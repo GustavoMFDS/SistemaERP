@@ -3,7 +3,7 @@ package application
 import "testing"
 
 func returnPolicyPtr(v string) *string { return &v }
-func returnDaysPtr(v int) *int { return &v }
+func returnDaysPtr(v int) *int         { return &v }
 
 func TestValidateVoluntaryReturnPolicy(t *testing.T) {
 	for _, tc := range []struct {
