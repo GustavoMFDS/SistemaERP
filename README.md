@@ -4,7 +4,9 @@
 
 Sistema web de gestão comercial com PDV, produtos, estoque, compras, devoluções, clientes, financeiro e preparação fiscal para empresas brasileiras. Cada loja/CNPJ é uma **empresa independente**, com dados, permissões e parametrização fiscal próprios — não uma filial automática das demais lojas da família.
 
-**Situação:** desenvolvimento/piloto, **não liberado para operação fiscal real**. Há implementações em branches e PRs ainda não integrados à `main`. A presença de um módulo no código **não comprova** build, testes E2E, homologação SEFAZ nem aptidão para produção. Consulte o [catálogo funcional](docs/catalogo-funcional-sistema.md) e os PRs abertos antes de decidir um deploy.
+**Situação:** desenvolvimento/piloto, **não liberado para operação fiscal real**. Há implementações em branches e PRs ainda não integrados à `main`. A presença de um módulo no código **não comprova** build, testes E2E, homologação SEFAZ nem aptidão para produção. Consulte o [catálogo geral de 16/10/2026](docs/catalogo-geral-esterium-2026-10-16.md) e os PRs abertos antes de decidir um deploy.
+
+**Inventário mais recente:** o [catálogo geral do Esterium ERP](docs/catalogo-geral-esterium-2026-10-16.md) contabiliza 15 telas React, 121 registros de rotas HTTP, 13 módulos Go e 48 migrações SQL, distinguindo implementação de validação efetiva. O [catálogo funcional histórico](docs/catalogo-funcional-sistema.md) permanece disponível, mas algumas contagens e pendências estão desatualizadas. A emissão NFC-e em produção não está homologada.
 
 ## Funcionalidades existentes no código de integração
 
