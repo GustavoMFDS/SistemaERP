@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page, email = 'admin@siste
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('cash movements and per-method reconciliation stay consistent and closed sales cannot be cancelled', async ({
