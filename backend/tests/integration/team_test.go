@@ -217,6 +217,12 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 	if err != nil || has {
 		t.Fatalf("disabled membership still authorizes existing token: %v %v", has, err)
 	}
+	// Development's legacy tenant fallback must not resurrect an employee
+	// suspended from the only company to which the identity is linked.
+	devRepo := authinfra.NewUsersRepo(db, true)
+	if _, err := devRepo.GetDefaultTenantID(ctx, staffID); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("suspended employee gained access through legacy tenant fallback: %v", err)
+	}
 	perms, err = repo.ListUserPermissions(ctx, staffID, tenantA)
 	if err != nil || len(perms) != 0 {
 		t.Fatalf("disabled member still has effective RBAC: %+v err=%v", perms, err)

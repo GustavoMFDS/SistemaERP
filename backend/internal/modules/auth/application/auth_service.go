@@ -289,5 +289,3 @@ func (s *AuthService) ensureUserTenantAccess(ctx context.Context, userID string,
 	}
 	return nil
 }
-
-
