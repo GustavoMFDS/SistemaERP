@@ -55,7 +55,7 @@ func (s *ProductsService) ImportProducts(
 	seenBarcode := make(map[string]bool, len(items))
 	for i, item := range req.Items {
 		item = normalizeProductRequest(item)
-		if s.validate.Struct(item) != nil || validateProductPricing(item) != nil {
+		if s.validate.Struct(item) != nil || validateProductPricing(item) != nil || validateVoluntaryReturnPolicy(item) != nil {
 			return ProductImportResult{}, common.ErrValidation
 		}
 		skuKey := strings.ToLower(item.SKU)
@@ -108,7 +108,11 @@ func (s *ProductsService) ImportProducts(
 	}
 	createdIDs := make([]string, 0, len(items))
 	for _, item := range items {
+		policy := "allowed"
+		if item.ReturnPolicy != nil { policy = *item.ReturnPolicy }
 		p := inv.Product{
+			ReturnPolicy: policy,
+			ReturnDays: item.ReturnDays,
 			CategoryID:  item.CategoryID,
 			SKU:         item.SKU,
 			Barcode:     item.Barcode,

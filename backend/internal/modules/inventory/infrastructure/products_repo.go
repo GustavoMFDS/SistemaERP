@@ -158,6 +158,7 @@ func (r *ProductsRepo) GetByBarcode(ctx context.Context, tenantID string, barcod
 }
 
 func (r *ProductsRepo) Create(ctx context.Context, tx db.DBTX, tenantID string, p inv.Product) (string, error) {
+	if p.ReturnPolicy == "" { p.ReturnPolicy = "allowed" }
 	var id string
 	err := tx.QueryRow(ctx, `
 		INSERT INTO products(tenant_id, category_id, sku, barcode, name, description, unit, cost_price, price_cash, promo_price, min_stock, active, ncm, cest, return_policy, return_days)
