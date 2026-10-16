@@ -65,12 +65,12 @@ func TestStaffUsernamesDoNotRequireEmail(t *testing.T) {
 
 func TestValidStaffPasswordUnicodeAndBcryptLimit(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name     string
 		password string
 		accepted bool
 	}{
 		{"twelve ASCII", "DozeCaracteres", true},
-		{"eleven ASCII", "OnzeCaracter", false},
+		{"eleven ASCII", "OnzeCaracte", false},
 		{"six multibyte", "éééééé", false},
 		{"twelve multibyte", "éééééééééééé", true},
 		{"too many UTF8 bytes", strings.Repeat("é", 37), false},
@@ -79,7 +79,7 @@ func TestValidStaffPasswordUnicodeAndBcryptLimit(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := validStaffPassword(tc.password); got != tc.accepted {
-				t.Fatalf("accepted=%v expected=%v",got,tc.accepted)
+				t.Fatalf("accepted=%v expected=%v", got, tc.accepted)
 			}
 		})
 	}
