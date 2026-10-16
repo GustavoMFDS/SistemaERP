@@ -35,6 +35,7 @@ export default function StaffPage() {
   const [username, setUsername] = useState('')
   const [role, setRole] = useState<'manager' | 'cashier'>('cashier')
   const [inviteLink, setInviteLink] = useState('')
+  const [resetLink, setResetLink] = useState('')
   const [loading, setLoading] = useState(false)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
@@ -50,6 +51,7 @@ export default function StaffPage() {
     setPermissions(null)
     setCurrentUser('')
     setInviteLink('')
+    setResetLink('')
     setMembers([])
     setInvitations([])
     void apiJson<{ id: string; permissions: string[] }>('/api/v1/auth/me')
@@ -113,6 +115,28 @@ export default function StaffPage() {
       await reload()
     } catch (cause: unknown) {
       if (originalScope === getSessionScope()) setError(errorMessage(cause))
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function issuePasswordReset(member: Member) {
+    if (!canManage || working || member.id === currentUser || member.role === 'admin') return
+    if (!window.confirm(`Gerar link para ${member.name} criar outra senha? O link anterior será invalidado.`)) return
+    setWorking(true)
+    setError('')
+    setMessage('')
+    setResetLink('')
+    const session = getSessionScope()
+    try {
+      const response = await apiJson<{ token: string }>(
+        '/api/v1/staff/' + member.id + '/password-reset', { method: 'POST' })
+      if (session !== getSessionScope()) return
+      setInviteLink('')
+      setResetLink(window.location.origin + '/reset-password#token=' + response.token)
+      setMessage('Link temporário criado. Entregue pessoalmente ao funcionário. Validade: 30 minutos.')
+    } catch (cause: unknown) {
+      if (session === getSessionScope()) setError(errorMessage(cause))
     } finally {
       setWorking(false)
     }
@@ -214,6 +238,9 @@ export default function StaffPage() {
                               Mudar para {member.role === 'cashier' ? 'gerente' : 'caixa'}
                             </button>
                             <button type="button" disabled={working || loading}
+                              onClick={() => void issuePasswordReset(member)}
+                              className="rounded-md border px-2 py-1 disabled:opacity-50">Recuperar senha</button>
+                            <button type="button" disabled={working || loading}
                               onClick={() => void changeMember(member, 'status', !member.active)}
                               className="rounded-md border px-2 py-1 disabled:opacity-50">
                               {member.active ? 'Suspender acesso' : 'Reativar acesso'}
@@ -228,6 +255,21 @@ export default function StaffPage() {
               {!loading && members.length === 0 ? <p className="py-3 text-xs">Nenhum membro listado.</p> : null}
             </div>
           </section>
+          {resetLink ? (
+            <section className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label="Link de recuperação">
+              <h3 className="font-semibold text-sm">Link de recuperação — exibido uma única vez</h3>
+              <p className="mt-1 text-xs">Somente o funcionário deve abrir o link e criar sua senha. Não compartilhe com outras pessoas.</p>
+              <label className="block mt-3 text-xs">Link temporário
+                <input aria-label="Link para recuperar senha" readOnly value={resetLink}
+                  onFocus={(event) => event.target.select()}
+                  className="mt-1 block w-full rounded-md border px-3 py-2 text-xs" />
+              </label>
+              <button type="button" onClick={() => void navigator.clipboard.writeText(resetLink)
+                .then(() => setMessage('Link copiado.'))
+                .catch(() => setError('Selecione o link para copiar manualmente.'))}
+                className="mt-2 rounded-md border px-3 py-2 text-xs">Copiar link</button>
+            </section>
+          ) : null}
           <details className="mt-6 rounded-2xl border border-slate-200 p-5" aria-label="Adicionar novo acesso">
             <summary className="cursor-pointer font-semibold">Adicionar outro funcionário</summary>
             <p className="mt-1 text-xs text-gray-600">
