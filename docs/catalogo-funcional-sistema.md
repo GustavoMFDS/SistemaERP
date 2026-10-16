@@ -1,4 +1,6 @@
-# Catálogo funcional e checklist — SistemaEmGo
+# Catálogo funcional histórico e checklist — SistemaEmGo
+
+> **ARQUIVO HISTÓRICO (09/10/2026):** este inventário conserva as decisões e evidências anteriores, mas seus números e parte das pendências foram superados por implementações posteriores. Para o estado corrente, consultar o **[Catálogo geral do Esterium ERP — 16/10/2026](catalogo-geral-esterium-2026-10-16.md)**. Não somar as contagens deste documento às do catálogo novo nem interpretar observações históricas como estado do PR #25 hoje.
 
 > **Referência:** 09/10/2026 · `ops/pilot-readiness-20260923`, PR [#15](https://github.com/GustavoMFDS/SistemaERP/pull/15), HEAD `4333739799874ed98cf533079e9342fc2711734b`, anterior à criação deste catálogo.
 >
