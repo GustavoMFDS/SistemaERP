@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson, errorMessage } from '../lib/api'
 
 type Sale = {
   id: string
@@ -47,12 +47,11 @@ type ReturnCreateResponse = {
   replayed: boolean
 }
 
-function allowedByVoluntaryPolicy(item: SaleItem, saleAt?: string): boolean {
-  if (!item.return_policy_snapshot || item.return_policy_snapshot === 'allowed') return true
-  if (item.return_policy_snapshot === 'denied') return false
-  if (item.return_policy_snapshot !== 'within_days' || !item.return_days_snapshot || !saleAt) return false
-  const time = new Date(saleAt).getTime()
-  return Number.isFinite(time) && Date.now() <= time + item.return_days_snapshot * 24 * 60 * 60 * 1000
+// The device clock is not authoritative for return deadlines. Only an
+// explicit "denied" policy can prevent voluntary selection in this screen.
+// The server checks the exact deadline at the time of registration.
+function allowedByVoluntaryPolicy(item: SaleItem): boolean {
+  return item.return_policy_snapshot !== 'denied'
 }
 
 function policyDescription(item: SaleItem, saleAt?: string): string {
@@ -60,9 +59,11 @@ function policyDescription(item: SaleItem, saleAt?: string): string {
   if (item.return_policy_snapshot === 'allowed') return 'Permitida pela política da loja'
   if (item.return_policy_snapshot === 'denied') return 'Não permitida pela política voluntária'
   if (!item.return_days_snapshot) return 'Verifique a regra com o responsável'
-  return allowedByVoluntaryPolicy(item, saleAt)
-    ? `Dentro do prazo de ${item.return_days_snapshot} dias`
-    : `Prazo de ${item.return_days_snapshot} dias encerrado`
+  const saleEpoch = saleAt ? new Date(saleAt).getTime() : NaN
+  const deadline = saleEpoch + item.return_days_snapshot * 24 * 60 * 60 * 1000
+  return Number.isFinite(deadline) && Date.now() > deadline
+    ? `Prazo de ${item.return_days_snapshot} dias aparentemente vencido — servidor fará a conferência`
+    : `Até ${item.return_days_snapshot} dias após a compra — servidor fará a conferência`
 }
 
 export default function ReturnsPage() {
@@ -158,7 +159,7 @@ export default function ReturnsPage() {
     if (!detail || selected.length === 0 || reason.trim().length < 3 || saving) return
     if (kind === 'return' && basis === 'voluntary' &&
         detail.items.some((item) => (qtyByItem[item.id] ?? 0) > 0 &&
-          !allowedByVoluntaryPolicy(item, detail.sale.finalized_at))) {
+          !allowedByVoluntaryPolicy(item))) {
       setError('A política voluntária da venda não permite um dos itens selecionados. Para casos previstos em lei, procure o responsável.')
       return
     }
@@ -189,7 +190,11 @@ export default function ReturnsPage() {
       await loadReturns()
       await loadSale()
     } catch (e: unknown) {
-      setError(errorMessage(e))
+      if (e instanceof APIError && e.status === 409 && kind === 'return' && basis === 'voluntary') {
+        setError('Não foi possível registrar a devolução voluntária. O prazo ou outra condição da venda pode impedir a operação. Se houver direito legal, procure o responsável.')
+      } else {
+        setError(errorMessage(e))
+      }
     } finally {
       setSaving(false)
     }
@@ -282,7 +287,7 @@ export default function ReturnsPage() {
                           min="0"
                           aria-label={`Quantidade para devolver do item ${item.id}`}
                           disabled={kind === 'return' && basis === 'voluntary' &&
-                            !allowedByVoluntaryPolicy(item, detail.sale.finalized_at)}
+                            !allowedByVoluntaryPolicy(item)}
                           max={Math.max(0, item.qty - (returnedByItem[item.id] ?? 0))}
                           step="0.001"
                           value={qtyByItem[item.id] ?? 0}
