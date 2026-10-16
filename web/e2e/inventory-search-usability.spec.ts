@@ -5,7 +5,7 @@ test('estoque: busca de produto além dos primeiros 200 sem rolagem', async ({ p
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('link', { name: 'Estoque', exact: true }).click()
   await page.getByText('Ajustar quantidade no estoque').click()
   const search = page.getByRole('searchbox', { name: 'Buscar produto para ajuste de estoque' })
