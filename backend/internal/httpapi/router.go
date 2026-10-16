@@ -217,6 +217,7 @@ func NewRouter(cfg config.Config, mods *modules.Modules, logger *slog.Logger) ht
 
 			pr.Route("/audit", func(rr chi.Router) {
 				rr.With(middleware.RequirePermission("audit:read")).Get("/logs", h.Audit.List)
+				rr.With(middleware.RequirePermission("audit:read")).Get("/backup-status", h.Audit.BackupStatus)
 			})
 		})
 	})
