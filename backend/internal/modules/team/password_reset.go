@@ -105,7 +105,7 @@ func (s *Service) IssuePasswordReset(
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
 		TenantID: tenantID, ActorUserID: actorID,
-		Action: "team.password_reset.issue",
+		Action:       "team.password_reset.issue",
 		ResourceType: "staff_password_reset", ResourceID: link.ID,
 		RequestID: requestID, IP: ip, UserAgent: userAgent,
 		Metadata: map[string]any{"employee_id": userID},
@@ -181,7 +181,7 @@ func (s *Service) CompletePasswordReset(
 	}
 	if err := s.audit.RecordTx(ctx, tx, audit.Event{
 		TenantID: tenantID, ActorUserID: userID,
-		Action: "team.password_reset.complete",
+		Action:       "team.password_reset.complete",
 		ResourceType: "staff_password_reset", ResourceID: id,
 		RequestID: requestID, IP: ip, UserAgent: userAgent,
 	}); err != nil {

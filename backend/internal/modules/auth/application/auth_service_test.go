@@ -293,7 +293,9 @@ func testAuthConfig() config.Config {
 
 func TestPasswordResetInvalidatesBothAccessAndRefreshTokens(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("strong-password"), bcrypt.MinCost)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	users := &fakeUsersRepo{
 		user: authdomain.User{ID: "user-1", Email: "staff@example.com",
 			Name: "Cashier", PasswordHash: string(hash), Active: true},
@@ -301,7 +303,9 @@ func TestPasswordResetInvalidatesBothAccessAndRefreshTokens(t *testing.T) {
 	}
 	svc := NewAuthService(testAuthConfig(), users, newFakeRefreshStore(), nil)
 	old, _, err := svc.Login(context.Background(), users.user.Email, "strong-password")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := svc.ValidateToken(context.Background(), old.AccessToken); err != nil {
 		t.Fatalf("old token should be valid before reset: %v", err)
 	}
@@ -315,7 +319,9 @@ func TestPasswordResetInvalidatesBothAccessAndRefreshTokens(t *testing.T) {
 		t.Fatalf("old refresh token accepted after reset: %v", err)
 	}
 	next, _, err := svc.Login(context.Background(), users.user.Email, "strong-password")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := svc.ValidateToken(context.Background(), next.AccessToken); err != nil {
 		t.Fatalf("new access token should contain new auth version: %v", err)
 	}
