@@ -28,6 +28,8 @@ func writeReturnsError(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusUnprocessableEntity
 	case errors.Is(err, common.ErrNotFound):
 		status = http.StatusNotFound
+	case errors.Is(err, common.ErrForbidden):
+		status = http.StatusForbidden
 	case errors.Is(err, common.ErrConflict):
 		status = http.StatusConflict
 	}
@@ -82,6 +84,7 @@ func (h *ReturnsHandler) CreateForSale(w http.ResponseWriter, r *http.Request) {
 		chi.URLParam(r, "id"),
 		r.Header.Get("Idempotency-Key"),
 		req,
+		middleware.HasPermission(r.Context(), "sale:return:override"),
 	)
 	if err != nil {
 		writeReturnsError(w, r, err)

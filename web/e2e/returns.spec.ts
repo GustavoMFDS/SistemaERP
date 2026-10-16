@@ -292,7 +292,7 @@ test('returns UI keeps the same key after an interrupted response', async ({ pag
   const qtyInput = page.locator('table tbody input[type="number"]').first()
   await expect(qtyInput).toBeVisible()
   await qtyInput.fill('1')
-  await page.getByLabel('Motivo').fill('Resposta interrompida E2E')
+  await page.getByLabel('Motivo', { exact: true }).fill('Resposta interrompida E2E')
 
   const keys: string[] = []
   let first = true

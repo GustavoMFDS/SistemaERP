@@ -55,7 +55,7 @@ func (s *ProductsService) ImportProducts(
 	seenBarcode := make(map[string]bool, len(items))
 	for i, item := range req.Items {
 		item = normalizeProductRequest(item)
-		if s.validate.Struct(item) != nil || validateProductPricing(item) != nil {
+		if s.validate.Struct(item) != nil || validateProductPricing(item) != nil || validateVoluntaryReturnPolicy(item) != nil {
 			return ProductImportResult{}, common.ErrValidation
 		}
 		skuKey := strings.ToLower(item.SKU)
@@ -108,20 +108,26 @@ func (s *ProductsService) ImportProducts(
 	}
 	createdIDs := make([]string, 0, len(items))
 	for _, item := range items {
+		policy := "allowed"
+		if item.ReturnPolicy != nil {
+			policy = *item.ReturnPolicy
+		}
 		p := inv.Product{
-			CategoryID:  item.CategoryID,
-			SKU:         item.SKU,
-			Barcode:     item.Barcode,
-			NCM:         item.NCM,
-			CEST:        item.CEST,
-			Name:        item.Name,
-			Description: item.Description,
-			Unit:        item.Unit,
-			CostPrice:   item.CostPrice,
-			PriceCash:   item.PriceCash,
-			PromoPrice:  item.PromoPrice,
-			MinStock:    item.MinStock,
-			Active:      item.Active,
+			ReturnPolicy: policy,
+			ReturnDays:   item.ReturnDays,
+			CategoryID:   item.CategoryID,
+			SKU:          item.SKU,
+			Barcode:      item.Barcode,
+			NCM:          item.NCM,
+			CEST:         item.CEST,
+			Name:         item.Name,
+			Description:  item.Description,
+			Unit:         item.Unit,
+			CostPrice:    item.CostPrice,
+			PriceCash:    item.PriceCash,
+			PromoPrice:   item.PromoPrice,
+			MinStock:     item.MinStock,
+			Active:       item.Active,
 		}
 		id, err := s.repo.Create(ctx, tx, tenantID, p)
 		if err != nil {

@@ -1278,6 +1278,88 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 \
             < backend/tests/integration/product_images_isolation.sql
 
+      - name: Verify return-policy v49 migration, constraints and rollback
+        run: |
+          set -euo pipefail
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_policy WITH (FORCE);" \
+            -c "CREATE DATABASE sistemaemgo_policy OWNER sistemaemgo;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_policy?sslmode=disable" \
+            up
+
+          # Fresh migration runs before the role seed. The admin role and
+          # its complete grants are provisioned by the trusted installer.
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_policy \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_policy -v ON_ERROR_STOP=1 <<'SQL'
+          DO $check$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='products' AND column_name='return_policy')
+              OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                             WHERE table_name='sale_items' AND column_name='return_policy_snapshot')
+              OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                             WHERE table_name='sale_returns' AND column_name='return_basis') THEN
+              RAISE EXCEPTION 'migration 0049 missing policy/snapshot/basis columns';
+            END IF;
+            IF (SELECT count(*) FROM pg_constraint
+                WHERE conname IN ('products_return_policy_check','sale_items_return_policy_snapshot_check','sale_returns_basis_check')) <> 3 THEN
+              RAISE EXCEPTION 'migration 0049 missing policy constraints';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM roles r JOIN role_permissions rp ON rp.role_id=r.id
+              JOIN permissions p ON p.id=rp.permission_id
+              WHERE r.name='admin' AND p.code='sale:return:override'
+            ) THEN
+              RAISE EXCEPTION 'migration 0049 missing admin override permission';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM roles r JOIN role_permissions rp ON rp.role_id=r.id
+              JOIN permissions p ON p.id=rp.permission_id
+              WHERE r.name IN ('cashier','manager') AND p.code='sale:return:override'
+            ) THEN
+              RAISE EXCEPTION 'migration 0049 granted override to unauthorized roles';
+            END IF;
+          END $check$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_policy?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_policy -v ON_ERROR_STOP=1 <<'SQL'
+          DO $check$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='products' AND column_name='return_policy')
+              OR EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_name='sale_items' AND column_name='return_policy_snapshot')
+              OR EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_name='sale_returns' AND column_name='return_basis')
+              OR EXISTS (SELECT 1 FROM permissions WHERE code='sale:return:override') THEN
+              RAISE EXCEPTION 'rollback 0049 left policy data definitions behind';
+            END IF;
+          END $check$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_policy?sslmode=disable" \
+            up 1
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_policy WITH (FORCE);"
+
       - name: Run tagged integration tests
         working-directory: backend
         env:

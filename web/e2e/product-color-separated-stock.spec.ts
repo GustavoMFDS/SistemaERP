@@ -37,6 +37,10 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
       )
       return reply({ items: result, total: result.length })
     }
+    // Preparing a sibling resolves its real parent through the products API.
+    if (pathname === '/api/v1/products/' + parentID && request.method() === 'GET') {
+      return reply(baseProduct)
+    }
     if (pathname === '/api/v1/products/' + parentID + '/variations' && request.method() === 'POST') {
       const requestBody = request.postDataJSON() as { option_label: string; product: Record<string, unknown> }
       expect(requestBody.option_label).toBe('Azul')

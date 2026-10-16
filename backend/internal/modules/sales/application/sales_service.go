@@ -174,11 +174,13 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 			}
 		}
 		computedItems = append(computedItems, sales.SaleItem{
-			ProductID:     it.ProductID,
-			Qty:           it.Qty,
-			UnitPrice:     p.EffectiveSalePrice(),
-			DiscountValue: it.DiscountValue,
-			CostUnit:      p.CostPrice,
+			ProductID:            it.ProductID,
+			Qty:                  it.Qty,
+			UnitPrice:            p.EffectiveSalePrice(),
+			DiscountValue:        it.DiscountValue,
+			CostUnit:             p.CostPrice,
+			ReturnPolicySnapshot: &p.ReturnPolicy,
+			ReturnDaysSnapshot:   p.ReturnDays,
 		})
 	}
 

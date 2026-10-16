@@ -9,6 +9,7 @@ import { useProductThumbnails } from '../lib/productThumbnails'
 import { clearPendingProductImport, fingerprintProducts, readPendingProductImport, savePendingProductImport, type PendingProductImport } from '../lib/productImportRecovery'
 import { parseProductCSV, PRODUCT_IMPORT_EXAMPLE, type ProductImportPreview } from '../lib/productImport'
 
+type ReturnPolicy = 'allowed' | 'denied' | 'within_days'
 type Product = {
   id: string
   sku: string
@@ -25,6 +26,8 @@ type Product = {
   min_stock: number
   active: boolean
   qty_on_hand: number
+  return_policy?: ReturnPolicy
+  return_days?: number | null
 }
 
 type ListResponse = { items: Product[]; total: number }
@@ -43,6 +46,8 @@ type ProductCreateRequest = {
   promo_price?: number | null
   min_stock: number
   active: boolean
+  return_policy?: ReturnPolicy
+  return_days?: number | null
 }
 
 export default function ProductsPage() {
@@ -59,6 +64,8 @@ export default function ProductsPage() {
   const [photoVersion, setPhotoVersion] = useState(0)
   const [items, setItems] = useState<Product[]>([])
   const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
+  const [returnPolicyDrafts, setReturnPolicyDrafts] = useState<Record<string, ReturnPolicy>>({})
+  const [returnDaysDrafts, setReturnDaysDrafts] = useState<Record<string, string>>({})
   const [ncmDrafts, setNcmDrafts] = useState<Record<string, string>>({})
   const [cestDrafts, setCestDrafts] = useState<Record<string, string>>({})
   const [total, setTotal] = useState(0)
@@ -82,6 +89,8 @@ export default function ProductsPage() {
   const [unit, setUnit] = useState('un')
   const [priceCash, setPriceCash] = useState<number>(0)
   const [minStock, setMinStock] = useState<number>(0)
+  const [returnPolicy, setReturnPolicy] = useState<ReturnPolicy>('allowed')
+  const [returnDays, setReturnDays] = useState(7)
 
   const lowStockItems = items.filter((p) => p.active && p.min_stock > 0 && p.qty_on_hand <= p.min_stock)
   const visibleItems = onlyLowStock ? lowStockItems : items
@@ -172,6 +181,36 @@ export default function ProductsPage() {
     }
   }
 
+  async function saveReturnPolicy(product: Product) {
+    if (!canWrite) return
+    const policy = returnPolicyDrafts[product.id] ?? product.return_policy ?? 'allowed'
+    const daysText = returnDaysDrafts[product.id] ?? String(product.return_days ?? 7)
+    const days = Number(daysText)
+    if (policy === 'within_days' && (!Number.isInteger(days) || days < 1 || days > 3650)) {
+      setError('Informe um prazo válido entre 1 e 3650 dias.')
+      return
+    }
+    setError('')
+    try {
+      const payload: ProductCreateRequest = {
+        category_id: product.category_id ?? null,
+        sku: product.sku, barcode: product.barcode ?? null,
+        ncm: product.ncm ?? null, cest: product.cest ?? null,
+        name: product.name, description: product.description ?? null, unit: product.unit,
+        cost_price: product.cost_price, price_cash: product.price_cash,
+        promo_price: product.promo_price ?? null, min_stock: product.min_stock,
+        active: product.active, return_policy: policy,
+        return_days: policy === 'within_days' ? days : null,
+      }
+      await apiJson('/api/v1/products/' + encodeURIComponent(product.id), { method: 'PUT', body: payload })
+      setReturnPolicyDrafts((prev) => { const next = { ...prev }; delete next[product.id]; return next })
+      setReturnDaysDrafts((prev) => { const next = { ...prev }; delete next[product.id]; return next })
+      await load()
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!canCreate) return
@@ -188,6 +227,8 @@ export default function ProductsPage() {
         price_cash: Number(priceCash),
         min_stock: Number(minStock) || 0,
         active: true,
+        return_policy: returnPolicy,
+        return_days: returnPolicy === 'within_days' ? returnDays : null,
       }
       const created = await apiJson<{ id: string }>(
         variationParentId ? '/api/v1/products/' + encodeURIComponent(variationParentId) + '/variations' : '/api/v1/products', {
@@ -202,6 +243,8 @@ export default function ProductsPage() {
       setName('')
       setPriceCash(0)
       setMinStock(0)
+      setReturnPolicy('allowed')
+      setReturnDays(7)
       setVariationSource('')
       setVariationParentId('')
       setVariationOptionLabel('')
@@ -235,7 +278,9 @@ export default function ProductsPage() {
       const resolved = family.items.find((item) => item.id === family.parent_id)
       if (!resolved) throw new Error('O produto-base não foi encontrado nesta loja.')
       parentId = family.parent_id
-      parent = { ...product, ...resolved }
+      // Always inherit from the actual parent, not from a selected sibling.
+      // Every variation stores its own policy after creation.
+      parent = await apiJson<Product>('/api/v1/products/' + encodeURIComponent(parentId))
     } catch (e: unknown) {
       if (scope === getSessionScope()) setError('Não foi possível consultar as opções do produto: ' + errorMessage(e))
       return
@@ -249,6 +294,8 @@ export default function ProductsPage() {
     setUnit(parent.unit)
     setPriceCash(parent.price_cash)
     setMinStock(parent.min_stock)
+    setReturnPolicy(parent.return_policy ?? 'allowed')
+    setReturnDays(parent.return_days ?? 7)
     setVariationSource(parent.name + ' — ' + option)
     setVariationParentId(parentId)
     setVariationOptionLabel(option)
@@ -490,6 +537,7 @@ export default function ProductsPage() {
               <th className="px-3 py-2">Em estoque</th>
               <th className="px-3 py-2">Mínimo</th>
               <th className="px-3 py-2">Ativo</th>
+              <th className="px-3 py-2">Devolução voluntária</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -584,14 +632,44 @@ export default function ProductsPage() {
                 </td>
                 <td className="px-3 py-2">{p.min_stock.toFixed(2)}</td>
                 <td className="px-3 py-2">{p.active ? 'Sim' : 'Não'}</td>
+                <td className="px-3 py-2">
+                  {canWrite ? (
+                    <div className="flex min-w-48 flex-col gap-2">
+                      <select
+                        aria-label={`Permitir devolução de ${p.name}`}
+                        className="rounded-md border px-2 py-1 text-xs"
+                        value={returnPolicyDrafts[p.id] ?? p.return_policy ?? 'allowed'}
+                        onChange={(e) => setReturnPolicyDrafts((prev) => ({ ...prev, [p.id]: e.target.value as ReturnPolicy }))}
+                      >
+                        <option value="allowed">Sim</option>
+                        <option value="denied">Não</option>
+                        <option value="within_days">Até X dias</option>
+                      </select>
+                      {(returnPolicyDrafts[p.id] ?? p.return_policy) === 'within_days' ? (
+                        <label className="text-xs text-slate-700">
+                          Dias após a compra
+                          <input type="number" min={1} max={3650} step={1}
+                            aria-label={`Prazo de devolução de ${p.name}`}
+                            value={returnDaysDrafts[p.id] ?? String(p.return_days ?? 7)}
+                            onChange={(e) => setReturnDaysDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                            className="mt-1 w-full rounded-md border px-2 py-1" />
+                        </label>
+                      ) : null}
+                      <button type="button" onClick={() => void saveReturnPolicy(p)}
+                        className="rounded-md border px-2 py-1 text-xs font-semibold">Salvar regra</button>
+                    </div>
+                  ) : (
+                    <span>{p.return_policy === 'denied' ? 'Não' : p.return_policy === 'within_days' ? `Até ${p.return_days} dias` : 'Sim'}</span>
+                  )}
+                </td>
               </tr>
               {familyProductId === p.id ? (
-                <tr><td colSpan={showTechnical ? 11 : 8} className="p-3">
+                <tr><td colSpan={showTechnical ? 12 : 9} className="p-3">
                   <ProductFamily productId={p.id} />
                 </td></tr>
               ) : null}
               {photoProductId === p.id ? (
-                <tr><td colSpan={showTechnical ? 11 : 8} className="p-3">
+                <tr><td colSpan={showTechnical ? 12 : 9} className="p-3">
                   <ProductPhotos productId={p.id} productName={p.name} canWrite={canWrite}
                     onChange={() => setPhotoVersion((value) => value + 1)} />
                 </td></tr>
@@ -599,7 +677,7 @@ export default function ProductsPage() {
               </Fragment>
             ))}
             {visibleItems.length === 0 ? (
-              <tr><td colSpan={showTechnical ? 11 : 8} className="px-3 py-6 text-center text-sm text-gray-500">
+              <tr><td colSpan={showTechnical ? 12 : 9} className="px-3 py-6 text-center text-sm text-gray-500">
                 {onlyLowStock ? 'Nenhum produto abaixo do mínimo entre os resultados carregados.' : 'Nenhum produto encontrado.'}
               </td></tr>
             ) : null}
@@ -735,6 +813,28 @@ export default function ProductsPage() {
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             />
           </label>
+
+          <fieldset className="rounded-xl border border-slate-200 p-4 md:col-span-8">
+            <legend className="text-sm font-semibold">Devolução voluntária do produto</legend>
+            <p className="mt-1 text-xs text-slate-600">Essa escolha não elimina direitos do consumidor previstos em lei.</p>
+            <label className="mt-3 block text-xs">
+              Permitir devolução?
+              <select className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={returnPolicy} onChange={(e) => setReturnPolicy(e.target.value as ReturnPolicy)}>
+                <option value="allowed">Sim</option>
+                <option value="denied">Não</option>
+                <option value="within_days">Somente até X dias</option>
+              </select>
+            </label>
+            {returnPolicy === 'within_days' ? (
+              <label className="mt-3 block text-xs">
+                Prazo em dias após a compra
+                <input className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                  type="number" min={1} max={3650} step={1} required
+                  value={returnDays} onChange={(e) => setReturnDays(Number(e.target.value))} />
+              </label>
+            ) : null}
+          </fieldset>
 
           <details className="rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-8">
             <summary className="cursor-pointer font-medium text-slate-700">Dados fiscais (se precisar emitir nota)</summary>

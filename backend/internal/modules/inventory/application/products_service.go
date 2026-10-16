@@ -24,19 +24,21 @@ type ProductsService struct {
 }
 
 type ProductCreateRequest struct {
-	CategoryID  *string           `json:"category_id"`
-	SKU         string            `json:"sku" validate:"required,min=1,max=64"`
-	Barcode     *string           `json:"barcode" validate:"omitempty,min=8,max=32"`
-	NCM         *string           `json:"ncm" validate:"omitempty,numeric,len=8"`
-	CEST        *string           `json:"cest" validate:"omitempty,numeric,len=7"`
-	Name        string            `json:"name" validate:"required,min=2,max=200"`
-	Description *string           `json:"description"`
-	Unit        string            `json:"unit" validate:"required,min=1,max=8"`
-	CostPrice   platform.Money    `json:"cost_price" validate:"min=0"`
-	PriceCash   platform.Money    `json:"price_cash" validate:"required,gt=0"`
-	PromoPrice  *platform.Money   `json:"promo_price" validate:"omitempty,gt=0"`
-	MinStock    platform.Quantity `json:"min_stock" validate:"min=0"`
-	Active      bool              `json:"active"`
+	CategoryID   *string           `json:"category_id"`
+	SKU          string            `json:"sku" validate:"required,min=1,max=64"`
+	Barcode      *string           `json:"barcode" validate:"omitempty,min=8,max=32"`
+	NCM          *string           `json:"ncm" validate:"omitempty,numeric,len=8"`
+	CEST         *string           `json:"cest" validate:"omitempty,numeric,len=7"`
+	Name         string            `json:"name" validate:"required,min=2,max=200"`
+	Description  *string           `json:"description"`
+	Unit         string            `json:"unit" validate:"required,min=1,max=8"`
+	CostPrice    platform.Money    `json:"cost_price" validate:"min=0"`
+	PriceCash    platform.Money    `json:"price_cash" validate:"required,gt=0"`
+	PromoPrice   *platform.Money   `json:"promo_price" validate:"omitempty,gt=0"`
+	MinStock     platform.Quantity `json:"min_stock" validate:"min=0"`
+	Active       bool              `json:"active"`
+	ReturnPolicy *string           `json:"return_policy,omitempty"`
+	ReturnDays   *int              `json:"return_days,omitempty"`
 }
 
 type ProductUpdateRequest = ProductCreateRequest
@@ -94,6 +96,30 @@ func normalizeProductRequest(req ProductCreateRequest) ProductCreateRequest {
 	return req
 }
 
+// ReturnPolicy is optional on older API clients: updates then preserve the
+// existing policy, and new products default to allowed (previous behaviour).
+func validateVoluntaryReturnPolicy(req ProductCreateRequest) error {
+	if req.ReturnPolicy == nil {
+		if req.ReturnDays != nil {
+			return common.ErrValidation
+		}
+		return nil
+	}
+	switch *req.ReturnPolicy {
+	case "allowed", "denied":
+		if req.ReturnDays != nil {
+			return common.ErrValidation
+		}
+	case "within_days":
+		if req.ReturnDays == nil || *req.ReturnDays < 1 || *req.ReturnDays > 3650 {
+			return common.ErrValidation
+		}
+	default:
+		return common.ErrValidation
+	}
+	return nil
+}
+
 func validateProductPricing(req ProductCreateRequest) error {
 	if req.PromoPrice != nil && *req.PromoPrice > req.PriceCash {
 		return common.ErrValidation
@@ -125,6 +151,9 @@ func (s *ProductsService) create(ctx context.Context, tenantID, actorUserID, par
 	if err := validateProductPricing(req); err != nil {
 		return "", err
 	}
+	if err := validateVoluntaryReturnPolicy(req); err != nil {
+		return "", err
+	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -144,6 +173,12 @@ func (s *ProductsService) create(ctx context.Context, tenantID, actorUserID, par
 		PromoPrice:  req.PromoPrice,
 		MinStock:    req.MinStock,
 		Active:      req.Active,
+		ReturnDays:  req.ReturnDays,
+	}
+	if req.ReturnPolicy == nil {
+		p.ReturnPolicy = "allowed"
+	} else {
+		p.ReturnPolicy = *req.ReturnPolicy
 	}
 	var id string
 	if parentID != "" {
@@ -197,6 +232,9 @@ func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id 
 	if err := validateProductPricing(req); err != nil {
 		return err
 	}
+	if err := validateVoluntaryReturnPolicy(req); err != nil {
+		return err
+	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
 		return err
@@ -216,6 +254,10 @@ func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id 
 		PromoPrice:  req.PromoPrice,
 		MinStock:    req.MinStock,
 		Active:      req.Active,
+		ReturnDays:  req.ReturnDays,
+	}
+	if req.ReturnPolicy != nil {
+		p.ReturnPolicy = *req.ReturnPolicy
 	}
 	if err := s.repo.Update(ctx, tx, tenantID, id, p, preserveCost); err != nil {
 		return err
