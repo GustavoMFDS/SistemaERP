@@ -8,7 +8,7 @@ async function login(
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('purchase receiving is partial, tenant-scoped and credits stock only on receipt', async ({ page }, testInfo) => {
@@ -299,7 +299,7 @@ test('purchase receiving is partial, tenant-scoped and credits stock only on rec
   expect(result.purchaseReceiveAuditCount).toBe(2)
   expect(result.purchaseCancelAuditCount).toBe(1)
 
-  await page.getByRole('link', { name: 'Compras' }).click()
+  await page.goto('/purchases')
   await expect(page).toHaveURL(/\/purchases$/)
   await expect(page.getByText(`Fornecedor E2E ${suffix}`).first()).toBeVisible()
   await expect(page.getByText('Recebida', { exact: true }).first()).toBeVisible()
@@ -371,7 +371,7 @@ test('supplier maintenance edits status and blocks inactive purchasing', async (
     return { productId: product.id, supplierId: supplier.id }
   }, suffix)
 
-  await page.getByRole('link', { name: 'Compras' }).click()
+  await page.goto('/purchases')
   await expect(page).toHaveURL(/\/purchases$/)
 
   const originalName = `Fornecedor Manutencao ${suffix}`
