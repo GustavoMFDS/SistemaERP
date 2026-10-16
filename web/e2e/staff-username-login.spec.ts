@@ -88,10 +88,28 @@ test('funcionário sem e-mail ativa seu acesso e entra por nome de usuário', as
   }, username)
   expect(disabled).toBeTruthy()
 
+  // Assert the security boundary at the API, regardless of a concurrent
+  // /auth/me request with a stale browser token during the navigation.
+  const rejected = await page.evaluate(async ({ username, password }) => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    try {
+      await apiJson('/api/v1/auth/login', {
+        method: 'POST', body: { email: username, password },
+      })
+      return { status: 200, message: '' }
+    } catch (error) {
+      if (error instanceof APIError) return { status: error.status, message: error.message }
+      throw error
+    }
+  }, { username, password })
+  expect(rejected.status).toBe(401)
+  expect(rejected.message).not.toMatch(/inativ|suspens|existe/i)
+
+  // User-facing login must also refuse the suspended membership.
   await page.goto('/login')
   await page.getByLabel('E-mail ou nome de usuário').fill(username)
   await page.getByLabel('Senha').fill(password)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/login$/)
-  await expect(page.getByRole('alert')).toContainText('Não foi possível entrar')
+  await expect(page.getByRole('heading', { name: 'Bem-vindo de volta' })).toBeVisible()
 })
