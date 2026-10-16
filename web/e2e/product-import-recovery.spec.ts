@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { expandDisclosure } from './expandDisclosure'
+import { captureBrowserFailures } from './pageErrors'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
@@ -76,6 +77,7 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
 })
 
 test('consulta do lote confirmado evita novo POST depois de queda de conexão', async ({ page }) => {
+  const failures = captureBrowserFailures(page)
   let posts = 0
   await page.route('**/api/v1/products/import-batches', (route) => {
     posts += 1
@@ -88,7 +90,11 @@ test('consulta do lote confirmado evita novo POST depois de queda de conexão', 
     }))
   page.on('dialog', (dialog) => void dialog.accept())
   await login(page, 'gerente@sistema.local')
-  await upload(page, sample)
+  try {
+    await upload(page, sample)
+  } catch (error) {
+    throw new Error('Importação de produtos indisponível; navegador=' + failures() + '; causa=' + String(error))
+  }
   await page.getByRole('button', { name: /Confirmar importação de 1 produto/ }).click()
   await expect(page.getByRole('region', { name: 'Importação de produtos pendente' })).toBeVisible()
   await page.reload()

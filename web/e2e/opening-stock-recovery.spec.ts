@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { expandDisclosure } from './expandDisclosure'
+import { captureBrowserFailures } from './pageErrors'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
@@ -81,6 +82,7 @@ test('resposta ambígua mantém chave; recarga só aceita CSV idêntico e replay
 })
 
 test('consulta de lote confirmado encerra recuperação sem novo POST', async ({ page }) => {
+  const failures = captureBrowserFailures(page)
   let writes = 0
   await page.route('**/api/v1/inventory/opening-stock', async (route) => {
     writes += 1
@@ -94,7 +96,13 @@ test('consulta de lote confirmado encerra recuperação sem novo POST', async ({
   page.on('dialog', (dialog) => void dialog.accept())
   await login(page, 'gerente@sistema.local')
   await page.getByRole('link', { name: 'Estoque', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Estoque da loja' })).toBeVisible()
+  try {
+    await expect(page.getByRole('heading', { name: 'Estoque da loja' })).toBeVisible()
+  } catch (error) {
+    const visible = (await page.locator('body').innerText().catch(() => '')).slice(0, 700)
+    throw new Error('Estoque não carregou: ' + page.url() + '; tela=' + JSON.stringify(visible) +
+      '; navegador=' + failures() + '; causa=' + String(error))
+  }
   await selectFile(page, sampleCSV)
   await page.getByLabel('Conferi os códigos e as quantidades').check()
   await page.getByRole('button', { name: /Confirmar estoque inicial de 1 produto/ }).click()
