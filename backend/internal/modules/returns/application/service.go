@@ -194,7 +194,9 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 		if requested.Qty <= 0 || requested.Qty > remainingQty {
 			return "", 0, false, common.ErrValidation
 		}
-		if req.Kind == ret.KindReturn && req.Basis == "voluntary" &&
+		// A voluntary exchange cannot bypass a denied voluntary return by
+		// generating a refund credit under a different operation name.
+		if req.Basis == "voluntary" &&
 			!voluntaryReturnAllowed(item.Policy, item.Days, sale.FinalizedAt, time.Now().UTC()) {
 			return "", 0, false, common.ErrConflict
 		}

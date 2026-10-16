@@ -157,10 +157,10 @@ export default function ReturnsPage() {
 
   async function submitReturn() {
     if (!detail || selected.length === 0 || reason.trim().length < 3 || saving) return
-    if (kind === 'return' && basis === 'voluntary' &&
+    if (basis === 'voluntary' &&
         detail.items.some((item) => (qtyByItem[item.id] ?? 0) > 0 &&
           !allowedByVoluntaryPolicy(item))) {
-      setError('A política voluntária da venda não permite um dos itens selecionados. Para casos previstos em lei, procure o responsável.')
+      setError('A política voluntária da venda não permite um dos itens selecionados. Para direitos legais, procure o responsável.')
       return
     }
     setSaving(true)
@@ -175,7 +175,7 @@ export default function ReturnsPage() {
           headers: { 'Idempotency-Key': returnKeyRef.current },
           body: {
             kind,
-            basis: kind === 'exchange' ? 'voluntary' : basis,
+            basis,
             reason: reason.trim(),
             items: selected,
           },
@@ -190,8 +190,8 @@ export default function ReturnsPage() {
       await loadReturns()
       await loadSale()
     } catch (e: unknown) {
-      if (e instanceof APIError && e.status === 409 && kind === 'return' && basis === 'voluntary') {
-        setError('Não foi possível registrar a devolução voluntária. O prazo ou outra condição da venda pode impedir a operação. Se houver direito legal, procure o responsável.')
+      if (e instanceof APIError && e.status === 409 && basis === 'voluntary') {
+        setError('Não foi possível registrar a devolução ou troca voluntária. O prazo ou outra condição da venda pode impedir a operação. Se houver direito legal, procure o responsável.')
       } else {
         setError(errorMessage(e))
       }
@@ -286,7 +286,7 @@ export default function ReturnsPage() {
                           type="number"
                           min="0"
                           aria-label={`Quantidade para devolver do item ${item.id}`}
-                          disabled={kind === 'return' && basis === 'voluntary' &&
+                          disabled={basis === 'voluntary' &&
                             !allowedByVoluntaryPolicy(item)}
                           max={Math.max(0, item.qty - (returnedByItem[item.id] ?? 0))}
                           step="0.001"
@@ -353,7 +353,7 @@ export default function ReturnsPage() {
               </label>
             </div>
 
-            {kind === 'return' ? (
+            {(
               <div className="mt-3 rounded-xl border border-slate-200 p-3">
                 <label className="block text-xs font-medium text-slate-700">
                   Motivo do atendimento
