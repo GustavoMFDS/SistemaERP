@@ -30,7 +30,7 @@ test('lost sale response reuses the original idempotency key', async ({ page }) 
 
   const idempotencyKeys: string[] = []
   let loseFirstResponse = true
-  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+  await page.route('**/api/v1/sales', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.continue()
       return
@@ -49,7 +49,8 @@ test('lost sale response reuses the original idempotency key', async ({ page }) 
 
   await page.getByRole('button', { name: 'Finalizar' }).click()
   await expect(page.getByText(/Venda registrada offline/)).toBeVisible()
-  await expect(page.getByText(/Pendências: 1/)).toBeVisible()
+  // Confirm the persisted offline intent before explicitly replaying it.
+  await expect(page.getByText(/1 venda\(s\) aguardando sincronização/)).toBeVisible()
 
   const flush = await page.evaluate(async () => {
     const { flushQueue } = await import('/src/lib/offlineQueue.ts')
@@ -117,7 +118,7 @@ test('offline browser state is isolated by tenant and user', async ({ page }) =>
 test('permanent queue conflict does not block later sales and expired items are preserved', async ({ page }) => {
   await page.goto('/login')
 
-  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+  await page.route('**/api/v1/sales', async (route) => {
     const body = route.request().postDataJSON() as { cash_session_id?: string }
     if (body.cash_session_id === 'cash-conflict') {
       await route.fulfill({
