@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('navegação clara em Início, Produtos, Estoque e Configurar loja', async ({ page }) => {
   const errors:string[] = []

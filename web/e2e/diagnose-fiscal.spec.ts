@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 test('fiscal page rendering diagnostic',async({page})=>{
  const errors:string[]=[];
  page.on('pageerror',error=>errors.push(error.stack||error.message));

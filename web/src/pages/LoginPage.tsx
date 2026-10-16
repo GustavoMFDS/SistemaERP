@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 import { setToken } from '../lib/auth'
+import { resetFiscalReminderForLogin } from '../lib/fiscalReminderSession'
 
 type LoginResponse = {
   token: { access_token: string; token_type: string; expires_in: number }
@@ -26,6 +27,7 @@ export default function LoginPage() {
         body: { email, password },
       })
       setToken(data.token.access_token)
+      resetFiscalReminderForLogin()
       navigate('/home', { replace: true })
     } catch (e: unknown) {
       setError(errorMessage(e))
