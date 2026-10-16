@@ -15,7 +15,7 @@ retention="${BACKUP_RETENTION_DAYS:-14}"
 [[ "$retention" =~ ^[0-9]+$ ]] && (( retention >= 7 && retention <= 3650 )) || {
   echo "BACKUP_RETENTION_DAYS must be 7..3650" >&2; exit 2;
 }
-for name in pg_dump pg_restore sha256sum date find mktemp flock; do
+for name in pg_dump pg_restore psql sha256sum date find mktemp flock mv chmod mkdir rm; do
   command -v "$name" >/dev/null || { echo "missing $name" >&2; exit 2; }
 done
 mkdir -p -- "$BACKUP_DIR"
@@ -48,9 +48,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Prevent false "success" on dirty/unknown migration states.
-schema="$(psql -v ON_ERROR_STOP=1 -At -F '|' -c 'SELECT version, dirty FROM schema_migrations LIMIT 1')"
-[[ "$schema" =~ ^[0-9]+\|f$ ]] || { echo "dirty or missing schema" >&2; exit 1; }
+# Some local/manual migrations may not create schema_migrations. A backup
+# must remain possible, but the absence of a migration ledger is explicit.
+critical="$(psql -v ON_ERROR_STOP=1 -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('companies','products','sales','sale_items','inventory_balances','invoices','audit_logs')")"
+[ "$critical" = 7 ] || { echo "critical ERP tables missing: $critical/7" >&2; exit 1; }
+ledger="$(psql -v ON_ERROR_STOP=1 -At -c "SELECT to_regclass('public.schema_migrations') IS NOT NULL")"
+if [ "$ledger" = t ]; then
+  schema="$(psql -v ON_ERROR_STOP=1 -At -F '|' -c 'SELECT version, dirty FROM schema_migrations LIMIT 1')"
+  [[ "$schema" =~ ^[0-9]+\\|f$ ]] || { echo "dirty or missing migration ledger" >&2; exit 1; }
+else
+  echo "WARNING: no migration ledger; independent restore and schema verification are mandatory" >&2
+fi
 
 pg_dump --format=custom --compress=6 --no-owner --no-privileges --file="$tmp"
 test -s "$tmp"
