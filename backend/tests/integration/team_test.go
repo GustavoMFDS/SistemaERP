@@ -132,8 +132,17 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 		t.Fatalf("same token must never activate twice: %v", err)
 	}
 	members, invites, err := svc.List(ctx, tenantA)
-	if err != nil || len(invites) != 0 || len(members) != 2 {
-		t.Fatalf("activated membership/consumed invite invalid: %+v %+v err=%v", members, invites, err)
+	if err != nil || len(invites) != 1 || invites[0].ID != expired.ID || len(members) != 2 {
+		t.Fatalf("activated membership / expired invite visibility invalid: %+v %+v err=%v", members, invites, err)
+	}
+	// An expired invitation stays visible so the original store admin can
+	// explicitly revoke and release its globally reserved username.
+	if err := svc.Revoke(ctx, tenantA, ownerID, expired.ID, "", "", ""); err != nil {
+		t.Fatalf("expired invite must be revocable: %v", err)
+	}
+	_, invites, err = svc.List(ctx, tenantA)
+	if err != nil || len(invites) != 0 {
+		t.Fatalf("revoked expired invite still visible: %+v err=%v", invites, err)
 	}
 	for _, member := range members {
 		if member.Email == email {
