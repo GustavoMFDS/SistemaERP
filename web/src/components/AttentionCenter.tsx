@@ -5,12 +5,14 @@ import { apiJson, errorMessage } from '../lib/api'
 type Fiscal = { total: number }
 type Finance = { summary?: { overdue_open: number } }
 type Stock = { total: number }
+type Backup = { configured: boolean; state: string; last_run_utc?: string; archive_verified?: boolean }
 type Alert = { title: string; detail: string; to: string; severity: 'warning' | 'info' }
 
 export default function AttentionCenter({ permissions }: { permissions: string[] }) {
   const canFiscal = permissions.includes('invoice:read')
   const canFinance = permissions.includes('finance:read')
   const canStock = permissions.includes('inventory:read')
+  const canBackup = permissions.includes('audit:read')
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -33,6 +35,13 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
       d.total > 0 ? { title: d.total + ' produto(s) em reposição',
         detail: 'Estoque atual menor ou igual ao mínimo definido.',
         to: '/inventory', severity: 'info' as const } : null))
+    if (canBackup) checks.push(apiJson<Backup>('/api/v1/audit/backup-status').then((d) => {
+      if (d.configured && d.state === 'ok') return null
+      return { title: d.configured ? 'Verificar backup: ' + d.state : 'Backup automático sem monitoramento',
+        detail: d.configured ? 'O último backup não está comprovadamente recente e válido. Confira o agendamento e execute ensaio de restauração.' :
+          'Configure a rotina de backup no servidor e conecte o arquivo de status. Sem esse controle não podemos garantir recuperação.',
+        to: '/home', severity: 'warning' as const }
+    }))
     const result = await Promise.allSettled(checks)
     const items = result.flatMap((r) => r.status === 'fulfilled' && r.value ? [r.value] : [])
     const failures = result.filter((r) => r.status === 'rejected')
@@ -44,11 +53,11 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
   }
 
   useEffect(() => {
-    if (!canFiscal && !canFinance && !canStock) return
+    if (!canFiscal && !canFinance && !canStock && !canBackup) return
     void refresh()
-  }, [canFiscal, canFinance, canStock])
+  }, [canFiscal, canFinance, canStock, canBackup])
 
-  if (!canFiscal && !canFinance && !canStock) return null
+  if (!canFiscal && !canFinance && !canStock && !canBackup) return null
   return (
     <section aria-label="Central de atenção" className="rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -72,7 +81,7 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
         ))}
       </div>}
       <p className="mt-3 text-xs text-slate-500">
-        Backup: ainda sem monitor de execução integrado ao ERP. A ausência de alerta não comprova existência de cópia recuperável.
+        Backup: o estado do agendamento é consultado apenas para administradores autorizados; status OK comprova arquivo verificado, não um ensaio de restauração ou cópia fora do local.
         Vendas offline do navegador devem ser conferidas no PDV do próprio dispositivo.
       </p>
     </section>
