@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/example/sistemaemgo/internal/modules/team"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
@@ -229,6 +231,10 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 	if err != nil || !has {
 		t.Fatalf("reactivated membership not authorized: %v %v", has, err)
 	}
+	// The password-recovery flow must be verified against real PostgreSQL
+	// constraints and the employee's scoped membership, not a mock.
+	testStaffPasswordRecovery(t, ctx, db, svc, ownerID, staffID, tenantA, tenantB)
+
 	// Stored invite token is a hash, not the recoverable token itself.
 	raw, _ := hex.DecodeString(token)
 	digest := sha256.Sum256(raw)
@@ -240,5 +246,147 @@ func TestStaffInviteActivationRBACAndTenantRevocation(t *testing.T) {
 	}
 	if hex.EncodeToString(stored) != hex.EncodeToString(digest[:]) {
 		t.Fatal("invitation does not store the hash of token")
+	}
+}
+
+func testStaffPasswordRecovery(
+	t *testing.T, ctx context.Context, db *pgxpool.Pool, svc *team.Service,
+	ownerID, staffID, tenantA, tenantB string,
+) {
+	t.Helper()
+	strongPassword := "NovaSenhaFuncionario2026!"
+	invalidPassword := "SenhaMuitoCurta"
+	if _, _, err := svc.IssuePasswordReset(ctx, tenantB, ownerID, staffID, "", "", ""); !errors.Is(err, common.ErrNotFound) {
+		t.Fatalf("other company issued password reset: %v", err)
+	}
+	if _, _, err := svc.IssuePasswordReset(ctx, tenantA, staffID, staffID, "", "", ""); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("employee attempted self-service recovery: %v", err)
+	}
+	if _, _, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, ownerID, "", "", ""); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("admin must not reset own password using team flow: %v", err)
+	}
+	first, firstToken, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", "")
+	if err != nil || len(firstToken) != 64 {
+		t.Fatalf("issue recovery link failed: %+v err=%v", first, err)
+	}
+	var stored []byte
+	if err := db.QueryRow(ctx, `SELECT token_hash FROM staff_password_resets WHERE id=$1`, first.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := hex.DecodeString(firstToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(raw)
+	if !bytes.Equal(stored, digest[:]) {
+		t.Fatal("password reset persisted a token other than its SHA-256 digest")
+	}
+	second, secondToken, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", "")
+	if err != nil {
+		t.Fatalf("reissue password reset failed: %v", err)
+	}
+	if err := svc.CompletePasswordReset(ctx, firstToken, strongPassword, "", "", ""); !errors.Is(err, team.ErrPasswordResetUnavailable) {
+		t.Fatalf("superseded token accepted: %v", err)
+	}
+	if err := svc.RevokePasswordReset(ctx, tenantB, ownerID, second.ID, "", "", ""); !errors.Is(err, common.ErrNotFound) {
+		t.Fatalf("cross-tenant reset revocation succeeded: %v", err)
+	}
+	if err := svc.RevokePasswordReset(ctx, tenantA, staffID, second.ID, "", "", ""); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("non-admin revoked reset: %v", err)
+	}
+	if err := svc.RevokePasswordReset(ctx, tenantA, ownerID, second.ID, "", "", ""); err != nil {
+		t.Fatalf("admin could not revoke reset: %v", err)
+	}
+	if err := svc.CompletePasswordReset(ctx, secondToken, strongPassword, "", "", ""); !errors.Is(err, team.ErrPasswordResetUnavailable) {
+		t.Fatalf("revoked token accepted: %v", err)
+	}
+	expired, expiredToken, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		UPDATE staff_password_resets
+		SET created_at=now()-interval '3 hours', expires_at=now()-interval '2 hours'
+		WHERE id=$1
+	`, expired.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CompletePasswordReset(ctx, expiredToken, strongPassword, "", "", ""); !errors.Is(err, team.ErrPasswordResetUnavailable) {
+		t.Fatalf("expired password reset accepted: %v", err)
+	}
+	link, token, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CompletePasswordReset(ctx, token, invalidPassword, "", "", ""); !errors.Is(err, common.ErrValidation) {
+		t.Fatalf("short password accepted: %v", err)
+	}
+	var beforeVersion int64
+	if err := db.QueryRow(ctx, `SELECT auth_version FROM users WHERE id=$1`, staffID).Scan(&beforeVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CompletePasswordReset(ctx, token, strongPassword, "", "", ""); err != nil {
+		t.Fatalf("valid password reset failed: %v", err)
+	}
+	if err := svc.CompletePasswordReset(ctx, token, strongPassword, "", "", ""); !errors.Is(err, team.ErrPasswordResetUnavailable) {
+		t.Fatalf("reused token accepted: %v", err)
+	}
+	var actualVersion int64
+	var passwordHash string
+	if err := db.QueryRow(ctx,
+		`SELECT auth_version,password_hash FROM users WHERE id=$1`, staffID).
+		Scan(&actualVersion, &passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if actualVersion != beforeVersion+1 || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(strongPassword)) != nil {
+		t.Fatalf("password or auth_version not updated atomically: %d => %d", beforeVersion, actualVersion)
+	}
+	if err := svc.RevokePasswordReset(ctx, tenantA, ownerID, link.ID, "", "", ""); !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("consumed link was revoked as if pending: %v", err)
+	}
+	// A suspended membership remains suspended after password recovery.
+	inactive := false
+	if err := svc.UpdateMember(ctx, tenantA, ownerID, staffID, "", &inactive, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, suspendedToken, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CompletePasswordReset(ctx, suspendedToken, strongPassword, "", "", ""); err != nil {
+		t.Fatalf("suspended employee should be able to set password with admin approval: %v", err)
+	}
+	var stillSuspended bool
+	if err := db.QueryRow(ctx,
+		`SELECT active FROM user_tenants WHERE user_id=$1 AND tenant_id=$2`, staffID, tenantA).Scan(&stillSuspended); err != nil {
+		t.Fatal(err)
+	}
+	if stillSuspended {
+		t.Fatal("password recovery reactivated a suspended employee")
+	}
+	active := true
+	if err := svc.UpdateMember(ctx, tenantA, ownerID, staffID, "", &active, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	// A link issued before an administrative privilege upgrade cannot reset
+	// the upgraded account.
+	_, toAdminToken, err := svc.IssuePasswordReset(ctx, tenantA, ownerID, staffID, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO user_tenant_roles(user_id,tenant_id,role_id)
+		SELECT $1,$2,id FROM roles WHERE name='admin'
+	`, staffID, tenantA); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CompletePasswordReset(ctx, toAdminToken, strongPassword, "", "", ""); !errors.Is(err, team.ErrPasswordResetUnavailable) {
+		t.Fatalf("link allowed password reset after admin promotion: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		DELETE FROM user_tenant_roles WHERE user_id=$1 AND tenant_id=$2
+		  AND role_id IN (SELECT id FROM roles WHERE name='admin')
+	`, staffID, tenantA); err != nil {
+		t.Fatal(err)
 	}
 }
