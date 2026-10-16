@@ -58,6 +58,20 @@ test('devolução aplica a regra registrada na venda, mesmo depois de editar o p
         if (e instanceof APIError) voluntaryStatus = e.status
         else throw e
       }
+      // A voluntary exchange must not bypass a denied return and create credit.
+      let voluntaryExchangeStatus = 0
+      try {
+        await apiJson('/api/v1/sales/' + sale.id + '/returns', {
+          method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+          body: { kind: 'exchange', basis: 'voluntary',
+            reason: 'Troca voluntaria fora da politica',
+            items: [{ sale_item_id: item.id, qty: 1, restock: false }] },
+        })
+        voluntaryExchangeStatus = 200
+      } catch (e) {
+        if (e instanceof APIError) voluntaryExchangeStatus = e.status
+        else throw e
+      }
       const protectedReturn = await apiJson<{ id: string; refund_due: number }>(
         '/api/v1/sales/' + sale.id + '/returns',
         { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
@@ -70,7 +84,8 @@ test('devolução aplica a regra registrada na venda, mesmo depois de editar o p
         '/api/v1/returns/' + protectedReturn.id)
       return {
         snapshot: item.return_policy_snapshot,
-        voluntaryStatus, protectedBasis: history.return.return_basis,
+        voluntaryStatus, voluntaryExchangeStatus, saleId: sale.id, saleItemId: item.id,
+        protectedBasis: history.return.return_basis,
         refunded: protectedReturn.refund_due, saleHasTimestamp: !!saleInfo.sale.finalized_at,
       }
     } finally {
@@ -87,6 +102,75 @@ test('devolução aplica a regra registrada na venda, mesmo depois de editar o p
   expect(result.snapshot).toBe('denied')
   expect(result.saleHasTimestamp).toBe(true)
   expect(result.voluntaryStatus).toBe(409)
+  expect(result.voluntaryExchangeStatus).toBe(409)
   expect(result.protectedBasis).toBe('consumer_rights')
   expect(result.refunded).toBe(12)
+})
+
+test('gerente não pode declarar direito legal sem permissão especial', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('gerente@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/home$/)
+  const result = await page.evaluate(async () => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    const me = await apiJson<{ permissions: string[] }>('/api/v1/auth/me')
+    let status = 0
+    try {
+      await apiJson('/api/v1/sales/00000000-0000-0000-0000-000000000000/returns', {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: { kind: 'return', basis: 'consumer_rights',
+          reason: 'Tentativa sem autorizacao',
+          items: [{ sale_item_id: '00000000-0000-0000-0000-000000000001', qty: 1, restock: false }] },
+      })
+      status = 200
+    } catch (e) {
+      if (e instanceof APIError) status = e.status
+      else throw e
+    }
+    return { status, managerCanReturn: me.permissions.includes('sale:return'),
+      hasOverride: me.permissions.includes('sale:return:override') }
+  })
+  expect(result.managerCanReturn).toBe(true)
+  expect(result.hasOverride).toBe(false)
+  expect(result.status).toBe(403)
+})
+
+test('administrador de outro CNPJ não pode consultar uma venda da loja principal', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/home$/)
+  const saleId = await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    const sales = await apiJson<{ items: Array<{ id: string }> }>('/api/v1/sales?limit=1&offset=0')
+    return sales.items[0]?.id
+  })
+  expect(saleId).toBeTruthy()
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin-b@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/home$/)
+  const result = await page.evaluate(async (saleId) => {
+    const { APIError, apiJson } = await import('/src/lib/api.ts')
+    const getStatus = async (url: string, options?: Record<string, unknown>) => {
+      try { await apiJson(url, options); return 200 }
+      catch (e) { if (e instanceof APIError) return e.status; throw e }
+    }
+    return {
+      detail: await getStatus('/api/v1/sales/' + saleId),
+      returnAttempt: await getStatus('/api/v1/sales/' + saleId + '/returns', {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: { kind: 'return', basis: 'consumer_rights',
+          reason: 'Tentativa fora da empresa', items: [
+            { sale_item_id: '00000000-0000-0000-0000-000000000001', qty: 1, restock: false },
+          ] },
+      }),
+    }
+  }, saleId)
+  expect(result.detail).toBe(404)
+  expect(result.returnAttempt).toBe(404)
 })
