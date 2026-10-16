@@ -131,3 +131,12 @@ test('operador de caixa não pode consultar nem enviar lote de produtos', async 
   })
   expect(statuses).toEqual({ get: 403, post: 403 })
 })
+
+test('resposta incompleta do histórico não derruba a tela Produtos', async ({ page }) => {
+  await page.route('**/api/v1/products/import-batches/history?*', (route) =>
+    route.fulfill({ status: 200, json: { batch_id: 'resposta-incompleta' } }))
+  await login(page, 'gerente@sistema.local')
+  await expandDisclosure(page, 'Importar uma planilha de produtos')
+  await expect(page.getByRole('alert').filter({ hasText: 'O servidor devolveu dados incompletos' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
+})

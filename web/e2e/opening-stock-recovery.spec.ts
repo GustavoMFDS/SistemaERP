@@ -131,3 +131,13 @@ test('caixa não tem permissão para consultar lotes de estoque inicial', async 
   })
   expect(status).toBe(403)
 })
+
+test('resposta incompleta do histórico não derruba a tela Estoque', async ({ page }) => {
+  await page.route('**/api/v1/inventory/opening-stock/batches/history?*', (route) =>
+    route.fulfill({ status: 200, json: { batch_id: 'resposta-incompleta' } }))
+  await login(page, 'gerente@sistema.local')
+  await page.getByRole('link', { name: 'Estoque', exact: true }).click()
+  await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
+  await expect(page.getByRole('alert').filter({ hasText: 'O servidor devolveu dados incompletos' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Estoque da loja' })).toBeVisible()
+})
