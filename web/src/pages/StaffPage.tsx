@@ -19,7 +19,8 @@ type Invitation = {
   role: string
   expires_at: string
 }
-type TeamResponse = { members: Member[]; invitations: Invitation[] }
+type PendingReset = { id: string; employee_name: string; username: string; expires_at: string }
+type TeamResponse = { members: Member[]; invitations: Invitation[]; password_resets: PendingReset[] }
 type InviteResponse = { invitation: Invitation; token: string }
 
 const roleName = (role: string) =>
@@ -30,6 +31,7 @@ export default function StaffPage() {
   const [currentUser, setCurrentUser] = useState('')
   const [members, setMembers] = useState<Member[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
+  const [pendingResets, setPendingResets] = useState<PendingReset[]>([])
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
@@ -56,6 +58,7 @@ export default function StaffPage() {
     setResetLinkId('')
     setMembers([])
     setInvitations([])
+    setPendingResets([])
     void apiJson<{ id: string; permissions: string[] }>('/api/v1/auth/me')
       .then((data) => {
         if (!active || seqID !== seq.current || currentScope !== getSessionScope()) return
@@ -78,10 +81,12 @@ export default function StaffPage() {
       if (session !== getSessionScope()) return
       setMembers(data.members ?? [])
       setInvitations(data.invitations ?? [])
+      setPendingResets(data.password_resets ?? [])
     } catch (cause: unknown) {
       if (session !== getSessionScope()) return
       setMembers([])
       setInvitations([])
+      setPendingResets([])
       setError(errorMessage(cause))
     } finally {
       if (session === getSessionScope()) setLoading(false)
@@ -139,6 +144,7 @@ export default function StaffPage() {
       setResetLink(window.location.origin + '/reset-password#token=' + response.token)
       setResetLinkId(response.reset.id)
       setMessage('Link temporário criado. Entregue pessoalmente ao funcionário. Validade: 30 minutos.')
+      await reload()
     } catch (cause: unknown) {
       if (session === getSessionScope()) setError(errorMessage(cause))
     } finally {
@@ -146,17 +152,20 @@ export default function StaffPage() {
     }
   }
 
-  async function revokeResetLink() {
-    if (!resetLinkId || !canManage || working) return
+  async function revokeResetLink(id = resetLinkId) {
+    if (!id || !canManage || working) return
     setWorking(true)
     setError('')
     const scopeAtStart = getSessionScope()
     try {
-      await apiJson('/api/v1/staff/password-resets/' + resetLinkId, { method: 'DELETE' })
+      await apiJson('/api/v1/staff/password-resets/' + id, { method: 'DELETE' })
       if (scopeAtStart !== getSessionScope()) return
-      setResetLink('')
-      setResetLinkId('')
+      if (id === resetLinkId) {
+        setResetLink('')
+        setResetLinkId('')
+      }
       setMessage('Link de recuperação cancelado. A senha anterior continua válida.')
+      await reload()
     } catch (cause: unknown) {
       if (scopeAtStart === getSessionScope()) setError(errorMessage(cause))
     } finally {
@@ -295,6 +304,31 @@ export default function StaffPage() {
                 Cancelar link
               </button>
             </section>
+          ) : null}
+          {pendingResets.length > 0 ? (
+            <details className="mt-4 rounded-xl border border-slate-200 p-4" aria-label="Recuperações pendentes">
+              <summary className="cursor-pointer text-sm font-semibold">
+                Links de recuperação pendentes ({pendingResets.length})
+              </summary>
+              <p className="mt-2 text-xs text-slate-600">
+                Links vencidos também podem ser cancelados. O conteúdo secreto não pode ser recuperado ou mostrado novamente.
+              </p>
+              <div className="mt-3 space-y-2">
+                {pendingResets.map((reset) => (
+                  <div key={reset.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2">
+                    <div className="text-xs">
+                      <strong>{reset.employee_name}</strong> {reset.username ? `(${reset.username})` : ''}
+                      <span className="block text-slate-600">Validade: {new Date(reset.expires_at).toLocaleString('pt-BR')}</span>
+                    </div>
+                    <button type="button" disabled={working}
+                      onClick={() => void revokeResetLink(reset.id)}
+                      className="rounded-md border px-2 py-1 text-xs disabled:opacity-50">
+                      Cancelar link
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </details>
           ) : null}
           <details className="mt-6 rounded-2xl border border-slate-200 p-5" aria-label="Adicionar novo acesso">
             <summary className="cursor-pointer font-semibold">Adicionar outro funcionário</summary>
