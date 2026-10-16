@@ -55,14 +55,17 @@ export default function Layout() {
     { to: '/imports', label: 'Histórico de importações', section: 'Produtos e estoque', permission: 'imports:history' },
     { to: '/purchases', label: 'Compras', section: 'Produtos e estoque', permission: 'procurement:read' },
     { to: '/finance', label: 'Financeiro', section: 'Administração', permission: 'finance:read' },
+    { to: '/reports', label: 'Relatórios', section: 'Administração', permission: 'finance:read' },
     { to: '/staff', label: 'Funcionários', section: 'Administração', permission: 'team:manage' },
-    { to: '/fiscal', label: 'Fiscal (XML)', section: 'Administração', permission: 'invoice:read' },
+    { to: '/fiscal', label: 'Fiscal', section: 'Administração', permission: 'invoice:read' },
     { to: '/setup', label: 'Configurar loja', section: 'Administração', permission: null },
   ].filter((item) => item.permission === null ||
     (item.permission === 'imports:history'
       ? permissionSet.has('product:write') || permissionSet.has('inventory:adjust')
       : permissionSet.has(item.permission)))
-  const navSections = ['Principal', 'Vendas e clientes', 'Produtos e estoque', 'Administração']
+  const mainPaths = new Set(['/home', '/pdv', '/products', '/inventory'])
+  const mainLinks = nav.filter((item) => mainPaths.has(item.to))
+  const extraLinks = nav.filter((item) => !mainPaths.has(item.to))
 
   async function logout() {
     if (loggingOut) return
@@ -134,10 +137,8 @@ export default function Layout() {
               </div>
             </details>
             <div className="hidden text-xs text-gray-600 sm:block">
-              {me?.email ? (
-                <span>
-                  {me.name} - {me.email}
-                </span>
+              {me ? (
+                <span>{me.name}{me.email ? ' · ' + me.email : ''}</span>
               ) : meError ? (
                 <span className="text-red-600">Falha ao carregar usuario</span>
               ) : (
@@ -165,39 +166,40 @@ export default function Layout() {
         'mx-auto grid max-w-[1680px] grid-cols-1 items-start gap-5 px-4 py-5 lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-6 lg:px-6',
       )}>
         <aside className="min-w-0 lg:sticky lg:top-5">
-          <nav aria-label="Navegação principal"
-            className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm lg:block lg:space-y-4 lg:overflow-visible lg:p-3">
-            {navSections.map((section) => {
-              const links = nav.filter((item) => item.section === section)
-              if (!links.length) return null
-              return (
-                <div key={section} className="flex shrink-0 gap-1 lg:block">
-                  <p className="hidden px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-500 lg:block">
-                    {section}
-                  </p>
-                  {links.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={({ isActive }) =>
-                        classNames(
-                          'block shrink-0 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 lg:my-0.5',
-                          isActive
-                            ? 'bg-slate-900 font-semibold text-white'
-                            : 'text-slate-700 hover:bg-slate-100',
-                        )
-                      }
+          <nav aria-label="Navegação principal" className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <p className="px-2 pb-2 text-xs font-bold text-slate-500">Acessos principais</p>
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-1">
+              {mainLinks.map((item) => (
+                <NavLink key={item.to} to={item.to}
+                  className={({ isActive }) => classNames(
+                    'block rounded-lg px-3 py-2.5 text-center text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 lg:text-left',
+                    isActive ? 'bg-slate-900 font-semibold text-white' : 'text-slate-700 hover:bg-slate-100',
+                  )}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+            {extraLinks.length > 0 ? (
+              <details key={location.pathname} open={extraLinks.some((item) => item.to === location.pathname)} className="mt-3 border-t border-slate-200 pt-3">
+                <summary className="cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-700">
+                  Mais áreas do sistema
+                </summary>
+                <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
+                  {extraLinks.map((item) => (
+                    <NavLink key={item.to} to={item.to}
+                      className={({ isActive }) => classNames(
+                        'block rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700',
+                        isActive ? 'bg-slate-900 font-semibold text-white' : 'text-slate-700 hover:bg-slate-100',
+                      )}
                     >
                       {item.label}
                     </NavLink>
                   ))}
                 </div>
-              )
-            })}
+              </details>
+            ) : null}
           </nav>
-          <p className="mt-2 px-2 text-xs text-slate-500 lg:hidden">
-            Deslize o menu para ver mais áreas do sistema.
-          </p>
         </aside>
         <main className="min-w-0">
           <div className={isPDV
