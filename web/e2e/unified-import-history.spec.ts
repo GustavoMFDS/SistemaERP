@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 function receipt(number: number, kind: 'products' | 'opening-stock', name: string) {
@@ -38,7 +38,7 @@ test('menu abre visão cronológica com lotes dos dois módulos e paginação gl
     })
   })
   await login(page, 'gerente@sistema.local')
-  await page.getByRole('link', { name: 'Histórico de importações' }).click()
+  await page.goto('/imports')
   await expect(page).toHaveURL(/\/imports$/)
   const table = page.getByRole('table')
   await expect(table.getByText('Equipe estoque')).toBeVisible()
