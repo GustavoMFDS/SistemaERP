@@ -26,6 +26,7 @@ type Member struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Email  string `json:"email"`
+	Username string `json:"username"`
 	Role   string `json:"role"`
 	Active bool   `json:"active"`
 }
@@ -34,6 +35,7 @@ type Invitation struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Email     string    `json:"email"`
+	Username  string    `json:"username"`
 	Role      string    `json:"role"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
@@ -51,9 +53,37 @@ func permittedRole(role string) bool {
 	return role == "manager" || role == "cashier"
 }
 
-func validNewInvite(name, email, role string) bool {
-	if !permittedRole(role) || utf8.RuneCountInString(name) < 2 || utf8.RuneCountInString(name) > 120 ||
-		len(email) > 254 || len(email) < 5 || strings.ContainsAny(name, "\r\n") {
+// Usernames are global identifiers, never arbitrary names scoped to a CNPJ.
+// This deliberately excludes @, unicode lookalikes and ambiguous whitespace.
+func validStaffUsername(v string) bool {
+	if len(v) < 3 || len(v) > 32 || v[0] < 'a' || v[0] > 'z' {
+		return false
+	}
+	for _, c := range v {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == '.' || c == '_' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validNewInvite(name, email, role string, usernames ...string) bool {
+	username := ""
+	if len(usernames) > 0 {
+		username = usernames[0]
+	}
+	if !permittedRole(role) || utf8.RuneCountInString(name) < 2 ||
+		utf8.RuneCountInString(name) > 120 || strings.ContainsAny(name, "\r\n") ||
+		len(email) > 254 || (email == "" && username == "") ||
+		(username != "" && !validStaffUsername(username)) {
+		return false
+	}
+	if email == "" {
+		return true
+	}
+	if len(email) < 5 {
 		return false
 	}
 	addr, err := mail.ParseAddress(email)
@@ -101,7 +131,7 @@ func lockAdminTenant(ctx context.Context, tx pgx.Tx, tenantID, actorID string) e
 
 func (s *Service) List(ctx context.Context, tenantID string) ([]Member, []Invitation, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT u.id::text, u.name, u.email::text, ut.active,
+		SELECT u.id::text, u.name, COALESCE(u.email::text,''), COALESCE(u.username::text,''), ut.active,
 			COALESCE((
 				SELECT r.name FROM user_tenant_roles tr
 				JOIN roles r ON r.id=tr.role_id
@@ -120,7 +150,7 @@ func (s *Service) List(ctx context.Context, tenantID string) ([]Member, []Invita
 	members := make([]Member, 0)
 	for rows.Next() {
 		var member Member
-		if err := rows.Scan(&member.ID, &member.Name, &member.Email, &member.Active, &member.Role); err != nil {
+		if err := rows.Scan(&member.ID, &member.Name, &member.Email, &member.Username, &member.Active, &member.Role); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -133,7 +163,7 @@ func (s *Service) List(ctx context.Context, tenantID string) ([]Member, []Invita
 	rows.Close()
 
 	pending, err := s.db.Query(ctx, `
-		SELECT id::text, name, email::text, role_name, expires_at
+		SELECT id::text, name, COALESCE(email::text,''), COALESCE(username::text,''), role_name, expires_at
 		FROM staff_invitations
 		WHERE tenant_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL
 		  AND expires_at > now()
@@ -147,7 +177,7 @@ func (s *Service) List(ctx context.Context, tenantID string) ([]Member, []Invita
 	invitations := make([]Invitation, 0)
 	for pending.Next() {
 		var item Invitation
-		if err := pending.Scan(&item.ID, &item.Name, &item.Email, &item.Role, &item.ExpiresAt); err != nil {
+		if err := pending.Scan(&item.ID, &item.Name, &item.Email, &item.Username, &item.Role, &item.ExpiresAt); err != nil {
 			return nil, nil, err
 		}
 		invitations = append(invitations, item)
@@ -158,10 +188,14 @@ func (s *Service) List(ctx context.Context, tenantID string) ([]Member, []Invita
 // Copy the returned one-time secret over a separate trusted channel. Only
 // its SHA-256 digest is persisted, never the raw token or password.
 func (s *Service) Invite(ctx context.Context, tenantID, actorID, name, email, role string,
-	requestID, ip, userAgent string,
+	requestID, ip, userAgent string, usernames ...string,
 ) (Invitation, string, error) {
 	name, email = strings.TrimSpace(name), strings.ToLower(strings.TrimSpace(email))
-	if !validNewInvite(name, email, role) {
+	username := ""
+	if len(usernames) > 0 {
+		username = strings.ToLower(strings.TrimSpace(usernames[0]))
+	}
+	if !validNewInvite(name, email, role, username) {
 		return Invitation{}, "", common.ErrValidation
 	}
 	token := make([]byte, 32)
@@ -179,7 +213,8 @@ func (s *Service) Invite(ctx context.Context, tenantID, actorID, name, email, ro
 		return Invitation{}, "", err
 	}
 	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)`, email).Scan(&exists); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users
+			WHERE ($1::text<>'' AND email=$1) OR ($2::text<>'' AND username=$2))`, email, username).Scan(&exists); err != nil {
 		return Invitation{}, "", err
 	}
 	if exists {
@@ -188,17 +223,18 @@ func (s *Service) Invite(ctx context.Context, tenantID, actorID, name, email, ro
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE staff_invitations SET revoked_at=now()
-		WHERE tenant_id=$1 AND email=$2 AND accepted_at IS NULL AND revoked_at IS NULL
-	`, tenantID, email); err != nil {
+		WHERE tenant_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL
+			AND (($2::text<>'' AND email=$2) OR ($3::text<>'' AND username=$3))
+	`, tenantID, email, username); err != nil {
 		return Invitation{}, "", err
 	}
 	var item Invitation
 	err = tx.QueryRow(ctx, `
-		INSERT INTO staff_invitations(tenant_id,email,name,role_name,token_hash,invited_by_user_id,expires_at)
-		VALUES($1,$2,$3,$4,$5,$6,now()+interval '48 hours')
-		RETURNING id::text,name,email::text,role_name,expires_at
-	`, tenantID, email, name, role, digest[:], actorID).
-		Scan(&item.ID, &item.Name, &item.Email, &item.Role, &item.ExpiresAt)
+		INSERT INTO staff_invitations(tenant_id,email,username,name,role_name,token_hash,invited_by_user_id,expires_at)
+		VALUES($1,NULLIF($2,''),NULLIF($3,''),$4,$5,$6,$7,now()+interval '48 hours')
+		RETURNING id::text,name,COALESCE(email::text,''),COALESCE(username::text,''),role_name,expires_at
+	`, tenantID, email, username, name, role, digest[:], actorID).
+		Scan(&item.ID, &item.Name, &item.Email, &item.Username, &item.Role, &item.ExpiresAt)
 	if isUniqueError(err) {
 		return Invitation{}, "", common.ErrConflict
 	}
@@ -272,14 +308,14 @@ func (s *Service) Accept(ctx context.Context, tokenHex, password string, request
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var inviteID, tenantID, email, name, role string
+	var inviteID, tenantID, email, username, name, role string
 	err = tx.QueryRow(ctx, `
-		SELECT id::text, tenant_id::text, email::text, name, role_name
+		SELECT id::text, tenant_id::text, COALESCE(email::text,''), COALESCE(username::text,''), name, role_name
 		FROM staff_invitations
 		WHERE token_hash=$1 AND accepted_at IS NULL AND revoked_at IS NULL
 		  AND expires_at > now()
 		FOR UPDATE
-	`, digest[:]).Scan(&inviteID, &tenantID, &email, &name, &role)
+	`, digest[:]).Scan(&inviteID, &tenantID, &email, &username, &name, &role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrInviteUnavailable
 	}
@@ -291,9 +327,9 @@ func (s *Service) Accept(ctx context.Context, tokenHex, password string, request
 	}
 	var userID string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO users(email,name,password_hash,active)
-		VALUES($1,$2,$3,true) RETURNING id::text
-	`, email, name, string(passwordHash)).Scan(&userID)
+		INSERT INTO users(email,username,name,password_hash,active)
+		VALUES(NULLIF($1,''),NULLIF($2,''),$3,$4,true) RETURNING id::text
+	`, email, username, name, string(passwordHash)).Scan(&userID)
 	if isUniqueError(err) {
 		return ErrInviteUnavailable
 	}
