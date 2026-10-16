@@ -300,7 +300,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   await expect(page.getByRole('heading', { name: 'Cadastrar produto' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Salvar' })).toHaveCount(0)
 
-  await page.getByRole('link', { name: 'Estoque' }).click()
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Estoque', exact: true }).click()
   await expect(page).toHaveURL(/\/inventory$/)
   await expect(page.getByRole('heading', { name: 'Ajuste de estoque' })).toHaveCount(0)
 
