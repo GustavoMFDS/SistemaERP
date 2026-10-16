@@ -49,7 +49,7 @@ func (r *Repo) List(ctx context.Context, tenantID, saleID string, limit, offset 
 	args = append(args, limit, offset)
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
 		SELECT id::text, sale_id::text, kind, reason, refund_due::text,
-		       replacement_sale_id::text, created_by_user_id::text, created_at::text
+		       replacement_sale_id::text, created_by_user_id::text, created_at::text, return_basis
 		FROM sale_returns
 		%s
 		ORDER BY created_at DESC, id DESC
@@ -63,7 +63,7 @@ func (r *Repo) List(ctx context.Context, tenantID, saleID string, limit, offset 
 	for rows.Next() {
 		var item ret.SaleReturn
 		var refund string
-		if err := rows.Scan(&item.ID, &item.SaleID, &item.Kind, &item.Reason, &refund, &item.ReplacementSaleID, &item.CreatedByUserID, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.SaleID, &item.Kind, &item.Reason, &refund, &item.ReplacementSaleID, &item.CreatedByUserID, &item.CreatedAt, &item.ReturnBasis); err != nil {
 			return nil, 0, err
 		}
 		item.RefundDue, err = platform.ParseMoney(refund)
@@ -80,10 +80,10 @@ func (r *Repo) Get(ctx context.Context, tenantID, id string) (ret.SaleReturn, []
 	var refund string
 	err := r.db.QueryRow(ctx, `
 		SELECT id::text, sale_id::text, kind, reason, refund_due::text,
-		       replacement_sale_id::text, created_by_user_id::text, created_at::text
+		       replacement_sale_id::text, created_by_user_id::text, created_at::text, return_basis
 		FROM sale_returns
 		WHERE tenant_id=$1 AND id=$2
-	`, tenantID, id).Scan(&out.ID, &out.SaleID, &out.Kind, &out.Reason, &refund, &out.ReplacementSaleID, &out.CreatedByUserID, &out.CreatedAt)
+	`, tenantID, id).Scan(&out.ID, &out.SaleID, &out.Kind, &out.Reason, &refund, &out.ReplacementSaleID, &out.CreatedByUserID, &out.CreatedAt, &out.ReturnBasis)
 	if err != nil {
 		return out, nil, mapErr(err)
 	}
@@ -232,10 +232,10 @@ func (r *Repo) SumRefundDue(ctx context.Context, tx db.DBTX, tenantID, saleID st
 func (r *Repo) CreateReturn(ctx context.Context, tx db.DBTX, tenantID string, item ret.SaleReturn) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `
-		INSERT INTO sale_returns(tenant_id, sale_id, kind, reason, refund_due, replacement_sale_id, created_by_user_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		INSERT INTO sale_returns(tenant_id, sale_id, kind, reason, refund_due, replacement_sale_id, created_by_user_id, return_basis)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING id::text
-	`, tenantID, item.SaleID, string(item.Kind), item.Reason, item.RefundDue.DBString(), item.ReplacementSaleID, item.CreatedByUserID).Scan(&id)
+	`, tenantID, item.SaleID, string(item.Kind), item.Reason, item.RefundDue.DBString(), item.ReplacementSaleID, item.CreatedByUserID, item.ReturnBasis).Scan(&id)
 	return id, err
 }
 

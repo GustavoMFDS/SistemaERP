@@ -39,6 +39,7 @@ type ItemRequest struct {
 
 type CreateRequest struct {
 	Kind   ret.Kind      `json:"kind" validate:"required,oneof=return exchange"`
+	Basis string `json:"basis" validate:"omitempty,oneof=voluntary consumer_rights"`
 	Reason string        `json:"reason" validate:"required,min=3,max=250"`
 	Items  []ItemRequest `json:"items" validate:"required,min=1,dive"`
 }
@@ -67,6 +68,7 @@ func (s *Service) Get(ctx context.Context, tenantID, id string) (ret.SaleReturn,
 
 func normalizeCreateRequest(req CreateRequest) CreateRequest {
 	req.Reason = strings.TrimSpace(req.Reason)
+	if req.Basis == "" { req.Basis = "voluntary" }
 	sort.Slice(req.Items, func(i, j int) bool { return req.Items[i].SaleItemID < req.Items[j].SaleItemID })
 	return req
 }
@@ -83,7 +85,7 @@ func requestHash(req CreateRequest, saleID string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, idempotencyKey string, req CreateRequest) (string, platform.Money, bool, error) {
+func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, idempotencyKey string, req CreateRequest, allowProtected ...bool) (string, platform.Money, bool, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	saleID = strings.TrimSpace(saleID)
 	req = normalizeCreateRequest(req)
@@ -95,6 +97,9 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 	}
 	if err := s.validate.Struct(req); err != nil {
 		return "", 0, false, common.ErrValidation
+	}
+	if req.Basis == "consumer_rights" && (len(allowProtected) == 0 || !allowProtected[0]) {
+		return "", 0, false, common.ErrForbidden
 	}
 
 	seen := make(map[string]struct{}, len(req.Items))
@@ -146,6 +151,7 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 	for _, item := range saleItems {
 		itemByID[item.ID] = salesItemView{
 			ID: item.ID, ProductID: item.ProductID, Qty: item.Qty, Subtotal: item.Subtotal,
+			Policy: item.ReturnPolicySnapshot, Days: item.ReturnDaysSnapshot,
 		}
 		itemIDs = append(itemIDs, item.ID)
 		totalBasis, err = totalBasis.AddChecked(item.Subtotal)
@@ -183,6 +189,10 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 		remainingQty := item.Qty - alreadyReturned[item.ID]
 		if requested.Qty <= 0 || requested.Qty > remainingQty {
 			return "", 0, false, common.ErrValidation
+		}
+		if req.Kind == ret.KindReturn && req.Basis == "voluntary" &&
+			!voluntaryReturnAllowed(item.Policy, item.Days, sale.FinalizedAt, time.Now().UTC()) {
+			return "", 0, false, common.ErrConflict
 		}
 		newReturnedQty := alreadyReturned[item.ID] + requested.Qty
 		alreadyReturned[item.ID] = newReturnedQty
@@ -272,7 +282,7 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 	}
 
 	returnID, err := s.repo.CreateReturn(ctx, tx, tenantID, ret.SaleReturn{
-		SaleID: saleID, Kind: req.Kind, Reason: req.Reason, RefundDue: refundDue,
+		SaleID: saleID, Kind: req.Kind, ReturnBasis: req.Basis, Reason: req.Reason, RefundDue: refundDue,
 		CreatedByUserID: actorUserID,
 	})
 	if err != nil {
@@ -315,7 +325,7 @@ func (s *Service) Create(ctx context.Context, tenantID, actorUserID, saleID, ide
 		TenantID: tenantID, ActorUserID: actorUserID, Action: "sale.return",
 		ResourceType: "sale_return", ResourceID: returnID, Outcome: "success",
 		Metadata: map[string]any{
-			"sale_id": saleID, "kind": string(req.Kind), "refund_due": refundDue.String(),
+			"sale_id": saleID, "kind": string(req.Kind), "basis": req.Basis, "refund_due": refundDue.String(),
 			"item_count": len(resultItems),
 		},
 	}); err != nil {
@@ -333,6 +343,8 @@ type salesItemView struct {
 	ProductID string
 	Qty       platform.Quantity
 	Subtotal  platform.Money
+	Policy *string
+	Days *int
 }
 
 func (s *Service) invalidateProductCaches(ctx context.Context, tenantID string, productIDs []string) {
