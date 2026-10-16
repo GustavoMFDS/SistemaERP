@@ -5,7 +5,7 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('admin sale cancellation restores stock and fiscalized sale cannot be cancelled', async ({ page }) => {
