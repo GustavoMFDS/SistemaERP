@@ -122,12 +122,16 @@ func (s *Service) IssuePasswordReset(
 func (s *Service) CompletePasswordReset(
 	ctx context.Context, tokenHex, password, requestID, ip, userAgent string,
 ) error {
-	if len(tokenHex) != 64 || len(password) < 12 || len(password) > 72 {
+	if len(password) < 12 || len(password) > 72 {
 		return common.ErrValidation
+	}
+	// Token syntax must not reveal a different account or link state.
+	if len(tokenHex) != 64 {
+		return ErrPasswordResetUnavailable
 	}
 	raw, err := hex.DecodeString(tokenHex)
 	if err != nil || len(raw) != 32 {
-		return common.ErrValidation
+		return ErrPasswordResetUnavailable
 	}
 	hash := sha256.Sum256(raw)
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
