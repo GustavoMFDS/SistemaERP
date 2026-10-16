@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -262,6 +263,13 @@ func testStaffPasswordRecovery(
 	t.Helper()
 	strongPassword := "NovaSenhaFuncionario2026!"
 	invalidPassword := "curta123"
+	// Invalid token input must look exactly like an expired or used link,
+	// not expose a different error path.
+	for _, invalidToken := range []string{"", "not-hex", strings.Repeat("z", 64)} {
+		if err := svc.CompletePasswordReset(ctx, invalidToken, strongPassword, "", "", ""); !errors.Is(err, team.ErrPasswordResetUnavailable) {
+			t.Fatalf("invalid token produced distinguishable response: %v", err)
+		}
+	}
 	if _, _, err := svc.IssuePasswordReset(ctx, tenantB, ownerID, staffID, "", "", ""); !errors.Is(err, common.ErrNotFound) {
 		t.Fatalf("other company issued password reset: %v", err)
 	}
