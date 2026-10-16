@@ -539,5 +539,3 @@ func (s *FinanceService) SettleReturnRefund(ctx context.Context, tenantID, actor
 	}
 	return refundID, status, remainingAfter, true, nil
 }
-
-
