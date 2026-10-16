@@ -18,6 +18,8 @@ type Product struct {
 	MinStock    platform.Quantity `json:"min_stock"`
 	Active      bool              `json:"active"`
 	QtyOnHand   platform.Quantity `json:"qty_on_hand"`
+	ReturnPolicy string          `json:"return_policy"`
+	ReturnDays  *int             `json:"return_days"`
 }
 
 // PodeVender centraliza validações de negócio relacionadas ao produto.
