@@ -5,6 +5,7 @@ type Sale = {
   id: string
   status: string
   total: number
+  finalized_at?: string
 }
 
 type SaleItem = {
@@ -14,6 +15,8 @@ type SaleItem = {
   unit_price: number
   discount_value: number
   subtotal: number
+  return_policy_snapshot?: 'allowed' | 'denied' | 'within_days' | null
+  return_days_snapshot?: number | null
 }
 
 type SaleDetail = {
@@ -44,12 +47,32 @@ type ReturnCreateResponse = {
   replayed: boolean
 }
 
+function allowedByVoluntaryPolicy(item: SaleItem, saleAt?: string): boolean {
+  if (!item.return_policy_snapshot || item.return_policy_snapshot === 'allowed') return true
+  if (item.return_policy_snapshot === 'denied') return false
+  if (item.return_policy_snapshot !== 'within_days' || !item.return_days_snapshot || !saleAt) return false
+  const time = new Date(saleAt).getTime()
+  return Number.isFinite(time) && Date.now() <= time + item.return_days_snapshot * 24 * 60 * 60 * 1000
+}
+
+function policyDescription(item: SaleItem, saleAt?: string): string {
+  if (!item.return_policy_snapshot) return 'Venda anterior: regra não registrada'
+  if (item.return_policy_snapshot === 'allowed') return 'Permitida pela política da loja'
+  if (item.return_policy_snapshot === 'denied') return 'Não permitida pela política voluntária'
+  if (!item.return_days_snapshot) return 'Verifique a regra com o responsável'
+  return allowedByVoluntaryPolicy(item, saleAt)
+    ? `Dentro do prazo de ${item.return_days_snapshot} dias`
+    : `Prazo de ${item.return_days_snapshot} dias encerrado`
+}
+
 export default function ReturnsPage() {
   const [saleId, setSaleId] = useState('')
   const [recentSales, setRecentSales] = useState<RecentSales['items']>([])
   const [detail, setDetail] = useState<SaleDetail | null>(null)
   const [kind, setKind] = useState<'return' | 'exchange'>('return')
   const [reason, setReason] = useState('')
+  const [basis, setBasis] = useState<'voluntary' | 'consumer_rights'>('voluntary')
+  const [canOverride, setCanOverride] = useState(false)
   const [qtyByItem, setQtyByItem] = useState<Record<string, number>>({})
   const [restockByItem, setRestockByItem] = useState<Record<string, boolean>>({})
   const [returnedByItem, setReturnedByItem] = useState<Record<string, number>>({})
@@ -70,6 +93,9 @@ export default function ReturnsPage() {
   }
 
   useEffect(() => {
+    void apiJson<{ permissions: string[] }>('/api/v1/auth/me')
+      .then((me) => setCanOverride(me.permissions.includes('sale:return:override')))
+      .catch(() => setCanOverride(false))
     void loadReturns()
     void apiJson<RecentSales>('/api/v1/sales?limit=30&offset=0')
       .then((data) => setRecentSales(data.items ?? []))
@@ -99,6 +125,7 @@ export default function ReturnsPage() {
       returnKeyRef.current = ''
       setDetail(data)
       setReturnedByItem(returned)
+      setBasis('voluntary')
       const qty: Record<string, number> = {}
       const restock: Record<string, boolean> = {}
       for (const item of data.items) {
@@ -129,6 +156,12 @@ export default function ReturnsPage() {
 
   async function submitReturn() {
     if (!detail || selected.length === 0 || reason.trim().length < 3 || saving) return
+    if (kind === 'return' && basis === 'voluntary' &&
+        detail.items.some((item) => (qtyByItem[item.id] ?? 0) > 0 &&
+          !allowedByVoluntaryPolicy(item, detail.sale.finalized_at))) {
+      setError('A política voluntária da venda não permite um dos itens selecionados. Para casos previstos em lei, procure o responsável.')
+      return
+    }
     setSaving(true)
     setError('')
     setResult(null)
@@ -141,6 +174,7 @@ export default function ReturnsPage() {
           headers: { 'Idempotency-Key': returnKeyRef.current },
           body: {
             kind,
+            basis: kind === 'exchange' ? 'voluntary' : basis,
             reason: reason.trim(),
             items: selected,
           },
@@ -226,6 +260,7 @@ export default function ReturnsPage() {
                     <th className="px-3 py-2">Produto</th>
                     <th className="px-3 py-2">Vendido</th>
                     <th className="px-3 py-2">Restante</th>
+                     <th className="px-3 py-2">Política da venda</th>
                     <th className="px-3 py-2">Devolver</th>
                     <th className="px-3 py-2">Volta ao estoque</th>
                   </tr>
@@ -238,10 +273,16 @@ export default function ReturnsPage() {
                       <td className="px-3 py-2">
                         {Math.max(0, item.qty - (returnedByItem[item.id] ?? 0)).toFixed(3)}
                       </td>
+                      <td className="px-3 py-2 text-xs">
+                        {policyDescription(item, detail.sale.finalized_at)}
+                      </td>
                       <td className="px-3 py-2">
                         <input
                           type="number"
                           min="0"
+                          aria-label={`Quantidade para devolver do item ${item.id}`}
+                          disabled={kind === 'return' && basis === 'voluntary' &&
+                            !allowedByVoluntaryPolicy(item, detail.sale.finalized_at)}
                           max={Math.max(0, item.qty - (returnedByItem[item.id] ?? 0))}
                           step="0.001"
                           value={qtyByItem[item.id] ?? 0}
@@ -306,6 +347,29 @@ export default function ReturnsPage() {
                 />
               </label>
             </div>
+
+            {kind === 'return' ? (
+              <div className="mt-3 rounded-xl border border-slate-200 p-3">
+                <label className="block text-xs font-medium text-slate-700">
+                  Motivo do atendimento
+                  <select className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                    value={basis} onChange={(e) => setBasis(e.target.value as 'voluntary' | 'consumer_rights')}>
+                    <option value="voluntary">Devolução conforme a política da loja</option>
+                    {canOverride ? <option value="consumer_rights">Direito do consumidor — análise do responsável</option> : null}
+                  </select>
+                </label>
+                {!canOverride ? (
+                  <p className="mt-2 text-xs text-slate-600">
+                    Casos de defeito, garantia ou outros direitos legais precisam ser avaliados pelo responsável da loja.
+                    A política voluntária não elimina esses direitos.
+                  </p>
+                ) : basis === 'consumer_rights' ? (
+                  <p className="mt-2 text-xs text-amber-800">
+                    Registre o motivo detalhado. O sistema identificará sua autorização e guardará a decisão para auditoria.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
             {kind === 'exchange' ? (
               <p className="mt-2 text-xs text-gray-600">
