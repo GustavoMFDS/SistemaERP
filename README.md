@@ -19,6 +19,13 @@ de 09/10/2026 e alguns itens marcados como pendentes estão desatualizados.
 **Importante:** presença no código não equivale a prontidão operacional,
 homologação fiscal ou aprovação de testes ponta a ponta no commit final.
 
+**Refinamento operacional de 16/10/2026:** [plano, operação e limitações](docs/refinamento-final-esterium-2026-10-16.md).
+Inclui backup PostgreSQL verificado para Linux/Windows (agendamento a configurar),
+Central de Atenção na Home, conferência de obrigações por dia na tela Fiscal e
+relatórios operacionais por período no Financeiro. O ensaio local de recuperação
+foi feito exclusivamente com banco fictício; não substitui backup externo,
+homologação SEF/MG ou validação de segurança e operação real.
+
 **Não interpretar itens marcados como implementados como CI aprovado:**
 o PR de integração #15 continua dependente de execução real do pipeline.
 A emissão de NFC-e em produção não foi homologada.
