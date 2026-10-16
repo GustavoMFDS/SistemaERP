@@ -7,6 +7,7 @@ type Member = {
   id: string
   name: string
   email: string
+  username?: string
   role: string
   active: boolean
 }
@@ -14,6 +15,7 @@ type Invitation = {
   id: string
   name: string
   email: string
+  username?: string
   role: string
   expires_at: string
 }
@@ -30,6 +32,7 @@ export default function StaffPage() {
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [role, setRole] = useState<'manager' | 'cashier'>('cashier')
   const [inviteLink, setInviteLink] = useState('')
   const [loading, setLoading] = useState(false)
@@ -97,7 +100,7 @@ export default function StaffPage() {
     try {
       const result = await apiJson<InviteResponse>('/api/v1/staff/invitations', {
         method: 'POST',
-        body: { name: name.trim(), email: email.trim(), role },
+        body: { name: name.trim(), email: email.trim(), username: username.trim(), role },
       })
       if (originalScope !== getSessionScope()) return
       // Fragments are never sent to the web server with the HTTP request.
@@ -106,6 +109,7 @@ export default function StaffPage() {
       setMessage('Convite criado. Copie o link abaixo e entregue somente à pessoa convidada. Ele será mostrado uma única vez.')
       setName('')
       setEmail('')
+      setUsername('')
       await reload()
     } catch (cause: unknown) {
       if (originalScope === getSessionScope()) setError(errorMessage(cause))
@@ -187,7 +191,7 @@ export default function StaffPage() {
             <div className="mt-3 overflow-x-auto">
               <table className="min-w-full text-left text-xs">
                 <thead><tr>
-                  <th className="px-2 py-2">Nome</th><th className="px-2 py-2">E-mail</th>
+                  <th className="px-2 py-2">Nome</th><th className="px-2 py-2">Nome de usuário</th><th className="px-2 py-2">E-mail</th>
                   <th className="px-2 py-2">Função</th><th className="px-2 py-2">Situação</th>
                   <th className="px-2 py-2">Ações</th>
                 </tr></thead>
@@ -195,7 +199,8 @@ export default function StaffPage() {
                   {members.map((member) => (
                     <tr key={member.id}>
                       <td className="px-2 py-2">{member.name}</td>
-                      <td className="px-2 py-2">{member.email}</td>
+                      <td className="px-2 py-2">{member.username || '—'}</td>
+                      <td className="px-2 py-2">{member.email || '—'}</td>
                       <td className="px-2 py-2">{roleName(member.role)}</td>
                       <td className="px-2 py-2">{member.active ? 'Ativo' : 'Sem acesso nesta loja'}</td>
                       <td className="px-2 py-2">
@@ -236,11 +241,22 @@ export default function StaffPage() {
                   onChange={(event) => setName(event.target.value)}
                   className="mt-1 block w-full rounded-md border px-3 py-2" />
               </label>
-              <label className="text-sm">E-mail do funcionário
-                <input type="email" value={email} maxLength={254} required
+              <label className="text-sm">Nome de usuário
+                <input type="text" value={username} minLength={3} maxLength={32}
+                  pattern="[a-z][a-z0-9._-]{2,31}" required={!email.trim()}
+                  autoComplete="off" placeholder="ex.: caixa.loja1"
+                  onChange={(event) => setUsername(event.target.value.toLowerCase())}
+                  className="mt-1 block w-full rounded-md border px-3 py-2" />
+              </label>
+              <label className="text-sm">E-mail do funcionário (opcional)
+                <input type="email" value={email} maxLength={254} required={!username.trim()}
                   onChange={(event) => setEmail(event.target.value)}
                   className="mt-1 block w-full rounded-md border px-3 py-2" />
               </label>
+              <p className="text-xs text-slate-600 sm:col-span-2">
+                Informe um nome de usuário ou e-mail. O nome de usuário é único em todas as lojas
+                e usa de 3 a 32 caracteres: letras minúsculas, números, ponto, hífen ou sublinhado.
+              </p>
               <label className="text-sm">Função inicial
                 <select value={role} onChange={(event) => setRole(event.target.value as 'manager' | 'cashier')}
                   className="mt-1 block w-full rounded-md border px-3 py-2">
@@ -275,7 +291,7 @@ export default function StaffPage() {
               <ul className="mt-3 space-y-2">
                 {invitations.map((item) => (
                   <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 text-xs">
-                    <span>{item.name} ({item.email}) — {roleName(item.role)} — vence em{' '}
+                    <span>{item.name} ({item.username || item.email}) — {roleName(item.role)} — vence em{' '}
                       {new Date(item.expires_at).toLocaleString('pt-BR')}</span>
                     <button type="button" disabled={working || loading} onClick={() => void revoke(item)}
                       className="rounded-md border px-3 py-2 disabled:opacity-50">Cancelar convite</button>
