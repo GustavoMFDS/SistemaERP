@@ -6,8 +6,8 @@ async function signIn(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  // Retain the existing login landing route while the new home is reviewed.
-  await expect(page).toHaveURL(/\/products$/)
+  // O login deve abrir a página inicial aprovada.
+  await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('link', { name: 'Início' }).click()
   await expect(page).toHaveURL(/\/home$/)
 }
