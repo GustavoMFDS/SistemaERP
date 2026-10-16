@@ -8,7 +8,7 @@ async function login(
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('PDV supports shortcuts, quick search, suspended carts, quantity editing and authorized discount', async ({ page }) => {
