@@ -1391,7 +1391,7 @@ jobs:
             VALUES('caixa_global1',NULL,'E2E username',crypt('Senha-Individual-2026!',gen_salt('bf',10)),true);
             BEGIN
               INSERT INTO users(username,email,name,password_hash,active)
-              VALUES('CAIXA_GLOBAL1','other@example.test','Duplicate username',crypt('Senha-Individual-2026!',gen_salt('bf',10)),true);
+              VALUES('caixa_global1','other@example.test','Duplicate username',crypt('Senha-Individual-2026!',gen_salt('bf',10)),true);
             EXCEPTION WHEN unique_violation THEN
               conflict_seen := true;
             END;
