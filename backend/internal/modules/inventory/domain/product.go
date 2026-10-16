@@ -3,23 +3,23 @@ package domain
 import "github.com/example/sistemaemgo/internal/platform"
 
 type Product struct {
-	ID          string            `json:"id"`
-	CategoryID  *string           `json:"category_id"`
-	SKU         string            `json:"sku"`
-	Barcode     *string           `json:"barcode"`
-	NCM         *string           `json:"ncm"`
-	CEST        *string           `json:"cest"`
-	Name        string            `json:"name"`
-	Description *string           `json:"description"`
-	Unit        string            `json:"unit"`
-	CostPrice   platform.Money    `json:"cost_price"`
-	PriceCash   platform.Money    `json:"price_cash"`
-	PromoPrice  *platform.Money   `json:"promo_price"`
-	MinStock    platform.Quantity `json:"min_stock"`
-	Active      bool              `json:"active"`
-	QtyOnHand   platform.Quantity `json:"qty_on_hand"`
-	ReturnPolicy string          `json:"return_policy"`
-	ReturnDays  *int             `json:"return_days"`
+	ID           string            `json:"id"`
+	CategoryID   *string           `json:"category_id"`
+	SKU          string            `json:"sku"`
+	Barcode      *string           `json:"barcode"`
+	NCM          *string           `json:"ncm"`
+	CEST         *string           `json:"cest"`
+	Name         string            `json:"name"`
+	Description  *string           `json:"description"`
+	Unit         string            `json:"unit"`
+	CostPrice    platform.Money    `json:"cost_price"`
+	PriceCash    platform.Money    `json:"price_cash"`
+	PromoPrice   *platform.Money   `json:"promo_price"`
+	MinStock     platform.Quantity `json:"min_stock"`
+	Active       bool              `json:"active"`
+	QtyOnHand    platform.Quantity `json:"qty_on_hand"`
+	ReturnPolicy string            `json:"return_policy"`
+	ReturnDays   *int              `json:"return_days"`
 }
 
 // PodeVender centraliza validações de negócio relacionadas ao produto.

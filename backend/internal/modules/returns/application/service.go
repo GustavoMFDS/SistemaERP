@@ -39,7 +39,7 @@ type ItemRequest struct {
 
 type CreateRequest struct {
 	Kind   ret.Kind      `json:"kind" validate:"required,oneof=return exchange"`
-	Basis string `json:"basis" validate:"omitempty,oneof=voluntary consumer_rights"`
+	Basis  string        `json:"basis" validate:"omitempty,oneof=voluntary consumer_rights"`
 	Reason string        `json:"reason" validate:"required,min=3,max=250"`
 	Items  []ItemRequest `json:"items" validate:"required,min=1,dive"`
 }
@@ -68,7 +68,9 @@ func (s *Service) Get(ctx context.Context, tenantID, id string) (ret.SaleReturn,
 
 func normalizeCreateRequest(req CreateRequest) CreateRequest {
 	req.Reason = strings.TrimSpace(req.Reason)
-	if req.Basis == "" { req.Basis = "voluntary" }
+	if req.Basis == "" {
+		req.Basis = "voluntary"
+	}
 	sort.Slice(req.Items, func(i, j int) bool { return req.Items[i].SaleItemID < req.Items[j].SaleItemID })
 	return req
 }
@@ -343,8 +345,8 @@ type salesItemView struct {
 	ProductID string
 	Qty       platform.Quantity
 	Subtotal  platform.Money
-	Policy *string
-	Days *int
+	Policy    *string
+	Days      *int
 }
 
 func (s *Service) invalidateProductCaches(ctx context.Context, tenantID string, productIDs []string) {

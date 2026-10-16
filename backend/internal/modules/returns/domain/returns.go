@@ -13,7 +13,7 @@ type SaleReturn struct {
 	ID                string         `json:"id"`
 	SaleID            string         `json:"sale_id"`
 	Kind              Kind           `json:"kind"`
-	ReturnBasis string `json:"return_basis"`
+	ReturnBasis       string         `json:"return_basis"`
 	Reason            string         `json:"reason"`
 	RefundDue         platform.Money `json:"refund_due"`
 	ReplacementSaleID *string        `json:"replacement_sale_id,omitempty"`

@@ -1,8 +1,8 @@
 package domain
 
 import (
-	"time"
 	"github.com/example/sistemaemgo/internal/platform"
+	"time"
 )
 
 type Sale struct {
@@ -123,16 +123,16 @@ func (s Sale) PodeCancelar() error {
 }
 
 type SaleItem struct {
-	ID            string            `json:"id"`
-	SaleID        string            `json:"sale_id"`
-	ProductID     string            `json:"product_id"`
-	Qty           platform.Quantity `json:"qty"`
-	UnitPrice     platform.Money    `json:"unit_price"`
-	DiscountValue platform.Money    `json:"discount_value"`
-	Subtotal      platform.Money    `json:"subtotal"`
-	CostUnit      platform.Money    `json:"cost_unit"`
-	ReturnPolicySnapshot *string `json:"return_policy_snapshot"`
-	ReturnDaysSnapshot *int `json:"return_days_snapshot"`
+	ID                   string            `json:"id"`
+	SaleID               string            `json:"sale_id"`
+	ProductID            string            `json:"product_id"`
+	Qty                  platform.Quantity `json:"qty"`
+	UnitPrice            platform.Money    `json:"unit_price"`
+	DiscountValue        platform.Money    `json:"discount_value"`
+	Subtotal             platform.Money    `json:"subtotal"`
+	CostUnit             platform.Money    `json:"cost_unit"`
+	ReturnPolicySnapshot *string           `json:"return_policy_snapshot"`
+	ReturnDaysSnapshot   *int              `json:"return_days_snapshot"`
 }
 
 func (it SaleItem) CalcularSubtotal() (lineGross platform.Money, lineNet platform.Money, err error) {
