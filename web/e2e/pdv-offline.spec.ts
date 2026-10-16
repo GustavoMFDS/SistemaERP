@@ -33,8 +33,9 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
   await context.setOffline(true)
   await page.getByRole('button', { name: 'Finalizar' }).click()
   await expect(page.getByText(/Venda registrada offline/)).toBeVisible()
-  await expect(page.getByRole('status')).toHaveClass(/bg-amber-50/)
-  await expect(page.getByRole('status')).toContainText('Aguardando confirmação no servidor')
+  const offlineSaleStatus = page.getByRole('status').filter({ hasText: 'Aguardando confirmação no servidor' })
+  await expect(offlineSaleStatus).toHaveClass(/bg-amber-50/)
+  await expect(offlineSaleStatus).toContainText('Aguardando confirmação no servidor')
   await expect(page.getByText(/1 venda\(s\) aguardando sincronização/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
