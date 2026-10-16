@@ -122,7 +122,7 @@ func (s *Service) IssuePasswordReset(
 func (s *Service) CompletePasswordReset(
 	ctx context.Context, tokenHex, password, requestID, ip, userAgent string,
 ) error {
-	if len(password) < 12 || len(password) > 72 {
+	if !validStaffPassword(password) {
 		return common.ErrValidation
 	}
 	// Token syntax must not reveal a different account or link state.

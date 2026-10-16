@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
+import { validStaffPassword } from '../lib/staffPassword'
 
 // The secret is never stored in the address bar, cookies, or localStorage.
 // Keep it in memory for React StrictMode's double initializer only.
@@ -28,7 +29,7 @@ export default function ResetStaffPasswordPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!token || busy || password !== confirm || password.length < 12 || password.length > 72) return
+    if (!token || busy || password !== confirm || !validStaffPassword(password)) return
     setBusy(true)
     setError('')
     try {
@@ -71,6 +72,7 @@ export default function ResetStaffPasswordPage() {
                   onChange={(event) => setPassword(event.target.value)}
                   className="mt-1 block w-full rounded-md border px-3 py-2" />
               </label>
+              <p className="text-xs text-slate-600">Use ao menos 12 caracteres. O limite técnico é de 72 bytes UTF-8; acentos e emojis podem ocupar mais de um byte.</p>
               <label className="block text-sm">Confirmar nova senha
                 <input type="password" required minLength={12} maxLength={72}
                   autoComplete="new-password" value={confirm}
@@ -83,7 +85,7 @@ export default function ResetStaffPasswordPage() {
               {error ? (
                 <p role="alert" className="text-sm text-red-700">Não foi possível alterar a senha: {error}.</p>
               ) : null}
-              <button disabled={busy || !password || password !== confirm || password.length < 12}
+              <button disabled={busy || !password || password !== confirm || !validStaffPassword(password)}
                 className="w-full rounded-md bg-gray-900 px-4 py-2 text-white disabled:opacity-50">
                 {busy ? 'Alterando…' : 'Alterar minha senha'}
               </button>
