@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expandDisclosure } from './expandDisclosure'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
@@ -12,6 +13,7 @@ const sample = 'sku;nome;preco;unidade\nE2E-RECOVER-PROD;12,50;un\n'
 const changed = 'sku;nome;preco;unidade\nE2E-DIFFERENT;20,00;un\n'
 
 async function upload(page: import('@playwright/test').Page, csv: string) {
+  await expandDisclosure(page, 'Importar uma planilha de produtos')
   await page.getByLabel('Escolher arquivo CSV').setInputFiles({
     name: 'catalogo.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8'),
   })

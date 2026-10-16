@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expandDisclosure } from './expandDisclosure'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
@@ -12,6 +13,7 @@ const sampleCSV = 'sku;quantidade\nSTOCK-RESUME-TEST;5,500\n'
 const differentCSV = 'sku;quantidade\nSTOCK-DIFFERENT;8\n'
 
 async function selectFile(page: import('@playwright/test').Page, csv: string) {
+  await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
   await page.getByLabel('Escolher planilha CSV').setInputFiles({
     name: 'estoque.csv',
     mimeType: 'text/csv',
