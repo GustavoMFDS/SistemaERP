@@ -118,6 +118,7 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 			UPDATE users u
 			SET name='Usuario anonimizado',
 			    email=('anon+' || u.id::text || '@anonymized.local')::citext,
+			    username=NULL,
 			    active=false,
 			    updated_at=now()
 			FROM user_tenants ut
@@ -227,15 +228,15 @@ func (r *Repo) exportCustomer(ctx context.Context, tenantID, subjectID string) (
 }
 
 func (r *Repo) exportUser(ctx context.Context, tenantID, subjectID string) (map[string]any, error) {
-	var id, email, name string
+	var id, email, username, name string
 	var active bool
 	var lastLoginAt *string
 	err := r.db.QueryRow(ctx, `
-		SELECT u.id::text, u.email::text, u.name, u.active, u.last_login_at::text
+		SELECT u.id::text, COALESCE(u.email::text,''), COALESCE(u.username::text,''), u.name, u.active, u.last_login_at::text
 		FROM users u
 		JOIN user_tenants ut ON ut.user_id=u.id
 		WHERE ut.tenant_id=$1 AND u.id=$2
-	`, tenantID, subjectID).Scan(&id, &email, &name, &active, &lastLoginAt)
+	`, tenantID, subjectID).Scan(&id, &email, &username, &name, &active, &lastLoginAt)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +244,7 @@ func (r *Repo) exportUser(ctx context.Context, tenantID, subjectID string) (map[
 		"subject_type":  "user",
 		"id":            id,
 		"email":         email,
+		"username":      username,
 		"name":          name,
 		"active":        active,
 		"last_login_at": lastLoginAt,

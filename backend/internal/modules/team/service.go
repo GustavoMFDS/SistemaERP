@@ -166,7 +166,6 @@ func (s *Service) List(ctx context.Context, tenantID string) ([]Member, []Invita
 		SELECT id::text, name, COALESCE(email::text,''), COALESCE(username::text,''), role_name, expires_at
 		FROM staff_invitations
 		WHERE tenant_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL
-		  AND expires_at > now()
 		ORDER BY created_at DESC, id DESC
 		LIMIT 200
 	`, tenantID)

@@ -286,12 +286,13 @@ export default function StaffPage() {
             ) : null}
           </details>
           <details className="mt-5 rounded-2xl border border-slate-200 p-5" aria-label="Convites pendentes">
-            <summary className="cursor-pointer font-semibold">Acessos aguardando ativação ({invitations.length})</summary>
+            <summary className="cursor-pointer font-semibold">Convites pendentes ou vencidos ({invitations.length})</summary>
             {invitations.length ? (
               <ul className="mt-3 space-y-2">
                 {invitations.map((item) => (
                   <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 text-xs">
-                    <span>{item.name} ({item.username || item.email}) — {roleName(item.role)} — vence em{' '}
+                    <span>{item.name} ({item.username || item.email}) — {roleName(item.role)} —{' '}
+                       {new Date(item.expires_at).getTime() <= Date.now() ? 'Vencido em' : 'vence em'}{' '}
                       {new Date(item.expires_at).toLocaleString('pt-BR')}</span>
                     <button type="button" disabled={working || loading} onClick={() => void revoke(item)}
                       className="rounded-md border px-3 py-2 disabled:opacity-50">Cancelar convite</button>
