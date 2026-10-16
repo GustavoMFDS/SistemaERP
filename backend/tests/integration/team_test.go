@@ -255,7 +255,7 @@ func testStaffPasswordRecovery(
 ) {
 	t.Helper()
 	strongPassword := "NovaSenhaFuncionario2026!"
-	invalidPassword := "SenhaMuitoCurta"
+	invalidPassword := "curta123"
 	if _, _, err := svc.IssuePasswordReset(ctx, tenantB, ownerID, staffID, "", "", ""); !errors.Is(err, common.ErrNotFound) {
 		t.Fatalf("other company issued password reset: %v", err)
 	}
