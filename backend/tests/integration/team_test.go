@@ -275,6 +275,17 @@ func testStaffPasswordRecovery(
 	if err != nil || len(firstToken) != 64 {
 		t.Fatalf("issue recovery link failed: %+v err=%v", first, err)
 	}
+	pendingA, err := svc.ListPasswordResets(ctx, tenantA, ownerID)
+	if err != nil || len(pendingA) != 1 || pendingA[0].ID != first.ID {
+		t.Fatalf("shop admin cannot see own pending link metadata: %+v err=%v", pendingA, err)
+	}
+	pendingB, err := svc.ListPasswordResets(ctx, tenantB, ownerID)
+	if err != nil || len(pendingB) != 0 {
+		t.Fatalf("another shop saw pending reset metadata: %+v err=%v", pendingB, err)
+	}
+	if _, err := svc.ListPasswordResets(ctx, tenantA, staffID); !errors.Is(err, common.ErrForbidden) {
+		t.Fatalf("non-admin saw password reset metadata: %v", err)
+	}
 	var stored []byte
 	if err := db.QueryRow(ctx, `SELECT token_hash FROM staff_password_resets WHERE id=$1`, first.ID).Scan(&stored); err != nil {
 		t.Fatal(err)
