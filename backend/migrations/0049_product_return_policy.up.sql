@@ -10,7 +10,7 @@ ALTER TABLE products ADD CONSTRAINT products_return_policy_check
   CHECK (
     (return_policy = 'allowed' AND return_days IS NULL) OR
     (return_policy = 'denied' AND return_days IS NULL) OR
-    (return_policy = 'within_days' AND return_days BETWEEN 1 AND 3650)
+    (return_policy = 'within_days' AND return_days IS NOT NULL AND return_days BETWEEN 1 AND 3650)
   );
 
 -- Historical sales did not record this rule: NULL means unknown, not denied.
@@ -20,9 +20,13 @@ ALTER TABLE sale_items
 
 ALTER TABLE sale_items ADD CONSTRAINT sale_items_return_policy_snapshot_check
   CHECK (
-    (return_policy_snapshot IS NULL AND return_days_snapshot IS NULL) OR
-    (return_policy_snapshot IN ('allowed', 'denied') AND return_days_snapshot IS NULL) OR
-    (return_policy_snapshot = 'within_days' AND return_days_snapshot BETWEEN 1 AND 3650)
+    CASE
+      WHEN return_policy_snapshot IS NULL THEN return_days_snapshot IS NULL
+      WHEN return_policy_snapshot IN ('allowed', 'denied') THEN return_days_snapshot IS NULL
+      WHEN return_policy_snapshot = 'within_days' THEN
+        return_days_snapshot IS NOT NULL AND return_days_snapshot BETWEEN 1 AND 3650
+      ELSE FALSE
+    END
   );
 -- A privileged employee can document a protected consumer-rights case.
 ALTER TABLE sale_returns
