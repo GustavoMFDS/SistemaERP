@@ -139,17 +139,41 @@ func (s *Service) CompletePasswordReset(
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var id, tenantID, userID string
+	// IssuePasswordReset locks the user first, then any old reset row. Match
+	// that order to avoid a lock cycle when a link is reissued concurrently.
+	var userID string
 	err = tx.QueryRow(ctx, `
-		SELECT id::text,tenant_id::text,user_id::text FROM staff_password_resets
-		WHERE token_hash=$1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>now()
-		FOR UPDATE
-	`, hash[:]).Scan(&id, &tenantID, &userID)
+		SELECT user_id::text FROM staff_password_resets WHERE token_hash=$1
+	`, hash[:]).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrPasswordResetUnavailable
 	}
 	if err != nil {
 		return err
+	}
+	var lockedUser string
+	if err := tx.QueryRow(ctx,
+		`SELECT id::text FROM users WHERE id=$1 FOR UPDATE`, userID).
+		Scan(&lockedUser); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrPasswordResetUnavailable
+		}
+		return err
+	}
+	var id, tenantID, scopedUserID string
+	err = tx.QueryRow(ctx, `
+		SELECT id::text,tenant_id::text,user_id::text FROM staff_password_resets
+		WHERE token_hash=$1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>now()
+		FOR UPDATE
+	`, hash[:]).Scan(&id, &tenantID, &scopedUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrPasswordResetUnavailable
+	}
+	if err != nil {
+		return err
+	}
+	if scopedUserID != userID {
+		return ErrPasswordResetUnavailable
 	}
 	var membershipCount, originalTenantCount int
 	err = tx.QueryRow(ctx, `
@@ -183,6 +207,59 @@ func (s *Service) CompletePasswordReset(
 		TenantID: tenantID, ActorUserID: userID,
 		Action:       "team.password_reset.complete",
 		ResourceType: "staff_password_reset", ResourceID: id,
+		RequestID: requestID, IP: ip, UserAgent: userAgent,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RevokePasswordReset allows the issuing shop administrator to cancel a
+// pending link. This does not affect the employee's existing password.
+func (s *Service) RevokePasswordReset(
+	ctx context.Context, tenantID, actorID, resetID, requestID, ip, userAgent string,
+) error {
+	if _, err := uuid.Parse(resetID); err != nil {
+		return common.ErrValidation
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := lockAdminTenant(ctx, tx, tenantID, actorID); err != nil {
+		return err
+	}
+	var targetID string
+	err = tx.QueryRow(ctx,
+		`SELECT user_id::text FROM staff_password_resets WHERE id=$1 AND tenant_id=$2`,
+		resetID, tenantID).Scan(&targetID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return common.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	// Use the same user-before-reset order as issuance and consumption.
+	var lockedID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE id=$1 FOR UPDATE`, targetID).
+		Scan(&lockedID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE staff_password_resets SET revoked_at=now()
+		WHERE id=$1 AND tenant_id=$2 AND consumed_at IS NULL AND revoked_at IS NULL
+	`, resetID, tenantID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return common.ErrConflict
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorID,
+		Action: "team.password_reset.revoke",
+		ResourceType: "staff_password_reset", ResourceID: resetID,
 		RequestID: requestID, IP: ip, UserAgent: userAgent,
 	}); err != nil {
 		return err
