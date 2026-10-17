@@ -6,23 +6,25 @@ import (
 	"testing"
 )
 
-func TestCheckConfigArgument(t *testing.T) {
+func TestParseStartupMode(t *testing.T) {
 	cases := []struct {
-		name  string
-		args  []string
-		check bool
-		bad   bool
+		name string
+		args []string
+		mode startupMode
+		bad  bool
 	}{
-		{name: "default server", args: nil},
-		{name: "check configuration", args: []string{"--check-config"}, check: true},
+		{name: "default server", args: nil, mode: startupServe},
+		{name: "config only", args: []string{"--check-config"}, mode: startupConfigCheck},
+		{name: "live dependencies", args: []string{"--check-dependencies"}, mode: startupDependencyCheck},
 		{name: "unknown option", args: []string{"--unsafe-mode"}, bad: true},
 		{name: "extra arguments", args: []string{"--check-config", "extra"}, bad: true},
+		{name: "multiple checks", args: []string{"--check-config", "--check-dependencies"}, bad: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			check, err := checkConfigArgument(tc.args)
-			if check != tc.check || (err != nil) != tc.bad {
-				t.Fatalf("check=%v err=%v, want check=%v error=%v", check, err, tc.check, tc.bad)
+			mode, err := parseStartupMode(tc.args)
+			if mode != tc.mode || (err != nil) != tc.bad {
+				t.Fatalf("mode=%v err=%v, want mode=%v error=%v", mode, err, tc.mode, tc.bad)
 			}
 		})
 	}

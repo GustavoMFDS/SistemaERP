@@ -1919,6 +1919,11 @@ jobs:
           export DATABASE_URL="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tmp/tls/ca.crt"
           export REDIS_URL="rediss://:ci-staging-redis-password@127.0.0.1:${REDIS_STAGING_PORT}/0"
           go build -o /tmp/sistemaemgo-staging-api ./cmd/api
+          /tmp/sistemaemgo-staging-api --check-dependencies > /tmp/staging-dependency-preflight.log 2>&1 || {
+            cat /tmp/staging-dependency-preflight.log
+            exit 1
+          }
+          grep -Fq 'PostgreSQL schema and Redis atomic security checks passed' /tmp/staging-dependency-preflight.log
           /tmp/sistemaemgo-staging-api > /tmp/staging-api.log 2>&1 &
           for i in {1..30}; do
             if curl --fail --silent http://127.0.0.1:18081/health/ready; then
