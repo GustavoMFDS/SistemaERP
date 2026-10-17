@@ -27,13 +27,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	application, err := app.New(ctx, cfg, logger)
-	if err != nil {
-		logger.Error("failed to init app", slog.Any("err", err))
-		os.Exit(1)
-	}
-	defer application.Close()
-
 	webDir := os.Getenv("ESTERIUM_WEB_DIR")
 	certFile := os.Getenv("ESTERIUM_TLS_CERT_FILE")
 	keyFile := os.Getenv("ESTERIUM_TLS_KEY_FILE")
@@ -42,6 +35,13 @@ func main() {
 		logger.Error("unsafe local server configuration", slog.Any("err", tlsErr))
 		os.Exit(1)
 	}
+
+	application, err := app.New(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to init app", slog.Any("err", err))
+		os.Exit(1)
+	}
+	defer application.Close()
 
 	handler := application.Router
 	if webDir != "" {
