@@ -56,8 +56,8 @@ test('recuperação presencial consome link único e revoga sessões anteriores'
     await row.getByRole('button', { name: 'Recuperar senha' }).click()
     const linkField = page.getByLabel('Link para recuperar senha')
     await expect(linkField).toHaveValue(/\/reset-password#token=[a-f0-9]{64}$/)
-    const link = await linkField.inputValue()
-    const secret = new URL(link).hash.slice('#token='.length)
+    let link = await linkField.inputValue()
+    let secret = new URL(link).hash.slice('#token='.length)
     expect(secret).toMatch(/^[a-f0-9]{64}$/)
 
     // Re-loading the manager screen must not expose a copy of the secret.
@@ -67,6 +67,32 @@ test('recuperação presencial consome link único e revoga sessões anteriores'
     await expect(pending).toBeVisible()
     await pending.locator('summary').click()
     await expect(pending).toContainText(username)
+
+    // An administrator can cancel a link after reopening the team screen.
+    await pending.getByRole('button', { name: 'Cancelar link' }).click()
+    await expect(pending.getByText(username)).toHaveCount(0)
+    const cancelledStatus = await page.evaluate(async (token) => {
+      const { APIError, apiJson } = await import('/src/lib/api.ts')
+      try {
+        await apiJson('/api/v1/staff/complete-password-reset', {
+          method: 'POST', body: { token, password: 'Senha-Revogada-2026!' },
+        })
+        return 200
+      } catch (error) {
+        if (error instanceof APIError) return error.status
+        throw error
+      }
+    }, secret)
+    expect(cancelledStatus).toBe(422)
+
+    // A fresh link replaces the revoked one without changing the old password.
+    const priorLink = link
+    page.once('dialog', (dialog) => void dialog.accept())
+    await row.getByRole('button', { name: 'Recuperar senha' }).click()
+    await expect(linkField).toHaveValue(/\/reset-password#token=[a-f0-9]{64}$/)
+    link = await linkField.inputValue()
+    secret = new URL(link).hash.slice('#token='.length)
+    expect(link).not.toBe(priorLink)
 
     const reset = await resetContext.newPage()
     const requestedUrls: string[] = []
