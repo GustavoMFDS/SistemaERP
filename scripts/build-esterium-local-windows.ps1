@@ -92,7 +92,9 @@ foreach ($tool in @(
     'verify-esterium-bundle.ps1',
     'postgres-daily-backup.ps1',
     'copy-verified-external-backup.ps1',
-    'check-esterium-backup-integrity.ps1'
+    'check-esterium-backup-integrity.ps1',
+    'run-esterium-scheduled-backup.ps1',
+    'register-esterium-backup-task.ps1'
 )) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool) -ErrorAction Stop
 }
