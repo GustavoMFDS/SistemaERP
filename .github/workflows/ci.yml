@@ -139,6 +139,11 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Start dependencies and run clean migrations
         run: docker compose up -d db redis migrate
+      - name: Verify production Redis security primitives
+        working-directory: backend
+        env:
+          TEST_REDIS_ADDR: localhost:6379
+        run: go test -v -count=1 -run '^TestRedisSecurityProbe' ./internal/app
       - name: Verify migration container
         run: docker compose ps --all
       - name: Seed integration data
