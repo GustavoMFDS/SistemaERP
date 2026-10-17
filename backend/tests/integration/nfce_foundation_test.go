@@ -22,6 +22,11 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
+	// This scenario COMMITs fiscal sequences. It must execute only against a
+	// newly created, disposable database, never a pilot or company database.
+	if os.Getenv("TEST_FISCAL_DISPOSABLE_DB") != "1" {
+		t.Skip("NFC-e sequence test requires an isolated disposable database")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -54,11 +59,9 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 		t.Fatalf("create tenant B: %v", err)
 	}
 
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM fiscal_document_sequences WHERE tenant_id=$1`, tenantA)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM nfce_configs WHERE tenant_id=$1`, tenantA)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
-	})
+	// Intentionally do not delete fiscal_document_sequences or nfce_configs:
+	// those rows may have protected audit history. The dedicated test runner
+	// destroys this database only after the test process finishes.
 
 	repo := fiscinfra.NewFiscalRepo(pool)
 	uow := db.NewPgxUnitOfWork(pool)
