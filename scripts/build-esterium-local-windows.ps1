@@ -61,6 +61,17 @@ try {
 if (-not (Test-Path (Join-Path $WebOut 'index.html'))) {
     throw 'O frontend compilado não contém index.html'
 }
+$toolsDir = Join-Path $OutputDir 'tools'
+New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+foreach ($tool in @(
+    'register-esterium-windows-service.ps1',
+    'verify-esterium-bundle.ps1',
+    'postgres-daily-backup.ps1',
+    'copy-verified-external-backup.ps1'
+)) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool) -ErrorAction Stop
+}
+Copy-Item -LiteralPath (Join-Path $Root 'docs/esterium-local-service-registration.md') -Destination (Join-Path $OutputDir 'README_LOCAL.md') -ErrorAction Stop
 & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $OutputDir
 & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $OutputDir
 Write-Host "Bundle L0 gerado em $OutputDir"
