@@ -38,6 +38,16 @@ func WithLocalFrontend(api http.Handler, directory string) (http.Handler, error)
 			return
 		}
 
+		// Static responses do not pass through the API's security middleware.
+		// The API uses default-src 'none'; the bundled SPA needs self-hosted
+		// scripts, CSS, icons and a same-origin connection for API calls.
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+
 		relative := strings.TrimPrefix(requested, "/")
 		if relative != "" {
 			candidate := filepath.Join(root, filepath.FromSlash(relative))
