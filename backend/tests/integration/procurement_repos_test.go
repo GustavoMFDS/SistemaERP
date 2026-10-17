@@ -63,15 +63,20 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelCleanup()
+		remove := func(query string, args ...any) {
+			if _, cleanupErr := pool.Exec(cleanupCtx, query, args...); cleanupErr != nil {
+				t.Errorf("procurement fixture cleanup failed: %v", cleanupErr)
+			}
+		}
 		if supplierA != "" {
-			_, _ = pool.Exec(cleanupCtx, `DELETE FROM purchase_items WHERE purchase_id IN (SELECT id FROM purchases WHERE supplier_id=$1)`, supplierA)
-			_, _ = pool.Exec(cleanupCtx, `DELETE FROM purchases WHERE supplier_id=$1`, supplierA)
-			_, _ = pool.Exec(cleanupCtx, `DELETE FROM suppliers WHERE id=$1`, supplierA)
+			remove(`DELETE FROM purchase_items WHERE purchase_id IN (SELECT id FROM purchases WHERE supplier_id=$1)`, supplierA)
+			remove(`DELETE FROM purchases WHERE supplier_id=$1`, supplierA)
+			remove(`DELETE FROM suppliers WHERE id=$1`, supplierA)
 		}
 		if supplierB != "" {
-			_, _ = pool.Exec(cleanupCtx, `DELETE FROM suppliers WHERE id=$1`, supplierB)
+			remove(`DELETE FROM suppliers WHERE id=$1`, supplierB)
 		}
-		_, _ = pool.Exec(cleanupCtx, `DELETE FROM companies WHERE id=$1`, tenantB)
+		remove(`DELETE FROM companies WHERE id=$1`, tenantB)
 	})
 
 	repo := procinfra.NewRepo(pool)
