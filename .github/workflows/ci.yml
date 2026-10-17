@@ -88,6 +88,14 @@ jobs:
         shell: pwsh
         run: ./scripts/test-register-esterium-windows-service.ps1
 
+  local-backup-integrity-gate:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify freshness and integrity of synthetic local and external backups
+        shell: pwsh
+        run: ./scripts/test-esterium-backup-integrity.ps1
+
   local-external-backup-tests:
     runs-on: windows-2025
     steps:
@@ -138,6 +146,7 @@ jobs:
             scripts/verify-esterium-bundle.ps1 \
             scripts/postgres-daily-backup.ps1 \
             scripts/copy-verified-external-backup.ps1 \
+            scripts/check-esterium-backup-integrity.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md

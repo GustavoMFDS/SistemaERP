@@ -18,6 +18,23 @@ O backup é marcado como válido **somente** se o arquivo PostgreSQL local for �
 
 O JSON `backup-status.json` informa `archive_verified` e `external_copy_verified` sem revelar caminho de rede ou credenciais. A limpeza por prazo de retenção continua apenas na pasta local; a retenção, a criptografia e o controle de acesso do destino remoto devem ser configurados separadamente.
 
+## Conferência diária de integridade e atualização
+
+O `backup-status.json` passa a incluir também `archive_name` e `archive_sha256`, mas **nunca** senhas, caminhos de compartilhamento ou dados comerciais. Em caso de falha, os dois campos são esvaziados.
+
+O pacote Windows inclui `tools/check-esterium-backup-integrity.ps1`, um verificador **somente leitura** que exige status `ok`, arquivo local e cópia externa da **mesma geração**, SHA-256 correspondente e arquivos `.sha256` válidos, além de um horário dentro do prazo configurado. Arquivos faltantes, adulterados ou backup antigo geram erro para o operador. O verificador exige compartilhamento de rede UNC; a exceção para pastas locais só funciona nos testes sintéticos do runner Windows hospedado.
+
+Exemplo, depois de configurar o compartilhamento e a conta de serviço (sem credenciais na linha de comando):
+
+```powershell
+.\tools\check-esterium-backup-integrity.ps1 `
+  -BackupDir 'D:\Esterium\Backups' `
+  -ExternalBackupDir '\\servidor-de-backup\esterium' `
+  -MaxAgeHours 30
+```
+
+O erro da verificação pode ser utilizado por um monitor de tarefas local, mas **o CI não registra notificações nem agendamentos na loja**. Para a operação real, ainda é obrigatório executar restaurações ensaiadas em outro computador, proteger a cópia externa por ACL/criptografia e monitorar as falhas.
+
 ## Escopo do teste automatizado
 
 O teste `scripts/test-verified-external-backup.ps1` copia **somente bytes sintéticos**, verifica hash e arquivo de checksum, impede sobrescrita e rejeita arquivo vazio. Ele roda no CI Windows e não precisa de um PostgreSQL real.

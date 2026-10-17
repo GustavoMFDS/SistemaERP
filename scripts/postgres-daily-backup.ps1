@@ -42,6 +42,8 @@ $lock = $null
 $tmp = $null
 $ok = $false
 $externalVerified = $false
+$name = ''
+$hash = ''
 $status = Join-Path $full 'backup-status.json'
 try {
     $lock = [IO.File]::Open((Join-Path $full '.esterium-backup.lock'),
@@ -53,10 +55,15 @@ try {
     $tables = & $psql -v ON_ERROR_STOP=1 -At -c @'
 SELECT count(*) FROM information_schema.tables
 WHERE table_schema='public' AND table_name IN
-('companies','products','sales','sale_items','inventory_balances','invoices','audit_logs')
+('companies','users','products','sales','sale_items','payments','audit_logs',
+ 'nfce_configs','fiscal_document_sequences','sale_fiscal_intents','schema_migrations')
 '@
-    if ($LASTEXITCODE -ne 0 -or [string]$tables -ne '7') {
+    if ($LASTEXITCODE -ne 0 -or [string]$tables -ne '11') {
         throw 'Critical ERP tables are missing.'
+    }
+    $migrationState = & $psql -v ON_ERROR_STOP=1 -At -c 'SELECT count(*) FROM schema_migrations WHERE version > 0 AND dirty = false;'
+    if ($LASTEXITCODE -ne 0 -or [string]$migrationState -ne '1') {
+        throw 'Database migration state is missing or dirty; refusing backup.'
     }
 
     $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
@@ -106,6 +113,8 @@ finally {
             state = $state
             archive_verified = $ok
             external_copy_verified = $externalVerified
+            archive_name = if ($ok) { $name } else { '' }
+            archive_sha256 = if ($ok) { $hash } else { '' }
         } | ConvertTo-Json -Compress
         $tempStatus = Join-Path $full ('.esterium-status-' + [Guid]::NewGuid().ToString('N') + '.tmp')
         [IO.File]::WriteAllText($tempStatus, $report, [Text.UTF8Encoding]::new($false))
