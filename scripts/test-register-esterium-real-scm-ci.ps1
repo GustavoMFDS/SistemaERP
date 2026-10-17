@@ -27,6 +27,7 @@ $secrets = Join-Path $root 'secrets'
 $install = Join-Path $env:ProgramFiles "EsteriumERP-CI-$guid"
 $created = $false
 $installCalled = $false
+$taskInstallAttempted = $false
 
 try {
     New-Item -ItemType Directory -Path $web, $secrets -Force | Out-Null
@@ -119,10 +120,57 @@ try {
     if (($values -join ';') -match 'synthetic-placeholder-') {
         throw 'SCM registry leaked a secret value.'
     }
+    # Real Windows Task Scheduler smoke: no database, backup or network call.
+    # Only create a disabled task on a GitHub-hosted disposable runner.
+    $taskName = 'EsteriumERP-Backup'
+    if (@(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue).Count -ne 0) {
+        throw 'Synthetic Task Scheduler smoke requires an absent backup task.'
+    }
+    $pgTools = Join-Path $root 'pgtools'
+    [IO.Directory]::CreateDirectory($pgTools) | Out-Null
+    foreach ($toolExe in @('pg_dump.exe', 'pg_restore.exe', 'psql.exe')) {
+        [IO.File]::WriteAllText((Join-Path $pgTools $toolExe), 'synthetic-not-executable')
+    }
+    $backupPasswordFile = Join-Path $secrets 'postgres-backup.pgpass'
+    $backupCA = Join-Path $secrets 'postgres-ca.crt'
+    $configFile = Join-Path $secrets 'backup-config.json'
+    [IO.File]::WriteAllText($backupPasswordFile, 'synthetic-only-credential')
+    [IO.File]::WriteAllText($backupCA, 'synthetic-only-certificate')
+    $backupConfig = @{
+        PGHOST='127.0.0.1'; PGPORT='5432'; PGUSER='esterium_backup'
+        PGDATABASE='esterium'; PGPASSFILE=$backupPasswordFile
+        PGSSLROOTCERT=$backupCA; PostgresBin=$pgTools
+        BackupDir=(Join-Path $root 'archives')
+        ExternalBackupDir='\\other-ci-host\backups'; RetentionDays=14
+    }
+    [IO.File]::WriteAllText($configFile, ($backupConfig | ConvertTo-Json -Compress))
+    foreach ($file in @($backupPasswordFile, $configFile)) {
+        $aclResult = & icacls.exe $file '/inheritance:r' '/grant:r' '*S-1-5-20:R' '*S-1-5-18:F' '*S-1-5-32-544:F' 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Synthetic backup task ACL failed: $aclResult" }
+    }
+    $taskInstallAttempted = $true
+    & (Join-Path $install 'tools\register-esterium-backup-task.ps1') -ConfigFile $configFile -InstallDir $install -DailyAt '02:31' -Apply | Out-Null
+    $installedTask = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    if ($installedTask.State -ne 'Disabled' -or
+        $installedTask.Principal.UserId -notmatch '(?i)NETWORK SERVICE|S-1-5-20') {
+        throw 'Backup task is not disabled or lacks restricted NetworkService identity.'
+    }
+    if ($installedTask.Actions[0].Arguments -notlike "*$configFile*" -or
+        $installedTask.Actions[0].Arguments -match 'synthetic-only-credential|PGPASSWORD|PGPASSFILE=') {
+        throw 'Backup scheduled task does not pass only a config file path.'
+    }
+    Write-Output 'PASS: Windows Scheduler registered real DISABLED NetworkService task with no credentials.'
     $created = $true
     Write-Output 'PASS: real SCM service was created with LocalService, manual startup and only credential paths.'
 }
 finally {
+    if ($taskInstallAttempted) {
+        # Only the task proven absent before this run can be deleted.
+        $existingBackupTask = Get-ScheduledTask -TaskName 'EsteriumERP-Backup' -ErrorAction SilentlyContinue
+        if ($null -ne $existingBackupTask) {
+            Unregister-ScheduledTask -TaskName 'EsteriumERP-Backup' -Confirm:$false -ErrorAction Stop
+        }
+    }
     # Only a fresh, explicitly absent service may be touched. It is never started.
     if ($installCalled) {
         $query = & $sc query EsteriumERP 2>$null
