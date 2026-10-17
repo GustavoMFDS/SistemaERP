@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"os"
@@ -33,8 +34,17 @@ func main() {
 	}
 	defer application.Close()
 
+	webDir := os.Getenv("ESTERIUM_WEB_DIR")
+	certFile := os.Getenv("ESTERIUM_TLS_CERT_FILE")
+	keyFile := os.Getenv("ESTERIUM_TLS_KEY_FILE")
+	useTLS, tlsErr := resolveLocalTLS(webDir, cfg.HTTPAddr, certFile, keyFile)
+	if tlsErr != nil {
+		logger.Error("unsafe local server configuration", slog.Any("err", tlsErr))
+		os.Exit(1)
+	}
+
 	handler := application.Router
-	if webDir := os.Getenv("ESTERIUM_WEB_DIR"); webDir != "" {
+	if webDir != "" {
 		handler, err = httpapi.WithLocalFrontend(handler, webDir)
 		if err != nil {
 			logger.Error("invalid local frontend bundle", slog.Any("err", err))
@@ -49,12 +59,23 @@ func main() {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS13},
 	}
 
 	go func() {
-		logger.Info("http server starting", slog.String("addr", cfg.HTTPAddr))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("http server error", slog.Any("err", err))
+		protocol := "http"
+		if useTLS {
+			protocol = "https"
+		}
+		logger.Info("server starting", slog.String("addr", cfg.HTTPAddr), slog.String("protocol", protocol))
+		var serveErr error
+		if useTLS {
+			serveErr = srv.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			serveErr = srv.ListenAndServe()
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			logger.Error("server error", slog.Any("err", serveErr))
 			cancel()
 		}
 	}()
