@@ -50,6 +50,18 @@ jobs:
       - name: Launch compiled Go server and verify real static/UI/API traffic
         run: bash scripts/ci-local-production-bundle-smoke.sh
 
+  local-windows-config-preflight:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - name: Validate production configuration without opening external services
+        shell: pwsh
+        run: ./scripts/test-local-config-preflight-ci.ps1
+
   local-windows-secret-provision:
     runs-on: windows-2025
     steps:
@@ -242,6 +254,8 @@ jobs:
         run: docker compose run --rm seed
       - name: Prove complete PostgreSQL restore in a second disposable CI database
         run: bash scripts/ci-postgres-disposable-restore.sh
+      - name: Prove archive restores on a separate isolated PostgreSQL server
+        run: bash scripts/ci-postgres-cross-instance-restore.sh
       - name: Verify v12 to v32 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
