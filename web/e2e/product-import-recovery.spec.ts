@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { expandDisclosure } from './expandDisclosure'
+import { captureBrowserFailures } from './pageErrors'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
@@ -6,12 +8,17 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/products$/)
+  await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
 }
 
-const sample = 'sku;nome;preco;unidade\nE2E-RECOVER-PROD;12,50;un\n'
-const changed = 'sku;nome;preco;unidade\nE2E-DIFFERENT;20,00;un\n'
+const sample = 'sku;nome;preco;unidade\nE2E-RECOVER-PROD;Produto de Recuperação;12,50;un\n'
+const changed = 'sku;nome;preco;unidade\nE2E-DIFFERENT;Produto diferente;20,00;un\n'
+
+// Match only an individual UUID receipt; never mock the /import-batches/history listing.
+const batchReceiptRoute = /\/api\/v1\/products\/import-batches\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\?.*)?$/
 
 async function upload(page: import('@playwright/test').Page, csv: string) {
+  await expandDisclosure(page, 'Importar uma planilha de produtos')
   await page.getByLabel('Escolher arquivo CSV').setInputFiles({
     name: 'catalogo.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8'),
   })
@@ -35,7 +42,7 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
       }),
     })
   })
-  await page.route('**/api/v1/products/import-batches/*', (route) =>
+  await page.route(batchReceiptRoute, (route) =>
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' }))
   page.on('dialog', (dialog) => void dialog.accept())
 
@@ -73,19 +80,24 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
 })
 
 test('consulta do lote confirmado evita novo POST depois de queda de conexão', async ({ page }) => {
+  const failures = captureBrowserFailures(page)
   let posts = 0
   await page.route('**/api/v1/products/import-batches', (route) => {
     posts += 1
     return route.abort('failed')
   })
-  await page.route('**/api/v1/products/import-batches/*', (route) =>
+  await page.route(batchReceiptRoute, (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: '{"batch_id":"00000000-0000-4000-8000-000000000032","item_count":1,"replayed":true}',
     }))
   page.on('dialog', (dialog) => void dialog.accept())
   await login(page, 'gerente@sistema.local')
-  await upload(page, sample)
+  try {
+    await upload(page, sample)
+  } catch (error) {
+    throw new Error('Importação de produtos indisponível; navegador=' + failures() + '; causa=' + String(error))
+  }
   await page.getByRole('button', { name: /Confirmar importação de 1 produto/ }).click()
   await expect(page.getByRole('region', { name: 'Importação de produtos pendente' })).toBeVisible()
   await page.reload()
@@ -118,4 +130,13 @@ test('operador de caixa não pode consultar nem enviar lote de produtos', async 
     }
   })
   expect(statuses).toEqual({ get: 403, post: 403 })
+})
+
+test('resposta incompleta do histórico não derruba a tela Produtos', async ({ page }) => {
+  await page.route('**/api/v1/products/import-batches/history?*', (route) =>
+    route.fulfill({ status: 200, json: { batch_id: 'resposta-incompleta' } }))
+  await login(page, 'gerente@sistema.local')
+  await expandDisclosure(page, 'Importar uma planilha de produtos')
+  await expect(page.getByRole('alert').filter({ hasText: 'O servidor devolveu dados incompletos' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
 })
