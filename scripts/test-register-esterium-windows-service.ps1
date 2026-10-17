@@ -44,6 +44,12 @@ try {
     }
     if (-not $missingRejected) { throw 'Missing credential file was not rejected.' }
     $args.RedisURLFile = $paths.redis
+    $args.AllowedOrigin = 'http://esterium.local'
+    $insecureOriginRejected = $false
+    try { & $installer @args | Out-Null }
+    catch { $insecureOriginRejected = $_.Exception.Message -match 'HTTPS origin' }
+    if (-not $insecureOriginRejected) { throw 'Plaintext origin was not rejected.' }
+    $args.AllowedOrigin = 'https://esterium.loja.example'
     New-Item -ItemType Directory -Path $install -ErrorAction Stop | Out-Null
     $overwriteRejected = $false
     try { & $installer @args | Out-Null }
