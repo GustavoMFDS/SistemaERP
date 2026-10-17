@@ -57,6 +57,9 @@ try {
     $config.ExternalBackupDir = $local
     Write-Config
     Assert-Reject 'a local-only destination'
+    $config.ExternalBackupDir = '\\localhost\protected-backups'
+    Write-Config
+    Assert-Reject 'an SMB share on the same machine'
     $config.ExternalBackupDir = '\\other-computer\protected-backups'
     $config.PGHOST = '192.168.0.5'
     Write-Config
