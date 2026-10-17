@@ -24,6 +24,12 @@ elseif (-not $ExternalBackupDir.StartsWith('\\') -or
     $ExternalBackupDir -notmatch '^\\\\[^\\]+\\[^\\]+') {
     throw 'ExternalBackupDir must point to another host over an SMB UNC share.'
 }
+if (-not $SyntheticCIFixture) {
+    $hostName = [regex]::Match($ExternalBackupDir, '^\\\\([^\\]+)\\').Groups[1].Value
+    if ($hostName -in @('.', 'localhost', '127.0.0.1', '::1', $env:COMPUTERNAME)) {
+        throw 'External backup share cannot be on the same computer.'
+    }
+}
 
 $local = (Resolve-Path -LiteralPath $BackupDir -ErrorAction Stop).Path
 $external = (Resolve-Path -LiteralPath $ExternalBackupDir -ErrorAction Stop).Path
