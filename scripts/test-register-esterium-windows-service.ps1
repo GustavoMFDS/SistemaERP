@@ -22,6 +22,7 @@ try {
     [IO.Directory]::CreateDirectory($bundleTools) | Out-Null
     foreach ($tool in @(
         'register-esterium-windows-service.ps1',
+        'provision-esterium-app-secrets.ps1',
         'verify-esterium-bundle.ps1',
         'postgres-daily-backup.ps1',
         'copy-verified-external-backup.ps1'

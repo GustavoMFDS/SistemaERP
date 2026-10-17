@@ -11,6 +11,7 @@ $manifest = Join-Path $root 'bundle-manifest.json'
 if (Test-Path -LiteralPath $manifest) { throw 'Bundle manifest already exists; refusing to overwrite.' }
 $requiredTools = @(
     'tools/register-esterium-windows-service.ps1',
+    'tools/provision-esterium-app-secrets.ps1',
     'tools/verify-esterium-bundle.ps1',
     'tools/postgres-daily-backup.ps1',
     'tools/copy-verified-external-backup.ps1',

@@ -36,6 +36,7 @@ try {
     New-Item -ItemType Directory -Path $tools | Out-Null
     foreach ($name in @(
         'register-esterium-windows-service.ps1',
+        'provision-esterium-app-secrets.ps1',
         'verify-esterium-bundle.ps1',
         'postgres-daily-backup.ps1',
         'copy-verified-external-backup.ps1'

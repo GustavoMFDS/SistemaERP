@@ -14,6 +14,20 @@ O pacote deve incluir `bundle-manifest.json`: todos os arquivos do executável e
 
 A conta padrão do serviço é **LocalService**, sem privilégios administrativos de rotina. O serviço é registrado com inicialização **manual** e só deve ser iniciado depois que os bancos, os certificados TLS de PostgreSQL/Redis e as permissões dos arquivos estejam configurados e as migrações tenham sido aplicadas. O código Go aceita Stop/Shutdown do Gerenciador de Serviços.
 
+### Gerar os segredos que pertencem ao Esterium
+
+O pacote inclui `tools/provision-esterium-app-secrets.ps1`. O modo padrão é uma **simulação sem escrita**; após revisar em um Windows de testes com administrador, execute a variante `-Apply`. Ela cria uma pasta **nova** em `C:\ProgramData\Esterium\Secrets`, gera um `jwt.secret` e um `metrics.secret` independentes (48 bytes aleatórios cada), configura leitura para LocalService e controle para SYSTEM/administradores, sem mostrar os valores no terminal. Se a pasta existir, **não sobrescreve** nada. Gerar novos tokens em uma loja existente revogaria sessões: a rotação requer procedimento controlado.
+
+As credenciais de PostgreSQL e Redis **não são geradas** por esse utilitário: precisam ser provisionadas junto com seus serviços, com conexão TLS verificada, e gravadas em arquivos de URLs separados. O instalador precisa desses quatro caminhos; nenhum deles está incluído no ZIP.
+
+Em ambiente descartável, a partir da pasta extraída do pacote:
+
+```powershell
+.\tools\provision-esterium-app-secrets.ps1
+# Somente após revisar as permissões, em PC de testes:
+.\tools\provision-esterium-app-secrets.ps1 -Apply
+```
+
 ### Antes de executar (ainda em ambiente descartável)
 
 - Separar `DATABASE_URL_FILE`, `REDIS_URL_FILE`, `JWT_SECRET_FILE` e `METRICS_BEARER_TOKEN_FILE` fora da pasta do programa. O conteúdo deve ser restrito por ACL à conta de serviço autorizada e aos administradores; os arquivos **não** são produzidos pelo script.
