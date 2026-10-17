@@ -1309,10 +1309,13 @@ jobs:
             -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
           (
             cd backend
-            go test -tags=integration -count=1 -p 1 -parallel 1 \
+            go test -v -tags=integration -count=1 -p 1 -parallel 1 \
               -run '^(TestNFCeFoundation_TenantIsolationAndConstraints|TestNFCeReservation_IsAtomicAndIdempotentPerSale)$' \
-              ./tests/integration/...
+              ./tests/integration/... | tee /tmp/esterium-fiscal-sequence-tests.log
           )
+          # Prevent a false green if either guarded test unexpectedly skips.
+          grep -Fq -- '--- PASS: TestNFCeFoundation_TenantIsolationAndConstraints ' /tmp/esterium-fiscal-sequence-tests.log
+          grep -Fq -- '--- PASS: TestNFCeReservation_IsAtomicAndIdempotentPerSale ' /tmp/esterium-fiscal-sequence-tests.log
       - name: Start API and verify readiness
         working-directory: backend
         env:
