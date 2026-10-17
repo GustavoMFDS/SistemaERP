@@ -24,7 +24,7 @@ if ($env:OS -ne 'Windows_NT') { throw 'Esterium Windows service installation req
 $serviceName = 'EsteriumERP'
 $origin = $null
 if (-not [Uri]::TryCreate($AllowedOrigin, [UriKind]::Absolute, [ref]$origin) -or
-    $origin.Scheme -ne 'https' -or [string]::IsNullOrWhiteSpace($origin.Host) -or
+    $origin.Scheme -ne 'https' -or $origin.UserInfo -ne '' -or [string]::IsNullOrWhiteSpace($origin.Host) -or
     $origin.Host -in @('localhost', '127.0.0.1', '::1') -or
     $origin.AbsolutePath -ne '/' -or $origin.Query -ne '' -or $origin.Fragment -ne '') {
     throw 'AllowedOrigin must be an actual HTTPS origin for this installation (not localhost).'
@@ -38,7 +38,7 @@ $targetAddress = if ($ListenAddress.StartsWith(':')) {
     "http://$ListenAddress"
 }
 if (-not [Uri]::TryCreate($targetAddress, [UriKind]::Absolute, [ref]$uri) -or
-    $uri.Scheme -ne 'http' -or $uri.Port -le 0 -or $uri.Port -gt 65535 -or
+    $uri.Scheme -ne 'http' -or $uri.UserInfo -ne '' -or $uri.Port -le 0 -or $uri.Port -gt 65535 -or
     $uri.AbsolutePath -ne '/' -or $uri.Query -ne '' -or $uri.Fragment -ne '') {
     throw 'ListenAddress must be an IP or localhost with a valid explicit port.'
 }
