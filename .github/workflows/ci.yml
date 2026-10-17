@@ -192,6 +192,8 @@ jobs:
             scripts/postgres-daily-backup.ps1 \
             scripts/copy-verified-external-backup.ps1 \
             scripts/check-esterium-backup-integrity.ps1 \
+            scripts/run-esterium-scheduled-backup.ps1 \
+            scripts/register-esterium-backup-task.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
