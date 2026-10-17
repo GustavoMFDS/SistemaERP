@@ -8,20 +8,32 @@ import (
 	"github.com/example/sistemaemgo/internal/httpapi"
 )
 
-// --check-config must not open a socket, connect to PostgreSQL or Redis,
-// modify a database, print secrets or start a Windows service.
-func checkConfigArgument(args []string) (bool, error) {
+type startupMode uint8
+
+const (
+	startupServe startupMode = iota
+	startupConfigCheck
+	startupDependencyCheck
+)
+
+// The preflight flags must never be combined with a service startup or
+// unknown arguments that could silently enable unsafe modes.
+func parseStartupMode(args []string) (startupMode, error) {
 	if len(args) == 0 {
-		return false, nil
+		return startupServe, nil
 	}
-	if len(args) == 1 && args[0] == "--check-config" {
-		return true, nil
+	if len(args) == 1 {
+		switch args[0] {
+		case "--check-config":
+			return startupConfigCheck, nil
+		case "--check-dependencies":
+			return startupDependencyCheck, nil
+		}
 	}
-	return false, errors.New("only --check-config is supported")
+	return startupServe, errors.New("only --check-config or --check-dependencies is supported")
 }
 
 // Validate a local UI bundle before opening the database or any listener.
-// On normal startup this allows configuration errors to be detected early.
 func preflightFrontendBundle(webDir string) error {
 	if strings.TrimSpace(webDir) == "" {
 		return nil
