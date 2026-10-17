@@ -24,7 +24,35 @@ foreach ($file in $items) {
         throw 'Bundle may not contain symbolic links or junctions.'
     }
     $relative = $file.FullName.Substring($root.Length + 1).Replace('\', '/')
+    if ($relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
+        $relative -notmatch '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql
+        throw "Unexpected bundle file: $relative"
+    }
+    if ($relative -match '(^|/)(\.env|.*\.pem|.*\.key|.*\.db|.*\.sqlite|.*\.secret)(/|$)') {
+        throw 'Bundle contains a file resembling secret/database material.'
+    }
+    $records += @{
+        path = $relative
+        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+if (-not ($records | Where-Object { $_.path -eq 'esterium-server.exe' }) -or
+    -not ($records | Where-Object { $_.path -eq 'web/index.html' })) {
+    throw 'Bundle requires esterium-server.exe and web/index.html'
+}
+foreach ($needed in $requiredTools) {
+    if (-not ($records | Where-Object { $_.path -eq $needed })) {
+        throw "Incomplete local tools bundle: $needed"
+    }
+}
+$payload = @{ schema = 1; files = @($records | Sort-Object -Property path) } | ConvertTo-Json -Depth 5
+[IO.File]::WriteAllText($manifest, $payload + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+Write-Output 'PASS: bundle SHA-256 manifest generated (not a digital signature).'
+) {
+        throw "Unexpected migration file: $relative"
+    }
     if ($relative -ne 'esterium-server.exe' -and -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
+        -not $relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
         -not ($requiredTools -contains $relative)) {
         throw "Unexpected bundle file: $relative"
     }
