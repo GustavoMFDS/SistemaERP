@@ -366,7 +366,7 @@ export default function InventoryPage() {
             <thead className="bg-gray-50 text-xs text-gray-600">
               <tr>
                 <th className="px-3 py-2">Foto</th>
-                <th className="px-3 py-2">Código (SKU)</th>
+                <th className="px-3 py-2">Código do produto</th>
                 <th className="px-3 py-2">Produto</th>
                 <th className="px-3 py-2">Qtd</th>
                 <th className="px-3 py-2">Min</th>
@@ -449,12 +449,12 @@ export default function InventoryPage() {
               ) : null}
               <div className="max-h-44 overflow-auto rounded-md border">
                 <table className="min-w-full text-left text-xs">
-                  <thead className="bg-gray-50"><tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Saldo contado</th></tr></thead>
+                  <thead className="bg-gray-50"><tr><th className="px-3 py-2">Código</th><th className="px-3 py-2">Saldo contado</th></tr></thead>
                   <tbody>{openingPreview.rows.map((item) =>
                     <tr key={item.sku}>
                       <td className="px-3 py-2">{item.sku}
                         <span className="block text-gray-500">
-                          {products.find((product) => product.sku === item.sku)?.name ?? 'Verifique o SKU na lista de produtos'}
+                          {products.find((product) => product.sku === item.sku)?.name ?? 'Confira o código na lista de produtos'}
                         </span>
                       </td>
                       <td className="px-3 py-2">{item.quantity.toFixed(3)}</td>
