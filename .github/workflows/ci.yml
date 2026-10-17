@@ -10,6 +10,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  local-garnet-windows-compat:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run Redis security contract on Garnet Windows x64 v2.2.3
+        shell: pwsh
+        env:
+          TEST_GARNET_ADDR: 127.0.0.1:16379
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
+          $zip = Join-Path $env:RUNNER_TEMP 'garnet-v2.2.3.zip'
+          $folder = Join-Path $env:RUNNER_TEMP 'garnet-windows-test'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '5cd130686ab415b13c59d36d048a6faded81e707ffe6da5953f98beeb79f9f16'
+          if ($actual -ne $expected) { throw 'Garnet release hash mismatch' }
+          Expand-Archive $zip -DestinationPath $folder
+          $exe = Get-ChildItem -Path $folder -Recurse -Filter 'GarnetServer.exe' -File | Select-Object -First 1
+          if (-not $exe) { throw 'GarnetServer.exe not found in pinned release' }
+          $logOut = Join-Path $env:RUNNER_TEMP 'garnet.out.log'
+          $logErr = Join-Path $env:RUNNER_TEMP 'garnet.err.log'
+          $args = @(
+            '--bind', '127.0.0.1', '--port', '16379', '--lua',
+            '--lua-transaction-mode', '--aof', '--aof-commit-wait',
+            '--recover', '--fail-on-recovery-error'
+          )
+          $process = Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -ArgumentList $args -PassThru -RedirectStandardOutput $logOut -RedirectStandardError $logErr
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              if ($process.HasExited) { throw "Garnet exited early: $($process.ExitCode)" }
+              $tcp = [System.Net.Sockets.TcpClient]::new()
+              try {
+                $connect = $tcp.ConnectAsync('127.0.0.1', 16379)
+                if ($connect.Wait(1000) -and $tcp.Connected) { $ready = $true; break }
+              } catch { }
+              finally { $tcp.Dispose() }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $ready) { throw 'Garnet did not bind its isolated loopback port' }
+            Push-Location backend
+            try {
+              & go test -v -tags=integration -count=1 -run '^TestLocalGarnetRedisSecurityContract$' ./tests/integration/...
+              if ($LASTEXITCODE -ne 0) { throw 'Redis security contract failed against Garnet Windows' }
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            Get-Content $logOut -Tail 25 -ErrorAction SilentlyContinue
+            Get-Content $logErr -Tail 25 -ErrorAction SilentlyContinue
+          }
   local-windows-bundle:
     runs-on: ubuntu-latest
     steps:
