@@ -57,6 +57,12 @@ A origem HTTPS é um exemplo de formato: forneça o nome **verdadeiro e validado
 
 O job Windows `local-windows-installer-plan` testa com **arquivos sintéticos** que a simulação não cria instalação, rejeita credencial ausente e recusa substituir pasta existente. Ele não instala serviço real em ambiente de produção, não executa restauração nem disponibiliza o ERP fiscalmente.
 
+## Pré-verificação do executável sem acessar banco
+
+O executável agora admite exclusivamente `--check-config`, que lê e valida as variáveis/arquivos de configuração, a correspondência do certificado HTTPS e o frontend compilado **sem abrir portas, conectar ao PostgreSQL/Redis ou transmitir à SEFAZ**. Também faz essa conferência básica antes das conexões no início normal. O CI Windows executa o preflight com arquivos e URLs inteiramente sintéticos e recusa argumentos inválidos.
+
+**Importante:** executar manualmente o `.exe` fora do Gerenciador de Serviços não carrega automaticamente as entradas `Environment` do serviço no registro do Windows. É necessário executar o preflight na identidade do serviço ou em ambiente controlado equivalente, sem imprimir ou copiar valores de segredos. A aprovação desse teste não demonstra que o banco ou os certificados são alcançáveis.
+
 ## Pendente para instalador completo
 
 Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, agendamento e restauração real de backups, inicialização automática e desinstalação preservando dados.
