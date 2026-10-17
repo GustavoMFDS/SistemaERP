@@ -28,6 +28,10 @@ if (-not [string]::IsNullOrWhiteSpace($ExternalBackupDir)) {
     if ($ExternalBackupDir -notmatch '^\\\\[^\\]+\\[^\\]+') {
         throw 'ExternalBackupDir must be an SMB UNC share (\\server\share).'
     }
+    $hostName = [regex]::Match($ExternalBackupDir, '^\\\\([^\\]+)\\').Groups[1].Value
+    if ($hostName -in @('.', 'localhost', '127.0.0.1', '::1', $env:COMPUTERNAME)) {
+        throw 'External backup share cannot be on the same computer.'
+    }
 }
 $full = [IO.Path]::GetFullPath($BackupDir).TrimEnd('\', '/')
 $root = [IO.Path]::GetPathRoot($full).TrimEnd('\', '/')
