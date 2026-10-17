@@ -34,9 +34,11 @@ try {
     $env:VITE_API_BASE_URL = $PreviousAPIBase
 }
 
+if (Test-Path $OutputDir) {
+    throw "Pasta de saída já existe: $OutputDir. Escolha um caminho novo para não substituir dados."
+}
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 $WebOut = Join-Path $OutputDir 'web'
-if (Test-Path $WebOut) { Remove-Item $WebOut -Recurse -Force }
 Copy-Item -Path (Join-Path $Root 'web\dist') -Destination $WebOut -Recurse
 
 Push-Location (Join-Path $Root 'backend')
