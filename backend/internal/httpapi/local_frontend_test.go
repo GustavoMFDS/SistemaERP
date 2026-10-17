@@ -31,8 +31,8 @@ func TestWithLocalFrontend(t *testing.T) {
 
 	cases := []struct {
 		name, method, url, accept string
-		status int
-		body string
+		status                    int
+		body                      string
 	}{
 		{"root", "GET", "/", "text/html", 200, "Esterium"},
 		{"spa navigation", "GET", "/products/123", "text/html", 200, "Esterium"},
