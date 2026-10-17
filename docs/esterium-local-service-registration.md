@@ -2,6 +2,10 @@
 
 O script `scripts/register-esterium-windows-service.ps1` registra **apenas** o executável Go e os arquivos compilados da interface em `C:\Program Files\EsteriumERP`. Ele **não é um instalador completo** de loja.
 
+**Novo modo LAN:** opcionalmente aceite `-ListenAddress '0.0.0.0:8443' -TLSCertFile 'C:\ProgramData\Esterium\TLS\server-cert.pem' -TLSKeyFile 'C:\ProgramData\Esterium\TLS\server-key.pem'`. Um endereço não-local **sempre exige o par TLS**, guardado fora do ZIP e da pasta do programa, com permissão de leitura explícita para `LocalService`. O Go verifica par/certificado e exige TLS 1.3 na inicialização. Os navegadores dos caixas ainda precisam confiar na cadeia do certificado, e a regra de firewall LAN deve ser configurada independentemente.
+
+O padrão permanece `127.0.0.1:8080` sem TLS, acessível apenas no próprio PC ou por proxy HTTPS externo. O registrador não configura proxy, DNS, firewall ou confiança dos clientes; tampouco substitui a revisão do `APP_PUBLIC_URL` utilizado no acesso real.
+
 ## Segurança de instalação
 
 O programa **recusa sobrescrever** a pasta de instalação ou o serviço `EsteriumERP` já existentes. Copia apenas o executável compilado e a pasta `web`; nunca inclui arquivo de credenciais, banco ou backup.
