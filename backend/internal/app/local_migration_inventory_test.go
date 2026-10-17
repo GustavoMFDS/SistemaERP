@@ -74,7 +74,6 @@ func TestVerifyLocalSchemaVersionRejectsOutdatedDatabase(t *testing.T) {
 	}
 }
 
-
 func TestLocalMigrationHeadRejectsDuplicateVersionNumbers(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{
