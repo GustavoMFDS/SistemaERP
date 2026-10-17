@@ -11,6 +11,7 @@ import (
 
 	"github.com/example/sistemaemgo/internal/app"
 	"github.com/example/sistemaemgo/internal/config"
+	"github.com/example/sistemaemgo/internal/httpapi"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -32,9 +33,18 @@ func main() {
 	}
 	defer application.Close()
 
+	handler := application.Router
+	if webDir := os.Getenv("ESTERIUM_WEB_DIR"); webDir != "" {
+		handler, err = httpapi.WithLocalFrontend(handler, webDir)
+		if err != nil {
+			logger.Error("invalid local frontend bundle", slog.Any("err", err))
+			os.Exit(1)
+		}
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           wrapTelemetryHandler(cfg, application.Router),
+		Handler:           wrapTelemetryHandler(cfg, handler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
