@@ -67,12 +67,12 @@ try {
     catch { $lanRejected = $_.Exception.Message -match 'LAN listeners require' }
     if (-not $lanRejected) { throw 'Plaintext LAN listener was not rejected.' }
     $args.TLSCertFile = Join-Path $secrets 'lan-cert.pem'
-    $args.TLSKeyFile = Join-Path $secrets 'lan-key.pem'
     [IO.File]::WriteAllText($args.TLSCertFile, 'synthetic certificate test marker')
     $halfPairRejected = $false
     try { & $installer @args | Out-Null }
     catch { $halfPairRejected = $_.Exception.Message -match 'must both be supplied' }
     if (-not $halfPairRejected) { throw 'Incomplete TLS pair was not rejected.' }
+    $args.TLSKeyFile = Join-Path $secrets 'lan-key.pem'
     [IO.File]::WriteAllText($args.TLSKeyFile, 'synthetic key test marker')
     $lanPlan = @(& $installer @args) -join [Environment]::NewLine
     if ($lanPlan -notmatch 'HTTPS listener' -or (Test-Path -LiteralPath $install)) {
