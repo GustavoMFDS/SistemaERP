@@ -1,10 +1,51 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLoadFromEnvReadsProtectedDatabaseAndRedisFiles(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("REDIS_URL", "")
+	t.Setenv("JWT_SECRET", "safe-local-integration-secret-of-ample-length")
+	t.Setenv("FISCAL_PROVIDER", "disabled")
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "database-url.secret")
+	redisPath := filepath.Join(dir, "redis-url.secret")
+	wantDB := "postgres://app:integration-db-password@localhost:5432/esterium?sslmode=disable"
+	wantRedis := "redis://:integration-redis-password@localhost:6379/0"
+	if err := os.WriteFile(dbPath, []byte(wantDB+"\\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(redisPath, []byte(wantRedis+"\\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DATABASE_URL_FILE", dbPath)
+	t.Setenv("REDIS_URL_FILE", redisPath)
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("read protected local URLs: %v", err)
+	}
+	if cfg.DatabaseURL != wantDB || cfg.RedisURL != wantRedis {
+		t.Fatalf("connection URLs were not read from protected files")
+	}
+}
+
+func TestLoadFromEnvRejectsMissingProtectedURLFile(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DATABASE_URL_FILE", filepath.Join(t.TempDir(), "missing.secret"))
+	t.Setenv("JWT_SECRET", "safe-local-integration-secret-of-ample-length")
+	_, err := LoadFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL_FILE") {
+		t.Fatalf("missing database file was not rejected: %v", err)
+	}
+}
 
 func TestValidateRejectsWildcardCORS(t *testing.T) {
 	cfg := validProdConfig()
