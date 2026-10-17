@@ -21,17 +21,22 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
   await page.getByRole('link', { name: 'PDV' }).click()
   await expect(page.getByRole('heading', { name: 'PDV' })).toBeVisible()
   await page.getByRole('button', { name: 'Abrir' }).click()
-  await expect(page.getByText(/cash_session_id/)).toBeVisible()
+  await expect.poll(async () => page.evaluate(async () => {
+    const { getCashSessionId } = await import('/src/lib/auth.ts')
+    return getCashSessionId()
+  })).not.toBe('')
+  await expect(page.getByRole('region', { name: 'Caixa aberto' })).toBeVisible()
 
-  await page.getByLabel('Produto').selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   await context.setOffline(true)
   await page.getByRole('button', { name: 'Finalizar' }).click()
   await expect(page.getByText(/Venda registrada offline/)).toBeVisible()
-  await expect(page.getByRole('status')).toHaveClass(/bg-amber-50/)
-  await expect(page.getByRole('status')).toContainText('Aguardando confirmação no servidor')
-  await expect(page.getByText(/Pendências: 1/)).toBeVisible()
+  const offlineSaleStatus = page.getByRole('status').filter({ hasText: 'Aguardando confirmação no servidor' })
+  await expect(offlineSaleStatus).toHaveClass(/bg-amber-50/)
+  await expect(offlineSaleStatus).toContainText('Aguardando confirmação no servidor')
+  await expect(page.getByText(/1 venda\(s\) aguardando sincronização/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
   await expect(
@@ -47,7 +52,10 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
     .not.toBe('')
 
   await context.setOffline(false)
-  await expect(page.getByText(/Pendências: 0/)).toBeVisible({ timeout: 15000 })
+  await expect.poll(async () => page.evaluate(async () => {
+    const { getQueueSummary } = await import('/src/lib/offlineQueue.ts')
+    return getQueueSummary().total
+  }), { timeout: 15000 }).toBe(0)
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
   await waitForCashClosed(page)
 })
