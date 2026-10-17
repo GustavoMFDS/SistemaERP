@@ -532,7 +532,7 @@ export default function ProductsPage() {
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
               <th className="px-3 py-2">Foto</th>
-              <th className="px-3 py-2">Código (SKU)</th>
+              <th className="px-3 py-2">Código do produto</th>
               {showTechnical ? (<>
               <th className="px-3 py-2">Código de barras</th>
               <th className="px-3 py-2">Classificação (NCM)</th>
@@ -762,7 +762,7 @@ export default function ProductsPage() {
             Nova opção de {variationSource}: ela ficará vinculada ao produto original, mas terá código e estoque independentes. Informe um SKU diferente. O saldo começa zerado; ajuste-o na aba Estoque após cadastrar. Os dados fiscais e código de barras não são copiados automaticamente.
           </p> : null}
           <label className="block md:col-span-2">
-            <span className="text-xs text-gray-600">Código do produto (SKU)</span>
+            <span className="text-xs text-gray-600">Código do produto</span>
             <input
               ref={skuInputRef}
               value={sku}
