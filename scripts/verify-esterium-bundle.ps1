@@ -27,8 +27,13 @@ $seen = @{}
 foreach ($record in @($document.files)) {
     $relative = [string]$record.path
     $expected = [string]$record.sha256
+    if ($relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
+        $relative -notmatch '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$') {
+        throw 'Unexpected migration path in manifest.'
+    }
     if ($relative -ne 'esterium-server.exe' -and
         -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
+        -not $relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
         -not ($requiredTools -contains $relative)) {
         throw 'Unexpected manifest path.'
     }
@@ -54,6 +59,16 @@ if (-not $seen.ContainsKey('esterium-server.exe') -or -not $seen.ContainsKey('we
 foreach ($needed in $requiredTools) {
     if (-not $seen.ContainsKey($needed)) {
         throw "Required installer helper missing: $needed"
+    }
+}
+$migrations = @($seen.Keys | Where-Object { $_ -match '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$' })
+$ups = @($migrations | Where-Object { $_.EndsWith('.up.sql') })
+if ($ups.Count -eq 0 -or $migrations.Count -ne 2 * $ups.Count) {
+    throw 'SQL migration files in bundle are incomplete.'
+}
+foreach ($up in $ups) {
+    if (-not $seen.ContainsKey($up.Replace('.up.sql', '.down.sql'))) {
+        throw "Unpaired SQL migration: $up"
     }
 }
 foreach ($item in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
