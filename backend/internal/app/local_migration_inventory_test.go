@@ -73,3 +73,19 @@ func TestVerifyLocalSchemaVersionRejectsOutdatedDatabase(t *testing.T) {
 		t.Fatal("accepted dirty migration state")
 	}
 }
+
+func TestLocalMigrationHeadRejectsDuplicateVersionNumbers(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{
+		"0001_initial.up.sql", "0001_initial.down.sql",
+		"0002_items.up.sql", "0002_items.down.sql",
+		"0002_conflicting.up.sql", "0002_conflicting.down.sql",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("-- synthetic\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := localMigrationHead(dir); err == nil {
+		t.Fatal("accepted two distinct complete SQL migration pairs with the same version")
+	}
+}

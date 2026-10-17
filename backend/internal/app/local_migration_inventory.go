@@ -21,6 +21,7 @@ func localMigrationHead(dir string) (int, error) {
 	up := make(map[string]bool)
 	down := make(map[string]bool)
 	versions := make(map[int]bool)
+	upStemsByVersion := make(map[int]string)
 	head := 0
 	for _, entry := range entries {
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
@@ -40,6 +41,10 @@ func localMigrationHead(dir string) (int, error) {
 		}
 		stem := strings.TrimSuffix(strings.TrimSuffix(name, ".up.sql"), ".down.sql")
 		if match[2] == "up" {
+			if existing, ok := upStemsByVersion[version]; ok && existing != stem {
+				return 0, fmt.Errorf("duplicate migration version %04d", version)
+			}
+			upStemsByVersion[version] = stem
 			up[stem] = true
 			versions[version] = true
 		} else {
