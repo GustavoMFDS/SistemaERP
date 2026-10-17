@@ -18,11 +18,13 @@ A conta padrão do serviço é **LocalService**, sem privilégios administrativo
 - Garantir `CORS_ALLOWED_ORIGINS` adequado ao ambiente prod e os demais controles exigidos pelo carregador de configurações; esse registro inicial **não configura** todos os requisitos de inicialização.
 - Não iniciar com dados reais nem liberar SEFAZ; `FISCAL_PROVIDER=disabled` e flags de transmissão fiscal desativadas.
 
+Extraia o artefato técnico em uma pasta temporária confiável e abra o PowerShell **nessa pasta**, onde ficam `esterium-server.exe`, `web/`, `tools/` e este `README_LOCAL.md`. Se estiver trabalhando no clone do repositório, o comando equivalente fica em `scripts/register-esterium-windows-service.ps1` e requer `-BundleDir` apontando para o pacote compilado.
+
 A simulação **sem alterações no Windows** deve sempre ser executada antes da instalação real:
 
 ```powershell
-.\scripts\register-esterium-windows-service.ps1 `
-  -BundleDir 'D:\Artefatos\esterium-local-l0-win-x64' `
+.\tools\register-esterium-windows-service.ps1 `
+  -BundleDir (Get-Location).Path `
   -DatabaseURLFile 'C:\ProgramData\Esterium\Secrets\database-url.secret' `
   -RedisURLFile 'C:\ProgramData\Esterium\Secrets\redis-url.secret' `
   -JWTSecretFile 'C:\ProgramData\Esterium\Secrets\jwt.secret' `
