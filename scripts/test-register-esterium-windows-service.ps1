@@ -40,6 +40,18 @@ try {
     [IO.File]::WriteAllText((Join-Path $bundle 'README_LOCAL.md'), 'Synthetic setup directions')
     & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $bundle | Out-Null
     & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
+    # The migration executable is mandatory and protected by the manifest.
+    $migratorPath = Join-Path $bundle 'tools\\esterium-migrate.exe'
+    $outside = Join-Path $root 'temporary-migrator-test-only'
+    Move-Item -LiteralPath $migratorPath -Destination $outside
+    try {
+        $missingMigratorRejected = $false
+        try { & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null }
+        catch { $missingMigratorRejected = $_.Exception.Message -match 'Missing bundle file' }
+        if (-not $missingMigratorRejected) { throw 'Bundle accepted absent PostgreSQL migrator binary.' }
+    } finally {
+        Move-Item -LiteralPath $outside -Destination $migratorPath
+    }
     $installer = Join-Path $bundleTools 'register-esterium-windows-service.ps1'
     $args = @{
         BundleDir = $bundle
