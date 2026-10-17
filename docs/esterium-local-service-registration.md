@@ -25,8 +25,11 @@ A simulação **sem alterações no Windows** deve sempre ser executada antes da
   -RedisURLFile 'C:\ProgramData\Esterium\Secrets\redis-url.secret' `
   -JWTSecretFile 'C:\ProgramData\Esterium\Secrets\jwt.secret' `
   -MetricsBearerTokenFile 'C:\ProgramData\Esterium\Secrets\metrics.secret' `
+  -AllowedOrigin 'https://esterium.loja.example' `
   -PlanOnly
 ```
+
+A origem HTTPS é um exemplo de formato: forneça o nome **verdadeiro e validado** que será usado na loja e configure certificado/proxy apropriado antes de servir terminais pela rede. O registro em si continua limitado ao loopback e não substitui o PR #66 de HTTPS LAN.
 
 **Observação:** os caminhos acima são exemplos; o script exige que todos os arquivos já existam e recusa caminhos ausentes. A etapa real requer administrador e explicitamente remover `-PlanOnly`. O serviço criado não será iniciado automaticamente. Não utilizar esse fluxo enquanto credenciais, ACLs, migrações e restauração não estiverem validados.
 
