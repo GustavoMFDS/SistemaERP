@@ -11,7 +11,7 @@ import (
 const esteriumServiceName = "EsteriumERP"
 
 type esteriumWindowsService struct {
-	ctx context.Context
+	ctx  context.Context
 	stop context.CancelFunc
 }
 
