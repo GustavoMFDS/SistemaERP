@@ -23,8 +23,8 @@ func localMigrationHead(dir string) (int, error) {
 	versions := make(map[int]bool)
 	head := 0
 	for _, entry := range entries {
-		if entry.IsDir() {
-			return 0, fmt.Errorf("unexpected directory in migration bundle")
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return 0, fmt.Errorf("unexpected directory or symlink in migration bundle")
 		}
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".sql") {
