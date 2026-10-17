@@ -63,6 +63,7 @@ export default function ProductsPage() {
   const [variationOptionLabel, setVariationOptionLabel] = useState('')
   const [photoVersion, setPhotoVersion] = useState(0)
   const [items, setItems] = useState<Product[]>([])
+  const latestProductRequest = useRef(0)
   const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
   const [returnPolicyDrafts, setReturnPolicyDrafts] = useState<Record<string, ReturnPolicy>>({})
   const [returnDaysDrafts, setReturnDaysDrafts] = useState<Record<string, string>>({})
@@ -103,18 +104,21 @@ export default function ProductsPage() {
   ])
 
   async function load(nextQuery = query) {
+    const requestId = ++latestProductRequest.current
     setError('')
     setLoading(true)
     try {
       const qs = new URLSearchParams()
       if (nextQuery.trim()) qs.set('query', nextQuery.trim())
       const data = await apiJson<ListResponse>(`/api/v1/products?${qs.toString()}`)
+      // A slower previous search must never replace newer results.
+      if (requestId !== latestProductRequest.current) return
       setItems(data.items)
       setTotal(data.total)
     } catch (e: unknown) {
-      setError(errorMessage(e))
+      if (requestId === latestProductRequest.current) setError(errorMessage(e))
     } finally {
-      setLoading(false)
+      if (requestId === latestProductRequest.current) setLoading(false)
     }
   }
 
@@ -129,6 +133,9 @@ export default function ProductsPage() {
   }, [])
 
   useEffect(() => {
+    // Invalidate an in-flight request as soon as the search text changes,
+    // rather than waiting for the 300 ms debounce to dispatch the next one.
+    latestProductRequest.current += 1
     const timer = window.setTimeout(() => { void load() }, 300)
     return () => window.clearTimeout(timer)
     // Search by name, SKU or barcode without requiring a second click.
