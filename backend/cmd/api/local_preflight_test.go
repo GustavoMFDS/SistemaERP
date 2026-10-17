@@ -8,10 +8,10 @@ import (
 
 func TestCheckConfigArgument(t *testing.T) {
 	cases := []struct {
-		name string
-		args []string
+		name  string
+		args  []string
 		check bool
-		bad bool
+		bad   bool
 	}{
 		{name: "default server", args: nil},
 		{name: "check configuration", args: []string{"--check-config"}, check: true},
