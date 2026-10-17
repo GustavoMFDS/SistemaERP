@@ -59,6 +59,16 @@ func main() {
 		}
 	}()
 
+	// When started by the Windows Service Control Manager, react to Stop and
+	// Shutdown requests through its native control channel. Console usage and
+	// Linux still use normal process signals with no service dependency.
+	if isService, serviceErr := maybeRunWindowsService(ctx, cancel); serviceErr != nil {
+		logger.Error("windows service dispatcher failed", slog.Any("err", serviceErr))
+		cancel()
+	} else if isService {
+		cancel()
+	}
+
 	<-ctx.Done()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
