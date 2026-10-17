@@ -1279,7 +1279,7 @@ export default function PDVPage() {
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-6">
           <label className="block md:col-span-6">
-            <span className="text-xs text-gray-600">Busca rápida por nome, SKU ou código</span>
+            <span className="text-xs text-gray-600">Busca rápida por nome ou código</span>
             <input
               ref={productSearchRef}
               value={productQuery}
