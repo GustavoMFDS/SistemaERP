@@ -79,6 +79,10 @@ func LoadFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	metricsToken, err := getEnvOrFile("METRICS_BEARER_TOKEN", "METRICS_BEARER_TOKEN_FILE")
+	if err != nil {
+		return Config{}, err
+	}
 
 	dbURL, err := getEnvOrFile("DATABASE_URL", "DATABASE_URL_FILE")
 	if err != nil {
@@ -114,7 +118,7 @@ func LoadFromEnv() (Config, error) {
 		CORSAllowedMethods:                getEnvList("CORS_ALLOWED_METHODS", []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
 		CORSAllowedHeaders:                getEnvList("CORS_ALLOWED_HEADERS", []string{"Authorization", "Content-Type", "Accept", "Idempotency-Key"}),
 		TrustedProxyCIDRs:                 getEnvList("TRUSTED_PROXY_CIDRS", nil),
-		MetricsBearerToken:                strings.TrimSpace(os.Getenv("METRICS_BEARER_TOKEN")),
+		MetricsBearerToken:                metricsToken,
 		MetricsBasicUser:                  strings.TrimSpace(os.Getenv("METRICS_BASIC_USER")),
 		MetricsBasicPass:                  strings.TrimSpace(os.Getenv("METRICS_BASIC_PASS")),
 		RateLimitLogin:                    getEnvInt("RATE_LIMIT_LOGIN_PER_MINUTE", 10),
