@@ -107,6 +107,10 @@ $root = [IO.Path]::GetPathRoot($local).TrimEnd('\', '/')
 if ($local -eq $root -or $local -eq [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\', '/')) {
     throw 'Backup destination is an unsafe root or temporary directory.'
 }
+$programDir = [IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\', '/')
+if ($local.StartsWith($programDir + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Backups cannot be stored inside Program Files or the application directory.'
+}
 if ($CheckOnly) {
     Write-Output 'PASS: protected backup task configuration validated; no database, share or scheduler accessed.'
     return
