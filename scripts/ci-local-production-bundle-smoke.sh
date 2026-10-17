@@ -3,7 +3,7 @@ set -euo pipefail
 
 # A real server + built React bundle on the same HTTP origin.
 # This is a disposable CI fixture; LAN and fiscal emission remain disabled.
-if [[ "${GITHUB_ACTIONS:-\}" != "true" || "${CI:-\}" != "true" ]]; then
+if [[ "${GITHUB_ACTIONS:-}" != "true" || "${CI:-}" != "true" ]]; then
   echo "Refusing: this smoke is only for disposable GitHub CI." >&2
   exit 2
 fi
