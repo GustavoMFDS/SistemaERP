@@ -22,6 +22,14 @@ jobs:
         working-directory: backend
         run: go test -v -count=1 -timeout=2m ./cmd/api
 
+  local-windows-secret-provision:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test protected credential generation and service ACLs
+        shell: pwsh
+        run: ./scripts/test-provision-esterium-app-secrets.ps1
+
   local-windows-real-scm-smoke:
     runs-on: windows-2025
     steps:
@@ -86,6 +94,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist/esterium-local-win-x64/tools
           cp scripts/register-esterium-windows-service.ps1 \
+            scripts/provision-esterium-app-secrets.ps1 \
             scripts/verify-esterium-bundle.ps1 \
             scripts/postgres-daily-backup.ps1 \
             scripts/copy-verified-external-backup.ps1 \
