@@ -105,6 +105,37 @@ jobs:
         run: |
           ./scripts/test-verified-external-backup.ps1
 
+  local-windows-migrator-cli-smoke:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - name: Execute the pinned Windows PostgreSQL migrator without a database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $originalGOBIN = $env:GOBIN
+          $out = Join-Path $env:RUNNER_TEMP ('esterium-migrator-cli-' + [Guid]::NewGuid().ToString('N'))
+          try {
+            [IO.Directory]::CreateDirectory($out) | Out-Null
+            $env:GOBIN = $out
+            go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+            if ($LASTEXITCODE -ne 0) { throw 'Go failed to build the Windows migrator.' }
+            $binary = Join-Path $out 'migrate.exe'
+            if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Windows migration tool missing.' }
+            $helpText = (& $binary -help 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0 -or $helpText -notmatch '-database' -or $helpText -notmatch 'Commands') {
+              throw 'Pinned Windows migrator did not execute or expose expected CLI commands.'
+            }
+            Write-Output 'PASS: pinned Windows migrator executes without any database connection.'
+          } finally {
+            $env:GOBIN = $originalGOBIN
+            if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
+          }
+
   local-windows-bundle:
     runs-on: ubuntu-latest
     steps:
