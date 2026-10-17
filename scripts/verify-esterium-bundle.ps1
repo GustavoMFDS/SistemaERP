@@ -67,9 +67,20 @@ $ups = @($migrations | Where-Object { $_.EndsWith('.up.sql') })
 if ($ups.Count -eq 0 -or $migrations.Count -ne 2 * $ups.Count) {
     throw 'SQL migration files in bundle are incomplete.'
 }
+$versions = @{}
 foreach ($up in $ups) {
+    $version = [int]$up.Substring('migrations/'.Length, 4)
+    if ($versions.ContainsKey($version)) {
+        throw "Duplicate SQL migration version: $version"
+    }
+    $versions[$version] = $true
     if (-not $seen.ContainsKey($up.Replace('.up.sql', '.down.sql'))) {
         throw "Unpaired SQL migration: $up"
+    }
+}
+for ($version = 1; $version -le $ups.Count; $version++) {
+    if (-not $versions.ContainsKey($version)) {
+        throw "Missing or non-contiguous SQL migration version: $version"
     }
 }
 foreach ($item in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
