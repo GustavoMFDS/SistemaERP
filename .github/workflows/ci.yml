@@ -10,6 +10,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  local-windows-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm install --global npm@11.6.1
+      - name: Build frontend for same-origin distribution
+        env:
+          VITE_API_BASE_URL: ''
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
+      - name: Cross-compile and assemble Windows x64 test bundle
+        run: |
+          set -euo pipefail
+          mkdir -p dist/esterium-local-win-x64
+          (
+            cd backend
+            GOOS=windows GOARCH=amd64 go build -trimpath \
+              -o ../dist/esterium-local-win-x64/esterium-server.exe ./cmd/api
+          )
+          cp -R web/dist dist/esterium-local-win-x64/web
+          test -s dist/esterium-local-win-x64/esterium-server.exe
+          test -s dist/esterium-local-win-x64/web/index.html
+      - name: Attach unsigned technical Windows bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: esterium-local-l0-win-x64
+          path: dist/esterium-local-win-x64/
+          if-no-files-found: error
+          retention-days: 7
+
   backend:
     runs-on: ubuntu-latest
     defaults:
