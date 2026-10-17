@@ -44,7 +44,7 @@ test('two independent terminals keep administrator and cashier sessions separate
       await page.getByRole('button', { name: 'Entrar' }).click()
       const response = await loginResponse
       expect(response.status(), `login rejected for ${username}`).toBe(200)
-      await expect(page).toHaveURL(/\\/home$/, { timeout: 10000 })
+      await expect(page).toHaveURL(/\/home$/, { timeout: 10000 })
       return await (await identityResponse).json() as {
         tenant_id: string
         name: string
