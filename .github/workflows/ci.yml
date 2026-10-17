@@ -142,10 +142,12 @@ jobs:
           set -euo pipefail
           build_dir="$(mktemp -d)"
           trap 'rm -rf "$build_dir"' EXIT
-          (cd backend && GOOS=windows GOARCH=amd64 GOBIN="$build_dir" go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1)
-          test -s "$build_dir/migrate.exe"
+          # Go refuses cross-compilation with GOBIN; use an isolated GOPATH and
+          # the official bin/windows_amd64 output layout instead.
+          (cd backend && GOOS=windows GOARCH=amd64 GOPATH="$build_dir" GOBIN= go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1)
+          test -s "$build_dir/bin/windows_amd64/migrate.exe"
           mkdir -p dist/esterium-local-win-x64/tools
-          cp "$build_dir/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
+          cp "$build_dir/bin/windows_amd64/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
       - name: Add curated Windows setup and backup tools
         run: |
           set -euo pipefail
