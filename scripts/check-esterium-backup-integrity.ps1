@@ -85,4 +85,4 @@ foreach ($dir in @($local, $external)) {
         throw 'Local or external checksum file does not match the verified archive.'
     }
 }
-Write-Output 'PASS: recent local and off-machine PostgreSQL backup archives and checksums match.'
+Write-Output 'PASS: recent local and external PostgreSQL backup archives and checksums match.'
