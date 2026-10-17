@@ -1477,6 +1477,49 @@ jobs:
           TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
           TEST_REDIS_ADDR: localhost:6379
         run: go test -tags=integration ./tests/integration/...
+      - name: Verify supplier integration test can run twice in the same disposable DB
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
+        run: |
+          set -euo pipefail
+          go test -v -tags=integration -count=2 -p 1 -parallel 1 \
+            -run '^TestProcurementRepo_TenantIsolation$' \
+            ./tests/integration/... | tee /tmp/esterium-supplier-rerun.log
+          passed="$(grep -Fc -- '--- PASS: TestProcurementRepo_TenantIsolation ' /tmp/esterium-supplier-rerun.log || true)"
+          test "$passed" -eq 2
+      - name: Exercise NFC-e reservation and isolation on a disposable database
+        env:
+          TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo_fiscal_disposable_ci?sslmode=disable
+          TEST_FISCAL_DISPOSABLE_DB: "1"
+        run: |
+          set -euo pipefail
+          # This database is created exclusively for this CI step.
+          # Never alter or delete fiscal sequences in the normal test DB.
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='sistemaemgo_fiscal_disposable_ci'")" != "0" ]; then
+            echo "Refusing to reuse a pre-existing fiscal database"
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE sistemaemgo_fiscal_disposable_ci OWNER sistemaemgo;"
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_fiscal_disposable_ci;"' EXIT
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="$TEST_DATABASE_URL" up
+          docker compose run --rm -v "$PWD/backend/seed:/seed:ro" db \
+            psql "postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo_fiscal_disposable_ci?sslmode=disable" \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+          (
+            cd backend
+            go test -v -tags=integration -count=1 -p 1 -parallel 1 \
+              -run '^(TestNFCeFoundation_TenantIsolationAndConstraints|TestNFCeReservation_IsAtomicAndIdempotentPerSale)$' \
+              ./tests/integration/... | tee /tmp/esterium-fiscal-sequence-tests.log
+          )
+          # Prevent a false green if either guarded test unexpectedly skips.
+          grep -Fq -- '--- PASS: TestNFCeFoundation_TenantIsolationAndConstraints ' /tmp/esterium-fiscal-sequence-tests.log
+          grep -Fq -- '--- PASS: TestNFCeReservation_IsAtomicAndIdempotentPerSale ' /tmp/esterium-fiscal-sequence-tests.log
       - name: Start API and verify readiness
         working-directory: backend
         env:
