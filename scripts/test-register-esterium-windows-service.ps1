@@ -25,6 +25,7 @@ try {
         RedisURLFile = $paths.redis
         JWTSecretFile = $paths.jwt
         MetricsBearerTokenFile = $paths.metrics
+        AllowedOrigin = 'https://esterium.loja.example'
         InstallDir = $install
         PlanOnly = $true
     }
