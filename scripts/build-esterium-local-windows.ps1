@@ -65,6 +65,7 @@ $toolsDir = Join-Path $OutputDir 'tools'
 New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
 foreach ($tool in @(
     'register-esterium-windows-service.ps1',
+        'provision-esterium-app-secrets.ps1',
     'verify-esterium-bundle.ps1',
     'postgres-daily-backup.ps1',
     'copy-verified-external-backup.ps1'
