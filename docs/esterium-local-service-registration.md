@@ -71,6 +71,12 @@ O ZIP agora inclui `migrations/` com os arquivos SQL `.up.sql` e `.down.sql` ver
 
 No comando `--check-dependencies`, quando essa pasta está configurada, o Esterium verifica que as versões são contínuas e que a versão atual de `schema_migrations` é **exatamente igual** à versão máxima do pacote. Um banco atrasado, adiantado ou marcado como `dirty` é recusado. **O comando não executa migrações automaticamente.** Antes de atualizar o banco, é indispensável backup externo restaurável e um migrador Windows oficial com versão e hash verificados; essa ferramenta ainda não integra este ZIP.
 
+## Integridade e atualização do backup externo
+
+O pacote também instala `tools/check-esterium-backup-integrity.ps1`. Ele verifica em **modo somente leitura** se o backup local e a cópia externa SMB são da mesma geração, possuem arquivos SHA-256 válidos e foram concluídos dentro do prazo de 30 horas por padrão. A execução falha diante de backup ausente, remoto desconectado, corrompido ou antigo. O status do backup salva apenas nome e hash do arquivo, sem senhas, dados fiscais ou informações de clientes. O CI Windows testa adulteração, ausência de checksum e expiração em arquivos sintéticos.
+
+Esse verificador **não agenda automaticamente** o backup nem restaura o banco. Antes de colocar uma loja em uso, configurar um agendamento protegido, verificar uma restauração em outra máquina e monitorar os resultados diariamente.
+
 ## Pendente para instalador completo
 
 Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, agendamento e restauração real de backups, inicialização automática e desinstalação preservando dados.
