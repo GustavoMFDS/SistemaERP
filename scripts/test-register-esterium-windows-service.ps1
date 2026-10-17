@@ -108,6 +108,37 @@ try {
     try { & $installer @args | Out-Null }
     catch { $tamperRejected = $_.Exception.Message -match 'SHA-256 mismatch' }
     if (-not $tamperRejected) { throw 'Tampered bundle was not rejected.' }
+    # Manifest writer must fail before publishing ambiguous or gapped SQL versions.
+    # This operates only on the disposable synthetic bundle created above.
+    Remove-Item -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Force
+    foreach ($direction in @('up', 'down')) {
+        [IO.File]::WriteAllText(
+            (Join-Path $migrationDir "0001_conflict.$direction.sql"),
+            '-- synthetic duplicate version'
+        )
+    }
+    $duplicateRejected = $false
+    try {
+        & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $bundle | Out-Null
+    } catch {
+        $duplicateRejected = $_.Exception.Message -match 'Duplicate SQL migration version'
+    }
+    if (-not $duplicateRejected) { throw 'Manifest accepted two SQL pairs numbered 0001.' }
+    foreach ($direction in @('up', 'down')) {
+        Remove-Item -LiteralPath (Join-Path $migrationDir "0001_conflict.$direction.sql") -Force
+        [IO.File]::WriteAllText(
+            (Join-Path $migrationDir "0003_gap.$direction.sql"),
+            '-- synthetic migration version gap'
+        )
+    }
+    $gapRejected = $false
+    try {
+        & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $bundle | Out-Null
+    } catch {
+        $gapRejected = $_.Exception.Message -match 'Missing or non-contiguous SQL migration version'
+    }
+    if (-not $gapRejected) { throw 'Manifest accepted a SQL gap from version 0001 to 0003.' }
+    Write-Output 'PASS: synthetic manifest rejects duplicate and gapped SQL versions.'
     Write-Output 'PASS: Windows service installation plan has no side effects and rejects missing secrets/overwrites.'
 }
 finally {
