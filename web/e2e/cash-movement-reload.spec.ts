@@ -7,6 +7,7 @@ test('ambiguous cash movement key survives PDV reload', async ({ page }) => {
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
+  await page.getByText('Movimentar dinheiro (entrada ou retirada)').click()
 
   const keys: string[] = []
   let drop = true
@@ -29,6 +30,7 @@ test('ambiguous cash movement key survives PDV reload', async ({ page }) => {
 
   await page.reload()
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  await page.getByText('Movimentar dinheiro (entrada ou retirada)').click()
   await expect(page.getByText(/resposta pendente/)).toBeVisible()
 
   await page.getByLabel('Movimento (R$)').fill('1')
