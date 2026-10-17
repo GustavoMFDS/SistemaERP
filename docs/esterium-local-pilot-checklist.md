@@ -1,6 +1,6 @@
 # Esterium Local — aceite de instalação piloto (Windows x64)
 
-**Uso:** uma folha de conferência para operador técnico e responsável da loja. **Não é autorização de operação comercial**; emission fiscal real permanece bloqueada. Registrar evidências e assinar os testes; qualquer falha reprova o piloto.
+**Uso:** uma folha de conferência para operador técnico e responsável da loja. **Não é autorização de operação comercial**; emissão fiscal real permanece bloqueada. Registrar evidências e assinar os testes; qualquer falha reprova o piloto.
 
 | Gate | Prova observável | Resultado |
 | --- | --- | --- |
