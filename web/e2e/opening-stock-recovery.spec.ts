@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { expandDisclosure } from './expandDisclosure'
+import { captureBrowserFailures } from './pageErrors'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
@@ -6,12 +8,17 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/products$/)
+  await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
 }
 
 const sampleCSV = 'sku;quantidade\nSTOCK-RESUME-TEST;5,500\n'
 const differentCSV = 'sku;quantidade\nSTOCK-DIFFERENT;8\n'
 
+// Match only an individual UUID receipt; never mock the /batches/history listing.
+const batchReceiptRoute = /\/api\/v1\/inventory\/opening-stock\/batches\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\?.*)?$/
+
 async function selectFile(page: import('@playwright/test').Page, csv: string) {
+  await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
   await page.getByLabel('Escolher planilha CSV').setInputFiles({
     name: 'estoque.csv',
     mimeType: 'text/csv',
@@ -35,11 +42,12 @@ test('resposta ambígua mantém chave; recarga só aceita CSV idêntico e replay
       body: JSON.stringify({ batch_id: '00000000-0000-4000-8000-000000000010', item_count: 1, replayed: true }),
     })
   })
-  await page.route('**/api/v1/inventory/opening-stock/batches/*', (route) =>
+  await page.route(batchReceiptRoute, (route) =>
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' }))
   page.on('dialog', (dialog) => void dialog.accept())
   await login(page, 'gerente@sistema.local')
-  await page.goto('/inventory')
+  await page.getByRole('link', { name: 'Estoque', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Estoque da loja' })).toBeVisible()
   await selectFile(page, sampleCSV)
   await expect(page.getByText(/1 válida\(s\), 0 com erro/)).toBeVisible()
   await page.getByLabel('Conferi os códigos e as quantidades').check()
@@ -77,19 +85,27 @@ test('resposta ambígua mantém chave; recarga só aceita CSV idêntico e replay
 })
 
 test('consulta de lote confirmado encerra recuperação sem novo POST', async ({ page }) => {
+  const failures = captureBrowserFailures(page)
   let writes = 0
   await page.route('**/api/v1/inventory/opening-stock', async (route) => {
     writes += 1
     await route.abort('failed')
   })
-  await page.route('**/api/v1/inventory/opening-stock/batches/*', (route) =>
+  await page.route(batchReceiptRoute, (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ batch_id: '00000000-0000-4000-8000-000000000020', item_count: 1, replayed: true }),
     }))
   page.on('dialog', (dialog) => void dialog.accept())
   await login(page, 'gerente@sistema.local')
-  await page.goto('/inventory')
+  await page.getByRole('link', { name: 'Estoque', exact: true }).click()
+  try {
+    await expect(page.getByRole('heading', { name: 'Estoque da loja' })).toBeVisible()
+  } catch (error) {
+    const visible = (await page.locator('body').innerText().catch(() => '')).slice(0, 700)
+    throw new Error('Estoque não carregou: ' + page.url() + '; tela=' + JSON.stringify(visible) +
+      '; navegador=' + failures() + '; causa=' + String(error))
+  }
   await selectFile(page, sampleCSV)
   await page.getByLabel('Conferi os códigos e as quantidades').check()
   await page.getByRole('button', { name: /Confirmar estoque inicial de 1 produto/ }).click()
@@ -114,4 +130,14 @@ test('caixa não tem permissão para consultar lotes de estoque inicial', async 
     }
   })
   expect(status).toBe(403)
+})
+
+test('resposta incompleta do histórico não derruba a tela Estoque', async ({ page }) => {
+  await page.route('**/api/v1/inventory/opening-stock/batches/history?*', (route) =>
+    route.fulfill({ status: 200, json: { batch_id: 'resposta-incompleta' } }))
+  await login(page, 'gerente@sistema.local')
+  await page.getByRole('link', { name: 'Estoque', exact: true }).click()
+  await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
+  await expect(page.getByRole('alert').filter({ hasText: 'O servidor devolveu dados incompletos' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Estoque da loja' })).toBeVisible()
 })
