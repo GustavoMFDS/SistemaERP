@@ -53,9 +53,17 @@ try {
     Write-SyntheticStatus
     Require-Rejection 'a stale backup'
     $status.last_run_utc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
-    $status.archive_name = 'esterium-20200101T000000Z-1234abcd.dump'
+    $oldName = 'esterium-20200101T000000Z-1234abcd.dump'
+    foreach ($dir in @($local, $external)) {
+        [IO.File]::WriteAllBytes((Join-Path $dir $oldName), $bytes)
+        [IO.File]::WriteAllText((Join-Path $dir "$oldName.sha256"), "$sha  $oldName" + [Environment]::NewLine)
+    }
+    $status.archive_name = $oldName
     Write-SyntheticStatus
-    Require-Rejection 'an old archive with a forged fresh status'
+    $staleNameRejected = $false
+    try { & $checker @args | Out-Null }
+    catch { $staleNameRejected = $_.Exception.Message -match 'archive itself is stale' }
+    if (-not $staleNameRejected) { throw 'Accepted old backup bytes with a fresh status timestamp.' }
     $status.archive_name = $name
     $status.external_copy_verified = $false
     Write-SyntheticStatus
