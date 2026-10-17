@@ -36,7 +36,7 @@ test('PDV desktop prioriza venda, pagamento e separa encerramento', async ({ pag
     await expect(page.getByRole('button', { name: 'Fechar caixa' })).toBeVisible()
   }
   await expect(page.getByLabel('Código de barras')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Finalizar' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeVisible()
 })
 
 test('PDV no celular organiza as tarefas na vertical sem rolagem horizontal geral', async ({ page }) => {
@@ -56,5 +56,5 @@ test('PDV no celular organiza as tarefas na vertical sem rolagem horizontal gera
   }))
   expect(documentOverflow.pageWidth).toBeLessThanOrEqual(documentOverflow.viewportWidth + 1)
   await expect(page.getByLabel('Código de barras')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Finalizar' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeVisible()
 })
