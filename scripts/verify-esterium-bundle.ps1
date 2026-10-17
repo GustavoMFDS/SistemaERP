@@ -17,6 +17,7 @@ if ($null -eq $document -or $document.schema -ne 1 -or @($document.files).Count 
 }
 $requiredTools = @(
     'tools/register-esterium-windows-service.ps1',
+    'tools/provision-esterium-app-secrets.ps1',
     'tools/verify-esterium-bundle.ps1',
     'tools/postgres-daily-backup.ps1',
     'tools/copy-verified-external-backup.ps1',
