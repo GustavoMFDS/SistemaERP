@@ -20,7 +20,8 @@ if ($SyntheticCIFixture) {
         throw 'Synthetic fixture mode is restricted to disposable GitHub-hosted Windows CI.'
     }
 }
-elseif ($ExternalBackupDir -notmatch '^\\[^\\]+\\[^\\]+') {
+elseif (-not $ExternalBackupDir.StartsWith('\\') -or
+    $ExternalBackupDir -notmatch '^\\\\[^\\]+\\[^\\]+') {
     throw 'ExternalBackupDir must point to another host over an SMB UNC share.'
 }
 
