@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expandDisclosure } from './expandDisclosure'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
@@ -36,6 +37,7 @@ test('filtro de período e CSV usam as mesmas datas sem mudar o CNPJ', async ({ 
     })
   })
   await login(page, 'gerente@sistema.local')
+  await expandDisclosure(page, 'Importar uma planilha de produtos')
   const history = page.getByRole('region', { name: 'Histórico de importações confirmadas' })
   await expect(history.getByText('Gestora')).toBeVisible()
   await history.getByLabel('Data inicial').fill('2026-10-01')
@@ -62,6 +64,7 @@ test('interface impede período invertido ou acima de 365 dias', async ({ page }
       body: '{"items":[],"limit":10,"offset":0,"has_more":false}',
     }))
   await login(page, 'gerente@sistema.local')
+  await expandDisclosure(page, 'Importar uma planilha de produtos')
   const history = page.getByRole('region', { name: 'Histórico de importações confirmadas' })
   await history.getByLabel('Data inicial').fill('2026-10-09')
   await history.getByLabel('Data final').fill('2026-10-08')
@@ -86,6 +89,7 @@ test('estoque inicial apresenta erro sem baixar arquivo ao exceder limite do rel
     }))
   await login(page, 'gerente@sistema.local')
   await page.goto('/inventory')
+  await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
   const history = page.getByRole('region', { name: 'Histórico de importações confirmadas' })
   await expect(history.getByRole('button', { name: 'Baixar histórico CSV' })).toBeEnabled()
   await history.getByRole('button', { name: 'Baixar histórico CSV' }).click()
