@@ -63,6 +63,29 @@ if (-not (Test-Path (Join-Path $WebOut 'index.html'))) {
 }
 $toolsDir = Join-Path $OutputDir 'tools'
 New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+# The official golang-migrate CLI is build-time only and pinned to the same
+# release used by the existing disposable database migration CI container.
+# Never put databases, credentials or a Go toolchain in the retail bundle.
+$migratorBuildDir = Join-Path ([IO.Path]::GetTempPath()) ('esterium-migrate-build-' + [Guid]::NewGuid().ToString('N'))
+$previousGOBIN = $env:GOBIN
+$previousGOOS = $env:GOOS
+$previousGOARCH = $env:GOARCH
+try {
+    [IO.Directory]::CreateDirectory($migratorBuildDir) | Out-Null
+    $env:GOBIN = $migratorBuildDir
+    $env:GOOS = 'windows'
+    $env:GOARCH = 'amd64'
+    & go install -tags postgres 'github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1'
+    if ($LASTEXITCODE -ne 0) { throw 'Build do migrador PostgreSQL falhou' }
+    Copy-Item -LiteralPath (Join-Path $migratorBuildDir 'migrate.exe') -Destination (Join-Path $toolsDir 'esterium-migrate.exe') -ErrorAction Stop
+} finally {
+    $env:GOBIN = $previousGOBIN
+    $env:GOOS = $previousGOOS
+    $env:GOARCH = $previousGOARCH
+    if (Test-Path -LiteralPath $migratorBuildDir) {
+        Remove-Item -LiteralPath $migratorBuildDir -Recurse -Force
+    }
+}
 foreach ($tool in @(
     'register-esterium-windows-service.ps1',
         'provision-esterium-app-secrets.ps1',
