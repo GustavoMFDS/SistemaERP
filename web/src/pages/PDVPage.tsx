@@ -830,6 +830,12 @@ export default function PDVPage() {
     items,
     discount: canDiscount ? saleDiscount : 0,
   })
+  // Reset immediately after *any* basket/payment edit. Reverting to an
+  // earlier total must not resurrect an approval given to the old basket.
+  useEffect(() => {
+    setCashReceived('')
+    setConfirmedPaymentFingerprint('')
+  }, [paymentFingerprint])
   const cashValue = cashReceived.trim() === '' ? NaN : Number(cashReceived)
   const hasEnoughCash = Number.isFinite(cashValue) &&
     Math.round(cashValue * 100) >= Math.round(computedTotal * 100)
