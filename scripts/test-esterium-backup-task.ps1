@@ -65,6 +65,10 @@ try {
     Write-Config
     Assert-Reject 'a remote database server'
     $config.PGHOST = '127.0.0.1'
+    $config.BackupDir = Join-Path $env:ProgramFiles 'EsteriumERP-UnsafeTest'
+    Write-Config
+    Assert-Reject 'backups inside Program Files'
+    $config.BackupDir = $local
     Write-Config
     $aclOutput = & icacls.exe $passPath '/grant' '*S-1-5-32-545:R' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Synthetic insecure ACL setup failed: $aclOutput" }
