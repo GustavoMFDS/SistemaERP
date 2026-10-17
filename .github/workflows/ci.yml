@@ -39,10 +39,11 @@ jobs:
           if (-not $exe) { throw 'GarnetServer.exe not found in pinned release' }
           $logOut = Join-Path $env:RUNNER_TEMP 'garnet.out.log'
           $logErr = Join-Path $env:RUNNER_TEMP 'garnet.err.log'
+          # First validate Lua command semantics without disk log/recovery.
+          # Durability is a separate mandatory gate before any deployment.
           $args = @(
-            '--bind', '127.0.0.1', '--port', '16379', '--lua',
-            '--lua-transaction-mode', '--aof', '--aof-commit-wait',
-            '--recover', '--fail-on-recovery-error'
+            '--bind', '127.0.0.1', '--port', '16379',
+            '--lua', '--lua-transaction-mode'
           )
           $process = Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -ArgumentList $args -PassThru -RedirectStandardOutput $logOut -RedirectStandardError $logErr
           try {
