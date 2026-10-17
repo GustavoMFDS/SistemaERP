@@ -57,6 +57,21 @@ A origem HTTPS é um exemplo de formato: forneça o nome **verdadeiro e validado
 
 O job Windows `local-windows-installer-plan` testa com **arquivos sintéticos** que a simulação não cria instalação, rejeita credencial ausente e recusa substituir pasta existente. Ele não instala serviço real em ambiente de produção, não executa restauração nem disponibiliza o ERP fiscalmente.
 
+## Pré-verificação antes de iniciar o serviço
+
+O executável agora oferece `esterium-server.exe --check-config`. Ele lê as **mesmas variáveis de ambiente e os arquivos de segredo** usados na operação real, confirma as regras produtivas, o par/certificado TLS, o nome do certificado para a origem HTTPS e a pasta do frontend. Retorna **código 0** somente quando essa configuração está válida; código diferente de zero indica erro.
+
+Esse modo **não inicia** o serviço, **não abre a porta HTTP**, não conecta ao PostgreSQL nem ao Redis, não aplica migrações e não modifica arquivos da loja. Portanto, uma checagem aprovada **não comprova** conectividade, permissões do banco, armazenamento seguro de sessões ou disponibilidade do caixa.
+
+Para executar a checagem no Windows, forneça previamente as variáveis `APP_ENV=prod`, `DATABASE_URL_FILE`, `REDIS_URL_FILE`, `JWT_SECRET_FILE`, `METRICS_BEARER_TOKEN_FILE`, `CORS_ALLOWED_ORIGINS`, `APP_PUBLIC_URL`, `HTTP_ADDR`, `ESTERIUM_WEB_DIR` e, quando o servidor ficar na LAN, `ESTERIUM_TLS_CERT_FILE` e `ESTERIUM_TLS_KEY_FILE`. Não escreva os valores dos segredos na linha de comando.
+
+```powershell
+.\esterium-server.exe --check-config
+if ($LASTEXITCODE -ne 0) { throw 'Configuração da instalação precisa de correção.' }
+```
+
+O job `local-windows-config-preflight` usa **credenciais sintéticas** e comprova que a opção passa em configuração válida e recusa banco sem TLS, pasta web ausente e argumentos desconhecidos. Isso pode ser usado no futuro pelo instalador completo antes de permitir a ativação do serviço.
+
 ## Pendente para instalador completo
 
 Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, agendamento e restauração real de backups, inicialização automática e desinstalação preservando dados.
