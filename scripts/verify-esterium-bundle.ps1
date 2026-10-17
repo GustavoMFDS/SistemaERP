@@ -15,12 +15,20 @@ $document = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
 if ($null -eq $document -or $document.schema -ne 1 -or @($document.files).Count -lt 2) {
     throw 'Unsupported or empty bundle SHA-256 manifest.'
 }
+$requiredTools = @(
+    'tools/register-esterium-windows-service.ps1',
+    'tools/verify-esterium-bundle.ps1',
+    'tools/postgres-daily-backup.ps1',
+    'tools/copy-verified-external-backup.ps1',
+    'README_LOCAL.md'
+)
 $seen = @{}
 foreach ($record in @($document.files)) {
     $relative = [string]$record.path
     $expected = [string]$record.sha256
     if ($relative -ne 'esterium-server.exe' -and
-        -not $relative.StartsWith('web/', [StringComparison]::Ordinal)) {
+        -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
+        -not ($requiredTools -contains $relative)) {
         throw 'Unexpected manifest path.'
     }
     if ($relative.Contains('\') -or $relative.Contains(':') -or
@@ -41,6 +49,11 @@ foreach ($record in @($document.files)) {
 }
 if (-not $seen.ContainsKey('esterium-server.exe') -or -not $seen.ContainsKey('web/index.html')) {
     throw 'Bundle manifest lacks executable or web/index.html.'
+}
+foreach ($needed in $requiredTools) {
+    if (-not $seen.ContainsKey($needed)) {
+        throw "Required installer helper missing: $needed"
+    }
 }
 foreach ($item in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
