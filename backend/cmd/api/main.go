@@ -17,6 +17,12 @@ import (
 )
 
 func main() {
+	checkOnly, argsErr := checkConfigArgument(os.Args[1:])
+	if argsErr != nil {
+		logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		logger.Error("invalid startup argument", slog.Any("err", argsErr))
+		os.Exit(2)
+	}
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -34,6 +40,14 @@ func main() {
 	if tlsErr != nil {
 		logger.Error("unsafe local server configuration", slog.Any("err", tlsErr))
 		os.Exit(1)
+	}
+	if checkErr := preflightFrontendBundle(webDir); checkErr != nil {
+		logger.Error("invalid local frontend bundle", slog.Any("err", checkErr))
+		os.Exit(1)
+	}
+	if checkOnly {
+		logger.Info("configuration preflight passed without contacting database or Redis")
+		return
 	}
 
 	application, err := app.New(ctx, cfg, logger)
