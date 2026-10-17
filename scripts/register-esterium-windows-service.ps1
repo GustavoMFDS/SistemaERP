@@ -11,6 +11,9 @@ param(
     [Parameter(Mandatory = $true)][string]$JWTSecretFile,
     [Parameter(Mandatory = $true)][string]$MetricsBearerTokenFile,
     [Parameter(Mandatory = $true)][string]$AllowedOrigin,
+    [string]$ListenAddress = '127.0.0.1:8080',
+    [string]$TLSCertFile = '',
+    [string]$TLSKeyFile = '',
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'EsteriumERP'),
     [switch]$PlanOnly
 )
@@ -25,6 +28,35 @@ if (-not [Uri]::TryCreate($AllowedOrigin, [UriKind]::Absolute, [ref]$origin) -or
     $origin.Host -in @('localhost', '127.0.0.1', '::1') -or
     $origin.AbsolutePath -ne '/' -or $origin.Query -ne '' -or $origin.Fragment -ne '') {
     throw 'AllowedOrigin must be an actual HTTPS origin for this installation (not localhost).'
+}
+# Only a well-formed IP/localhost listener is accepted by this initial
+# installer. Exposing 0.0.0.0, :: or a LAN IP without TLS is forbidden.
+$uri = $null
+$targetAddress = if ($ListenAddress.StartsWith(':')) {
+    "http://0.0.0.0$ListenAddress"
+} else {
+    "http://$ListenAddress"
+}
+if (-not [Uri]::TryCreate($targetAddress, [UriKind]::Absolute, [ref]$uri) -or
+    $uri.Scheme -ne 'http' -or $uri.Port -le 0 -or $uri.Port -gt 65535 -or
+    $uri.AbsolutePath -ne '/' -or $uri.Query -ne '' -or $uri.Fragment -ne '') {
+    throw 'ListenAddress must be an IP or localhost with a valid explicit port.'
+}
+$ip = $null
+$isLocalhost = $uri.Host -eq 'localhost'
+$isIP = [Net.IPAddress]::TryParse($uri.Host, [ref]$ip)
+if (-not ($isLocalhost -or $isIP) -or
+    $ListenAddress -notmatch ':\d{1,5}$') {
+    throw 'ListenAddress must use localhost or an IP address and an explicit port.'
+}
+$isLoopback = $isLocalhost -or ($isIP -and [Net.IPAddress]::IsLoopback($ip))
+$hasTLSCert = -not [string]::IsNullOrWhiteSpace($TLSCertFile)
+$hasTLSKey = -not [string]::IsNullOrWhiteSpace($TLSKeyFile)
+if ($hasTLSCert -ne $hasTLSKey) {
+    throw 'TLSCertFile and TLSKeyFile must both be supplied for LAN HTTPS.'
+}
+if (-not $isLoopback -and -not $hasTLSCert) {
+    throw 'Non-loopback LAN listeners require an external TLS certificate and private key.'
 }
 $source = (Resolve-Path -LiteralPath $BundleDir -ErrorAction Stop).Path
 & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $source | Out-Null
@@ -51,6 +83,10 @@ $secrets = @(
     @{ name = 'JWT_SECRET_FILE'; file = $JWTSecretFile },
     @{ name = 'METRICS_BEARER_TOKEN_FILE'; file = $MetricsBearerTokenFile }
 )
+if ($hasTLSCert) {
+    $secrets += @{ name = 'ESTERIUM_TLS_KEY_FILE'; file = $TLSKeyFile }
+    $secrets += @{ name = 'ESTERIUM_TLS_CERT_FILE'; file = $TLSCertFile }
+}
 foreach ($secret in $secrets) {
     if (-not [IO.Path]::IsPathRooted($secret.file) -or
         -not (Test-Path -LiteralPath $secret.file -PathType Leaf) -or
@@ -112,7 +148,11 @@ if ($PlanOnly) {
     Write-Output 'PLAN: verify signed/approved bundle and service-account ACLs; no changes made.'
     Write-Output "PLAN: stage Windows x64 executable and static frontend in $installPath"
     Write-Output 'PLAN: register EsteriumERP as LocalService; use protected secret file paths only.'
-    Write-Output 'PLAN: APP_ENV=prod, FISCAL_PROVIDER=disabled, explicit CORS origin, loopback HTTP only.'
+    if ($isLoopback -and -not $hasTLSCert) {
+        Write-Output 'PLAN: APP_ENV=prod, fiscal disabled, loopback-only HTTP (external HTTPS proxy required for LAN).'
+    } else {
+        Write-Output 'PLAN: APP_ENV=prod, fiscal disabled, HTTPS listener with externally managed certificates.'
+    }
     Write-Output 'PLAN: no database installation, no migration, no service start, no SEFAZ.'
     return
 }
@@ -143,7 +183,7 @@ try {
         'FISCAL_PROVIDER=disabled',
         'NFCE_SEFAZ_PRODUCTION_ENABLED=false',
         'NFCE_SEFAZ_HOMOLOGATION_ENABLED=false',
-        'HTTP_ADDR=127.0.0.1:8080',
+        "HTTP_ADDR=$ListenAddress",
         "CORS_ALLOWED_ORIGINS=$($origin.GetLeftPart([UriPartial]::Authority))",
         "APP_PUBLIC_URL=$($origin.GetLeftPart([UriPartial]::Authority))",
         "ESTERIUM_WEB_DIR=$(Join-Path $installPath 'web')"
