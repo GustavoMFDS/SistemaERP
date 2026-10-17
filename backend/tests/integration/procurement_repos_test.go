@@ -4,7 +4,9 @@ package integration_test
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"os"
 	"testing"
 	"time"
@@ -29,7 +31,8 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	defer pool.Close()
+	// Keep the connection alive until all cleanup callbacks complete.
+	t.Cleanup(pool.Close)
 
 	var tenantA, productA, actorA string
 	if err := pool.QueryRow(ctx, `
@@ -53,9 +56,33 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 		t.Fatalf("create tenant B: %v", err)
 	}
 
+	var supplierA, supplierB string
+	// Register cleanup before creating suppliers; failures halfway through the
+	// test must not leave a fixed identifier that collides on the next run.
+	// Only the records created by this test may be removed.
+	t.Cleanup(func() {
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelCleanup()
+		if supplierA != "" {
+			_, _ = pool.Exec(cleanupCtx, `DELETE FROM purchase_items WHERE purchase_id IN (SELECT id FROM purchases WHERE supplier_id=$1)`, supplierA)
+			_, _ = pool.Exec(cleanupCtx, `DELETE FROM purchases WHERE supplier_id=$1`, supplierA)
+			_, _ = pool.Exec(cleanupCtx, `DELETE FROM suppliers WHERE id=$1`, supplierA)
+		}
+		if supplierB != "" {
+			_, _ = pool.Exec(cleanupCtx, `DELETE FROM suppliers WHERE id=$1`, supplierB)
+		}
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM companies WHERE id=$1`, tenantB)
+	})
+
 	repo := procinfra.NewRepo(pool)
 	uow := db.NewPgxUnitOfWork(pool)
-	document := "55566677000188"
+	// Do not reuse a fixed supplier document in a persistent test database.
+	// The same value is reused inside this test to verify tenant isolation.
+	documentNumber, err := rand.Int(rand.Reader, big.NewInt(100000000000000))
+	if err != nil {
+		t.Fatalf("generate isolated supplier document: %v", err)
+	}
+	document := fmt.Sprintf("%014d", documentNumber.Int64())
 
 	createSupplier := func(tenantID, name string) string {
 		t.Helper()
@@ -76,8 +103,8 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 		return id
 	}
 
-	supplierA := createSupplier(tenantA, "Fornecedor Tenant A")
-	supplierB := createSupplier(tenantB, "Fornecedor Tenant B")
+	supplierA = createSupplier(tenantA, "Fornecedor Tenant A")
+	supplierB = createSupplier(tenantB, "Fornecedor Tenant B")
 
 	// The database must reject cross-tenant references even if a caller bypasses
 	// the application service and writes directly to the procurement tables.
@@ -93,13 +120,6 @@ func TestProcurementRepo_TenantIsolation(t *testing.T) {
 	`, tenantA, supplierB); err == nil {
 		t.Fatal("database unexpectedly accepted a cross-tenant supplier on accounts payable")
 	}
-
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM purchase_items WHERE purchase_id IN (SELECT id FROM purchases WHERE supplier_id=$1)`, supplierA)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM purchases WHERE supplier_id=$1`, supplierA)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM suppliers WHERE id IN ($1,$2)`, supplierA, supplierB)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM companies WHERE id=$1`, tenantB)
-	})
 
 	listA, totalA, err := repo.ListSuppliers(ctx, tenantA, "Fornecedor Tenant", 50, 0)
 	if err != nil {
