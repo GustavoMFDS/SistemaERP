@@ -35,6 +35,43 @@ Exemplo, depois de configurar o compartilhamento e a conta de serviço (sem cred
 
 O erro da verificação pode ser utilizado por um monitor de tarefas local, mas **o CI não registra notificações nem agendamentos na loja**. Para a operação real, ainda é obrigatório executar restaurações ensaiadas em outro computador, proteger a cópia externa por ACL/criptografia e monitorar as falhas.
 
+## Tarefa diária Windows protegida (estágio piloto)
+
+O pacote passa a conter as ferramentas run-esterium-scheduled-backup.ps1 e
+register-esterium-backup-task.ps1 em tools/. O registro usa uma configuração
+JSON **protegida, fora de Program Files e do ZIP**, com os campos obrigatórios
+PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSFILE, PGSSLROOTCERT, PostgresBin,
+BackupDir, ExternalBackupDir e RetentionDays. Nenhum valor de senha pode
+existir nesse JSON nem nos argumentos do Agendador; PGPASSFILE aponta para
+um arquivo secreto separado. Os dois arquivos exigem ACL de leitura explícita
+para NT AUTHORITY\NETWORK SERVICE, sem Users/Everyone/Authenticated Users.
+
+O executor recusa banco fora de loopback, exige TLS PostgreSQL com
+PGSSLMODE=verify-full, ferramentas PostgreSQL existentes, arquivo de senha
+protegido, e destino externo SMB em outra máquina. A execução faz backup,
+cópia remota obrigatória e verificação SHA-256/frescor. Configurações inválidas
+falham sem fazer dump; falhas do backup não são convertidas em sucesso.
+
+Para uma conferência sem contato com o banco, SMB ou Agendador, após
+provisionar arquivos de configuração e segredos restritos no Windows:
+
+    .\tools\run-esterium-scheduled-backup.ps1 -ConfigFile 'C:\ProgramData\Esterium\Backup\backup-config.json' -CheckOnly
+    .\tools\register-esterium-backup-task.ps1 -ConfigFile 'C:\ProgramData\Esterium\Backup\backup-config.json'
+
+O segundo comando é apenas um **plano** por padrão. O registro real requer
+-Apply, administrador, pacote instalado com manifesto válido e inexistência de
+uma tarefa EsteriumERP-Backup anterior. Cria a tarefa diária com identidade
+NetworkService, **desabilitada por padrão** até verificação presencial e
+autorização explícita de habilitação. A conta da máquina deve ter direito
+de escrita no compartilhamento remoto: não presumir que uma credencial de
+usuário logado seja herdada pelo serviço.
+
+O administrador deve demonstrar previamente permissões, execução e
+**restauração em outro PC**, além de monitorar falhas; esta ferramenta
+**não** cria usuários, senhas, certificados, tarefas de alerta ou proteção
+contra ransomware. CI usa somente arquivos sintéticos e verifica a rejeição
+de senha inline, banco remoto, destino local e ACL insegura.
+
 ## Escopo do teste automatizado
 
 O teste `scripts/test-verified-external-backup.ps1` copia **somente bytes sintéticos**, verifica hash e arquivo de checksum, impede sobrescrita e rejeita arquivo vazio. Ele roda no CI Windows e não precisa de um PostgreSQL real.
