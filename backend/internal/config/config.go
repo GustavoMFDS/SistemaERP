@@ -75,8 +75,15 @@ func LoadFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	redisURL, err := getEnvOrFile("REDIS_URL", "REDIS_URL_FILE")
+	if err != nil {
+		return Config{}, err
+	}
 
-	dbURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	dbURL, err := getEnvOrFile("DATABASE_URL", "DATABASE_URL_FILE")
+	if err != nil {
+		return Config{}, err
+	}
 	if dbURL == "" {
 		dbURL, err = buildDatabaseURLFromParts()
 		if err != nil {
@@ -90,7 +97,7 @@ func LoadFromEnv() (Config, error) {
 		AppVersion:                        getEnv("APP_VERSION", "dev"),
 		HTTPAddr:                          getEnv("HTTP_ADDR", ":8080"),
 		DatabaseURL:                       dbURL,
-		RedisURL:                          strings.TrimSpace(os.Getenv("REDIS_URL")),
+		RedisURL:                          redisURL,
 		RedisAddr:                         getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:                     redisPassword,
 		RedisDB:                           getEnvInt("REDIS_DB", 0),
