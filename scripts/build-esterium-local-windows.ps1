@@ -61,5 +61,7 @@ try {
 if (-not (Test-Path (Join-Path $WebOut 'index.html'))) {
     throw 'O frontend compilado não contém index.html'
 }
+& (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $OutputDir
+& (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $OutputDir
 Write-Host "Bundle L0 gerado em $OutputDir"
 Write-Host "Este pacote não é instalador: PostgreSQL/Redis, segredos, serviço Windows, HTTPS LAN e backup externo ainda precisam ser configurados."
