@@ -30,7 +30,7 @@ func main() {
 	webDir := os.Getenv("ESTERIUM_WEB_DIR")
 	certFile := os.Getenv("ESTERIUM_TLS_CERT_FILE")
 	keyFile := os.Getenv("ESTERIUM_TLS_KEY_FILE")
-	useTLS, tlsErr := resolveLocalTLS(webDir, cfg.HTTPAddr, certFile, keyFile)
+	useTLS, tlsErr := resolveLocalTLS(webDir, cfg.HTTPAddr, certFile, keyFile, cfg.AppPublicURL)
 	if tlsErr != nil {
 		logger.Error("unsafe local server configuration", slog.Any("err", tlsErr))
 		os.Exit(1)

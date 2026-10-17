@@ -60,7 +60,37 @@ try {
     try { & $installer @args | Out-Null }
     catch { $insecureOriginRejected = $_.Exception.Message -match 'HTTPS origin' }
     if (-not $insecureOriginRejected) { throw 'Plaintext origin was not rejected.' }
+    $args.AllowedOrigin = 'https://user:pass@esterium.loja.example'
+    $userinfoRejected = $false
+    try { & $installer @args | Out-Null }
+    catch { $userinfoRejected = $_.Exception.Message -match 'HTTPS origin' }
+    if (-not $userinfoRejected) { throw 'Origin userinfo was not rejected.' }
     $args.AllowedOrigin = 'https://esterium.loja.example'
+    $args.ListenAddress = 'user@0.0.0.0:8443'
+    $listenerUserinfoRejected = $false
+    try { & $installer @args | Out-Null }
+    catch { $listenerUserinfoRejected = $_.Exception.Message -match 'ListenAddress' }
+    if (-not $listenerUserinfoRejected) { throw 'Listener userinfo was not rejected.' }
+    $args.ListenAddress = '0.0.0.0:8443'
+    $lanRejected = $false
+    try { & $installer @args | Out-Null }
+    catch { $lanRejected = $_.Exception.Message -match 'LAN listeners require' }
+    if (-not $lanRejected) { throw 'Plaintext LAN listener was not rejected.' }
+    $args.TLSCertFile = Join-Path $secrets 'lan-cert.pem'
+    [IO.File]::WriteAllText($args.TLSCertFile, 'synthetic certificate test marker')
+    $halfPairRejected = $false
+    try { & $installer @args | Out-Null }
+    catch { $halfPairRejected = $_.Exception.Message -match 'must both be supplied' }
+    if (-not $halfPairRejected) { throw 'Incomplete TLS pair was not rejected.' }
+    $args.TLSKeyFile = Join-Path $secrets 'lan-key.pem'
+    [IO.File]::WriteAllText($args.TLSKeyFile, 'synthetic key test marker')
+    $lanPlan = @(& $installer @args) -join [Environment]::NewLine
+    if ($lanPlan -notmatch 'HTTPS listener' -or (Test-Path -LiteralPath $install)) {
+        throw 'LAN HTTPS plan failed or created installation files.'
+    }
+    $args.ListenAddress = '127.0.0.1:8080'
+    $args.Remove('TLSCertFile')
+    $args.Remove('TLSKeyFile')
     New-Item -ItemType Directory -Path $install -ErrorAction Stop | Out-Null
     $overwriteRejected = $false
     try { & $installer @args | Out-Null }
