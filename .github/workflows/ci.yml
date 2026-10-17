@@ -105,6 +105,8 @@ jobs:
         run: docker compose run --rm seed
       - name: Prove complete PostgreSQL restore in a second disposable CI database
         run: bash scripts/ci-postgres-disposable-restore.sh
+      - name: Prove archive restores on a separate isolated PostgreSQL server
+        run: bash scripts/ci-postgres-cross-instance-restore.sh
       - name: Verify v12 to v32 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
