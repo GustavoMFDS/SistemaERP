@@ -9,7 +9,7 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or
 $base = Join-Path $env:RUNNER_TEMP ('esterium-backup-health-' + [Guid]::NewGuid().ToString('N'))
 $local = Join-Path $base 'local'
 $external = Join-Path $base 'external'
-$name = 'esterium-20261017T030000Z-1234abcd.dump'
+$name = 'esterium-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-1234abcd.dump'
 $checker = Join-Path $PSScriptRoot 'check-esterium-backup-integrity.ps1'
 try {
     New-Item -ItemType Directory -Path $local, $external -Force | Out-Null
@@ -53,6 +53,10 @@ try {
     Write-SyntheticStatus
     Require-Rejection 'a stale backup'
     $status.last_run_utc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $status.archive_name = 'esterium-20200101T000000Z-1234abcd.dump'
+    Write-SyntheticStatus
+    Require-Rejection 'an old archive with a forged fresh status'
+    $status.archive_name = $name
     $status.external_copy_verified = $false
     Write-SyntheticStatus
     Require-Rejection 'a failed external-copy status'
