@@ -10,6 +10,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  local-windows-service-tests:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - name: Verify native SCM stop/shutdown cancellation
+        working-directory: backend
+        run: go test -v -count=1 -timeout=2m ./cmd/api
+
   local-windows-bundle:
     runs-on: ubuntu-latest
     steps:
