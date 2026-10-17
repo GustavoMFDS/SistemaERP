@@ -61,7 +61,7 @@ test('two independent terminals keep administrator and cashier sessions separate
     expect(adminMe.roles).toContain('admin')
     expect(cashierMe.roles).toContain('cashier')
     expect(cashierMe.roles).not.toContain('admin')
-    expect(adminMe.tenant_id).toBe(adminMe.tenant_id)
+    expect(adminMe.tenant_id).toBe(cashierMe.tenant_id)
     expect(adminMe.name).not.toBe(cashierMe.name)
 
     // Closing one terminal must not terminate the other browser session.
