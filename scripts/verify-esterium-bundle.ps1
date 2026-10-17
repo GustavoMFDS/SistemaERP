@@ -22,6 +22,7 @@ $requiredTools = @(
     'tools/postgres-daily-backup.ps1',
     'tools/copy-verified-external-backup.ps1',
     'tools/check-esterium-backup-integrity.ps1',
+    'tools/esterium-migrate.exe',
     'README_LOCAL.md'
 )
 $seen = @{}
