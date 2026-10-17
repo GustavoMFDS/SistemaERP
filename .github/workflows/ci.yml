@@ -71,6 +71,90 @@ jobs:
             Get-Content $logOut -Tail 25 -ErrorAction SilentlyContinue
             Get-Content $logErr -Tail 25 -ErrorAction SilentlyContinue
           }
+  local-garnet-aof-recovery:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Assert AOF-acknowledged sessions and rate limits survive hard restart
+        shell: pwsh
+        env:
+          TEST_GARNET_ADDR: 127.0.0.1:16380
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
+          $zip = Join-Path $env:RUNNER_TEMP 'garnet-aof-v2.2.3.zip'
+          $folder = Join-Path $env:RUNNER_TEMP 'garnet-aof-binary'
+          $store = Join-Path $env:RUNNER_TEMP ('garnet-aof-store-' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $store | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne '5cd130686ab415b13c59d36d048a6faded81e707ffe6da5953f98beeb79f9f16') {
+            throw 'Garnet official release hash mismatch'
+          }
+          Expand-Archive $zip -DestinationPath $folder
+          $exe = Get-ChildItem $folder -Recurse -Filter 'GarnetServer.exe' -File | Select-Object -First 1
+          if (-not $exe) { throw 'GarnetServer.exe missing' }
+          $env:TEST_GARNET_DURABILITY_ID = [Guid]::NewGuid().ToString('N')
+          function Start-TestGarnet([bool] $recover, [string] $phase) {
+            $options = @('--bind', '127.0.0.1', '--port', '16380',
+              '--lua', '--lua-transaction-mode', '--aof', '--aof-commit-wait',
+              '--checkpointdir', $store)
+            if ($recover) { $options += @('--recover', '--fail-on-recovery-error') }
+            $stdout = Join-Path $env:RUNNER_TEMP ("garnet-$phase.stdout.log")
+            $stderr = Join-Path $env:RUNNER_TEMP ("garnet-$phase.stderr.log")
+            $server = Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -ArgumentList $options -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            for ($i = 0; $i -lt 45; $i++) {
+              $server.Refresh()
+              if ($server.HasExited) { throw "Garnet $phase exited: $($server.ExitCode)" }
+              $socket = [Net.Sockets.TcpClient]::new()
+              try {
+                $connect = $socket.ConnectAsync('127.0.0.1', 16380)
+                if ($connect.Wait(1000) -and $socket.Connected) { return $server }
+              } catch { }
+              finally { $socket.Dispose() }
+              Start-Sleep -Seconds 1
+            }
+            throw "Garnet $phase was not listening"
+          }
+          $server = $null
+          try {
+            # Never pass --recover to a brand new data directory.
+            $server = Start-TestGarnet $false 'fresh'
+            $env:TEST_GARNET_DURABILITY_STAGE = 'write'
+            Push-Location backend
+            try {
+              & go test -v -tags=integration -count=1 -run '^TestLocalGarnetAOFRecoverSecurityState$' ./tests/integration/...
+              if ($LASTEXITCODE -ne 0) { throw 'Durability write phase failed' }
+            } finally { Pop-Location }
+            # Abrupt termination: require recovery of acknowledged AOF state.
+            Stop-Process -Id $server.Id -Force
+            $server.WaitForExit()
+            $server = $null
+            $server = Start-TestGarnet $true 'recovered'
+            $env:TEST_GARNET_DURABILITY_STAGE = 'verify'
+            Push-Location backend
+            try {
+              & go test -v -tags=integration -count=1 -run '^TestLocalGarnetAOFRecoverSecurityState$' ./tests/integration/...
+              if ($LASTEXITCODE -ne 0) { throw 'Durability recovery phase failed' }
+            } finally { Pop-Location }
+          } finally {
+            if ($server) {
+              $server.Refresh()
+              if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+            }
+            foreach ($phase in @('fresh', 'recovered')) {
+              Get-Content (Join-Path $env:RUNNER_TEMP "garnet-$phase.stdout.log") -Tail 20 -ErrorAction SilentlyContinue
+              Get-Content (Join-Path $env:RUNNER_TEMP "garnet-$phase.stderr.log") -Tail 20 -ErrorAction SilentlyContinue
+            }
+          }
+
   local-windows-bundle:
     runs-on: ubuntu-latest
     steps:
