@@ -15,6 +15,7 @@ $requiredTools = @(
     'tools/verify-esterium-bundle.ps1',
     'tools/postgres-daily-backup.ps1',
     'tools/copy-verified-external-backup.ps1',
+    'tools/check-esterium-backup-integrity.ps1',
     'README_LOCAL.md'
 )
 $items = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)
