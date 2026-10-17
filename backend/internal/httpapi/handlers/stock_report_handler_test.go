@@ -47,7 +47,6 @@ func TestStockReportCSVEscapesSpreadsheetFormulasAndOmitsFinance(t *testing.T) {
 	}
 }
 
-
 func TestSafeSpreadsheetCellUnicodeFormulaProtection(t *testing.T) {
 	for _, value := range []string{
 		"\u00A0=SUM(1,2)",

@@ -307,9 +307,9 @@ func TestNFCeInutilizationPersistsRangeAndNeverBlindlyRetransmits(t *testing.T) 
 	}
 
 	duplicateClient := &inutilizationFakeClient{result: fisc.NFCeInutilizationRemoteResult{
-		StatusCode: 563,
-		Reason: "Ja existe pedido de inutilizacao com a mesma faixa",
-		Protocol: "131260000000009",
+		StatusCode:  563,
+		Reason:      "Ja existe pedido de inutilizacao com a mesma faixa",
+		Protocol:    "131260000000009",
 		ResponseXML: []byte("<retInutNFe><infInut><cStat>563</cStat><nProt>131260000000009</nProt></infInut></retInutNFe>"),
 	}}
 	service.SetNFCeRemoteInutilizationClient(duplicateClient)
@@ -327,8 +327,8 @@ func TestNFCeInutilizationPersistsRangeAndNeverBlindlyRetransmits(t *testing.T) 
 	}
 
 	var (
-		observedStatus string
-		observedCode int
+		observedStatus   string
+		observedCode     int
 		observedProtocol string
 	)
 	if err := pool.QueryRow(ctx, `

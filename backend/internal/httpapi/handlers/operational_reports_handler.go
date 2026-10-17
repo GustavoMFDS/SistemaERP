@@ -77,10 +77,14 @@ func (h *FinanceAccountsHandler) OperationalReports(w http.ResponseWriter, r *ht
 	}
 	for rows.Next() {
 		var item SalesByHour
-		if err = rows.Scan(&item.Hour, &item.Count, &item.Total); err != nil { break }
+		if err = rows.Scan(&item.Hour, &item.Count, &item.Total); err != nil {
+			break
+		}
 		out.Hourly = append(out.Hourly, item)
 	}
-	if err == nil { err = rows.Err() }
+	if err == nil {
+		err = rows.Err()
+	}
 	rows.Close()
 	if err != nil {
 		accountFailure(w, r, 500, "Falha ao ler vendas por horário")
@@ -103,10 +107,14 @@ func (h *FinanceAccountsHandler) OperationalReports(w http.ResponseWriter, r *ht
 	}
 	for rows.Next() {
 		var item ProductMargin
-		if err = rows.Scan(&item.SKU, &item.Name, &item.Quantity, &item.RevenueItems, &item.EstimatedMargin); err != nil { break }
+		if err = rows.Scan(&item.SKU, &item.Name, &item.Quantity, &item.RevenueItems, &item.EstimatedMargin); err != nil {
+			break
+		}
 		out.Margins = append(out.Margins, item)
 	}
-	if err == nil { err = rows.Err() }
+	if err == nil {
+		err = rows.Err()
+	}
 	rows.Close()
 	if err != nil {
 		accountFailure(w, r, 500, "Falha ao ler resumo de produtos")
@@ -135,10 +143,14 @@ func (h *FinanceAccountsHandler) OperationalReports(w http.ResponseWriter, r *ht
 	}
 	for rows.Next() {
 		var item UnsoldProduct
-		if err = rows.Scan(&item.SKU, &item.Name); err != nil { break }
+		if err = rows.Scan(&item.SKU, &item.Name); err != nil {
+			break
+		}
 		out.Unsold = append(out.Unsold, item)
 	}
-	if err == nil { err = rows.Err() }
+	if err == nil {
+		err = rows.Err()
+	}
 	rows.Close()
 	if err != nil {
 		accountFailure(w, r, 500, "Falha ao ler produtos sem vendas")
