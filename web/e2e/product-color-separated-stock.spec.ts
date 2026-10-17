@@ -76,10 +76,10 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
 
   await expect(page.getByText(/O saldo começa zerado/)).toBeVisible()
   await expect(page.getByLabel('Nome do produto')).toHaveValue('Caderno Brochurão — Azul')
-  await expect(page.getByLabel('Código do produto (SKU)')).toHaveValue('')
+  await expect(page.getByLabel('Código do produto')).toHaveValue('')
   await expect(page.getByLabel('Código de barras', { exact: true })).toHaveValue('')
   await expect(page.getByLabel('Classificação fiscal (NCM)')).toHaveValue('')
-  await page.getByLabel('Código do produto (SKU)').fill('CAD-AZUL')
+  await page.getByLabel('Código do produto').fill('CAD-AZUL')
   await page.getByRole('button', { name: 'Cadastrar', exact: true }).click()
 
   await expect.poll(() => createdPayload).not.toBeNull()
