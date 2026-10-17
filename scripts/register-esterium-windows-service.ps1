@@ -27,6 +27,7 @@ if (-not [Uri]::TryCreate($AllowedOrigin, [UriKind]::Absolute, [ref]$origin) -or
     throw 'AllowedOrigin must be an actual HTTPS origin for this installation (not localhost).'
 }
 $source = (Resolve-Path -LiteralPath $BundleDir -ErrorAction Stop).Path
+& (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $source | Out-Null
 $binarySource = Join-Path $source 'esterium-server.exe'
 $webSource = Join-Path $source 'web'
 if (-not (Test-Path -LiteralPath $binarySource -PathType Leaf)) {
