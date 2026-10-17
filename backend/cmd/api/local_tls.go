@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -13,7 +14,7 @@ import (
 // Resolve the listener's TLS mode before accepting any network connections.
 // A locally bundled SPA cannot be served over plaintext on a LAN because
 // browser credentials and PWA features require a trusted secure origin.
-func resolveLocalTLS(webDir, address, certFile, keyFile string) (bool, error) {
+func resolveLocalTLS(webDir, address, certFile, keyFile, publicURL string) (bool, error) {
 	certFile = strings.TrimSpace(certFile)
 	keyFile = strings.TrimSpace(keyFile)
 	if (certFile == "") != (keyFile == "") {
@@ -40,6 +41,17 @@ func resolveLocalTLS(webDir, address, certFile, keyFile string) (bool, error) {
 	now := time.Now()
 	if now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
 		return false, errors.New("local HTTPS certificate is not currently valid")
+	}
+	if strings.TrimSpace(webDir) != "" && !isLoopbackBind(address) {
+		public, parseErr := url.Parse(strings.TrimSpace(publicURL))
+		if parseErr != nil || public.Scheme != "https" || public.User != nil ||
+			public.Hostname() == "" || (public.Path != "" && public.Path != "/") ||
+			public.RawQuery != "" || public.Fragment != "" {
+			return false, errors.New("LAN HTTPS requires a valid APP_PUBLIC_URL origin")
+		}
+		if nameErr := leaf.VerifyHostname(public.Hostname()); nameErr != nil {
+			return false, fmt.Errorf("LAN HTTPS certificate does not cover APP_PUBLIC_URL hostname: %w", nameErr)
+		}
 	}
 	return true, nil
 }
