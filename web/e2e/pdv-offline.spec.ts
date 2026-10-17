@@ -31,7 +31,8 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
   await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   await context.setOffline(true)
-  await page.getByRole('button', { name: 'Finalizar' }).click()
+  await page.getByRole('checkbox', { name: 'Confirmei que o Pix foi recebido.' }).check()
+  await page.getByRole('button', { name: 'Finalizar venda' }).click()
   await expect(page.getByText(/Venda salva neste dispositivo \(não confirmada pelo servidor\)/)).toBeVisible()
   const offlineSaleStatus = page.getByRole('status').filter({ hasText: 'Aguardando confirmação no servidor' })
   await expect(offlineSaleStatus).toHaveClass(/bg-amber-50/)
