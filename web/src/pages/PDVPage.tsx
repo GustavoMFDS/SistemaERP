@@ -216,6 +216,8 @@ export default function PDVPage() {
   const [suspendedCarts, setSuspendedCarts] = useState<SuspendedCart[]>(getSuspendedCarts())
 
   const [payMethod, setPayMethod] = useState('pix')
+  const [cashReceived, setCashReceived] = useState('')
+  const [confirmedPaymentFingerprint, setConfirmedPaymentFingerprint] = useState('')
   const [saleId, setSaleId] = useState('')
   const [saleTotal, setSaleTotal] = useState<number>(0)
   const [fiscalStatus, setFiscalStatus] = useState<SaleFiscalStatus | null>(null)
@@ -746,6 +748,8 @@ export default function PDVPage() {
       })
       setItems([])
       setSaleDiscount(0)
+      setCashReceived('')
+      setConfirmedPaymentFingerprint('')
       refreshSuspended()
       barcodeInputRef.current?.focus()
     } catch (e: unknown) {
@@ -797,6 +801,8 @@ export default function PDVPage() {
 
     setItems(refreshedItems)
     setPayMethod(cart.payMethod)
+    setCashReceived('')
+    setConfirmedPaymentFingerprint('')
     setSaleDiscount(canDiscount ? cart.saleDiscount : 0)
     refreshSuspended()
     if (priceChanged) {
@@ -815,10 +821,35 @@ export default function PDVPage() {
     }
   }
 
-  const canFinalize = useMemo(
-    () => cashSessionId && items.length > 0 && computedTotal > 0,
-    [cashSessionId, items.length, computedTotal],
-  )
+  // Approval is tied to this exact sale amount, items and payment method.
+  // Any edit after confirming a Pix/card payment requires a new confirmation.
+  const paymentFingerprint = JSON.stringify({
+    cashSessionId,
+    payMethod,
+    computedTotal,
+    items,
+    discount: canDiscount ? saleDiscount : 0,
+  })
+  // Reset immediately after *any* basket/payment edit. Reverting to an
+  // earlier total must not resurrect an approval given to the old basket.
+  useEffect(() => {
+    setCashReceived('')
+    setConfirmedPaymentFingerprint('')
+  }, [paymentFingerprint])
+  const cashValueText = cashReceived.trim()
+  const cashValue = Number(cashValueText)
+  const cashCents = Math.round(cashValue * 100)
+  const totalCents = Math.round(computedTotal * 100)
+  // Reject exponential notation, a third decimal place and unrepresentable
+  // amounts instead of rounding an ambiguous tender up at checkout.
+  const validCashAmount = /^\d+(?:\.\d{1,2})?$/.test(cashValueText) &&
+    Number.isSafeInteger(cashCents) && Number.isSafeInteger(totalCents)
+  const hasEnoughCash = validCashAmount && cashCents >= totalCents
+  const changeAmount = hasEnoughCash ? (cashCents - totalCents) / 100 : 0
+  const paymentReady = payMethod === 'cash'
+    ? hasEnoughCash
+    : confirmedPaymentFingerprint === paymentFingerprint
+  const canFinalize = Boolean(cashSessionId && items.length > 0 && computedTotal > 0 && paymentReady)
 
   async function refreshFiscalStatus(id: string) {
     if (!id || id.startsWith('offline:')) return
@@ -1003,6 +1034,8 @@ export default function PDVPage() {
         setSaleTotal(computedTotal)
         setItems([])
         setSaleDiscount(0)
+        setCashReceived('')
+        setConfirmedPaymentFingerprint('')
         return
       }
 
@@ -1021,6 +1054,8 @@ export default function PDVPage() {
       void refreshFiscalStatus(res.id)
       setItems([])
       setSaleDiscount(0)
+      setCashReceived('')
+      setConfirmedPaymentFingerprint('')
       void loadProducts()
     } catch (e: unknown) {
       const msg = errorMessage(e)
@@ -1043,6 +1078,8 @@ export default function PDVPage() {
       setSaleTotal(computedTotal)
       setItems([])
       setSaleDiscount(0)
+      setCashReceived('')
+      setConfirmedPaymentFingerprint('')
       refreshPending()
       setError(`Venda salva neste dispositivo, mas o resultado no servidor ainda não foi confirmado. Não refaça a venda. Abra as pendências para conferir e sincronizar com segurança. Detalhe: ${msg}`)
     } finally {
@@ -1490,7 +1527,11 @@ export default function PDVPage() {
               <span className="text-sm font-semibold text-slate-700">Forma de pagamento</span>
               <select
                 value={payMethod}
-                onChange={(e) => setPayMethod(e.target.value)}
+                onChange={(e) => {
+                  setPayMethod(e.target.value)
+                  setCashReceived('')
+                  setConfirmedPaymentFingerprint('')
+                }}
                 className="mt-2 w-full rounded-lg border px-4 py-3 text-base"
               >
                 <option value="cash">Dinheiro</option>
@@ -1501,6 +1542,49 @@ export default function PDVPage() {
                 <option value="voucher">Voucher</option>
               </select>
             </label>
+            {payMethod === 'cash' ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <label className="block text-sm font-semibold text-slate-700">
+                  Valor recebido em dinheiro (R$)
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                    className="mt-2 w-full rounded-lg border px-4 py-3 text-base"
+                  />
+                </label>
+                {hasEnoughCash ? (
+                  <p role="status" className="mt-3 text-sm font-semibold text-emerald-800">
+                    Troco: R$ {changeAmount.toFixed(2)}
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm text-amber-800">
+                    Informe o valor entregue pelo cliente, igual ou maior que o total.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={confirmedPaymentFingerprint === paymentFingerprint}
+                  onChange={(e) => setConfirmedPaymentFingerprint(
+                    e.target.checked ? paymentFingerprint : '',
+                  )}
+                  className="mt-1 size-5"
+                />
+                <span>
+                  {payMethod === 'pix'
+                    ? 'Confirmei que o Pix foi recebido.'
+                    : payMethod === 'credit' || payMethod === 'debit'
+                      ? 'Confirmei que o pagamento foi aprovado na máquina.'
+                      : 'Confirmei que o pagamento foi recebido e conferido.'}
+                </span>
+              </label>
+            )}
             <button
               id="pdv-finalize"
               type="button"
@@ -1508,12 +1592,12 @@ export default function PDVPage() {
               disabled={!canFinalize || finalizing}
               className="min-h-12 w-full rounded-lg bg-slate-900 px-5 py-3 text-base font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {finalizing ? 'Finalizando…' : 'Finalizar'}
+              {finalizing ? 'Finalizando…' : 'Finalizar venda'}
             </button>
           </div>
         </div>
             <p className="mt-4 rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
-              As formas de pagamento são registradas aqui. Pix e cartões ainda não têm confirmação bancária automática integrada.
+              Dinheiro calcula o troco automaticamente. Para Pix, cartões e outros meios, confira o recebimento antes de finalizar. Ainda não há confirmação automática do banco.
             </p>
           </section>
         {saleId ? (
