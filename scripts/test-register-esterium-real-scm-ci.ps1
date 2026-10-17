@@ -90,6 +90,7 @@ try {
         'tools\provision-esterium-app-secrets.ps1',
         'tools\postgres-daily-backup.ps1',
         'tools\copy-verified-external-backup.ps1',
+        'tools\check-esterium-backup-integrity.ps1',
         'README_LOCAL.md',
         'bundle-manifest.json',
         'migrations\0001_ci_fixture.up.sql',
