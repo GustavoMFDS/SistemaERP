@@ -44,6 +44,9 @@ jobs:
           npm install --global npm@11.6.1
           npm ci --prefix web
           npm run build --prefix web
+      - name: Install Chromium for compiled-SPA UI verification
+        working-directory: web
+        run: npx playwright install --with-deps chromium
       - name: Launch compiled Go server and verify real static/UI/API traffic
         run: bash scripts/ci-local-production-bundle-smoke.sh
 
