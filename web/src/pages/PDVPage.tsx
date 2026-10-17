@@ -836,12 +836,16 @@ export default function PDVPage() {
     setCashReceived('')
     setConfirmedPaymentFingerprint('')
   }, [paymentFingerprint])
-  const cashValue = cashReceived.trim() === '' ? NaN : Number(cashReceived)
-  const hasEnoughCash = Number.isFinite(cashValue) &&
-    Math.round(cashValue * 100) >= Math.round(computedTotal * 100)
-  const changeAmount = hasEnoughCash
-    ? Math.max(0, Math.round((cashValue - computedTotal) * 100) / 100)
-    : 0
+  const cashValueText = cashReceived.trim()
+  const cashValue = Number(cashValueText)
+  const cashCents = Math.round(cashValue * 100)
+  const totalCents = Math.round(computedTotal * 100)
+  // Reject exponential notation, a third decimal place and unrepresentable
+  // amounts instead of rounding an ambiguous tender up at checkout.
+  const validCashAmount = /^\d+(?:\.\d{1,2})?$/.test(cashValueText) &&
+    Number.isSafeInteger(cashCents) && Number.isSafeInteger(totalCents)
+  const hasEnoughCash = validCashAmount && cashCents >= totalCents
+  const changeAmount = hasEnoughCash ? (cashCents - totalCents) / 100 : 0
   const paymentReady = payMethod === 'cash'
     ? hasEnoughCash
     : confirmedPaymentFingerprint === paymentFingerprint
