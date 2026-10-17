@@ -98,4 +98,9 @@ if grep -qi '<html' "$tmp/api.body"; then
   exit 1
 fi
 
-echo 'PASS: compiled Vite frontend, SPA history, static JS, security headers and API all served from one Go origin.'
+(
+  cd web
+  npx playwright test --config=playwright.compiled.config.ts
+)
+
+echo 'PASS: compiled Vite frontend, SPA history, static JS, security headers and API and browser login served from one Go origin.'
