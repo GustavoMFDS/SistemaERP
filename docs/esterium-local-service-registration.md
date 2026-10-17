@@ -61,6 +61,8 @@ O job Windows `local-windows-installer-plan` testa com **arquivos sintéticos** 
 
 O executável agora admite exclusivamente `--check-config`, que lê e valida as variáveis/arquivos de configuração, a correspondência do certificado HTTPS e o frontend compilado **sem abrir portas, conectar ao PostgreSQL/Redis ou transmitir à SEFAZ**. Também faz essa conferência básica antes das conexões no início normal. O CI Windows executa o preflight com arquivos e URLs inteiramente sintéticos e recusa argumentos inválidos.
 
+A segunda verificação, `esterium-server.exe --check-dependencies`, consulta somente a versão e integridade das migrações, confere 11 tabelas exigidas, testa TLS e acesso PostgreSQL e exige **consumo único e limitação de tentativas atômicos no Redis**. Ela não inicia o servidor HTTP nem executa migrações, vendas ou transmissão SEFAZ. O teste de segurança Redis cria identificadores sintéticos únicos de curta duração (o token de sessão é revogado ao fim). Configure o ambiente e a identidade do serviço corretamente antes de executá-la; a aprovação desse comando demonstra conectividade e operações básicas, não disponibilidade dos caixas nem restauração.
+
 **Importante:** executar manualmente o `.exe` fora do Gerenciador de Serviços não carrega automaticamente as entradas `Environment` do serviço no registro do Windows. É necessário executar o preflight na identidade do serviço ou em ambiente controlado equivalente, sem imprimir ou copiar valores de segredos. A aprovação desse teste não demonstra que o banco ou os certificados são alcançáveis.
 
 ## Pendente para instalador completo
