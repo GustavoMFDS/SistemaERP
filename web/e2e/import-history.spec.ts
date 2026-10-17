@@ -7,7 +7,9 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
-  await page.goto('/products')
+  // Navigate as an operator, preserving the access token in memory.
+  await page.getByRole('link', { name: 'Produtos', exact: true }).click()
+  await expect(page).toHaveURL(/\/products$/)
 }
 
 test('histórico de produtos mostra apenas recibos confirmados e permite paginar', async ({ page }) => {
@@ -57,7 +59,8 @@ test('estoque inicial possui histórico próprio de recibos, sem CSV', async ({ 
       }),
     }))
   await login(page, 'gerente@sistema.local')
-  await page.goto('/inventory')
+  await page.getByRole('link', { name: 'Estoque', exact: true }).click()
+  await expect(page).toHaveURL(/\/inventory$/)
   await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
   const history = page.getByRole('region', { name: 'Histórico de importações confirmadas' })
   await expect(history).toContainText('Responsável estoque')
