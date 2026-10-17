@@ -48,6 +48,24 @@ test('recuperação presencial consome link único e revoga sessões anteriores'
     })
     expect(previousToken).toBeTruthy()
 
+    // Seed one durable, tenant/user-scoped offline intent without dispatching it.
+    // A full PDV offline sale plus subsequent reconciliation remains a separate
+    // acceptance scenario; this only verifies reset never erases the local queue.
+    const pendingOffline = await employee.evaluate(async () => {
+      const { enqueueRequest, getQueueItems } = await import('/src/lib/offlineQueue.ts')
+      const id = enqueueRequest({
+        method: 'POST', path: '/api/v1/sales',
+        body: {
+          cash_session_id: crypto.randomUUID(),
+          items: [{ product_id: crypto.randomUUID(), qty: 1, discount_value: 0 }],
+          discount_value: 0, payments: [{ method: 'cash', amount: 10 }],
+        },
+      })
+      const item = getQueueItems().find((candidate) => candidate.id === id)
+      return { id, key: item?.headers?.['Idempotency-Key'] }
+    })
+    expect(pendingOffline.key).toBe(pendingOffline.id)
+
     await page.goto('/staff')
     const row = page.getByRole('region', { name: 'Equipe da loja' })
       .getByRole('row').filter({ hasText: username })
@@ -142,6 +160,16 @@ test('recuperação presencial consome link único e revoga sessões anteriores'
     expect(me.email).toBe('')
     expect(me.roles).toContain('cashier')
     expect(me.permissions).not.toContain('team:manage')
+
+    const restoredQueue = await employee.evaluate(async () => {
+      const { getQueueItems } = await import('/src/lib/offlineQueue.ts')
+      return getQueueItems().map((item) => ({
+        id: item.id, key: item.headers?.['Idempotency-Key'], state: item.state,
+      }))
+    })
+    expect(restoredQueue).toContainEqual({
+      id: pendingOffline.id, key: pendingOffline.key, state: 'pending',
+    })
   } finally {
     await resetContext.close()
     await employeeContext.close()
