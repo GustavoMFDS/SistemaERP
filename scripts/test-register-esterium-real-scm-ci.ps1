@@ -31,8 +31,6 @@ $installCalled = $false
 try {
     New-Item -ItemType Directory -Path $web, $secrets -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'esterium-server.exe'), 'synthetic-CI-binary-not-runnable')
-    [IO.Directory]::CreateDirectory((Join-Path $bundle 'tools')) | Out-Null
-    [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), '<html>synthetic</html>')
     $migrationDir = Join-Path $bundle 'migrations'
     [IO.Directory]::CreateDirectory($migrationDir) | Out-Null
@@ -41,6 +39,7 @@ try {
 
     $tools = Join-Path $bundle 'tools'
     New-Item -ItemType Directory -Path $tools | Out-Null
+    [IO.File]::WriteAllText((Join-Path $tools 'esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     foreach ($name in @(
         'register-esterium-windows-service.ps1',
         'provision-esterium-app-secrets.ps1',
