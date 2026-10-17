@@ -8,7 +8,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$BackupDir,
     [string]$PostgresBin = 'C:\Program Files\PostgreSQL\16\bin',
-    [ValidateRange(7, 3650)][int]$RetentionDays = 14
+    [ValidateRange(7, 3650)][int]$RetentionDays = 14,
+    [string]$ExternalBackupDir = '',
+    [switch]$RequireExternalCopy
 )
 $ErrorActionPreference = 'Stop'
 foreach ($key in @('PGHOST', 'PGUSER', 'PGDATABASE')) {
@@ -17,6 +19,16 @@ foreach ($key in @('PGHOST', 'PGUSER', 'PGDATABASE')) {
     }
 }
 if (-not [IO.Path]::IsPathRooted($BackupDir)) { throw 'BackupDir must be absolute.' }
+if ($RequireExternalCopy -and [string]::IsNullOrWhiteSpace($ExternalBackupDir)) {
+    throw 'An off-machine external backup destination is required.'
+}
+if (-not [string]::IsNullOrWhiteSpace($ExternalBackupDir)) {
+    # A network SMB share has a separate failure domain from the shop PC.
+    # USB drives require a separately approved and tested procedure.
+    if ($ExternalBackupDir -notmatch '^\\\\[^\\]+\\[^\\]+') {
+        throw 'ExternalBackupDir must be an SMB UNC share (\\server\share).'
+    }
+}
 $full = [IO.Path]::GetFullPath($BackupDir).TrimEnd('\', '/')
 $root = [IO.Path]::GetPathRoot($full).TrimEnd('\', '/')
 if ($full -eq $root -or $full -eq [IO.Path]::GetTempPath().TrimEnd('\', '/')) {
@@ -29,6 +41,7 @@ foreach ($exe in @('pg_dump.exe', 'pg_restore.exe', 'psql.exe')) {
 $lock = $null
 $tmp = $null
 $ok = $false
+$externalVerified = $false
 $status = Join-Path $full 'backup-status.json'
 try {
     $lock = [IO.File]::Open((Join-Path $full '.esterium-backup.lock'),
@@ -67,6 +80,10 @@ WHERE table_schema='public' AND table_name IN
     $verify = (Get-FileHash -LiteralPath $final -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($hash -ne $verify) { throw 'SHA256 verification failed.' }
 
+    if (-not [string]::IsNullOrWhiteSpace($ExternalBackupDir)) {
+        & (Join-Path $PSScriptRoot 'copy-verified-external-backup.ps1') -SourceDump $final -DestinationDir $ExternalBackupDir | Out-Null
+        $externalVerified = $true
+    }
     $ok = $true
     $cutoff = [DateTime]::UtcNow.AddDays(-$RetentionDays)
     foreach ($old in @(Get-ChildItem -LiteralPath $full -Filter 'esterium-*.dump' -File)) {
@@ -88,6 +105,7 @@ finally {
             last_run_utc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
             state = $state
             archive_verified = $ok
+            external_copy_verified = $externalVerified
         } | ConvertTo-Json -Compress
         $tempStatus = Join-Path $full ('.esterium-status-' + [Guid]::NewGuid().ToString('N') + '.tmp')
         [IO.File]::WriteAllText($tempStatus, $report, [Text.UTF8Encoding]::new($false))
