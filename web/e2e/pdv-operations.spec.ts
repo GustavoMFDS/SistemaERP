@@ -140,6 +140,8 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(invalidPaymentSemanticsStatus).toBe(422)
 
   await page.keyboard.press('F4')
+  await expect(page.getByText('Busca rápida por nome ou código', { exact: true })).toBeVisible()
+  await expect(page.getByText('Busca rápida por nome, SKU ou código', { exact: true })).toHaveCount(0)
   const quickSearch = page.getByLabel('Busca rápida por nome ou código')
   await expect(quickSearch).toBeFocused()
   await quickSearch.fill(`E2E-PDV-${suffix}`)
