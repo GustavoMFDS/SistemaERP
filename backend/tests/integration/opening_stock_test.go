@@ -73,7 +73,7 @@ func TestOpeningStockBatchIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	}()
 	skuA := fmt.Sprintf("OPENING-A-%d", now)
 	skuB := fmt.Sprintf("OPENING-B-%d", now)
-	for _, fixture := range []struct { tenant, sku string }{
+	for _, fixture := range []struct{ tenant, sku string }{
 		{tenantA, skuA}, {tenantA, skuB}, {tenantB, skuA},
 	} {
 		if _, err := pool.Exec(ctx, `
@@ -148,12 +148,16 @@ func TestOpeningStockBatchIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 		SELECT COALESCE(b.qty_on_hand,0)::numeric(14,3)::text
 		FROM products p LEFT JOIN inventory_balances b ON p.id=b.product_id
 		WHERE p.tenant_id=$1 AND p.sku=$2
-	`, tenantA, skuA).Scan(&qtyA); err != nil { t.Fatal(err) }
+	`, tenantA, skuA).Scan(&qtyA); err != nil {
+		t.Fatal(err)
+	}
 	if err := pool.QueryRow(ctx, `
 		SELECT COALESCE(b.qty_on_hand,0)::numeric(14,3)::text
 		FROM products p LEFT JOIN inventory_balances b ON p.id=b.product_id
 		WHERE p.tenant_id=$1 AND p.sku=$2
-	`, tenantA, skuB).Scan(&qtyB); err != nil { t.Fatal(err) }
+	`, tenantA, skuB).Scan(&qtyB); err != nil {
+		t.Fatal(err)
+	}
 	if qtyA != "3.250" || qtyB != "0.000" {
 		t.Fatalf("balances changed despite replay/rollback: %q, %q", qtyA, qtyB)
 	}
@@ -161,7 +165,9 @@ func TestOpeningStockBatchIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM inventory_movements
 		WHERE tenant_id=$1 AND reference_type='opening_stock'
-	`, tenantA).Scan(&movements); err != nil { t.Fatal(err) }
+	`, tenantA).Scan(&movements); err != nil {
+		t.Fatal(err)
+	}
 	if movements != 1 {
 		t.Fatalf("expected one committed opening movement, got %d", movements)
 	}
