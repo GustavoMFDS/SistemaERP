@@ -18,9 +18,20 @@ try {
         $paths[$name] = Join-Path $secrets "$name.secret"
         [IO.File]::WriteAllText($paths[$name], 'synthetic-credential-placeholder')
     }
+    $bundleTools = Join-Path $bundle 'tools'
+    [IO.Directory]::CreateDirectory($bundleTools) | Out-Null
+    foreach ($tool in @(
+        'register-esterium-windows-service.ps1',
+        'verify-esterium-bundle.ps1',
+        'postgres-daily-backup.ps1',
+        'copy-verified-external-backup.ps1'
+    )) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $bundleTools $tool)
+    }
+    [IO.File]::WriteAllText((Join-Path $bundle 'README_LOCAL.md'), 'Synthetic setup directions')
     & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $bundle | Out-Null
     & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
-    $installer = Join-Path $PSScriptRoot 'register-esterium-windows-service.ps1'
+    $installer = Join-Path $bundleTools 'register-esterium-windows-service.ps1'
     $args = @{
         BundleDir = $bundle
         DatabaseURLFile = $paths.database
