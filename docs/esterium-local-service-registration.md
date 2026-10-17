@@ -75,8 +75,8 @@ No comando `--check-dependencies`, quando essa pasta está configurada, o Esteri
 
 O pacote também instala `tools/check-esterium-backup-integrity.ps1`. Ele verifica em **modo somente leitura** se o backup local e a cópia externa SMB são da mesma geração, possuem arquivos SHA-256 válidos e foram concluídos dentro do prazo de 30 horas por padrão. A execução falha diante de backup ausente, remoto desconectado, corrompido ou antigo. O status do backup salva apenas nome e hash do arquivo, sem senhas, dados fiscais ou informações de clientes. O CI Windows testa adulteração, ausência de checksum e expiração em arquivos sintéticos.
 
-Esse verificador **não agenda automaticamente** o backup nem restaura o banco. Antes de colocar uma loja em uso, configurar um agendamento protegido, verificar uma restauração em outra máquina e monitorar os resultados diariamente.
+O pacote também inclui um registrador protegido de backup diário Windows, **desabilitado por padrão**, e um executor que exige backup externo SMB e PostgreSQL TLS com segredos em arquivos de ACL restrita. Um técnico deve preparar o JSON de configuração fora do programa, testar a identidade NetworkService, a escrita na pasta remota e restauração em outra máquina **antes de habilitar o agendamento**. Consulte `docs/esterium-local-backup-externo.md` no repositório. O verificador sozinho não agenda nem restaura o banco.
 
 ## Pendente para instalador completo
 
-Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, agendamento e restauração real de backups, inicialização automática e desinstalação preservando dados.
+Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, validação/ativação presencial da tarefa e restauração real de backups, inicialização automática e desinstalação preservando dados.
