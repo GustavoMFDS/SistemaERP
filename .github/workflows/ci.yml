@@ -141,10 +141,13 @@ jobs:
         run: |
           set -euo pipefail
           build_dir="$(mktemp -d)"
-          trap 'rm -rf "$build_dir"' EXIT
+          # Go module cache source files are intentionally read-only; do not
+          # create/tear down that cache inside the temporary cross-build path.
+          shared_module_cache="$(go env GOMODCACHE)"
+          trap 'chmod -R u+w "$build_dir" 2>/dev/null || true; rm -rf "$build_dir"' EXIT
           # Go refuses cross-compilation with GOBIN; use an isolated GOPATH and
           # the official bin/windows_amd64 output layout instead.
-          (cd backend && GOOS=windows GOARCH=amd64 GOPATH="$build_dir" GOBIN= go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1)
+          (cd backend && GOOS=windows GOARCH=amd64 GOPATH="$build_dir" GOMODCACHE="$shared_module_cache" GOBIN= go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1)
           test -s "$build_dir/bin/windows_amd64/migrate.exe"
           mkdir -p dist/esterium-local-win-x64/tools
           cp "$build_dir/bin/windows_amd64/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
