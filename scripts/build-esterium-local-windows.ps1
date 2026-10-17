@@ -72,6 +72,7 @@ foreach ($tool in @(
 )) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool) -ErrorAction Stop
 }
+Copy-Item -LiteralPath (Join-Path $Root 'backend/migrations') -Destination (Join-Path $OutputDir 'migrations') -Recurse -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $Root 'docs/esterium-local-service-registration.md') -Destination (Join-Path $OutputDir 'README_LOCAL.md') -ErrorAction Stop
 & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $OutputDir
 & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $OutputDir

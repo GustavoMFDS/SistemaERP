@@ -141,6 +141,8 @@ jobs:
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
+          cp -R backend/migrations dist/esterium-local-win-x64/migrations
+          test "$(find dist/esterium-local-win-x64/migrations -name '*.up.sql' | wc -l)" -ge 51
       - name: Generate and verify bundle SHA-256 manifest
         shell: pwsh
         run: |
@@ -1902,6 +1904,7 @@ jobs:
         env:
           APP_ENV: staging
           FISCAL_PROVIDER: disabled
+          ESTERIUM_MIGRATIONS_DIR: migrations
           JWT_SECRET: ci-staging-jwt-secret-longer-than-32-characters
           HTTP_ADDR: :18081
           OTEL_ENABLED: "false"

@@ -24,7 +24,12 @@ foreach ($file in $items) {
         throw 'Bundle may not contain symbolic links or junctions.'
     }
     $relative = $file.FullName.Substring($root.Length + 1).Replace('\', '/')
+    if ($relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
+        $relative -notmatch '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$') {
+        throw "Unexpected migration file: $relative"
+    }
     if ($relative -ne 'esterium-server.exe' -and -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
+        -not $relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
         -not ($requiredTools -contains $relative)) {
         throw "Unexpected bundle file: $relative"
     }
@@ -43,6 +48,17 @@ if (-not ($records | Where-Object { $_.path -eq 'esterium-server.exe' }) -or
 foreach ($needed in $requiredTools) {
     if (-not ($records | Where-Object { $_.path -eq $needed })) {
         throw "Incomplete local tools bundle: $needed"
+    }
+}
+$migrationFiles = @($records | Where-Object { $_.path -match '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$' })
+$ups = @($migrationFiles | Where-Object { $_.path.EndsWith('.up.sql') })
+if ($ups.Count -eq 0 -or $migrationFiles.Count -ne 2 * $ups.Count) {
+    throw 'Bundle requires matched database migration files.'
+}
+foreach ($up in $ups) {
+    $down = $up.path.Replace('.up.sql', '.down.sql')
+    if (-not ($migrationFiles | Where-Object { $_.path -eq $down })) {
+        throw "Database migration pair is missing: $($up.path)"
     }
 }
 $payload = @{ schema = 1; files = @($records | Sort-Object -Property path) } | ConvertTo-Json -Depth 5

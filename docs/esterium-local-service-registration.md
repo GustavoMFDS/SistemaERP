@@ -65,6 +65,12 @@ A segunda verificação, `esterium-server.exe --check-dependencies`, consulta so
 
 **Importante:** executar manualmente o `.exe` fora do Gerenciador de Serviços não carrega automaticamente as entradas `Environment` do serviço no registro do Windows. É necessário executar o preflight na identidade do serviço ou em ambiente controlado equivalente, sem imprimir ou copiar valores de segredos. A aprovação desse teste não demonstra que o banco ou os certificados são alcançáveis.
 
+## Migrações incluídas no pacote
+
+O ZIP agora inclui `migrations/` com os arquivos SQL `.up.sql` e `.down.sql` versionados que pertencem à release. O manifesto SHA-256 impede que faltem pares ou que esses arquivos sejam modificados durante a cópia. O instalador conserva a pasta junto ao servidor e registra o caminho em `ESTERIUM_MIGRATIONS_DIR`.
+
+No comando `--check-dependencies`, quando essa pasta está configurada, o Esterium verifica que as versões são contínuas e que a versão atual de `schema_migrations` é **exatamente igual** à versão máxima do pacote. Um banco atrasado, adiantado ou marcado como `dirty` é recusado. **O comando não executa migrações automaticamente.** Antes de atualizar o banco, é indispensável backup externo restaurável e um migrador Windows oficial com versão e hash verificados; essa ferramenta ainda não integra este ZIP.
+
 ## Pendente para instalador completo
 
 Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, agendamento e restauração real de backups, inicialização automática e desinstalação preservando dados.

@@ -32,6 +32,11 @@ try {
     New-Item -ItemType Directory -Path $web, $secrets -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'esterium-server.exe'), 'synthetic-CI-binary-not-runnable')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), '<html>synthetic</html>')
+    $migrationDir = Join-Path $bundle 'migrations'
+    [IO.Directory]::CreateDirectory($migrationDir) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $migrationDir '0001_ci_fixture.up.sql'), '-- Synthetic migration for bundle integrity only')
+    [IO.File]::WriteAllText((Join-Path $migrationDir '0001_ci_fixture.down.sql'), '-- Synthetic rollback file')
+
     $tools = Join-Path $bundle 'tools'
     New-Item -ItemType Directory -Path $tools | Out-Null
     foreach ($name in @(
@@ -85,7 +90,9 @@ try {
         'tools\postgres-daily-backup.ps1',
         'tools\copy-verified-external-backup.ps1',
         'README_LOCAL.md',
-        'bundle-manifest.json'
+        'bundle-manifest.json',
+        'migrations\0001_ci_fixture.up.sql',
+        'migrations\0001_ci_fixture.down.sql'
     )) {
         if (-not (Test-Path -LiteralPath (Join-Path $install $relative) -PathType Leaf)) {
             throw "Installed maintenance file is missing: $relative"
@@ -97,7 +104,8 @@ try {
     if (@($values | Where-Object { $_ -eq 'FISCAL_PROVIDER=disabled' }).Count -ne 1 -or
         @($values | Where-Object { $_ -eq 'HTTP_ADDR=127.0.0.1:8080' }).Count -ne 1 -or
         @($values | Where-Object { $_ -eq 'APP_ENV=prod' }).Count -ne 1 -or
-        @($values | Where-Object { $_ -like 'DATABASE_URL_FILE=*' }).Count -ne 1) {
+        @($values | Where-Object { $_ -like 'DATABASE_URL_FILE=*' }).Count -ne 1 -or
+        @($values | Where-Object { $_ -like 'ESTERIUM_MIGRATIONS_DIR=*' }).Count -ne 1) {
         throw 'SCM registry environment is missing restrictive production parameters.'
     }
     if (($values -join ';') -match 'synthetic-placeholder-') {

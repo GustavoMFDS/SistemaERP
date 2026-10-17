@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/example/sistemaemgo/internal/config"
@@ -57,6 +59,27 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		pool.Close()
 		_ = telemetryShutdown(ctx)
 		return nil, err
+	}
+
+	migrationDir := strings.TrimSpace(os.Getenv("ESTERIUM_MIGRATIONS_DIR"))
+	if cfg.IsProdLike() && strings.TrimSpace(os.Getenv("ESTERIUM_WEB_DIR")) != "" && migrationDir == "" {
+		pool.Close()
+		_ = telemetryShutdown(ctx)
+		return nil, errors.New("local SPA production startup requires ESTERIUM_MIGRATIONS_DIR")
+	}
+	if migrationDir != "" {
+		var version int
+		var dirty bool
+		if err := pool.QueryRow(ctx, "SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+			pool.Close()
+			_ = telemetryShutdown(ctx)
+			return nil, fmt.Errorf("cannot verify installed PostgreSQL schema version: %w", err)
+		}
+		if err := verifyLocalSchemaVersion(version, dirty, migrationDir); err != nil {
+			pool.Close()
+			_ = telemetryShutdown(ctx)
+			return nil, err
+		}
 	}
 
 	var rdb *redis.Client

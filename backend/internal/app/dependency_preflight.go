@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/example/sistemaemgo/internal/config"
@@ -48,6 +50,15 @@ func CheckLocalDependencies(parent context.Context, cfg config.Config) error {
 	}
 	if version <= 0 || dirty {
 		return fmt.Errorf("PostgreSQL migrations are incomplete or dirty (version=%d, dirty=%v)", version, dirty)
+	}
+	dir := strings.TrimSpace(os.Getenv("ESTERIUM_MIGRATIONS_DIR"))
+	if dir == "" && cfg.IsProdLike() && strings.TrimSpace(os.Getenv("ESTERIUM_WEB_DIR")) != "" {
+		return errors.New("local installation requires ESTERIUM_MIGRATIONS_DIR to verify the installed schema version")
+	}
+	if dir != "" {
+		if err := verifyLocalSchemaVersion(version, dirty, dir); err != nil {
+			return err
+		}
 	}
 	// Schema-only checks: do not select customer, financial or fiscal contents.
 	required := []string{

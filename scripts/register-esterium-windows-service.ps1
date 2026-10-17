@@ -172,6 +172,7 @@ try {
     # Preserve the verified backup, secret and installer utilities for future
     # maintenance; the extracted ZIP does not need to remain on the shop PC.
     Copy-Item -LiteralPath (Join-Path $source 'tools') -Destination (Join-Path $staging 'tools') -Recurse -ErrorAction Stop
+    Copy-Item -LiteralPath (Join-Path $source 'migrations') -Destination (Join-Path $staging 'migrations') -Recurse -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $source 'README_LOCAL.md') -Destination (Join-Path $staging 'README_LOCAL.md') -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $source 'bundle-manifest.json') -Destination (Join-Path $staging 'bundle-manifest.json') -ErrorAction Stop
     # Do not register any Windows service until every staged file matches the
@@ -191,7 +192,8 @@ try {
         "HTTP_ADDR=$ListenAddress",
         "CORS_ALLOWED_ORIGINS=$($origin.GetLeftPart([UriPartial]::Authority))",
         "APP_PUBLIC_URL=$($origin.GetLeftPart([UriPartial]::Authority))",
-        "ESTERIUM_WEB_DIR=$(Join-Path $installPath 'web')"
+        "ESTERIUM_WEB_DIR=$(Join-Path $installPath 'web')",
+        "ESTERIUM_MIGRATIONS_DIR=$(Join-Path $installPath 'migrations')"
     )
     foreach ($secret in $secrets) {
         $entries += "$($secret.name)=$([IO.Path]::GetFullPath($secret.file))"

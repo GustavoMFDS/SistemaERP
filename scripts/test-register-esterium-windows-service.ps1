@@ -12,6 +12,11 @@ try {
     [IO.Directory]::CreateDirectory($secrets) | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'esterium-server.exe'), 'synthetic-not-executable')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), 'synthetic-html')
+    $migrationDir = Join-Path $bundle 'migrations'
+    [IO.Directory]::CreateDirectory($migrationDir) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $migrationDir '0001_ci_fixture.up.sql'), '-- Synthetic migration for bundle integrity only')
+    [IO.File]::WriteAllText((Join-Path $migrationDir '0001_ci_fixture.down.sql'), '-- Synthetic rollback file')
+
     $names = @('database', 'redis', 'jwt', 'metrics')
     $paths = @{}
     foreach ($name in $names) {
