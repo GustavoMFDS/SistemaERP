@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expandDisclosure } from './expandDisclosure'
 
 async function signIn(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
@@ -13,9 +14,10 @@ async function signIn(page: import('@playwright/test').Page, email: string) {
 
 test('proprietário autorizado vê resumo e exporta somente seu período', async ({ page }) => {
   await signIn(page, 'admin@sistema.local')
-  await expect(page.getByRole('heading', { name: 'Resumo das vendas' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Produtos que precisam de atenção' })).toBeVisible()
-  await expect(page.getByText(/produto\(s\) ativos no estoque mínimo ou abaixo/)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'O ritmo da loja' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Precisa de atenção' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Alertas de estoque' })).toBeVisible()
+  await expandDisclosure(page, 'Consultar outro período e exportar resumo')
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Exportar CSV' }).click()
   const download = await downloadPromise
@@ -25,7 +27,7 @@ test('proprietário autorizado vê resumo e exporta somente seu período', async
 test('caixa não vê indicadores financeiros, nem acessa endpoint proprietário', async ({ page }) => {
   await signIn(page, 'caixa@sistema.local')
   await expect(page.getByRole('link', { name: /Abrir o caixa/ })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Resumo das vendas' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'O ritmo da loja' })).toHaveCount(0)
   const response = await page.evaluate(async () => {
     const { apiJson, APIError } = await import('/src/lib/api.ts')
     try {

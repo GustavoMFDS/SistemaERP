@@ -29,12 +29,12 @@ test('double finalize intent produces only one sale request', async ({ page }) =
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
-  await page.getByLabel('Produto').selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   let salePosts = 0
   const keys: string[] = []
-  await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
+  await page.route('**/api/v1/sales', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.continue()
       return
@@ -180,8 +180,8 @@ test('network failure during logout does not pretend the HttpOnly session was re
   await login(page)
 
   await page.getByRole('link', { name: 'PDV' }).click()
-  await page.getByLabel('Produto').selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
   await page.getByRole('button', { name: 'Suspender' }).click()
   const suspendedBefore = await page.evaluate(async () => {
     const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
@@ -189,7 +189,7 @@ test('network failure during logout does not pretend the HttpOnly session was re
   })
   expect(suspendedBefore).toBe(1)
 
-  await page.route('http://127.0.0.1:8080/api/v1/auth/logout', async (route) => {
+  await page.route('**/api/v1/auth/logout', async (route) => {
     await route.abort('failed')
   })
 
@@ -203,7 +203,7 @@ test('network failure during logout does not pretend the HttpOnly session was re
   })
   expect(suspendedAfterFailure).toBe(1)
 
-  await page.unroute('http://127.0.0.1:8080/api/v1/auth/logout')
+  await page.unroute('**/api/v1/auth/logout')
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/login$/)
 
@@ -241,7 +241,7 @@ test('logout is blocked while offline finalized sales are preserved', async ({ p
   })
 
   let logoutCalls = 0
-  await page.route('http://127.0.0.1:8080/api/v1/auth/logout', async (route) => {
+  await page.route('**/api/v1/auth/logout', async (route) => {
     logoutCalls += 1
     await route.continue()
   })
@@ -348,7 +348,7 @@ test('logout is blocked while legacy offline work is unresolved', async ({ page 
   })
 
   let logoutCalls = 0
-  await page.route('http://127.0.0.1:8080/api/v1/auth/logout', async (route) => {
+  await page.route('**/api/v1/auth/logout', async (route) => {
     logoutCalls += 1
     await route.continue()
   })
