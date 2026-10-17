@@ -1,0 +1,68 @@
+#requires -Version 5.1
+<#
+  Fail closed if a prebuilt Windows bundle differs from its manifest.
+  A manifest INSIDE a bundle is not an authenticity guarantee.
+#>
+param([Parameter(Mandatory=$true)][string]$BundleDir)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$root = (Resolve-Path -LiteralPath $BundleDir).Path.TrimEnd('\','/')
+$manifest = Join-Path $root 'bundle-manifest.json'
+if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+    throw 'Bundle SHA-256 manifest is missing.'
+}
+$document = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+if ($null -eq $document -or $document.schema -ne 1 -or @($document.files).Count -lt 2) {
+    throw 'Unsupported or empty bundle SHA-256 manifest.'
+}
+$requiredTools = @(
+    'tools/register-esterium-windows-service.ps1',
+    'tools/verify-esterium-bundle.ps1',
+    'tools/postgres-daily-backup.ps1',
+    'tools/copy-verified-external-backup.ps1',
+    'README_LOCAL.md'
+)
+$seen = @{}
+foreach ($record in @($document.files)) {
+    $relative = [string]$record.path
+    $expected = [string]$record.sha256
+    if ($relative -ne 'esterium-server.exe' -and
+        -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
+        -not ($requiredTools -contains $relative)) {
+        throw 'Unexpected manifest path.'
+    }
+    if ($relative.Contains('\') -or $relative.Contains(':') -or
+        @($relative.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -gt 0) {
+        throw 'Unsafe relative path in manifest.'
+    }
+    if ($expected -notmatch '^[0-9a-fA-F]{64}$') { throw 'Invalid SHA-256 entry.' }
+    if ($seen.ContainsKey($relative)) { throw 'Duplicate bundle manifest path.' }
+    $target = Join-Path $root ($relative.Replace('/', '\'))
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+        throw "Missing bundle file: $relative"
+    }
+    $hash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($hash -ne $expected.ToLowerInvariant()) {
+        throw "Bundle file SHA-256 mismatch: $relative"
+    }
+    $seen[$relative] = $true
+}
+if (-not $seen.ContainsKey('esterium-server.exe') -or -not $seen.ContainsKey('web/index.html')) {
+    throw 'Bundle manifest lacks executable or web/index.html.'
+}
+foreach ($needed in $requiredTools) {
+    if (-not $seen.ContainsKey($needed)) {
+        throw "Required installer helper missing: $needed"
+    }
+}
+foreach ($item in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Bundle includes an unexpected symbolic link/junction.'
+    }
+    if ($item.PSIsContainer) { continue }
+    $relative = $item.FullName.Substring($root.Length + 1).Replace('\', '/')
+    if ($relative -ne 'bundle-manifest.json' -and -not $seen.ContainsKey($relative)) {
+        throw "Unlisted file in bundle: $relative"
+    }
+}
+Write-Output 'PASS: all bundle files match the SHA-256 manifest.'

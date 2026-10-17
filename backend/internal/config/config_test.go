@@ -36,6 +36,23 @@ func TestLoadFromEnvReadsProtectedDatabaseAndRedisFiles(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvReadsMetricsBearerTokenFile(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("METRICS_BEARER_TOKEN", "")
+	file := filepath.Join(t.TempDir(), "metrics-token.secret")
+	const token = "not-an-actual-operational-token"
+	if err := os.WriteFile(file, []byte(token+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("METRICS_BEARER_TOKEN_FILE", file)
+	// This focused test validates the secret-file reader directly, without
+	// implying an entire database/Redis stack is provisioned.
+	got, err := getEnvOrFile("METRICS_BEARER_TOKEN", "METRICS_BEARER_TOKEN_FILE")
+	if err != nil || got != token {
+		t.Fatalf("metrics token file not loaded: got expected=%v err=%v", got == token, err)
+	}
+}
+
 func TestLoadFromEnvRejectsMissingProtectedURLFile(t *testing.T) {
 	t.Setenv("APP_ENV", "dev")
 	t.Setenv("DATABASE_URL", "")
