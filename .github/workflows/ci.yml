@@ -1298,7 +1298,7 @@ jobs:
           fi
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "CREATE DATABASE sistemaemgo_fiscal_disposable_ci OWNER sistemaemgo;"
-          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_fiscal_disposable_ci WITH (FORCE);"' EXIT
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_fiscal_disposable_ci;"' EXIT
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" \
             migrate/migrate:v4.17.1 \
