@@ -16,9 +16,9 @@ import (
 
 func TestResolveLocalTLSRejectsPlaintextLAN(t *testing.T) {
 	cases := []struct {
-		name string
-		web  string
-		addr string
+		name    string
+		web     string
+		addr    string
 		wantErr bool
 	}{
 		{"API only preserves reverse proxy compatibility", "", ":8080", false},
@@ -61,12 +61,12 @@ func TestResolveLocalTLSRequiresCompleteValidKeyPair(t *testing.T) {
 		t.Helper()
 		template := &x509.Certificate{
 			SerialNumber: big.NewInt(1234),
-			NotBefore: notBefore,
-			NotAfter: notAfter,
-			KeyUsage: x509.KeyUsageDigitalSignature,
-			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-			DNSNames: []string{"localhost"},
-			IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+			NotBefore:    notBefore,
+			NotAfter:     notAfter,
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			DNSNames:     []string{"localhost"},
+			IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 		}
 		der, certErr := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 		if certErr != nil {
