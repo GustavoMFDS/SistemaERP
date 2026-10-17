@@ -60,7 +60,17 @@ try {
     try { & $installer @args | Out-Null }
     catch { $insecureOriginRejected = $_.Exception.Message -match 'HTTPS origin' }
     if (-not $insecureOriginRejected) { throw 'Plaintext origin was not rejected.' }
+    $args.AllowedOrigin = 'https://user:pass@esterium.loja.example'
+    $userinfoRejected = $false
+    try { & $installer @args | Out-Null }
+    catch { $userinfoRejected = $_.Exception.Message -match 'HTTPS origin' }
+    if (-not $userinfoRejected) { throw 'Origin userinfo was not rejected.' }
     $args.AllowedOrigin = 'https://esterium.loja.example'
+    $args.ListenAddress = 'user@0.0.0.0:8443'
+    $listenerUserinfoRejected = $false
+    try { & $installer @args | Out-Null }
+    catch { $listenerUserinfoRejected = $_.Exception.Message -match 'ListenAddress' }
+    if (-not $listenerUserinfoRejected) { throw 'Listener userinfo was not rejected.' }
     $args.ListenAddress = '0.0.0.0:8443'
     $lanRejected = $false
     try { & $installer @args | Out-Null }
