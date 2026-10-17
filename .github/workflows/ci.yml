@@ -1284,6 +1284,341 @@ jobs:
           TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
           TEST_REDIS_ADDR: localhost:6379
         run: go test -tags=integration ./tests/integration/...
+      - name: Exercise NFC-e reservation and isolation on a disposable database
+        env:
+          TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo_fiscal_disposable_ci?sslmode=disable
+          TEST_FISCAL_DISPOSABLE_DB: "1"
+        run: |
+          set -euo pipefail
+          # This database is made solely for this CI step. Never use the main
+          # seeded integration database or force/delete its fiscal sequences.
+          fiscal_db=sistemaemgo_fiscal_disposable_ci
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='${fiscal_db}'")" != "0" ]; then
+            echo "Refusing to use an existing fiscal test database"
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE ${fiscal_db} OWNER sistemaemgo;"
+          cleanup_fiscal_db() {
+            docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+              -c "DROP DATABASE ${fiscal_db} WITH (FORCE);"
+          }
+          trap cleanup_fiscal_db EXIT
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="$TEST_DATABASE_URL" up
+          docker compose run --rm -v "$PWD/backend/seed:/seed:ro" db \
+            psql "postgres://sistemaemgo:sistemaemgo@db:5432/${fiscal_db}?sslmode=disable" \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+          (
+            cd backend
+            go test -tags=integration -count=1 -p 1 -parallel 1 \
+              -run '^(TestNFCeFoundation_TenantIsolationAndConstraints|TestNFCeReservation_IsAtomicAndIdempotentPerSale)
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
+          REDIS_ADDR: localhost:6379
+          JWT_SECRET: ci-integration-secret-that-is-over-32-chars
+          HTTP_ADDR: :18080
+          OTEL_ENABLED: "false"
+        run: |
+          go build -o /tmp/sistemaemgo-api ./cmd/api
+          /tmp/sistemaemgo-api > /tmp/sistemaemgo-api.log 2>&1 &
+          echo $! > /tmp/sistemaemgo-api.pid
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:18080/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/sistemaemgo-api.log
+          exit 1
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Start database, Redis and migrations
+        run: docker compose up -d db redis migrate
+      - name: Seed browser test data
+        run: |
+          docker compose run --rm seed
+          docker compose run --rm -v "$PWD/backend/seed:/seed:ro" db \
+            psql "postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo" \
+            -v ON_ERROR_STOP=1 -f /seed/seed.e2e.sql
+      - name: Start API and wait for readiness
+        working-directory: backend
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
+          REDIS_ADDR: localhost:6379
+          JWT_SECRET: ci-e2e-secret-that-is-longer-than-32-characters
+          HTTP_ADDR: :8080
+          OTEL_ENABLED: "false"
+          CORS_ALLOWED_ORIGINS: http://127.0.0.1:5173
+          RATE_LIMIT_LOGIN_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE: "1000"
+          RATE_LIMIT_REFRESH_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGOUT_PER_MINUTE: "1000"
+          RATE_LIMIT_SALES_PER_MINUTE: "1000"
+          RATE_LIMIT_FISCAL_PER_MINUTE: "1000"
+        run: |
+          go build -o /tmp/sistemaemgo-api ./cmd/api
+          /tmp/sistemaemgo-api > /tmp/api.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8080/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/api.log
+          exit 1
+      - name: Install frontend and Playwright
+        working-directory: web
+        run: |
+          npm install --global npm@11.6.1
+          npm ci
+          npx playwright install --with-deps chromium firefox webkit
+      - name: Start frontend
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: http://127.0.0.1:8080
+        run: npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/web.log 2>&1 &
+      - name: Run browser E2E
+        working-directory: web
+        run: npx playwright test
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Go vulnerability scan
+        working-directory: backend
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+      - name: Frontend production dependency audit
+        working-directory: web
+        run: |
+          npm install --global npm@11.6.1
+          npm ci
+          npm audit --omit=dev --audit-level=high
+      - name: Generate remediated frontend lockfile
+        working-directory: web
+        run: |
+          npm audit fix --package-lock-only || true
+          npm audit --json > audit-after-fix.json || true
+      - name: Upload remediated frontend lockfile
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-audit-fix
+          path: |
+            web/package.json
+            web/package-lock.json
+            web/audit-after-fix.json
+          if-no-files-found: error
+
+
+  e2e-prodlike:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Start verified-TLS PostgreSQL and Redis
+        run: |
+          mkdir -p /tmp/tls
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/CN=SistemaEmGo CI CA" \
+            -keyout /tmp/tls/ca.key \
+            -out /tmp/tls/ca.crt
+
+          openssl req -newkey rsa:2048 -nodes \
+            -subj "/CN=127.0.0.1" \
+            -keyout /tmp/tls/server.key \
+            -out /tmp/tls/server.csr
+          printf "subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth\n" > /tmp/tls/server.ext
+          openssl x509 -req -days 1 \
+            -in /tmp/tls/server.csr \
+            -CA /tmp/tls/ca.crt \
+            -CAkey /tmp/tls/ca.key \
+            -CAcreateserial \
+            -extfile /tmp/tls/server.ext \
+            -out /tmp/tls/server.crt
+
+          chmod 600 /tmp/tls/server.key
+          chmod 644 /tmp/tls/server.crt /tmp/tls/ca.crt
+          sudo chown 999:999 /tmp/tls/server.key /tmp/tls/server.crt /tmp/tls/ca.crt
+          sudo cp /tmp/tls/ca.crt /usr/local/share/ca-certificates/sistemaemgo-ci-ca.crt
+          sudo update-ca-certificates
+
+          docker rm -f pg-staging redis-staging caddy-staging >/dev/null 2>&1 || true
+
+          docker run -d --name pg-staging \
+            -e POSTGRES_DB=sistemaemgo \
+            -e POSTGRES_USER=sistemaemgo \
+            -e POSTGRES_PASSWORD=ci-staging-db-password \
+            -p 127.0.0.1::5432 \
+            -v /tmp/tls:/tls:ro \
+            postgres:16 \
+            -c ssl=on \
+            -c ssl_cert_file=/tls/server.crt \
+            -c ssl_key_file=/tls/server.key
+
+          docker run -d --name redis-staging \
+            -p 127.0.0.1::6379 \
+            -v /tmp/tls:/tls:ro \
+            redis:7.4-alpine \
+            redis-server \
+              --port 0 \
+              --tls-port 6379 \
+              --tls-cert-file /tls/server.crt \
+              --tls-key-file /tls/server.key \
+              --tls-ca-cert-file /tls/ca.crt \
+              --tls-auth-clients no \
+              --requirepass ci-staging-redis-password
+
+          for i in {1..30}; do
+            if docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo
+          docker exec redis-staging redis-cli --tls --cacert /tls/ca.crt -a ci-staging-redis-password ping
+
+          PG_STAGING_PORT="$(docker port pg-staging 5432/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)"
+          REDIS_STAGING_PORT="$(docker port redis-staging 6379/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)"
+          test -n "$PG_STAGING_PORT"
+          test -n "$REDIS_STAGING_PORT"
+          echo "PG_STAGING_PORT=$PG_STAGING_PORT" >> "$GITHUB_ENV"
+          echo "REDIS_STAGING_PORT=$REDIS_STAGING_PORT" >> "$GITHUB_ENV"
+      - name: Migrate and seed over PostgreSQL TLS
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            -v /tmp/tls:/tls:ro \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
+            up
+
+          docker run --rm --network host \
+            -v "$PWD/backend/seed:/seed:ro" \
+            -v /tmp/tls:/tls:ro \
+            postgres:16 \
+            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+      - name: Configure staging hostname
+        run: echo "127.0.0.1 staging.example.test" | sudo tee -a /etc/hosts
+
+      - name: Start staging-configured API
+        working-directory: backend
+        env:
+          APP_ENV: staging
+          FISCAL_PROVIDER: disabled
+          JWT_SECRET: ci-staging-jwt-secret-longer-than-32-characters
+          HTTP_ADDR: :18081
+          OTEL_ENABLED: "false"
+          CORS_ALLOWED_ORIGINS: https://staging.example.test:8443
+          TRUSTED_PROXY_CIDRS: 127.0.0.1/32
+          METRICS_BEARER_TOKEN: ci-staging-metrics-token
+          RATE_LIMIT_LOGIN_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE: "1000"
+          RATE_LIMIT_REFRESH_PER_MINUTE: "1000"
+          RATE_LIMIT_LOGOUT_PER_MINUTE: "1000"
+          RATE_LIMIT_SALES_PER_MINUTE: "1000"
+          RATE_LIMIT_FISCAL_PER_MINUTE: "1000"
+        run: |
+          export DATABASE_URL="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tmp/tls/ca.crt"
+          export REDIS_URL="rediss://:ci-staging-redis-password@127.0.0.1:${REDIS_STAGING_PORT}/0"
+          go build -o /tmp/sistemaemgo-staging-api ./cmd/api
+          /tmp/sistemaemgo-staging-api > /tmp/staging-api.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18081/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/staging-api.log
+          exit 1
+      - name: Build frontend and start HTTPS reverse proxy
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: https://staging.example.test:8443
+        run: |
+          npm install --global npm@11.6.1
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+
+          cat > /tmp/Caddyfile <<'EOF'
+          https://staging.example.test:8443 {
+            tls internal
+            @backend path /api/* /health /health/* /metrics
+            handle @backend {
+              reverse_proxy 127.0.0.1:18081
+            }
+            handle {
+              root * /srv
+              try_files {path} /index.html
+              file_server
+            }
+          }
+          EOF
+
+          docker run -d --name caddy-staging --network host \
+            -v /tmp/Caddyfile:/etc/caddy/Caddyfile:ro \
+            -v "$PWD/dist:/srv:ro" \
+            caddy:2.8-alpine
+
+          for i in {1..30}; do
+            health="$(curl --noproxy '*' -k --fail --silent https://staging.example.test:8443/health/ready || true)"
+            app="$(curl --noproxy '*' -k --fail --silent https://staging.example.test:8443/login || true)"
+            if echo "$health" | grep -q '"status":"ready"' && echo "$app" | grep -q 'id="root"'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs caddy-staging
+          exit 1
+      - name: Run staging-like browser E2E
+        working-directory: web
+        env:
+          E2E_PRODLIKE: "1"
+          E2E_BASE_URL: https://staging.example.test:8443
+          E2E_IGNORE_HTTPS_ERRORS: "1"
+        run: npx playwright test e2e/prodlike.spec.ts --project=chromium
+ \
+              ./tests/integration/...
+          )
       - name: Start API and verify readiness
         working-directory: backend
         env:
