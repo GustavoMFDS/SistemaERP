@@ -67,7 +67,13 @@ if (-not (Test-Path -LiteralPath $sc)) { throw 'sc.exe is unavailable.' }
 
 # Do not inspect secret contents or echo credential values.
 $serviceExists = & $sc query $serviceName 2>$null
-if ($LASTEXITCODE -eq 0) { throw "Windows service $serviceName already exists; refusing replacement." }
+$serviceQueryCode = $LASTEXITCODE
+if ($serviceQueryCode -eq 0) { throw "Windows service $serviceName already exists; refusing replacement." }
+if ($serviceQueryCode -ne 1060) {
+    throw "Cannot verify whether the Windows service exists (SCM status $serviceQueryCode)."
+}
+# Expected SC query 1060 (missing service) must not become the script exit code.
+$global:LASTEXITCODE = 0
 
 if ($PlanOnly) {
     Write-Output 'PLAN: verify signed/approved bundle and service-account ACLs; no changes made.'
