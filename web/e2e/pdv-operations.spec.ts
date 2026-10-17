@@ -199,6 +199,8 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
       response.url().endsWith('/api/v1/sales') &&
       response.request().method() === 'POST',
   )
+  await page.getByRole('checkbox', { name: 'Confirmei que o Pix foi recebido.' }).check()
+  await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeEnabled()
   await page.keyboard.press('F8')
   const saleResponse = await saleResponsePromise
   expect(saleResponse.ok()).toBe(true)
