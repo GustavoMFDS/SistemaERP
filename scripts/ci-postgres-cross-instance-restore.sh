@@ -42,6 +42,18 @@ count_query="SELECT
   (SELECT count(*) FROM sale_fiscal_intents);"
 source_counts="$(source_psql "$count_query")"
 
+# Canonical order-independent hashes detect altered values even if all
+# table row counts happen to match. Only synthetic CI data is inspected.
+content_query="SELECT
+  (SELECT md5(COALESCE(string_agg(md5(row_to_json(t)::text), ',' ORDER BY md5(row_to_json(t)::text)), '')) FROM companies t),
+  (SELECT md5(COALESCE(string_agg(md5(row_to_json(t)::text), ',' ORDER BY md5(row_to_json(t)::text)), '')) FROM users t),
+  (SELECT md5(COALESCE(string_agg(md5(row_to_json(t)::text), ',' ORDER BY md5(row_to_json(t)::text)), '')) FROM products t),
+  (SELECT md5(COALESCE(string_agg(md5(row_to_json(t)::text), ',' ORDER BY md5(row_to_json(t)::text)), '')) FROM sales t),
+  (SELECT md5(COALESCE(string_agg(md5(row_to_json(t)::text), ',' ORDER BY md5(row_to_json(t)::text)), '')) FROM audit_logs t),
+  (SELECT md5(COALESCE(string_agg(md5(row_to_json(t)::text), ',' ORDER BY md5(row_to_json(t)::text)), '')) FROM fiscal_document_sequences t),
+  (SELECT md5(COALESCE(string_agg(md5(row_to_json(t)::text), ',' ORDER BY md5(row_to_json(t)::text)), '')) FROM sale_fiscal_intents t);"
+source_fingerprint="$(source_psql "$content_query")"
+
 archive="$(mktemp /tmp/esterium-cross-instance.XXXXXXXX.dump)"
 checksum="$archive.sha256"
 created=false
@@ -86,6 +98,10 @@ if [[ "$(restored_psql "$migration_query")" != "$source_version" ||
   echo "Migration state or critical row counts differ after restore." >&2
   exit 1
 fi
+if [[ "$(restored_psql "$content_query")" != "$source_fingerprint" ]]; then
+  echo "Critical business or fiscal content fingerprints differ after restore." >&2
+  exit 1
+fi
 table_query="SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN (
 'companies','users','products','sales','sale_items','payments','audit_logs','nfce_configs',
 'fiscal_document_sequences','sale_fiscal_intents','schema_migrations');"
@@ -93,4 +109,4 @@ if [[ "$(restored_psql "$table_query")" != "11" ]]; then
   echo "One or more critical business/fiscal schema tables are missing." >&2
   exit 1
 fi
-echo "PASS: PostgreSQL backup restored on independent, network-isolated CI server; migrations and critical counts match."
+echo "PASS: PostgreSQL backup restored on independent, network-isolated CI server; migrations, critical counts and content fingerprints match."
