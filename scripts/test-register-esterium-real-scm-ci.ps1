@@ -79,6 +79,19 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $install 'web\index.html'))) {
         throw 'SCM registration did not stage the expected files'
     }
+    foreach ($relative in @(
+        'tools\register-esterium-windows-service.ps1',
+        'tools\provision-esterium-app-secrets.ps1',
+        'tools\postgres-daily-backup.ps1',
+        'tools\copy-verified-external-backup.ps1',
+        'README_LOCAL.md',
+        'bundle-manifest.json'
+    )) {
+        if (-not (Test-Path -LiteralPath (Join-Path $install $relative) -PathType Leaf)) {
+            throw "Installed maintenance file is missing: $relative"
+        }
+    }
+    & (Join-Path $install 'tools\verify-esterium-bundle.ps1') -BundleDir $install | Out-Null
     $regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\EsteriumERP'
     $values = @((Get-ItemProperty -Path $regPath -Name Environment).Environment)
     if (@($values | Where-Object { $_ -eq 'FISCAL_PROVIDER=disabled' }).Count -ne 1 -or
