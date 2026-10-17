@@ -31,33 +31,30 @@ test('two independent terminals keep administrator and cashier sessions separate
   try {
     const admin = await adminContext.newPage()
     const cashier = await cashierContext.newPage()
-    await Promise.all([admin.goto('/login'), cashier.goto('/login')])
-    await Promise.all([
-      admin.getByLabel('E-mail ou nome de usuário').fill('admin@sistema.local'),
-      cashier.getByLabel('E-mail ou nome de usuário').fill('caixa@sistema.local'),
-    ])
-    await Promise.all([
-      admin.getByLabel('Senha').fill('admin123'),
-      cashier.getByLabel('Senha').fill('admin123'),
-    ])
-    const adminIdentity = admin.waitForResponse((response) =>
-      response.url().endsWith('/api/v1/auth/me') && response.status() === 200,
-    )
-    const cashierIdentity = cashier.waitForResponse((response) =>
-      response.url().endsWith('/api/v1/auth/me') && response.status() === 200,
-    )
-    await Promise.all([
-      admin.getByRole('button', { name: 'Entrar' }).click(),
-      cashier.getByRole('button', { name: 'Entrar' }).click(),
-    ])
-    await Promise.all([
-      expect(admin).toHaveURL(/\/home$/),
-      expect(cashier).toHaveURL(/\/home$/),
-    ])
-    const [adminMe, cashierMe] = await Promise.all([
-      adminIdentity.then((r) => r.json() as Promise<{ tenant_id: string; name: string; roles: string[] }>),
-      cashierIdentity.then((r) => r.json() as Promise<{ tenant_id: string; name: string; roles: string[] }>),
-    ])
+    const signIn = async (page: typeof admin, username: string) => {
+      await page.goto('/login')
+      await page.getByLabel('E-mail ou nome de usuário').fill(username)
+      await page.getByLabel('Senha').fill('admin123')
+      const loginResponse = page.waitForResponse((response) =>
+        response.url().endsWith('/api/v1/auth/login') && response.request().method() === 'POST',
+      )
+      const identityResponse = page.waitForResponse((response) =>
+        response.url().endsWith('/api/v1/auth/me') && response.status() === 200,
+      )
+      await page.getByRole('button', { name: 'Entrar' }).click()
+      const response = await loginResponse
+      expect(response.status(), `login rejected for ${username}`).toBe(200)
+      await expect(page).toHaveURL(/\\/home$/, { timeout: 10000 })
+      return await (await identityResponse).json() as {
+        tenant_id: string
+        name: string
+        roles: string[]
+      }
+    }
+    // Two distinct browser contexts, authenticated independently. Sequential
+    // login distinguishes permission problems from request-rate races.
+    const adminMe = await signIn(admin, 'admin@sistema.local')
+    const cashierMe = await signIn(cashier, 'caixa@sistema.local')
     expect(adminMe.roles).toContain('admin')
     expect(cashierMe.roles).toContain('cashier')
     expect(cashierMe.roles).not.toContain('admin')
