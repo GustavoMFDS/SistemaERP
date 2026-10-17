@@ -18,6 +18,8 @@ try {
         $paths[$name] = Join-Path $secrets "$name.secret"
         [IO.File]::WriteAllText($paths[$name], 'synthetic-credential-placeholder')
     }
+    & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $bundle | Out-Null
+    & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
     $installer = Join-Path $PSScriptRoot 'register-esterium-windows-service.ps1'
     $args = @{
         BundleDir = $bundle
@@ -47,6 +49,11 @@ try {
     try { & $installer @args | Out-Null }
     catch { $overwriteRejected = $_.Exception.Message -match 'already exists' }
     if (-not $overwriteRejected) { throw 'Existing installation was not protected.' }
+    [IO.File]::AppendAllText((Join-Path $web 'index.html'), 'tampered')
+    $tamperRejected = $false
+    try { & $installer @args | Out-Null }
+    catch { $tamperRejected = $_.Exception.Message -match 'SHA-256 mismatch' }
+    if (-not $tamperRejected) { throw 'Tampered bundle was not rejected.' }
     Write-Output 'PASS: Windows service installation plan has no side effects and rejects missing secrets/overwrites.'
 }
 finally {
