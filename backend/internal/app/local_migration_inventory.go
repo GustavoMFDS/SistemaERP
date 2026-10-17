@@ -64,3 +64,17 @@ func localMigrationHead(dir string) (int, error) {
 	}
 	return head, nil
 }
+
+func verifyLocalSchemaVersion(databaseVersion int, dirty bool, migrationDir string) error {
+	if databaseVersion <= 0 || dirty {
+		return fmt.Errorf("database schema migrations are incomplete or dirty")
+	}
+	head, err := localMigrationHead(migrationDir)
+	if err != nil {
+		return fmt.Errorf("installed SQL migration bundle is invalid: %w", err)
+	}
+	if databaseVersion != head {
+		return fmt.Errorf("database schema version %d differs from installed bundle version %d", databaseVersion, head)
+	}
+	return nil
+}
