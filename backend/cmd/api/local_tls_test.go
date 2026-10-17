@@ -33,7 +33,7 @@ func TestResolveLocalTLSRejectsPlaintextLAN(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tlsEnabled, err := resolveLocalTLS(tc.web, tc.addr, "", "")
+			tlsEnabled, err := resolveLocalTLS(tc.web, tc.addr, "", "", "")
 			if tlsEnabled {
 				t.Fatal("unexpected TLS without certificate files")
 			}
@@ -45,10 +45,10 @@ func TestResolveLocalTLSRejectsPlaintextLAN(t *testing.T) {
 }
 
 func TestResolveLocalTLSRequiresCompleteValidKeyPair(t *testing.T) {
-	if _, err := resolveLocalTLS("web", ":8080", "cert.pem", ""); err == nil {
+	if _, err := resolveLocalTLS("web", ":8080", "cert.pem", "", ""); err == nil {
 		t.Fatal("accepted certificate without private key")
 	}
-	if _, err := resolveLocalTLS("web", ":8080", "", "key.pem"); err == nil {
+	if _, err := resolveLocalTLS("web", ":8080", "", "key.pem", ""); err == nil {
 		t.Fatal("accepted private key without certificate")
 	}
 
@@ -89,16 +89,28 @@ func TestResolveLocalTLSRequiresCompleteValidKeyPair(t *testing.T) {
 
 	now := time.Now()
 	certPath, keyPath := writeKeyPair("valid", now.Add(-time.Hour), now.Add(time.Hour))
-	enabled, err := resolveLocalTLS("web", ":8080", certPath, keyPath)
+	enabled, err := resolveLocalTLS("web", ":8080", certPath, keyPath, "https://localhost:8443")
 	if err != nil || !enabled {
 		t.Fatalf("valid TLS pair rejected: enabled=%v err=%v", enabled, err)
 	}
-	_, err = resolveLocalTLS("web", ":8080", certPath, filepath.Join(dir, "missing.pem"))
+	_, err = resolveLocalTLS("web", ":8080", certPath, filepath.Join(dir, "missing.pem"), "https://localhost:8443")
 	if err == nil {
 		t.Fatal("accepted missing private key")
 	}
+	if accepted, err := resolveLocalTLS("web", "0.0.0.0:8443", certPath, keyPath, "https://localhost:8443"); err != nil || !accepted {
+		t.Fatalf("valid LAN HTTPS hostname was rejected: accepted=%v err=%v", accepted, err)
+	}
+	if _, err := resolveLocalTLS("web", "0.0.0.0:8443", certPath, keyPath, "https://unrelated.example:8443"); err == nil {
+		t.Fatal("accepted LAN TLS certificate for unrelated public URL")
+	}
+	if _, err := resolveLocalTLS("web", "0.0.0.0:8443", certPath, keyPath, ""); err == nil {
+		t.Fatal("accepted LAN TLS without APP_PUBLIC_URL")
+	}
+	if _, err := resolveLocalTLS("web", "0.0.0.0:8443", certPath, keyPath, "http://localhost:8443"); err == nil {
+		t.Fatal("accepted HTTP APP_PUBLIC_URL for LAN TLS")
+	}
 	expiredCert, expiredKey := writeKeyPair("expired", now.Add(-3*time.Hour), now.Add(-time.Hour))
-	if _, err := resolveLocalTLS("web", ":8080", expiredCert, expiredKey); err == nil {
+	if _, err := resolveLocalTLS("web", ":8080", expiredCert, expiredKey, "https://localhost:8443"); err == nil {
 		t.Fatal("accepted expired TLS certificate")
 	}
 }
