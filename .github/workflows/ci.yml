@@ -141,6 +141,8 @@ jobs:
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
+          cp -R backend/migrations dist/esterium-local-win-x64/migrations
+          test "$(find dist/esterium-local-win-x64/migrations -name '*.up.sql' | wc -l)" -ge 51
       - name: Generate and verify bundle SHA-256 manifest
         shell: pwsh
         run: |
