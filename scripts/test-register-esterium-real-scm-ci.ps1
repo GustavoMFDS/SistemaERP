@@ -31,6 +31,8 @@ $installCalled = $false
 try {
     New-Item -ItemType Directory -Path $web, $secrets -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'esterium-server.exe'), 'synthetic-CI-binary-not-runnable')
+    [IO.Directory]::CreateDirectory((Join-Path $bundle 'tools')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), '<html>synthetic</html>')
     $migrationDir = Join-Path $bundle 'migrations'
     [IO.Directory]::CreateDirectory($migrationDir) | Out-Null
@@ -91,6 +93,7 @@ try {
         'tools\postgres-daily-backup.ps1',
         'tools\copy-verified-external-backup.ps1',
         'tools\check-esterium-backup-integrity.ps1',
+        'tools\\esterium-migrate.exe',
         'README_LOCAL.md',
         'bundle-manifest.json',
         'migrations\0001_ci_fixture.up.sql',
