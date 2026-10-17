@@ -137,6 +137,15 @@ jobs:
           cp -R web/dist dist/esterium-local-win-x64/web
           test -s dist/esterium-local-win-x64/esterium-server.exe
           test -s dist/esterium-local-win-x64/web/index.html
+      - name: Build pinned PostgreSQL migration tool (Windows x64)
+        run: |
+          set -euo pipefail
+          build_dir="$(mktemp -d)"
+          trap 'rm -rf "$build_dir"' EXIT
+          (cd backend && GOOS=windows GOARCH=amd64 GOBIN="$build_dir" go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1)
+          test -s "$build_dir/migrate.exe"
+          mkdir -p dist/esterium-local-win-x64/tools
+          cp "$build_dir/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
       - name: Add curated Windows setup and backup tools
         run: |
           set -euo pipefail
