@@ -56,10 +56,21 @@ $ups = @($migrationFiles | Where-Object { $_.path.EndsWith('.up.sql') })
 if ($ups.Count -eq 0 -or $migrationFiles.Count -ne 2 * $ups.Count) {
     throw 'Bundle requires matched database migration files.'
 }
+$versions = @{}
 foreach ($up in $ups) {
+    $version = [int]$up.path.Substring('migrations/'.Length, 4)
+    if ($versions.ContainsKey($version)) {
+        throw "Duplicate SQL migration version: $version"
+    }
+    $versions[$version] = $true
     $down = $up.path.Replace('.up.sql', '.down.sql')
     if (-not ($migrationFiles | Where-Object { $_.path -eq $down })) {
         throw "Database migration pair is missing: $($up.path)"
+    }
+}
+for ($version = 1; $version -le $ups.Count; $version++) {
+    if (-not $versions.ContainsKey($version)) {
+        throw "Missing or non-contiguous SQL migration version: $version"
     }
 }
 $payload = @{ schema = 1; files = @($records | Sort-Object -Property path) } | ConvertTo-Json -Depth 5
