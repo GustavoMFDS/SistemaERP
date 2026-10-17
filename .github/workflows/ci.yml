@@ -22,6 +22,16 @@ jobs:
         working-directory: backend
         run: go test -v -count=1 -timeout=2m ./cmd/api
 
+  local-windows-real-scm-smoke:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Register, inspect and remove test-only Windows SCM service
+        shell: pwsh
+        env:
+          ESTERIUM_SCM_DISPOSABLE_CI: "1"
+        run: ./scripts/test-register-esterium-real-scm-ci.ps1
+
   local-windows-installer-plan:
     runs-on: windows-2025
     steps:
