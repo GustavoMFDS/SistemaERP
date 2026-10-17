@@ -20,7 +20,7 @@ export function errorMessage(error: unknown): string {
 }
 
 function baseUrl(): string {
-  return (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(
+  return (import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')).replace(
     /\/$/,
     '',
   )
