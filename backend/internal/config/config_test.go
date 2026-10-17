@@ -19,10 +19,10 @@ func TestLoadFromEnvReadsProtectedDatabaseAndRedisFiles(t *testing.T) {
 	redisPath := filepath.Join(dir, "redis-url.secret")
 	wantDB := "postgres://app:integration-db-password@localhost:5432/esterium?sslmode=disable"
 	wantRedis := "redis://:integration-redis-password@localhost:6379/0"
-	if err := os.WriteFile(dbPath, []byte(wantDB+"\\n"), 0600); err != nil {
+	if err := os.WriteFile(dbPath, []byte(wantDB+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(redisPath, []byte(wantRedis+"\\n"), 0600); err != nil {
+	if err := os.WriteFile(redisPath, []byte(wantRedis+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("DATABASE_URL_FILE", dbPath)
