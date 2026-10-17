@@ -59,6 +59,20 @@ $age = ([DateTimeOffset]::UtcNow - $when.ToUniversalTime()).TotalHours
 if ($age -lt (-5.0 / 60.0) -or $age -gt $MaxAgeHours) {
     throw 'Verified external backup is too old or has an invalid future timestamp.'
 }
+try {
+    $archiveCreated = [DateTimeOffset]::ParseExact($name.Substring(9, 16),
+        "yyyyMMdd'T'HHmmss'Z'",
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::AssumeUniversal)
+}
+catch {
+    throw 'Backup archive name contains an invalid timestamp.'
+}
+$archiveAge = ([DateTimeOffset]::UtcNow - $archiveCreated.ToUniversalTime()).TotalHours
+if ($archiveAge -lt (-5.0 / 60.0) -or $archiveAge -gt $MaxAgeHours -or
+    $archiveCreated.ToUniversalTime() -gt $when.ToUniversalTime().AddMinutes(5)) {
+    throw 'Backup archive itself is stale or its creation time disagrees with status.'
+}
 
 $sidecarText = "$expected  $name"
 foreach ($dir in @($local, $external)) {
