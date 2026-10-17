@@ -8,7 +8,7 @@ O padrão permanece `127.0.0.1:8080` sem TLS, acessível apenas no próprio PC o
 
 ## Segurança de instalação
 
-O programa **recusa sobrescrever** a pasta de instalação ou o serviço `EsteriumERP` já existentes. Copia apenas o executável compilado e a pasta `web`; nunca inclui arquivo de credenciais, banco ou backup.
+O programa **recusa sobrescrever** a pasta de instalação ou o serviço `EsteriumERP` já existentes. Copia o executável compilado, `web/`, `tools/`, `README_LOCAL.md` e `bundle-manifest.json`; os arquivos são verificados por SHA-256 **novamente na pasta temporária antes do registro SCM**. Nenhum valor de credencial, banco ou backup é copiado. As ferramentas de manutenção ficam disponíveis na pasta instalada, mesmo depois de descartar o ZIP extraído; sua execução e o agendamento de backup continuam procedimentos separados.
 
 O pacote deve incluir `bundle-manifest.json`: todos os arquivos do executável e `web/` são comparados com seus SHA-256 e arquivos extras/links simbólicos são rejeitados **antes da instalação**, inclusive durante `-PlanOnly`. O manifesto é gerado pelo script de build e conferido no CI; ele verifica integridade relativa ao manifesto, **não comprova origem/autenticidade** (assinatura de código ainda pendente).
 

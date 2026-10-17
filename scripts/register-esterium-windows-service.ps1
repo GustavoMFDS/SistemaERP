@@ -169,9 +169,14 @@ try {
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
     Copy-Item -LiteralPath $binarySource -Destination (Join-Path $staging 'esterium-server.exe') -ErrorAction Stop
     Copy-Item -LiteralPath $webSource -Destination (Join-Path $staging 'web') -Recurse -ErrorAction Stop
-    if (-not (Test-Path -LiteralPath (Join-Path $staging 'web\index.html'))) {
-        throw 'Staging bundle validation failed.'
-    }
+    # Preserve the verified backup, secret and installer utilities for future
+    # maintenance; the extracted ZIP does not need to remain on the shop PC.
+    Copy-Item -LiteralPath (Join-Path $source 'tools') -Destination (Join-Path $staging 'tools') -Recurse -ErrorAction Stop
+    Copy-Item -LiteralPath (Join-Path $source 'README_LOCAL.md') -Destination (Join-Path $staging 'README_LOCAL.md') -ErrorAction Stop
+    Copy-Item -LiteralPath (Join-Path $source 'bundle-manifest.json') -Destination (Join-Path $staging 'bundle-manifest.json') -ErrorAction Stop
+    # Do not register any Windows service until every staged file matches the
+    # original manifest; a partial/altered copy must be rejected.
+    & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $staging | Out-Null
     Move-Item -LiteralPath $staging -Destination $installPath -ErrorAction Stop
     $binary = Join-Path $installPath 'esterium-server.exe'
     $out = & $sc create $serviceName 'binPath=' ('"' + $binary + '"') 'start=' 'demand' 'obj=' 'NT AUTHORITY\LocalService' 'DisplayName=' 'Esterium ERP' 2>&1
