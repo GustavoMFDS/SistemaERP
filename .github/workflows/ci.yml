@@ -105,7 +105,7 @@ jobs:
           function Start-TestGarnet([bool] $recover, [string] $phase) {
             $options = @('--bind', '127.0.0.1', '--port', '16380',
               '--lua', '--lua-transaction-mode', '--aof', '--aof-commit-wait',
-              '--checkpointdir', $store, '--logdir', $store)
+              '--checkpointdir', $store)
             if ($recover) { $options += @('--recover', '--fail-on-recovery-error') }
             $stdout = Join-Path $env:RUNNER_TEMP ("garnet-$phase.stdout.log")
             $stderr = Join-Path $env:RUNNER_TEMP ("garnet-$phase.stderr.log")
