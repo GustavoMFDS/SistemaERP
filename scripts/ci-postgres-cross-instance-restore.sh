@@ -60,11 +60,13 @@ sha256sum --check --status "$checksum"
 docker compose exec -T db pg_restore --list < "$archive" >/dev/null
 
 # Second instance shares no network, storage volume or process with source.
+# Initdb uses a temporary UNIX-socket-only server. TCP readiness below
+# waits for the final post-entrypoint server, avoiding shutdown races.
 docker run -d --name "$restore_container" --network none --shm-size=128m -e POSTGRES_DB="$source_db" -e POSTGRES_USER="$source_user" -e POSTGRES_PASSWORD='ci-disposable-second-instance-only' postgres:16 >/dev/null
 created=true
 ready=false
 for _ in $(seq 1 40); do
-  if docker exec "$restore_container" pg_isready -U "$source_user" -d "$source_db" >/dev/null 2>&1; then
+  if docker exec "$restore_container" pg_isready -h 127.0.0.1 -U "$source_user" -d "$source_db" >/dev/null 2>&1; then
     ready=true
     break
   fi
