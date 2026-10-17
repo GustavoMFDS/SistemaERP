@@ -56,12 +56,8 @@ func CheckLocalDependencies(parent context.Context, cfg config.Config) error {
 		return errors.New("local installation requires ESTERIUM_MIGRATIONS_DIR to verify the installed schema version")
 	}
 	if dir != "" {
-		bundledVersion, err := localMigrationHead(dir)
-		if err != nil {
-			return fmt.Errorf("SQL migration bundle is invalid: %w", err)
-		}
-		if version != bundledVersion {
-			return fmt.Errorf("database schema version %d differs from bundled release version %d; migration review required", version, bundledVersion)
+		if err := verifyLocalSchemaVersion(version, dirty, dir); err != nil {
+			return err
 		}
 	}
 	// Schema-only checks: do not select customer, financial or fiscal contents.
