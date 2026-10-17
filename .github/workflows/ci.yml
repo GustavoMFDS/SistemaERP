@@ -71,6 +71,17 @@ jobs:
           cp -R web/dist dist/esterium-local-win-x64/web
           test -s dist/esterium-local-win-x64/esterium-server.exe
           test -s dist/esterium-local-win-x64/web/index.html
+      - name: Add curated Windows setup and backup tools
+        run: |
+          set -euo pipefail
+          mkdir -p dist/esterium-local-win-x64/tools
+          cp scripts/register-esterium-windows-service.ps1 \
+            scripts/verify-esterium-bundle.ps1 \
+            scripts/postgres-daily-backup.ps1 \
+            scripts/copy-verified-external-backup.ps1 \
+            dist/esterium-local-win-x64/tools/
+          cp docs/esterium-local-service-registration.md \
+            dist/esterium-local-win-x64/README_LOCAL.md
       - name: Generate and verify bundle SHA-256 manifest
         shell: pwsh
         run: |
