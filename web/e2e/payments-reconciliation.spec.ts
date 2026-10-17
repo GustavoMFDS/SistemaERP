@@ -837,7 +837,7 @@ test('finance UI retries lost responses with the original idempotency key', asyn
   await expect(page.getByText(/erro|falha|network|fetch/i)).toBeVisible()
   await page.getByRole('button', { name: 'Salvar conciliação' }).click()
 
-  expect(paymentKeys).toHaveLength(2)
+  await expect.poll(() => paymentKeys.length).toBe(2)
   expect(paymentKeys[0]).not.toBe('')
   expect(paymentKeys[1]).toBe(paymentKeys[0])
   await expect(paymentRow.getByRole('button', { name: 'Ajustar' })).toBeVisible()
@@ -863,7 +863,7 @@ test('finance UI retries lost responses with the original idempotency key', asyn
   await expect(page.getByText(/erro|falha|network|fetch/i)).toBeVisible()
   await page.getByRole('button', { name: 'Registrar liquidação' }).click()
 
-  expect(refundKeys).toHaveLength(2)
+  await expect.poll(() => refundKeys.length).toBe(2)
   expect(refundKeys[0]).not.toBe('')
   expect(refundKeys[1]).toBe(refundKeys[0])
   await expect(refundRow.getByText('settled')).toBeVisible()
