@@ -1904,6 +1904,7 @@ jobs:
         env:
           APP_ENV: staging
           FISCAL_PROVIDER: disabled
+          ESTERIUM_MIGRATIONS_DIR: migrations
           JWT_SECRET: ci-staging-jwt-secret-longer-than-32-characters
           HTTP_ADDR: :18081
           OTEL_ENABLED: "false"
