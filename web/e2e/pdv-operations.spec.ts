@@ -194,11 +194,26 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   await page.keyboard.press('F2')
   await expect(page.getByLabel('Código de barras')).toBeFocused()
 
+  const finalize = page.getByRole('button', { name: 'Finalizar venda' })
+  await page.getByLabel('Forma de pagamento').selectOption('cash')
+  const cashReceived = page.getByLabel('Valor recebido em dinheiro (R$)')
+  await expect(finalize).toBeDisabled()
+  await cashReceived.fill('11.99')
+  await expect(finalize).toBeDisabled()
+  await cashReceived.fill('12.345')
+  await expect(finalize).toBeDisabled()
+  await cashReceived.fill('17.00')
+  await expect(page.getByRole('status').filter({ hasText: 'Troco: R$ 5.00' })).toBeVisible()
+  await expect(finalize).toBeEnabled()
+  await page.getByLabel('Forma de pagamento').selectOption('pix')
+  await expect(finalize).toBeDisabled()
   const saleResponsePromise = page.waitForResponse(
     (response) =>
       response.url().endsWith('/api/v1/sales') &&
       response.request().method() === 'POST',
   )
+  await page.getByRole('checkbox', { name: 'Confirmei que o Pix foi recebido.' }).check()
+  await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeEnabled()
   await page.keyboard.press('F8')
   const saleResponse = await saleResponsePromise
   expect(saleResponse.ok()).toBe(true)

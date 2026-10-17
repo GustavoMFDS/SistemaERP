@@ -45,7 +45,8 @@ test('double finalize intent produces only one sale request', async ({ page }) =
     await route.continue()
   })
 
-  await page.getByRole('button', { name: 'Finalizar' }).evaluate((element) => {
+  await page.getByRole('checkbox', { name: 'Confirmei que o Pix foi recebido.' }).check()
+  await page.getByRole('button', { name: 'Finalizar venda' }).evaluate((element) => {
     const button = element as HTMLButtonElement
     button.click()
     button.click()
