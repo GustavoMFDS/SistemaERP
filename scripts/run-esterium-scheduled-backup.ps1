@@ -80,6 +80,11 @@ foreach ($field in @('PGPASSFILE', 'PGSSLROOTCERT', 'PostgresBin', 'BackupDir'))
 if ([string]$config.ExternalBackupDir -notmatch '^\\\\[^\\]+\\[^\\]+(\\[^\\]+)*\\?$') {
     throw 'External backup destination must be a different machine on an SMB UNC share.'
 }
+# A syntactically valid UNC path can still refer to the same PC.
+$shareHost = [regex]::Match([string]$config.ExternalBackupDir, '^\\\\([^\\]+)\\').Groups[1].Value
+if ($shareHost -in @('.', 'localhost', '127.0.0.1', '::1', $env:COMPUTERNAME)) {
+    throw 'External backup share cannot point to the local computer.'
+}
 if (-not (Test-Path -LiteralPath $config.PGPASSFILE -PathType Leaf) -or
     -not (Test-Path -LiteralPath $config.PGSSLROOTCERT -PathType Leaf)) {
     throw 'Backup requires existing password file and PostgreSQL TLS CA certificate.'
