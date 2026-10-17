@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	checkOnly, argsErr := checkConfigArgument(os.Args[1:])
+	mode, argsErr := parseStartupMode(os.Args[1:])
 	if argsErr != nil {
 		logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 		logger.Error("invalid startup argument", slog.Any("err", argsErr))
@@ -45,8 +45,16 @@ func main() {
 		logger.Error("invalid local frontend bundle", slog.Any("err", checkErr))
 		os.Exit(1)
 	}
-	if checkOnly {
+	if mode == startupConfigCheck {
 		logger.Info("configuration preflight passed without contacting database or Redis")
+		return
+	}
+	if mode == startupDependencyCheck {
+		if depErr := app.CheckLocalDependencies(ctx, cfg); depErr != nil {
+			logger.Error("local dependency check failed", slog.Any("err", depErr))
+			os.Exit(1)
+		}
+		logger.Info("PostgreSQL schema and Redis atomic security checks passed; server not started")
 		return
 	}
 
