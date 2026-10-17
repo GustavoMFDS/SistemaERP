@@ -35,7 +35,7 @@ test('busca de produto no PDV consulta catálogo completo online', async ({ page
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'PDV', exact: true }).click()
   const result = page.waitForResponse(r => r.url().includes('/api/v1/products?query=') && r.url().includes('limit=200'))
-  await page.getByLabel('Busca rápida por nome, SKU ou código').fill('arroz')
+  await page.getByLabel('Busca rápida por nome ou código').fill('arroz')
   const response = await result
   expect(response.status()).toBe(200)
 })
