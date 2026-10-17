@@ -71,6 +71,11 @@ jobs:
           cp -R web/dist dist/esterium-local-win-x64/web
           test -s dist/esterium-local-win-x64/esterium-server.exe
           test -s dist/esterium-local-win-x64/web/index.html
+      - name: Generate and verify bundle SHA-256 manifest
+        shell: pwsh
+        run: |
+          ./scripts/write-esterium-bundle-manifest.ps1 -BundleDir 'dist/esterium-local-win-x64'
+          ./scripts/verify-esterium-bundle.ps1 -BundleDir 'dist/esterium-local-win-x64'
       - name: Attach unsigned technical Windows bundle
         uses: actions/upload-artifact@v4
         with:
