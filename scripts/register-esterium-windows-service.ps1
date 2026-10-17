@@ -10,6 +10,7 @@ param(
     [Parameter(Mandatory = $true)][string]$RedisURLFile,
     [Parameter(Mandatory = $true)][string]$JWTSecretFile,
     [Parameter(Mandatory = $true)][string]$MetricsBearerTokenFile,
+    [Parameter(Mandatory = $true)][string]$AllowedOrigin,
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'EsteriumERP'),
     [switch]$PlanOnly
 )
@@ -18,6 +19,13 @@ Set-StrictMode -Version Latest
 
 if ($env:OS -ne 'Windows_NT') { throw 'Esterium Windows service installation requires Windows.' }
 $serviceName = 'EsteriumERP'
+$origin = $null
+if (-not [Uri]::TryCreate($AllowedOrigin, [UriKind]::Absolute, [ref]$origin) -or
+    $origin.Scheme -ne 'https' -or [string]::IsNullOrWhiteSpace($origin.Host) -or
+    $origin.Host -in @('localhost', '127.0.0.1', '::1') -or
+    $origin.AbsolutePath -ne '/' -or $origin.Query -ne '' -or $origin.Fragment -ne '') {
+    throw 'AllowedOrigin must be an actual HTTPS origin for this installation (not localhost).'
+}
 $source = (Resolve-Path -LiteralPath $BundleDir -ErrorAction Stop).Path
 $binarySource = Join-Path $source 'esterium-server.exe'
 $webSource = Join-Path $source 'web'
@@ -65,7 +73,7 @@ if ($PlanOnly) {
     Write-Output 'PLAN: verify signed/approved bundle and service-account ACLs; no changes made.'
     Write-Output "PLAN: stage Windows x64 executable and static frontend in $installPath"
     Write-Output 'PLAN: register EsteriumERP as LocalService; use protected secret file paths only.'
-    Write-Output 'PLAN: APP_ENV=prod, FISCAL_PROVIDER=disabled, loopback HTTP only.'
+    Write-Output 'PLAN: APP_ENV=prod, FISCAL_PROVIDER=disabled, explicit CORS origin, loopback HTTP only.'
     Write-Output 'PLAN: no database installation, no migration, no service start, no SEFAZ.'
     return
 }
@@ -97,6 +105,7 @@ try {
         'NFCE_SEFAZ_PRODUCTION_ENABLED=false',
         'NFCE_SEFAZ_HOMOLOGATION_ENABLED=false',
         'HTTP_ADDR=127.0.0.1:8080',
+        "CORS_ALLOWED_ORIGINS=$($origin.GetLeftPart([UriPartial]::Authority))",
         "ESTERIUM_WEB_DIR=$(Join-Path $installPath 'web')"
     )
     foreach ($secret in $secrets) {
