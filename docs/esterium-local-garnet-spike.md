@@ -8,7 +8,7 @@ O [Garnet da Microsoft](https://github.com/microsoft/garnet) é um cache-store d
 
 ## Prova automatizada no CI, não uma liberação
 
-O job Windows `local-garnet-windows-compat` baixa **somente o release oficial v2.2.3**, valida o SHA-256 de `win-x64-based-readytorun.zip` e inicia Garnet em **127.0.0.1**, porta de teste 16379, com `--lua --lua-transaction-mode --aof --aof-commit-wait --recover --fail-on-recovery-error`.
+O job Windows `local-garnet-windows-compat` baixa **somente o release oficial v2.2.3**, valida o SHA-256 de `win-x64-based-readytorun.zip` e inicia Garnet em **127.0.0.1**, porta de teste 16379. A primeira etapa isola **somente o contrato RESP/Lua transacional** (`--lua --lua-transaction-mode`). Persistência AOF e recuperação após falhas serão testes **separados e obrigatórios** antes de qualquer implantação.
 
 Ele executa `TestLocalGarnetRedisSecurityContract` usando o **código real do backend Esterium** para verificar:
 
@@ -18,6 +18,8 @@ Ele executa `TestLocalGarnetRedisSecurityContract` usando o **código real do ba
 - expiração do token após TTL real.
 
 O processo de teste é terminado ao final da execução. Nenhuma senha operacional é baixada ou embutida. O CI **não altera** a configuração `DISABLE_REDIS` e não muda a autenticação de produção.
+
+**Resultado adverso observado:** no primeiro run Windows com `--aof --aof-commit-wait --recover --fail-on-recovery-error`, o Garnet registrou erros de leitura do log e as operações reais de autenticação/limitação expiraram. A investigação isolou AOF do teste de comandos. Isso NÃO é compatibilidade produtiva comprovada.
 
 ## O que ainda falta antes de adotar Garnet
 
