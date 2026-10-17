@@ -20,8 +20,8 @@ $destination = [IO.Path]::GetFullPath($DestinationDir)
 [IO.Directory]::CreateDirectory($destination) | Out-Null
 $target = Join-Path $destination $source.Name
 $checksumTarget = "$target.sha256"
-if (Test-Path -LiteralPath $target -PathType Leaf -or
-    Test-Path -LiteralPath $checksumTarget -PathType Leaf) {
+if ((Test-Path -LiteralPath $target -PathType Leaf) -or
+    (Test-Path -LiteralPath $checksumTarget -PathType Leaf)) {
     throw 'External backup already exists; refusing to overwrite it.'
 }
 $hash = (Get-FileHash -LiteralPath $source.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -36,7 +36,7 @@ try {
         "$hash  $($source.Name)" + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false))
     # Each rename is within the destination volume/share.
-    if (Test-Path -LiteralPath $target -or Test-Path -LiteralPath $checksumTarget) {
+    if ((Test-Path -LiteralPath $target) -or (Test-Path -LiteralPath $checksumTarget)) {
         throw 'A concurrent backup already created this archive.'
     }
     Move-Item -LiteralPath $staging -Destination $target -ErrorAction Stop
