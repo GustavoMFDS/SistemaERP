@@ -30,7 +30,8 @@ try {
         'provision-esterium-app-secrets.ps1',
         'verify-esterium-bundle.ps1',
         'postgres-daily-backup.ps1',
-        'copy-verified-external-backup.ps1'
+        'copy-verified-external-backup.ps1',
+    'check-esterium-backup-integrity.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $bundleTools $tool)
     }
