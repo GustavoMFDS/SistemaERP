@@ -83,7 +83,7 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   await expect(page.getByRole('checkbox')).toHaveCount(0)
 
   // Editing quantity invalidates even an already sufficient cash tender.
-  const qty = page.getByLabel('Quantidade de Caderno')
+  const qty = page.getByLabel(/Quantidade de .*Caderno/)
   await qty.fill('2')
   await expect(cashReceived).toHaveValue('')
   await expect(finalize).toBeDisabled()
