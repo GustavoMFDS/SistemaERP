@@ -194,10 +194,17 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Start dependencies and run clean migrations
         run: docker compose up -d db redis migrate
+      - name: Verify production Redis security primitives
+        working-directory: backend
+        env:
+          TEST_REDIS_ADDR: localhost:6379
+        run: go test -v -count=1 -run '^TestRedisSecurityProbe' ./internal/app
       - name: Verify migration container
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
+      - name: Prove complete PostgreSQL restore in a second disposable CI database
+        run: bash scripts/ci-postgres-disposable-restore.sh
       - name: Verify v12 to v32 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \

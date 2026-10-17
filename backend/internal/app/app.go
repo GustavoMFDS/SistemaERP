@@ -93,6 +93,14 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 			_ = telemetryShutdown(ctx)
 			return nil, err
 		}
+		if cfg.IsProdLike() {
+			if securityErr := verifyRedisSecurityPrimitives(ctx, rdb); securityErr != nil {
+				pool.Close()
+				_ = rdb.Close()
+				_ = telemetryShutdown(ctx)
+				return nil, fmt.Errorf("redis security contract failed, refusing to start: %w", securityErr)
+			}
+		}
 	} else if cfg.IsProdLike() {
 		pool.Close()
 		_ = telemetryShutdown(ctx)
