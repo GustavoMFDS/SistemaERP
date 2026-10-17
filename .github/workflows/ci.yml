@@ -95,6 +95,9 @@ jobs:
       - name: Verify freshness and integrity of synthetic local and external backups
         shell: pwsh
         run: ./scripts/test-esterium-backup-integrity.ps1
+      - name: Validate protected daily backup scheduling without touching production
+        shell: pwsh
+        run: ./scripts/test-esterium-backup-task.ps1
 
   local-external-backup-tests:
     runs-on: windows-2025
