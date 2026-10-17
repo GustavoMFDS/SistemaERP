@@ -57,6 +57,15 @@ func TestWithLocalFrontend(t *testing.T) {
 			if tc.body != "" && !strings.Contains(w.Body.String(), tc.body) {
 				t.Fatalf("body=%q, missing %q", w.Body.String(), tc.body)
 			}
+			if tc.status == http.StatusOK {
+				csp := w.Header().Get("Content-Security-Policy")
+				if !strings.Contains(csp, "script-src 'self'") || !strings.Contains(csp, "frame-ancestors 'none'") {
+					t.Fatalf("unsafe/missing SPA content security policy: %q", csp)
+				}
+				if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+					t.Fatal("SPA responses must send nosniff")
+				}
+			}
 		})
 	}
 }
