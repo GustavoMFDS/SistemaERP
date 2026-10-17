@@ -63,6 +63,38 @@ foreach ($secret in $secrets) {
         throw "Secret files must be outside the bundle and install folder: $($secret.name)"
     }
 }
+function Assert-SecureSecretFile([string]$filePath, [string]$variableName) {
+    # Conservative ACL preflight. File security cannot be delegated to
+    # ProgramData defaults or a generic Users/Everyone permission.
+    $acl = Get-Acl -LiteralPath $filePath
+    $hasLocalServiceRead = $false
+    foreach ($entry in $acl.Access) {
+        try {
+            $sid = $entry.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        } catch {
+            throw "Could not verify all file ACL identities for $variableName."
+        }
+        if ($entry.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+            continue
+        }
+        $canRead = ($entry.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -ne 0
+        if (-not $canRead) { continue }
+        if ($sid -in @('S-1-1-0','S-1-5-11','S-1-5-32-545','S-1-5-7')) {
+            throw "Secret file is readable by an unsafe shared group: $variableName"
+        }
+        if ($sid -eq 'S-1-5-19') {
+            $hasLocalServiceRead = $true
+        }
+    }
+    if (-not $hasLocalServiceRead) {
+        throw "LocalService needs explicit read access to $variableName (file ACL)."
+    }
+}
+if (-not $PlanOnly) {
+    foreach ($secret in $secrets) {
+        Assert-SecureSecretFile -filePath $secret.file -variableName $secret.name
+    }
+}
 $sc = Join-Path $env:SystemRoot 'System32\sc.exe'
 if (-not (Test-Path -LiteralPath $sc)) { throw 'sc.exe is unavailable.' }
 
@@ -113,6 +145,7 @@ try {
         'NFCE_SEFAZ_HOMOLOGATION_ENABLED=false',
         'HTTP_ADDR=127.0.0.1:8080',
         "CORS_ALLOWED_ORIGINS=$($origin.GetLeftPart([UriPartial]::Authority))",
+        "APP_PUBLIC_URL=$($origin.GetLeftPart([UriPartial]::Authority))",
         "ESTERIUM_WEB_DIR=$(Join-Path $installPath 'web')"
     )
     foreach ($secret in $secrets) {
