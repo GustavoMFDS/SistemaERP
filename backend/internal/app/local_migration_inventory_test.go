@@ -49,3 +49,27 @@ func TestLocalMigrationHeadRejectsMissingOrInvalidFolder(t *testing.T) {
 		t.Fatal("accepted unexpected files in migration folder")
 	}
 }
+
+func TestVerifyLocalSchemaVersionRejectsOutdatedDatabase(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{
+		"0001_initial.up.sql", "0001_initial.down.sql",
+		"0002_next.up.sql", "0002_next.down.sql",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("-- synthetic\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := verifyLocalSchemaVersion(2, false, dir); err != nil {
+		t.Fatalf("rejected equal clean schema: %v", err)
+	}
+	if err := verifyLocalSchemaVersion(1, false, dir); err == nil {
+		t.Fatal("accepted database version older than bundle")
+	}
+	if err := verifyLocalSchemaVersion(3, false, dir); err == nil {
+		t.Fatal("accepted database version newer than bundle")
+	}
+	if err := verifyLocalSchemaVersion(2, true, dir); err == nil {
+		t.Fatal("accepted dirty migration state")
+	}
+}
