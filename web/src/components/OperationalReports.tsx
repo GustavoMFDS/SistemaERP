@@ -94,9 +94,9 @@ export default function OperationalReports() {
             <p className="mt-1 text-xs text-amber-800">Valores calculados sobre itens de vendas finalizadas. Não equivalem a lucro contábil; não deduzem descontos gerais da venda, devoluções, tributos, taxas nem despesas.</p>
             {report.margins.length ? (
               <table className="mt-3 min-w-full text-left text-sm">
-                <thead><tr className="border-b text-xs text-slate-600"><th className="p-2">Produto/SKU</th><th className="p-2 text-right">Quantidade</th><th className="p-2 text-right">Receita dos itens</th><th className="p-2 text-right">Margem estimada</th></tr></thead>
+                <thead><tr className="border-b text-xs text-slate-600"><th className="p-2">Produto</th><th className="p-2 text-right">Quantidade</th><th className="p-2 text-right">Receita dos itens</th><th className="p-2 text-right">Margem estimada</th></tr></thead>
                 <tbody>{report.margins.map((p) => (
-                  <tr key={p.sku} className="border-b"><td className="p-2">{p.name}<span className="block text-xs text-slate-500">{p.sku}</span></td><td className="p-2 text-right">{p.quantity}</td><td className="p-2 text-right">{money(p.revenue_items)}</td><td className="p-2 text-right">{money(p.estimated_margin)}</td></tr>
+                  <tr key={p.sku} className="border-b"><td className="p-2">{p.name}<span className="block text-xs text-slate-500">Código: {p.sku}</span></td><td className="p-2 text-right">{p.quantity}</td><td className="p-2 text-right">{money(p.revenue_items)}</td><td className="p-2 text-right">{money(p.estimated_margin)}</td></tr>
                 ))}</tbody>
               </table>
             ) : <p className="mt-2 text-sm text-slate-500">Nenhuma venda finalizada no período.</p>}
@@ -104,7 +104,7 @@ export default function OperationalReports() {
           {report.unsold.length > 0 && (
             <details className="rounded-lg bg-slate-50 p-3 text-sm">
               <summary className="cursor-pointer font-semibold">Exemplos de produtos sem venda (até 10)</summary>
-              <ul className="mt-2 list-disc pl-5">{report.unsold.map((p) => <li key={p.sku}>{p.name} — {p.sku}</li>)}</ul>
+              <ul className="mt-2 list-disc pl-5">{report.unsold.map((p) => <li key={p.sku}>{p.name} — código {p.sku}</li>)}</ul>
             </details>
           )}
         </>
