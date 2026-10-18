@@ -114,7 +114,7 @@ export default function UnifiedImportHistoryPage() {
 
   return (
     <div>
-      <h2 className="text-base font-semibold">Histórico administrativo de importações</h2>
+      <h2 className="text-base font-semibold">Histórico de importações</h2>
       <p className="mt-2 text-sm text-gray-600">
         Confira, em uma só lista, as importações de produtos e os lançamentos de estoque inicial
         concluídos nesta loja. Cada tipo depende da permissão da sua conta.
@@ -128,10 +128,10 @@ export default function UnifiedImportHistoryPage() {
       {authorized ? (
         <>
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
-            {canProducts ? <span className="rounded-md border bg-gray-50 px-3 py-2">Produtos autorizados</span> : null}
-            {canStock ? <span className="rounded-md border bg-gray-50 px-3 py-2">Estoque inicial autorizado</span> : null}
+            {canProducts ? <span className="rounded-md border bg-gray-50 px-3 py-2">Cadastro de produtos</span> : null}
+            {canStock ? <span className="rounded-md border bg-gray-50 px-3 py-2">Estoque inicial</span> : null}
           </div>
-          <section aria-label="Filtros do histórico administrativo" className="mt-4 rounded-md border p-3">
+          <section aria-label="Filtros do histórico de importações" className="mt-4 rounded-md border p-3">
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-xs">Data inicial
                 <input type="date" value={fromDraft} onChange={(e) => setFromDraft(e.target.value)}
@@ -217,7 +217,7 @@ export default function UnifiedImportHistoryPage() {
             </button>
           </div>
           <p className="mt-4 text-xs text-gray-600">
-            Para baixar CSV, abra a área de Produtos ou Estoque e use o histórico específico.
+            Para baixar a planilha (CSV), abra Produtos ou Estoque e use o histórico dessa área.
             Não há exportação consolidada nem acesso ao conteúdo das planilhas nesta tela.
           </p>
         </>
