@@ -198,6 +198,7 @@ jobs:
             scripts/run-esterium-scheduled-backup.ps1 \
             scripts/register-esterium-backup-task.ps1 \
             scripts/check-esterium-windows-host.ps1 \
+            scripts/unregister-esterium-windows-service.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
