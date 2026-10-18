@@ -54,14 +54,14 @@ try {
         RedisServiceName='EsteriumCI-Redis'
         PostgresBin=$toolsDir
     }
-    $ok = @(& $checker @args) -join ' '
+    $ok = @(& $checker @inventoryParameters) -join ' '
     if ($ok -notmatch 'PASS: declared PostgreSQL') {
         throw 'Synthetic healthy local services were not recognized.'
     }
     function Assert-Reject([string]$reason, [string]$message) {
         $rejected = $false
         $actualError = '(no exception)'
-        try { & $checker @args | Out-Null }
+        try { & $checker @inventoryParameters | Out-Null }
         catch {
             $actualError = $_.Exception.Message
             $rejected = $actualError -match $message
