@@ -57,7 +57,8 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         'plan-esterium-local-setup.ps1',
         'install-esterium-local.ps1',
         'apply-esterium-app-update.ps1',
-        'check-esterium-signed-release.ps1'
+        'check-esterium-signed-release.ps1',
+        'check-esterium-offline-dependency-packages.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $path 'tools') -ErrorAction Stop
     }
