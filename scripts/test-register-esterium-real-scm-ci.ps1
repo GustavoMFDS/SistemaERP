@@ -50,7 +50,8 @@ try {
     'check-esterium-backup-integrity.ps1',
     'run-esterium-scheduled-backup.ps1',
     'register-esterium-backup-task.ps1',
-    'check-esterium-windows-host.ps1'
+    'check-esterium-windows-host.ps1',
+    'unregister-esterium-windows-service.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $tools
     }
@@ -131,6 +132,7 @@ try {
         'tools\run-esterium-scheduled-backup.ps1',
         'tools\register-esterium-backup-task.ps1',
         'tools\check-esterium-windows-host.ps1',
+        'tools\unregister-esterium-windows-service.ps1',
         'tools\\esterium-migrate.exe',
         'README_LOCAL.md',
         'bundle-manifest.json',
