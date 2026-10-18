@@ -89,7 +89,7 @@ try {
         param([string]$ClassName, [string]$Filter)
         if ($ClassName -ne 'Win32_Service' -or
             $Filter -notin @("Name='CI-Postgres'", "Name='CI-Redis'")) {
-            throw 'Unexpected dependency inventory query in setup fixture.'
+            throw "Unexpected dependency inventory query in setup fixture: ClassName=$ClassName Filter=$Filter"
         }
         return [PSCustomObject]@{ State='Running' }
     }
