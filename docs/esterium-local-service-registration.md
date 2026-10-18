@@ -39,6 +39,12 @@ Exemplo de laboratório, após o técnico preparar PostgreSQL/Redis, certificado
 
 Esses nomes são **exemplos**, não nomes de serviços automaticamente criados. A ferramenta não prova TLS, versão SQL ou compatibilidade das operações atômicas do Redis; depois dela ainda é obrigatório validar `--check-config` e `--check-dependencies` na identidade real, e realizar os testes do piloto. O parâmetro opcional `-RequireSignedServer` recusa o pacote sem assinatura válida, que ainda é o estado atual do ZIP técnico.
 
+## Confiança do instalador antes de executar PowerShell
+
+Uma assinatura do servidor **não basta** se o técnico executar um script de instalação adulterado. No modo efetivo `-Apply`, `install-esterium-local.ps1` e `apply-esterium-app-update.ps1` agora verificam **antes de chamar qualquer outro script** a assinatura Authenticode da própria entrada PowerShell e do verificador de release, usando a identidade do editor aprovada separadamente. Em seguida, conferem toda a release e o manifesto SHA-256 também aprovado por fonte independente; somente depois podem executar o planejamento ou tentar a troca dos arquivos.
+
+**Proteção necessária fora do script:** antes de iniciar o arquivo, o Windows/operador deve assegurar sua origem e assinatura por um mecanismo confiável (por exemplo, execução restrita a scripts assinados sob política aprovada ou um instalador assinado de distribuição). Um script não confiável já executado **não pode autenticar a si próprio retroativamente**. O pacote técnico não assinado do CI continua bloqueado para implantação real. Os testes validam essa recusa com arquivos sintéticos, não com credenciais ou dados de loja.
+
 ## Instalador técnico controlado: planejamento por padrão
 
 O novo utilitário `tools/install-esterium-local.ps1` concentra a preparação e o **registro do serviço do Esterium**. Por padrão ele apenas **simula** a instalação e recusa avançar se a integridade do pacote, a assinatura digital do executável, a existência dos serviços locais PostgreSQL/Redis ou os caminhos dos arquivos protegidos forem inválidos.
