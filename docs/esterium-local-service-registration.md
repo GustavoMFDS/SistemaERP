@@ -121,6 +121,25 @@ Exemplo do modo de leitura:
 
 O CI Windows hospeda um serviço e uma tarefa sintéticos, exercita o plano, impede desregistro por caminho divergente, remove apenas o serviço e verifica que arquivos e backup foram preservados. Isso **não** equivale a uma desinstalação completa de loja real.
 
+## Verificação de atualização sem escrever no banco ou no programa
+
+O pacote inclui `tools/plan-esterium-windows-upgrade.ps1`. Ele serve **somente para planejar** uma futura atualização, exigindo que a instalação atual e o novo pacote tenham arquivos intactos e versões SQL antigas preservadas, sem modificação retroativa. Exige também serviço `EsteriumERP` já **parado**, tarefa diária de backup **desabilitada** e cópia local + externa comprovadamente recente e íntegra. Não acessa PostgreSQL/Redis e **não executa migrações, cópia de binários, instalação, rollback de dados nem reinício**.
+
+Antes da distribuição comercial, a opção padrão recusa o novo executável sem assinatura Authenticode válida. Como o pacote técnico ainda não é assinado, `-TechnicalUnsignedPlan` permite **apenas um plano explícito de laboratório**, com aviso de que SHA-256 não garante procedência. Mesmo uma assinatura válida do executável ainda não comprova a identidade de todos os scripts/artefatos da release; a cadeia de assinatura completa continua pendente.
+
+O procedimento de laboratório exige caminhos reais e **uma cópia SMB em outro computador**:
+
+```powershell
+.\tools\plan-esterium-windows-upgrade.ps1 `
+  -InstalledDir 'C:\Program Files\EsteriumERP' `
+  -CandidateBundleDir 'C:\Esterium\PacoteNovo' `
+  -BackupDir 'D:\Esterium\Backups' `
+  -ExternalBackupDir '\\computador-reserva\esterium' `
+  -TechnicalUnsignedPlan
+```
+
+Os scripts de validação exigem que **ambas as instalações contenham o conjunto de utilitários compatível com o verificador atual**. Instalações mais antigas que não tenham essas ferramentas devem seguir um procedimento manual de migração, nunca ser forçadas a passar por esse gate. Mesmo com resultado positivo, é indispensável ensaiar recuperação em outro PC, criar um atualizador transacional, controlar a origem do pacote e obter aceite presencial antes de atualizar dados de loja.
+
 ## Pendente para instalador completo
 
 Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, validação/ativação presencial da tarefa e restauração real de backups, inicialização automática e desinstalação preservando dados.
