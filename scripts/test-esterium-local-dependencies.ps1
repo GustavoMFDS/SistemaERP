@@ -49,7 +49,7 @@ try {
     foreach ($binary in @('postgres.exe','pg_dump.exe','pg_restore.exe','psql.exe')) {
         [IO.File]::WriteAllText((Join-Path $toolsDir $binary), 'synthetic bytes not executed')
     }
-    $args = @{
+    $inventoryParameters = @{
         PostgresServiceName='EsteriumCI-Postgres'
         RedisServiceName='EsteriumCI-Redis'
         PostgresBin=$toolsDir
@@ -77,12 +77,12 @@ try {
     $global:ESTERIUM_TEST_PG_MISSING = $true
     Assert-Reject 'a missing PostgreSQL service' 'missing or ambiguous'
     $global:ESTERIUM_TEST_PG_MISSING = $false
-    $args.RedisServiceName = 'Invalid''Service'
+    $inventoryParameters.RedisServiceName = 'Invalid''Service'
     Assert-Reject 'a quote in Windows service name' 'names must contain'
-    $args.RedisServiceName = 'EsteriumCI-Redis'
-    $args.RedisPort = 5432
+    $inventoryParameters.RedisServiceName = 'EsteriumCI-Redis'
+    $inventoryParameters.RedisPort = 5432
     Assert-Reject 'database and cache sharing a port' 'different ports'
-    $args.RedisPort = 6379
+    $inventoryParameters.RedisPort = 6379
     $testExe = Join-Path $toolsDir 'pg_restore.exe'
     Remove-Item -LiteralPath $testExe -Force
     Assert-Reject 'missing PostgreSQL recovery tooling' 'PostgreSQL tool is missing'
