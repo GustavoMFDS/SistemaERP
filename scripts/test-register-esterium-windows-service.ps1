@@ -59,14 +59,18 @@ try {
     if (-not $unsignedRejected) {
         throw 'Host gate accepted an unsigned synthetic server as a signed release.'
     }
+    $hostArgs.MinimumFreeGiB = 512
     $spaceRejected = $false
-    try { & $hostCheck @hostArgs -MinimumFreeGiB 512 3>$null | Out-Null }
+    try { & $hostCheck @hostArgs 3>$null | Out-Null }
     catch { $spaceRejected = $_.Exception.Message -match 'Not enough free disk' }
     if (-not $spaceRejected) { throw 'Host gate accepted an impossible disk threshold.' }
+    $hostArgs.MinimumFreeGiB = 1
+    $hostArgs.InstallDir = Join-Path $root 'outside-program-files'
     $outsideRejected = $false
-    try { & $hostCheck @hostArgs -InstallDir (Join-Path $root 'outside-program-files') 3>$null | Out-Null }
+    try { & $hostCheck @hostArgs 3>$null | Out-Null }
     catch { $outsideRejected = $_.Exception.Message -match 'dedicated subdirectory of Program Files' }
     if (-not $outsideRejected) { throw 'Host gate accepted an unsafe installation path.' }
+    $hostArgs.InstallDir = $install
     Write-Output 'PASS: technical host preflight is read-only and rejects unsigned, low-disk and unsafe installation requests.'
     # The migration executable is mandatory and protected by the manifest.
     $migratorPath = Join-Path $bundle 'tools\\esterium-migrate.exe'
