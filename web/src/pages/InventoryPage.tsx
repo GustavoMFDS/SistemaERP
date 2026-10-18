@@ -368,8 +368,8 @@ export default function InventoryPage() {
                 <th className="px-3 py-2">Foto</th>
                 <th className="px-3 py-2">Código do produto</th>
                 <th className="px-3 py-2">Produto</th>
-                <th className="px-3 py-2">Qtd</th>
-                <th className="px-3 py-2">Min</th>
+                <th className="px-3 py-2">Quantidade</th>
+                <th className="px-3 py-2">Estoque mínimo</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -399,7 +399,7 @@ export default function InventoryPage() {
           <summary className="cursor-pointer text-base font-bold">Cadastrar estoque inicial por planilha</summary>
           <div className="mt-4">
           <p className="mt-1 text-sm text-gray-600">
-            Ideal para configurar uma loja nova: informe somente o SKU do produto e a quantidade
+            Ideal para configurar uma loja nova: informe somente o código do produto e a quantidade
             contada na prateleira. A planilha não cria produtos nem altera preços.
           </p>
           <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
