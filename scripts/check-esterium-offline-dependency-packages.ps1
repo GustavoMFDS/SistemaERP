@@ -104,20 +104,52 @@ if (-not $SyntheticUnsignedCIFixture) {
     }
 }
 if ($garnetExt -eq '.zip') {
-    # Inspect file paths without ever extracting or executing vendor contents.
+    # Inspect ZIP metadata without extracting untrusted vendor files. SHA-256
+    # proves only byte agreement, NOT Microsoft publisher authenticity.
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($garnet)
     try {
         if ($archive.Entries.Count -eq 0 -or $archive.Entries.Count -gt 2000) {
             throw 'The ZIP has an invalid or excessive number of entries.'
         }
+        $totalUncompressed = [int64]0
+        $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         foreach ($entry in $archive.Entries) {
             $path = $entry.FullName.Replace('\','/')
-            $segments = @($path.Split('/'))
-            if ([string]::IsNullOrWhiteSpace($path) -or $path.StartsWith('/') -or
-                $path.Contains(':') -or @($segments | Where-Object { $_ -eq '..' }).Count -gt 0 -or
-                $entry.Length -gt (512MB)) {
+            $normalized = $path.TrimEnd('/')
+            if ([string]::IsNullOrWhiteSpace($normalized) -or $path.StartsWith('/') -or
+                $path.Contains(':') -or $path -match '[\x00-\x1f]' -or
+                $path.Length -gt 260) {
                 throw 'The offline ZIP contains an unsafe path or excessive entry size.'
+            }
+            if (-not $seen.Add($normalized)) {
+                throw 'The offline ZIP contains duplicate or case-colliding entries.'
+            }
+            $segments = @($normalized.Split('/'))
+            foreach ($segment in $segments) {
+                if ($segment -in @('.', '..', '') -or
+                    $segment.EndsWith('.') -or $segment.EndsWith(' ') -or
+                    $segment -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$') {
+                    throw 'The offline ZIP contains an unsafe path or excessive entry size.'
+                }
+            }
+            # POSIX symbolic links are represented by S_IFLNK in the ZIP mode.
+            # Do not accept link payloads even though this gate never extracts.
+            $posixType = (([int64]$entry.ExternalAttributes -shr 16) -band 0xF000)
+            if ($posixType -eq 0xA000) {
+                throw 'The offline ZIP contains a symbolic-link entry.'
+            }
+            if ($entry.Length -gt (512MB) -or $entry.Length -lt 0) {
+                throw 'The offline ZIP contains an unsafe path or excessive entry size.'
+            }
+            $totalUncompressed += [int64]$entry.Length
+            if ($totalUncompressed -gt (2GB)) {
+                throw 'The offline ZIP exceeds the allowed total expanded size.'
+            }
+            if ($entry.Length -gt (1MB) -and
+                ($entry.CompressedLength -eq 0 -or
+                    ($entry.Length / [Math]::Max(1, $entry.CompressedLength)) -gt 200)) {
+                throw 'The offline ZIP has an excessive compression ratio.'
             }
         }
     } finally { $archive.Dispose() }
