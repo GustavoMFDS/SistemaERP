@@ -89,6 +89,12 @@ O **Garnet** da Microsoft é uma alternativa local de código aberto compatível
 
 O suporte declarado no site oficial não substitui ensaio de reinício, persistência, recuperação e revogação de sessão no ambiente real. Para referência: [compatibilidade e Lua](https://microsoft.github.io/garnet/docs/welcome/compatibility), [orientação de execução](https://microsoft.github.io/garnet/docs/getting-started) e [segurança/TLS](https://microsoft.github.io/garnet/docs/security). **Nenhum instalador ou configuração automática do Garnet está incluído neste PR.**
 
+### Conferir se as portas locais pertencem aos serviços declarados
+
+O inventário `tools/check-esterium-local-dependencies.ps1` aceita `-RequireServiceOwnership` para uma conferência mais rigorosa: os processos donos das portas locais PostgreSQL e Redis/Garnet precisam corresponder ao identificador do processo declarado por cada serviço Windows. Isso ajuda a detectar uma aplicação indevida escutando `127.0.0.1` nas portas esperadas. O instalador `tools/install-esterium-local.ps1 -Apply` agora exige essa conferência, enquanto a consulta de planejamento permanece disponível sem ela para diagnóstico inicial.
+
+**Limite:** serviços gerenciados por wrappers que iniciem processos filhos podem não passar nesse teste. Nesse caso, o instalador falha fechado; não se deve desabilitar a exigência sem definir uma instalação segura e verificável. Mesmo quando aprovado, esse teste não prova autenticidade TLS, versão PostgreSQL, permissões SQL nem compatibilidade Lua/Redis. A validação de dependências do backend continua obrigatória.
+
 ### Conferir PostgreSQL e Redis já instalados, sem modificar serviços
 
 O utilitário `tools/check-esterium-local-dependencies.ps1` **não instala** PostgreSQL nem o serviço Redis compatível (por exemplo, Garnet). Depois que um técnico provisionar esses componentes Windows com privilégios mínimos e autenticação/TLS próprios, ele confere apenas: nomes específicos dos dois serviços em execução, caminhos das ferramentas PostgreSQL existentes (incluindo `pg_restore`), portas distintas e escutas TCP **exclusivamente em loopback**. É um levantamento somente leitura, sem iniciar processos, abrir conexões ou examinar dados comerciais.
