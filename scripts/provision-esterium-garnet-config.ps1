@@ -83,6 +83,16 @@ foreach ($source in $inputs) {
     if (-not $networkServiceRead) { throw "$label requires NETWORK SERVICE read access." }
     $paths[$label] = $path
 }
+# Never accept the default account or a passwordless ACL user. The file is
+# still vendor-owned: check syntax and then test real Garnet ACL behavior.
+$aclText = [IO.File]::ReadAllText($paths['ACL'])
+if ($aclText.Length -gt 131072 -or
+    $aclText -notmatch '(?im)^\s*user\s+default\s+off(?:\s|$)' -or
+    $aclText -match '(?im)^\s*user\s+default\s+on(?:\s|$)' -or
+    $aclText -match '(?i)\bnopass\b' -or
+    $aclText -notmatch '(?im)^\s*user\s+(?!default\b)\S+\s+on\b[^\r\n]*[>#]\S+') {
+    throw 'Garnet ACL must disable default, prohibit nopass, and enable a named password-protected account.'
+}
 if ([IO.Path]::GetExtension($paths['PFX']).ToLowerInvariant() -ne '.pfx') {
     throw 'A PFX certificate is required for this Garnet setup.'
 }
