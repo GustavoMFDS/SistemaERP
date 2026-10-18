@@ -101,6 +101,9 @@ jobs:
       - name: Verify independently approved offline database and cache installer packages (synthetic)
         shell: pwsh
         run: ./scripts/test-esterium-offline-dependency-packages.ps1
+      - name: Create synthetic protected Windows Garnet ACL/TLS/Lua configuration
+        shell: pwsh
+        run: ./scripts/test-esterium-garnet-config.ps1
       - name: Validate immutable migration chain and verified backup before Windows upgrade
         shell: pwsh
         run: ./scripts/test-esterium-upgrade-plan.ps1
@@ -215,6 +218,7 @@ jobs:
             scripts/apply-esterium-app-update.ps1 \
             scripts/check-esterium-signed-release.ps1 \
             scripts/check-esterium-offline-dependency-packages.ps1 \
+            scripts/provision-esterium-garnet-config.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
