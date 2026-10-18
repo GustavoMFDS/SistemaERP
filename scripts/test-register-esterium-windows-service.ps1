@@ -170,6 +170,20 @@ try {
             try { & $installerTool @installerArgs | Out-Null }
             catch { $unsignedBlocked = $_.Exception.Message -match 'Production signature check failed' }
             if (-not $unsignedBlocked) { throw 'Installer allowed unsigned shop installation without fixture gate.' }
+            $installerArgs.Apply = $true
+            $approvalMissing = $false
+            try { & $installerTool @installerArgs | Out-Null }
+            catch { $approvalMissing = $_.Exception.Message -match 'separately approved manifest' }
+            if (-not $approvalMissing) { throw 'Unsigned real installation did not require independent approval before planning.' }
+            $installerArgs.ApprovedManifestSHA256 = 'A' * 64
+            $installerArgs.TrustedPublisherThumbprint = 'A' * 40
+            $launcherRejected = $false
+            try { & $installerTool @installerArgs | Out-Null }
+            catch { $launcherRejected = $_.Exception.Message -match 'Privileged PowerShell entrypoint is not signed' }
+            if (-not $launcherRejected) { throw 'Installer executed its planner with an unsigned privileged entrypoint.' }
+            $installerArgs.Remove('ApprovedManifestSHA256')
+            $installerArgs.Remove('TrustedPublisherThumbprint')
+            $installerArgs.Remove('Apply')
             $installerArgs.UnsignedDisposableCIFixture = $true
             $installerArgs.AllowedOrigin = 'http://untrusted.loja.example'
             $httpBlocked = $false
