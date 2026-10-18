@@ -41,10 +41,9 @@ foreach ($path in @($installed, $candidate)) {
         ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'Upgrade package paths must be physical directories.'
     }
-    $verifier = Join-Path $path 'tools\verify-esterium-bundle.ps1'
-    if (-not (Test-Path -LiteralPath $verifier -PathType Leaf)) {
-        throw 'The installed or candidate bundle verifier is missing.'
-    }
+    # Use only the verifier bundled with the currently reviewed tool, never
+    # execute PowerShell obtained from a candidate or older installation.
+    $verifier = Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1'
     & $verifier -BundleDir $path | Out-Null
 }
 if (-not $TechnicalUnsignedPlan) {
