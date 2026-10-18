@@ -86,7 +86,7 @@ try {
     }
     function Write-Status { [IO.File]::WriteAllText($statusPath, ($status | ConvertTo-Json -Compress)) }
     Write-Status
-    $args = @{
+    $planParameters = @{
         InstalledDir=$installed; CandidateBundleDir=$candidate; BackupDir=$backupDir
         ExternalBackupDir=$external; TechnicalUnsignedPlan=$true; SyntheticCIFixture=$true
     }
@@ -114,9 +114,9 @@ try {
     Must-Reject 'a stale off-machine backup' 'too old'
     $status.last_run_utc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     Write-Status
-    $args.Remove('TechnicalUnsignedPlan')
+    $planParameters.Remove('TechnicalUnsignedPlan')
     Must-Reject 'an unsigned candidate in production mode' 'Unsigned candidate'
-    $args.TechnicalUnsignedPlan = $true
+    $planParameters.TechnicalUnsignedPlan = $true
     $sqlPath = Join-Path $candidate 'migrations\0001_ci_fixture.up.sql'
     [IO.File]::WriteAllText($sqlPath, '-- modified old migration: forbidden')
     Remove-Item -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Force
