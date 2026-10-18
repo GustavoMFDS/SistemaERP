@@ -196,6 +196,36 @@ try {
         throw 'Backup scheduled task does not pass only a config file path.'
     }
     Write-Output 'PASS: Windows Scheduler registered real DISABLED NetworkService task with no credentials.'
+    $unregister = Join-Path $install 'tools\unregister-esterium-windows-service.ps1'
+    $dryRun = @(& $unregister -InstallDir $install) -join ' '
+    if ($dryRun -notmatch 'no changes made') {
+        throw 'Service-only removal plan did not remain read-only.'
+    }
+    $stillHere = & $sc query EsteriumERP 2>&1
+    if ($LASTEXITCODE -ne 0) { throw 'Service was removed during the read-only unregistration plan.' }
+    $global:LASTEXITCODE = 0
+    $unsafeUnregister = $false
+    try { & $unregister -InstallDir (Join-Path $env:ProgramFiles 'EsteriumERP-Other') -Apply | Out-Null }
+    catch { $unsafeUnregister = $_.Exception.Message -match 'Service executable differs' }
+    if (-not $unsafeUnregister) { throw 'Unregister allowed deleting a service owned by another path.' }
+    & $unregister -InstallDir $install -Apply | Out-Null
+    $gone = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        $queryResult = & $sc query EsteriumERP 2>$null
+        $queryCode = $LASTEXITCODE
+        $global:LASTEXITCODE = 0
+        if ($queryCode -eq 1060) { $gone = $true; break }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not $gone) { throw 'Service still registered after explicit service-only removal.' }
+    foreach ($dataFile in @('esterium-server.exe','web\index.html','bundle-manifest.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $install $dataFile) -PathType Leaf)) {
+            throw 'Service removal unexpectedly deleted installation files.'
+        }
+    }
+    $backupTaskAfter = Get-ScheduledTask -TaskName 'EsteriumERP-Backup' -ErrorAction Stop
+    if ($backupTaskAfter.State -ne 'Disabled') { throw 'Service removal unexpectedly changed the backup task.' }
+    Write-Output 'PASS: explicit service deregistration retained binaries and disabled backup task.'
     $created = $true
     Write-Output 'PASS: real SCM service was created with LocalService, manual startup and only credential paths.'
 }
