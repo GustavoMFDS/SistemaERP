@@ -9,7 +9,8 @@ param(
     [Parameter(Mandatory = $true)][string]$RedisServiceName,
     [Parameter(Mandatory = $true)][string]$PostgresBin,
     [ValidateRange(1, 65535)][int]$PostgresPort = 5432,
-    [ValidateRange(1, 65535)][int]$RedisPort = 6379
+    [ValidateRange(1, 65535)][int]$RedisPort = 6379,
+    [switch]$RequireServiceOwnership
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -50,6 +51,7 @@ foreach ($exe in @('postgres.exe', 'pg_dump.exe', 'pg_restore.exe', 'psql.exe'))
         throw "PostgreSQL tool is empty or a symbolic link: $exe"
     }
 }
+$servicePids = @{}
 function Assert-RunningService([string]$name) {
     $service = @(Get-CimInstance -ClassName Win32_Service -Filter "Name='$name'" -ErrorAction Stop)
     if ($service.Count -ne 1) {
@@ -58,9 +60,16 @@ function Assert-RunningService([string]$name) {
     if ($service[0].State -ne 'Running') {
         throw 'A declared local dependency Windows service is not running.'
     }
+    if ($RequireServiceOwnership) {
+        $pidOfService = [int]$service[0].ProcessId
+        if ($pidOfService -le 0) {
+            throw 'Dependency service does not expose a running process for strict port ownership.'
+        }
+        $servicePids[$name] = $pidOfService
+    }
     # Windows process command-line details might embed credentials: NEVER echo PathName.
 }
-function Assert-LoopbackListener([int]$port) {
+function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
     $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
     if ($listeners.Count -eq 0) {
         throw "No listener is bound to required local dependency port $port."
@@ -69,12 +78,18 @@ function Assert-LoopbackListener([int]$port) {
         if ([string]$listener.LocalAddress -notin @('127.0.0.1', '::1')) {
             throw "Local dependency port $port is exposed on a non-loopback address."
         }
+        if ($RequireServiceOwnership -and [int]$listener.OwningProcess -ne $expectedPid) {
+            throw "Dependency listener process does not belong to its declared Windows service."
+        }
     }
 }
 Assert-RunningService $PostgresServiceName
 Assert-RunningService $RedisServiceName
-Assert-LoopbackListener $PostgresPort
-Assert-LoopbackListener $RedisPort
+Assert-LoopbackListener $PostgresPort $(if ($RequireServiceOwnership) { $servicePids[$PostgresServiceName] } else { 0 })
+Assert-LoopbackListener $RedisPort $(if ($RequireServiceOwnership) { $servicePids[$RedisServiceName] } else { 0 })
 Write-Output 'PASS: declared PostgreSQL and Redis-compatible services are running with loopback-only TCP listeners.'
+if ($RequireServiceOwnership) {
+    Write-Output 'PASS: each listening port belongs to the matching Windows service process (strict ownership mode).'
+}
 Write-Output 'NOT CHECKED: PostgreSQL 16/version, data location, service ACLs, TLS trust, credentials, schema migrations, Redis atomic primitives or backups.'
 Write-Output 'NEXT: run esterium-server.exe --check-config and --check-dependencies with protected production configuration.'
