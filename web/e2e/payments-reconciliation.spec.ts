@@ -832,7 +832,7 @@ test('finance UI retries lost responses with the original idempotency key', asyn
   const paymentRow = page.locator('tbody tr').filter({ hasText: setup.saleId }).first()
   await paymentRow.getByRole('button', { name: 'Conciliar' }).click()
   await page.getByLabel('Adquirente/provedor').fill('e2e-ui')
-  await page.getByLabel('ID externo').fill(`UI-REC-${suffix}`)
+  await page.getByLabel('Referência da transação').fill(`UI-REC-${suffix}`)
   await page.getByRole('button', { name: 'Salvar conciliação' }).click()
   await expect(page.getByText(/erro|falha|network|fetch/i)).toBeVisible()
   await page.getByRole('button', { name: 'Salvar conciliação' }).click()
