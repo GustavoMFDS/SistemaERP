@@ -55,6 +55,8 @@ O pacote deve incluir `bundle-manifest.json`: todos os arquivos do executável e
 
 Se `sc.exe create` der certo, mas a gravação do ambiente no Registro ou a atribuição da identidade de serviço falhar, o registrador tenta **remover somente o serviço criado naquela invocação**. Os arquivos copiados permanecem para inspeção manual; não são apagados dados existentes, credenciais ou outros serviços. O CI Windows injeta uma falha descartável após `sc create`, verifica a reversão e só depois testa o registro normal. Uma falha na própria exclusão gera aviso explícito para intervenção técnica, nunca sucesso.
 
+A instalação efetiva rejeita arquivos de credenciais que sejam links simbólicos, concedam leitura a qualquer identidade fora de **LocalService, SYSTEM e Administradores**, ou permitam escrita pela própria conta LocalService. O CI Windows usa somente credenciais artificiais para exercitar recusas por permissões perigosas, sem abrir banco algum.
+
 A conta padrão do serviço é **LocalService**, sem privilégios administrativos de rotina. O serviço é registrado com inicialização **manual** e só deve ser iniciado depois que os bancos, os certificados TLS de PostgreSQL/Redis e as permissões dos arquivos estejam configurados e as migrações tenham sido aplicadas. O código Go aceita Stop/Shutdown do Gerenciador de Serviços.
 
 ### Gerar os segredos que pertencem ao Esterium
