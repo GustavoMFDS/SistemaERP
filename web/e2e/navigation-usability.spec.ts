@@ -43,3 +43,26 @@ test('busca de produto no PDV consulta catálogo completo online', async ({ page
   const response = await result
   expect(response.status()).toBe(200)
 })
+
+
+test('compras, devoluções e histórico de importações exibem termos simples', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/home$/)
+  await page.getByText('Mais áreas do sistema').click()
+
+  await page.getByRole('link', { name: 'Compras', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Compras e fornecedores' })).toBeVisible()
+  await expect(page.getByText('Número da nota ou documento')).toBeVisible()
+  await expect(page.getByText('Quantidade pedida')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Devoluções/Trocas' }).click()
+  await expect(page.getByRole('heading', { name: 'Devoluções e trocas' })).toBeVisible()
+  await expect(page.getByText('Reembolso devido', { exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Histórico de importações' }).click()
+  await expect(page.getByRole('heading', { name: 'Histórico de importações' })).toBeVisible()
+  await expect(page.getByText('Cadastro de produtos', { exact: true })).toBeVisible()
+})
