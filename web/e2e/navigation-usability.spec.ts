@@ -59,7 +59,7 @@ test('compras, devoluções e histórico de importações exibem termos simples'
   await expect(page.getByText('Quantidade pedida')).toBeVisible()
 
   await page.getByRole('link', { name: 'Devoluções/Trocas' }).click()
-  await expect(page.getByRole('heading', { name: 'Devoluções e trocas' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Devoluções e trocas', exact: true })).toBeVisible()
   await expect(page.getByText('Reembolso devido', { exact: true })).toBeVisible()
 
   await page.getByRole('link', { name: 'Histórico de importações' }).click()
