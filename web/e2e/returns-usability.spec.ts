@@ -14,7 +14,7 @@ test('devoluções: escolha de venda recente e consulta sem digitar UUID', async
   expect(firstValue).toMatch(/^[0-9a-f-]{36}$/i)
   await selector.selectOption(firstValue!)
   await page.getByRole('button', { name: 'Buscar' }).click()
-  await expect(page.getByText(/status/, { exact: false })).toBeVisible()
+  await expect(page.getByText(/situação/, { exact: false })).toBeVisible()
   await expect(page.getByText('Restante', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Registrar devolução' })).toBeDisabled()
 })
