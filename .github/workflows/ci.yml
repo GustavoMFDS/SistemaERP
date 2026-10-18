@@ -208,6 +208,7 @@ jobs:
             scripts/check-esterium-local-dependencies.ps1 \
             scripts/plan-esterium-windows-upgrade.ps1 \
             scripts/plan-esterium-local-setup.ps1 \
+            scripts/install-esterium-local.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
