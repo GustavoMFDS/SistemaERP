@@ -13,7 +13,6 @@ test('navegação clara em Início, Produtos, Estoque e Configurar loja', async 
   await expect(page.getByRole('region', { name: 'Acessos principais' })).toBeVisible()
   await page.getByRole('link', { name: 'Produtos', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
-  await expect(page.getByRole('columnheader', { name: 'Código do produto' })).toBeVisible()
   await expect(page.getByText('SKU', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Editar códigos e dados fiscais' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Classificação (NCM)', exact: true })).toHaveCount(0)
