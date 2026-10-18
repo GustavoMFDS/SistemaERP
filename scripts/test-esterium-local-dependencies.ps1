@@ -14,6 +14,8 @@ $global:ESTERIUM_TEST_PG_RUNNING = $true
 $global:ESTERIUM_TEST_REDIS_RUNNING = $true
 $global:ESTERIUM_TEST_LAN_BIND = $false
 $global:ESTERIUM_TEST_PG_MISSING = $false
+$global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $false
+$global:ESTERIUM_TEST_PG_PID_MISSING = $false
 function Get-CimInstance {
     [CmdletBinding()]
     param([string]$ClassName, [string]$Filter)
@@ -23,12 +25,14 @@ function Get-CimInstance {
         return [PSCustomObject]@{
             Name='EsteriumCI-Postgres'
             State=$(if ($global:ESTERIUM_TEST_PG_RUNNING) { 'Running' } else { 'Stopped' })
+            ProcessId=$(if ($global:ESTERIUM_TEST_PG_PID_MISSING) { 0 } else { 28101 })
         }
     }
     if ($Filter -eq "Name='EsteriumCI-Redis'") {
         return [PSCustomObject]@{
             Name='EsteriumCI-Redis'
             State=$(if ($global:ESTERIUM_TEST_REDIS_RUNNING) { 'Running' } else { 'Stopped' })
+            ProcessId=28102
         }
     }
     throw 'Unexpected Windows service requested.'
@@ -39,10 +43,12 @@ function Get-NetTCPConnection {
     if ($State -ne 'Listen' -or $LocalPort -notin @(5432, 6379)) {
         throw 'Unexpected TCP inventory request.'
     }
+    $pidValue = if ($LocalPort -eq 5432) { 28101 } else { 28102 }
+    if ($global:ESTERIUM_TEST_PORT_OWNER_MISMATCH -and $LocalPort -eq 6379) { $pidValue = 28199 }
     if ($global:ESTERIUM_TEST_LAN_BIND -and $LocalPort -eq 6379) {
-        return [PSCustomObject]@{ LocalAddress='0.0.0.0'; LocalPort=$LocalPort }
+        return [PSCustomObject]@{ LocalAddress='0.0.0.0'; LocalPort=$LocalPort; OwningProcess=$pidValue }
     }
-    return [PSCustomObject]@{ LocalAddress='127.0.0.1'; LocalPort=$LocalPort }
+    return [PSCustomObject]@{ LocalAddress='127.0.0.1'; LocalPort=$LocalPort; OwningProcess=$pidValue }
 }
 try {
     [IO.Directory]::CreateDirectory($toolsDir) | Out-Null
@@ -68,6 +74,17 @@ try {
         }
         if (-not $rejected) { throw "Inventory unexpectedly accepted $reason, or failed for another reason: $actualError" }
     }
+    $inventoryParameters.RequireServiceOwnership = $true
+    $strictResult = @(& $checker @inventoryParameters) -join ' '
+    if ($strictResult -notmatch 'strict ownership mode') {
+        throw 'Synthetic strict dependency listener ownership was not checked.'
+    }
+    $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $true
+    Assert-Reject 'a different executable listening on the Redis port' 'does not belong to its declared Windows service'
+    $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $false
+    $global:ESTERIUM_TEST_PG_PID_MISSING = $true
+    Assert-Reject 'a service without a live owning process' 'does not expose a running process'
+    $global:ESTERIUM_TEST_PG_PID_MISSING = $false
     $global:ESTERIUM_TEST_LAN_BIND = $true
     Assert-Reject 'Redis bound on all interfaces' 'non-loopback address'
     $global:ESTERIUM_TEST_LAN_BIND = $false
@@ -89,7 +106,7 @@ try {
     Write-Output 'PASS: synthetic Windows dependency inventory rejects LAN exposure, invalid or missing services, and missing backup tooling.'
 } finally {
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING')) {
+    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING', 'ESTERIUM_TEST_PORT_OWNER_MISMATCH', 'ESTERIUM_TEST_PG_PID_MISSING')) {
         Remove-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
     }
 }
