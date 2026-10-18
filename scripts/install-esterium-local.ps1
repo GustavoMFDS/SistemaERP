@@ -56,6 +56,7 @@ $planArgs = @{
     PostgresPort=$PostgresPort
     RedisPort=$RedisPort
     RequireSignedServer=(-not $UnsignedDisposableCIFixture)
+    RequireServiceOwnership=$Apply
 }
 $planner = Join-Path $PSScriptRoot 'plan-esterium-local-setup.ps1'
 & $planner @planArgs | Out-Null
