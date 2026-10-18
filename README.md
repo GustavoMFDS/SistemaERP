@@ -46,6 +46,12 @@ Há também uma verificação de instalação nova em um único comando técnico
 
 **Ainda pendente antes de um piloto real:** provisionamento integrado de PostgreSQL/Redis com TLS e usuários restritos; instalação/atualização e assinatura de release; HTTPS confiável para dois terminais na LAN; testes com leitores, impressoras e caixas físicos; backup/restauração em computador independente; gestão de falhas/atualizações; emissão e XML fiscal genuinamente autorizados pela SEFAZ. O modo de testes deve usar somente banco descartável e nunca ativar transmissão fiscal de produção.
 
+## Distribuição Windows — verificação obrigatória de release
+
+O bundle do CI continua **técnico e não assinado**, destinado apenas a testes descartáveis. Uma versão oficial exige assinatura Authenticode válida de **todo executável e de cada script PowerShell privilegiado**, além de um SHA-256 do manifesto recebido por canal independente e do certificado do editor previamente aprovado. O gate `tools/check-esterium-signed-release.ps1` exige esses elementos e **reprova os arquivos técnicos atuais**. O teste automatizado confirma que um pacote sem assinatura ou com digest divergente nunca passa como release.
+
+Esse controle não cria nem substitui assinaturas, certificados, instalador completo ou os componentes PostgreSQL/Garnet; tampouco permite uso comercial, alteração fiscal ou integração automática dos PRs. Somente depois da homologação física e da conclusão dos itens não fiscais a cadeia de PRs deverá ser revisada e incorporada em ordem à `main`.
+
 ## Execução local para desenvolvimento
 
 Na **raiz do repositório**, crie seu arquivo privado de configuração:
