@@ -23,6 +23,7 @@ $requiredTools = @(
     'tools/check-esterium-local-dependencies.ps1',
     'tools/plan-esterium-windows-upgrade.ps1',
     'tools/plan-esterium-local-setup.ps1',
+    'tools/install-esterium-local.ps1',
     'tools/esterium-migrate.exe',
     'README_LOCAL.md'
 )
