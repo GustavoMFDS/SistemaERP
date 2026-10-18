@@ -109,7 +109,7 @@ export default function StockMovementsPage() {
                 <th className="px-3 py-2">Data</th>
                 <th className="px-3 py-2">Produto</th>
                 <th className="px-3 py-2">Movimento</th>
-                <th className="px-3 py-2">Diferença</th>
+                <th className="px-3 py-2">Quantidade movimentada</th>
                 <th className="px-3 py-2">Antes</th>
                 <th className="px-3 py-2">Depois</th>
                 <th className="px-3 py-2">Motivo</th>
@@ -129,7 +129,7 @@ export default function StockMovementsPage() {
                       }}>
                       {entry.product_name}
                     </button>
-                    <span className="block text-gray-500">{entry.product_sku}</span>
+                    <span className="block text-gray-500">Código: {entry.product_sku}</span>
                   </td>
                   <td className="px-3 py-2">{typeLabels[entry.movement_type] ?? entry.movement_type}</td>
                   <td className="px-3 py-2 font-medium">
