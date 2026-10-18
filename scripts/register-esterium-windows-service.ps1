@@ -164,7 +164,8 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $parent = Split-Path -Parent $installPath
 $staging = Join-Path $parent ('.esterium-stage-' + [Guid]::NewGuid().ToString('N'))
-$registered = $false
+$createdService = $false
+$registrationComplete = $false
 try {
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
     Copy-Item -LiteralPath $binarySource -Destination (Join-Path $staging 'esterium-server.exe') -ErrorAction Stop
@@ -182,7 +183,15 @@ try {
     $binary = Join-Path $installPath 'esterium-server.exe'
     $out = & $sc create $serviceName 'binPath=' ('"' + $binary + '"') 'start=' 'demand' 'obj=' 'NT AUTHORITY\LocalService' 'DisplayName=' 'Esterium ERP' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Windows service registration failed: $out" }
-    $registered = $true
+    $createdService = $true
+    # Deterministic fault injection only on a disposable GitHub-hosted Windows runner.
+    # Never start the service. Test the rollback of the just-created SCM entry.
+    if ($env:GITHUB_ACTIONS -eq 'true' -and
+        $env:RUNNER_ENVIRONMENT -eq 'github-hosted' -and
+        $env:ESTERIUM_SCM_DISPOSABLE_CI -eq '1' -and
+        $env:ESTERIUM_TEST_FAIL_AFTER_SC_CREATE -eq '1') {
+        throw 'CI synthetic fault after Windows service creation.'
+    }
     $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName"
     $entries = @(
         'APP_ENV=prod',
@@ -201,15 +210,27 @@ try {
     New-ItemProperty -Path $regPath -Name Environment -PropertyType MultiString -Value $entries -Force -ErrorAction Stop | Out-Null
     $sidResult = & $sc sidtype $serviceName unrestricted 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Could not configure restricted service SID: $sidResult" }
+    $registrationComplete = $true
     Write-Output 'PASS: service registered with only secret file paths (not credential values).'
     Write-Output 'Service start remains manual until database/migrations, ACL and backup restoration are tested.'
     Write-Output 'Do not enable SEFAZ. Local installation is not a certified production deployment.'
 }
 finally {
+    if ($createdService -and -not $registrationComplete) {
+        # SCM was provably absent at entry. Roll back only the service created
+        # by this invocation; preserve staged files for explicit inspection.
+        $deleted = & $sc delete $serviceName 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'SCM rollback failed; inspect the partially registered EsteriumERP service manually.'
+        } else {
+            Write-Warning 'Partial service registration rolled back; program files preserved for inspection.'
+        }
+        $global:LASTEXITCODE = 0
+    }
     if (Test-Path -LiteralPath $staging) {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
-    if (-not $registered -and (Test-Path -LiteralPath $installPath)) {
+    if (-not $registrationComplete -and (Test-Path -LiteralPath $installPath)) {
         Write-Warning 'Unregistered program files remain for manual inspection; they were not deleted.'
     }
 }
