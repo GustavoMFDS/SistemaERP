@@ -122,7 +122,23 @@ try {
     Remove-Item -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Force
     & $manifestWriter -BundleDir $candidate | Out-Null
     Must-Reject 'changed historical SQL migrations despite valid new manifest' 'altered an existing'
-    Write-Output 'PASS: synthetic upgrade plan rejects active service, enabled backup, stale copy, unsigned release and historical SQL changes.'
+    # A frontend-only update must be allowed; the app binary and all migration
+    # versions may be identical while compiled web assets change.
+    Remove-Item -LiteralPath $candidate -Recurse -Force
+    Write-FixtureBundle $candidate 1 'old-synthetic-server'
+    [IO.File]::AppendAllText((Join-Path $candidate 'web\index.html'), '-new-ui')
+    Remove-Item -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Force
+    & $manifestWriter -BundleDir $candidate | Out-Null
+    $uiOnly = @(& $plan @planParameters 3>$null) -join ' '
+    if ($uiOnly -notmatch 'PASS: read-only technical upgrade gate') {
+        throw 'Upgrade plan rejected a valid UI-only release.'
+    }
+    # Identical verified packages are a no-op and must not be presented as an upgrade.
+    [IO.File]::WriteAllText((Join-Path $candidate 'web\index.html'), 'synthetic UI, not executable')
+    Remove-Item -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Force
+    & $manifestWriter -BundleDir $candidate | Out-Null
+    Must-Reject 'two identical packages' 'no software update identified'
+    Write-Output 'PASS: synthetic upgrade plan rejects active service, enabled backup, stale copy, unsigned release, rewritten SQL and no-op; UI-only upgrades allowed.'
 } finally {
     if (Test-Path -LiteralPath $installed) { Remove-Item -LiteralPath $installed -Recurse -Force }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
