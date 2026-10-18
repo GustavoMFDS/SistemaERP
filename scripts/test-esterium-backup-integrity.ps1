@@ -45,6 +45,25 @@ try {
         catch { $rejected = $true }
         if (-not $rejected) { throw "Health gate accepted $reason" }
     }
+    # The stronger gate must prove two distinct backed-up generations using
+    # only disposable archive bytes and independently checked SHA-256 files.
+    $yesterday = 'esterium-' + [DateTime]::UtcNow.AddDays(-1).ToString('yyyyMMddTHHmmssZ') + '-87654321.dump'
+    foreach ($dir in @($local, $external)) {
+        [IO.File]::WriteAllBytes((Join-Path $dir $yesterday), $bytes)
+        [IO.File]::WriteAllText((Join-Path $dir "$yesterday.sha256"),
+            "$sha  $yesterday" + [Environment]::NewLine)
+    }
+    $args.MinimumVerifiedCopies = 2
+    $two = @(& $checker @args) -join ' '
+    if ($two -notmatch 'PASS: recent local') { throw 'Backup gate rejected two complete synthetic generations.' }
+    Remove-Item -LiteralPath (Join-Path $external "$yesterday.sha256") -Force
+    Require-Rejection 'two generations when the older remote checksum is missing'
+    [IO.File]::WriteAllText((Join-Path $external "$yesterday.sha256"),
+        "$sha  $yesterday" + [Environment]::NewLine)
+    [IO.File]::AppendAllText((Join-Path $external $yesterday), 'altered')
+    Require-Rejection 'two generations when the older remote bytes disagree'
+    [IO.File]::WriteAllBytes((Join-Path $external $yesterday), $bytes)
+    $args.Remove('MinimumVerifiedCopies')
 
     [IO.File]::AppendAllText((Join-Path $external $name), 'altered')
     Require-Rejection 'a corrupted external archive'
