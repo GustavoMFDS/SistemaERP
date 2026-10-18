@@ -135,6 +135,30 @@ try {
         try { & $setup @setupArgs 3>$null | Out-Null }
         catch { $serviceRejected = $_.Exception.Message -match 'Unexpected dependency inventory query' }
         if (-not $serviceRejected) { throw 'Unified setup plan ignored an unexpected dependency.' }
+        $installerTool = Join-Path $bundleTools 'install-esterium-local.ps1'
+        $installerArgs = $setupArgs.Clone()
+        $env:ESTERIUM_SCM_DISPOSABLE_CI = '1'
+        try {
+            $installerArgs.UnsignedDisposableCIFixture = $true
+            $installationPlan = @(& $installerTool @installerArgs 3>$null) -join ' '
+            if ($installationPlan -notmatch 'PLAN: explicit administrator -Apply' -or
+                (Test-Path -LiteralPath $install)) {
+                throw 'One-step installer plan modified files or failed to report disabled service start.'
+            }
+            $installerArgs.Remove('UnsignedDisposableCIFixture')
+            $unsignedBlocked = $false
+            try { & $installerTool @installerArgs | Out-Null }
+            catch { $unsignedBlocked = $_.Exception.Message -match 'Production signature check failed' }
+            if (-not $unsignedBlocked) { throw 'Installer allowed unsigned shop installation without fixture gate.' }
+            $installerArgs.UnsignedDisposableCIFixture = $true
+            $installerArgs.AllowedOrigin = 'http://untrusted.loja.example'
+            $httpBlocked = $false
+            try { & $installerTool @installerArgs 3>$null | Out-Null }
+            catch { $httpBlocked = $_.Exception.Message -match 'HTTPS origin' }
+            if (-not $httpBlocked) { throw 'Installer accepted an insecure HTTP shop origin.' }
+        } finally {
+            Remove-Item Env:ESTERIUM_SCM_DISPOSABLE_CI -ErrorAction SilentlyContinue
+        }
         Write-Output 'PASS: unified setup plan is read-only and enforces host, dependency and signature failures.'
     } finally {
         Remove-Item Function:Get-CimInstance,Function:Get-NetTCPConnection -ErrorAction SilentlyContinue
