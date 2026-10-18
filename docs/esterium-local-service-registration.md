@@ -79,6 +79,22 @@ Em ambiente descartável, a partir da pasta extraída do pacote:
 .\tools\provision-esterium-app-secrets.ps1 -Apply
 ```
 
+### Preparar instalação nova do PostgreSQL 16 com arquivo protegido
+
+A ferramenta `tools/provision-esterium-postgres-optionfile.ps1` produz **somente o arquivo de opções de uma instalação PostgreSQL nova**, para o instalador Windows oficial da EDB. Sem `-Apply`, apenas confere caminhos, porta, nomes de serviço/conta e ACL dos dois arquivos de senha, sem gravar nada. Com `-Apply` administrativo, grava `postgresql-unattended.options` num diretório novo sob `ProgramData\Esterium`, legível **apenas por SYSTEM e Administradores**, nunca por operadores ou pelos serviços Garnet/Esterium.
+
+O arquivo declara `mode=unattended`, caminhos novos para programa e dados, porta, conta exclusiva Windows `esterium_pgsvc`, serviço exclusivo `EsteriumPostgreSQL16`, superusuário PostgreSQL inicial, instalação de `server,commandlinetools` e dispensa de pgAdmin/StackBuilder e atalhos. As senhas de superusuário e de serviço são **separadas**, exigem arquivos de origem restritos e ficam somente neste arquivo de opções protegido; nunca são usadas como argumentos de processo, exibidas no terminal ou inseridas no bundle do ERP. Uma instalação antiga, diretório existente, conta/serviço existente ou porta ocupada bloqueia o plano.
+
+Exemplo de preparação **somente leitura**:
+
+```powershell
+.\tools\provision-esterium-postgres-optionfile.ps1 -SuperPasswordFile 'C:\ProgramData\Esterium\BootstrapSecrets\pg-super.secret' -ServicePasswordFile 'C:\ProgramData\Esterium\BootstrapSecrets\pg-service.secret'
+```
+
+Após aceite técnico, `-Apply` cria o arquivo de opções, mas **não baixa nem executa** o PostgreSQL, não cria cluster, usuário SQL da aplicação, regras `pg_hba.conf`, TLS, banco Esterium nem serviço. Antes de usar o instalador externo, é obrigatório verificar assinatura do fornecedor e seu SHA-256 aprovado independentemente, validar comportamento/versão exata do instalador e garantir um procedimento de descarte seguro do arquivo de opções contendo senhas. Veja a [documentação oficial da EDB](https://www.enterprisedb.com/docs/supported-open-source/postgresql/installing/command_line_parameters/) para `--optionfile` e os parâmetros do instalador. Após a instalação, os testes reais `--check-config` / `--check-dependencies` continuam obrigatórios; não usar o banco de uma loja.
+
+O CI cria esse arquivo exclusivamente com **credenciais sintéticas** em runner Windows hospedado e verifica ausência de operações de banco, não sobrescrita, permissões e recusas a acessos inseguros.
+
 ### Criar a configuração local do Garnet sem iniciar um serviço
 
 A ferramenta `tools/provision-esterium-garnet-config.ps1` é a primeira etapa com gravação **real e explicitamente autorizada** (`-Apply`) do preparo do cache para uma **instalação nova**. Antes disso, exige três arquivos externos previamente provisionados e com permissões seguras: um arquivo ACL Garnet com **usuário default desabilitado, nenhum `nopass` e uma conta nomeada com senha**, um certificado TLS válido `.pfx` com chave privada e um arquivo contendo **somente a senha do PFX**, todos legíveis exclusivamente por `NETWORK SERVICE`, `SYSTEM` e Administradores. A conta `NETWORK SERVICE` não pode alterar esses arquivos. O comando exige privilégios de administrador e recusa sobrescrever uma configuração existente.
