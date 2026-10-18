@@ -95,6 +95,9 @@ jobs:
       - name: Verify freshness and integrity of synthetic local and external backups
         shell: pwsh
         run: ./scripts/test-esterium-backup-integrity.ps1
+      - name: Verify loopback-only installed dependency inventory using Windows synthetic data
+        shell: pwsh
+        run: ./scripts/test-esterium-local-dependencies.ps1
       - name: Validate protected daily backup scheduling without touching production
         shell: pwsh
         run: ./scripts/test-esterium-backup-task.ps1
@@ -199,6 +202,7 @@ jobs:
             scripts/register-esterium-backup-task.ps1 \
             scripts/check-esterium-windows-host.ps1 \
             scripts/unregister-esterium-windows-service.ps1 \
+            scripts/check-esterium-local-dependencies.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
