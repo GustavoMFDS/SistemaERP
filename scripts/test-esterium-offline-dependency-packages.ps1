@@ -60,6 +60,48 @@ try {
     $gateArgs.GarnetPackage = $postgres
     Assert-Fails 'same artifact for both prerequisites' 'separate approved artifacts'
     $gateArgs.GarnetPackage = $garnet
+    # Even when a fixture checksum is recomputed, hostile ZIP metadata must
+    # fail closed before vendor software is extracted or allowed to run.
+    function Write-HostileZip([string]$kind) {
+        if (Test-Path -LiteralPath $garnet) { Remove-Item -LiteralPath $garnet -Force }
+        $zip = [IO.Compression.ZipFile]::Open($garnet, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            if ($kind -eq 'duplicate') {
+                foreach ($name in @('Garnet/bin/server.exe', 'garnet/BIN/server.exe')) {
+                    $item = $zip.CreateEntry($name)
+                    $stream = $item.Open()
+                    try { $stream.WriteByte(65) } finally { $stream.Dispose() }
+                }
+            } elseif ($kind -eq 'symlink') {
+                $item = $zip.CreateEntry('garnet/link.exe')
+                # POSIX S_IFLNK = 0xA000 in upper ZIP mode bits.
+                $item.ExternalAttributes = -1610612736
+                $stream = $item.Open()
+                try { $stream.WriteByte(65) } finally { $stream.Dispose() }
+            } elseif ($kind -eq 'compression') {
+                $item = $zip.CreateEntry('garnet/zeros.bin',
+                    [IO.Compression.CompressionLevel]::Optimal)
+                $stream = $item.Open()
+                try {
+                    $bytes = [byte[]]::new(2097152)
+                    $stream.Write($bytes, 0, $bytes.Length)
+                } finally { $stream.Dispose() }
+            } else { throw 'Invalid synthetic ZIP case.' }
+        } finally { $zip.Dispose() }
+        $gateArgs.ExpectedGarnetSHA256 = (Get-FileHash -LiteralPath $garnet -Algorithm SHA256).Hash
+    }
+    Write-HostileZip 'duplicate'
+    Assert-Fails 'case-insensitive path collision' 'duplicate or case-colliding entries'
+    Write-HostileZip 'symlink'
+    Assert-Fails 'UNIX symlink in an offline package' 'symbolic-link entry'
+    Write-HostileZip 'compression'
+    Assert-Fails 'high-ratio compressed archive' 'excessive compression ratio'
+    Write-Zip $garnet 'garnet/readme.txt'
+    $gateArgs.ExpectedGarnetSHA256 = (Get-FileHash -LiteralPath $garnet -Algorithm SHA256).Hash
+    $safe = @(& $checker @gateArgs) -join ' '
+    if ($safe -notmatch 'PASS: offline prerequisite package hashes') {
+        throw 'Hardened gate unexpectedly rejected a safe synthetic ZIP.'
+    }
     Write-Output 'PASS: synthetic offline prerequisite gate rejects tampering, unsigned binaries, archive traversal and artifact aliasing.'
 } finally {
     Remove-Item Env:ESTERIUM_DEPENDENCY_PACKAGE_DISPOSABLE_CI -ErrorAction SilentlyContinue
