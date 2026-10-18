@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | 1. Pacote confiável | Origem aprovada, versão registrada, arquivo intacto e `tools/verify-esterium-bundle.ps1` aprovado; pacote ainda **não possui assinatura oficial** | [ ] |
 | 2. Equipamento e serviço | PC Windows x64 compatível, espaço e energia estável; serviço `EsteriumERP` sob `LocalService`, sem Go/Node/Docker necessários para **executar** a UI | [ ] |
-| 3. Banco e segurança | PostgreSQL 16, Redis compatível validado, credenciais em arquivos com ACL restrita, TLS/certificados confiáveis, versão SQL correta, testes `--check-config` e `--check-dependencies` aprovados | [ ] |
+| 3. Banco e segurança | PostgreSQL 16 e Redis compatível provisionados fora do bundle; inventário Windows em loopback, credenciais em arquivos com ACL restrita, TLS/certificados confiáveis, versão SQL correta e `--check-config` / `--check-dependencies` reais aprovados | [ ] |
 | 4. Rede interna | Pelo menos **dois caixas físicos** acessam a mesma loja por HTTPS confiável, sem expor PostgreSQL/Redis na LAN; login e permissões segregados | [ ] |
 | 5. PDV real | Produto/estoque, leitura de código, dinheiro e troco, cartão e Pix confirmados manualmente, fechamento, devolução, impressão de **teste não fiscal** e bobinas 58/80 mm | [ ] |
 | 6. Falhas e recuperação | Venda pendente/offline não aparece como confirmada; queda de rede/reinício preserva dados e não duplica venda; caixa não fecha com pendências | [ ] |
