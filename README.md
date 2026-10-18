@@ -6,7 +6,7 @@ Sistema web de gestão comercial com PDV, produtos, estoque, compras, devoluçõ
 
 **Situação:** desenvolvimento/piloto, **não liberado para operação fiscal real**. Há implementações em branches e PRs ainda não integrados à `main`. A presença de um módulo no código **não comprova** build, testes E2E, homologação SEFAZ nem aptidão para produção. Consulte o [catálogo geral de 16/10/2026](docs/catalogo-geral-esterium-2026-10-16.md) e os PRs abertos antes de decidir um deploy.
 
-**Inventário mais recente:** o [catálogo geral do Esterium ERP](docs/catalogo-geral-esterium-2026-10-16.md) contabiliza 15 telas React, 121 registros de rotas HTTP, 13 módulos Go e 48 migrações SQL, distinguindo implementação de validação efetiva. O [catálogo funcional histórico](docs/catalogo-funcional-sistema.md) permanece disponível, mas algumas contagens e pendências estão desatualizadas. A emissão NFC-e em produção não está homologada.
+**Inventário histórico (16/10/2026):** o [catálogo geral do Esterium ERP](docs/catalogo-geral-esterium-2026-10-16.md) contabilizava 15 telas React, 121 registros de rotas HTTP, 13 módulos Go e 48 migrações SQL. As contagens desse documento pertencem à data da auditoria; a cadeia local atual inclui **51 pares de migrações SQL** no código, ainda sem integração automática à `main`. O [catálogo funcional histórico](docs/catalogo-funcional-sistema.md) permanece disponível, mas algumas contagens e pendências estão desatualizadas. A emissão NFC-e em produção não está homologada.
 
 **Refinamento operacional de 16/10/2026:** o [plano de refinamento](docs/refinamento-final-esterium-2026-10-16.md) documenta backup PostgreSQL verificado em Linux/Windows (agendamento ainda a configurar), Central de Atenção, conferência fiscal diária e relatórios operacionais por período. Recuperação ensaiada apenas com banco fictício; isso não comprova backup externo, homologação SEF/MG nem prontidão operacional.
 
@@ -34,7 +34,17 @@ O que funciona e o que ainda está pendente consta em [docs/catalogo-funcional-s
 | Testes | Go (unitários e integração), ESLint, TypeScript, Vite e Playwright em `web/e2e` |
 | Documentação | `docs/` (API, implantação, segurança, fiscal, operação e relatórios de validação) |
 
-Requisitos: Go **1.26.9**, Node.js **22.x**, npm compatível e Docker com Compose, ou PostgreSQL e Redis configurados separadamente.
+**Para desenvolvimento e compilação:** Go **1.26.9**, Node.js **22.x**, npm compatível e Docker com Compose, ou PostgreSQL e Redis configurados separadamente. **O pacote técnico Windows** já compila Go e React e não exige Go/Node/Docker para abrir a interface na loja, mas PostgreSQL/Redis ainda exigem provisionamento seguro separado.
+
+## Esterium Local para Windows (estágio técnico, sem instalação comercial)
+
+A arquitetura principal aprovada prevê **um computador servidor na loja** e terminais pela rede interna. Os PRs [#84–#90](https://github.com/GustavoMFDS/SistemaERP/pulls) preparam o pacote Windows x64, com backend Go compilado, interface React estática, migrações SQL versionadas e ferramentas de manutenção protegidas. Essa cadeia **permanece em PRs draft**, sem liberação automática na `main`. Aprovado no CI **não significa** homologação presencial ou fiscal.
+
+O pacote é produzido na máquina de build, não no computador da loja, por `scripts/build-esterium-local-windows.ps1`. O ZIP técnico tem manifesto SHA-256 que pode ser conferido antes e depois da instalação, mas **ainda não tem assinatura digital de distribuição**.
+
+O procedimento técnico, em ordem, está descrito em [registro do serviço Windows](docs/esterium-local-service-registration.md), [backup externo](docs/esterium-local-backup-externo.md) e [checklist de aceite físico](docs/esterium-local-pilot-checklist.md). As ferramentas locais incluem checagem não destrutiva do PC e do pacote, provisão limitada de segredos próprios do ERP, registro/reversão conservadores de serviço `LocalService`, backup externo protegido e tarefa diária **desabilitada até aceite**. Não há migração automática nem apagamento de dados da loja.
+
+**Ainda pendente antes de um piloto real:** provisionamento integrado de PostgreSQL/Redis com TLS e usuários restritos; instalação/atualização e assinatura de release; HTTPS confiável para dois terminais na LAN; testes com leitores, impressoras e caixas físicos; backup/restauração em computador independente; gestão de falhas/atualizações; emissão e XML fiscal genuinamente autorizados pela SEFAZ. O modo de testes deve usar somente banco descartável e nunca ativar transmissão fiscal de produção.
 
 ## Execução local para desenvolvimento
 
@@ -135,7 +145,7 @@ cd web
 npm run test:e2e -- --project=chromium --workers=1
 ```
 
-Configure `E2E_BASE_URL` quando a UI não estiver em `http://127.0.0.1:5173`. Os cenários misturam API real e respostas simuladas. Os testes que abrem caixa, finalizam venda ou usam contas demo exigem isolamento/limpeza de estado entre execuções. Muitos logins automatizados podem acionar o rate limiter: ajuste limites **somente no processo descartável de teste**, jamais no ambiente real. Chromium, Firefox e WebKit precisam dos respectivos navegadores instalados. A suíte integral ainda **não** é gate verde; consulte a [auditoria com resultados e falhas](docs/auditoria-codigo-20261015.md).
+Configure `E2E_BASE_URL` quando a UI não estiver em `http://127.0.0.1:5173`. Os cenários misturam API real e respostas simuladas. Os testes que abrem caixa, finalizam venda ou usam contas demo exigem isolamento/limpeza de estado entre execuções. Muitos logins automatizados podem acionar o rate limiter: ajuste limites **somente no processo descartável de teste**, jamais no ambiente real. Chromium, Firefox e WebKit precisam dos respectivos navegadores instalados. O resultado completo deve ser confirmado nos jobs do GitHub Actions **para o SHA da branch escolhida**; aprovações de outros PRs não validam a branch atual. A [auditoria de 15/10/2026](docs/auditoria-codigo-20261015.md) é histórica, não o placar de CI de todas as branches atuais.
 
 Outras referências: `.github/workflows/ci.yml` e `docs/smoke-test.md`. **Não confundir comandos recomendados com resultados realmente executados.**
 
