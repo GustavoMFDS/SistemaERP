@@ -167,6 +167,17 @@ try {
         if ($dryAppPlan -notmatch 'no changes made') {
             throw 'Application-only upgrade default mode is not a read-only plan.'
         }
+        $unsignedRealUpdate = $appArgs.Clone()
+        $unsignedRealUpdate.Remove('UnsignedDisposableCIFixture')
+        $unsignedRealUpdate.Apply = $true
+        $unsignedRealUpdate.ApprovedManifestSHA256 = 'A' * 64
+        $unsignedRealUpdate.TrustedPublisherThumbprint = 'A' * 40
+        $rejectedUnsignedLauncher = $false
+        try { & $appUpdater @unsignedRealUpdate | Out-Null }
+        catch { $rejectedUnsignedLauncher = $_.Exception.Message -match 'Privileged PowerShell entrypoint is not signed' }
+        if (-not $rejectedUnsignedLauncher) {
+            throw 'Real application update delegated scripts before verifying the signer of its entrypoint.'
+        }
         $changed = @(& $appUpdater @appArgs -Apply 3>$null) -join [Environment]::NewLine
         if ($changed -notmatch 'PASS: application-only files updated') {
             throw 'Synthetic application-only replacement did not complete.'
