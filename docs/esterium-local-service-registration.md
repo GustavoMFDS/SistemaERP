@@ -24,6 +24,8 @@ O programa **recusa sobrescrever** a pasta de instalação ou o serviço `Esteri
 
 O pacote deve incluir `bundle-manifest.json`: todos os arquivos do executável e `web/` são comparados com seus SHA-256 e arquivos extras/links simbólicos são rejeitados **antes da instalação**, inclusive durante `-PlanOnly`. O manifesto é gerado pelo script de build e conferido no CI; ele verifica integridade relativa ao manifesto, **não comprova origem/autenticidade** (assinatura de código ainda pendente).
 
+Se `sc.exe create` der certo, mas a gravação do ambiente no Registro ou a atribuição da identidade de serviço falhar, o registrador tenta **remover somente o serviço criado naquela invocação**. Os arquivos copiados permanecem para inspeção manual; não são apagados dados existentes, credenciais ou outros serviços. O CI Windows injeta uma falha descartável após `sc create`, verifica a reversão e só depois testa o registro normal. Uma falha na própria exclusão gera aviso explícito para intervenção técnica, nunca sucesso.
+
 A conta padrão do serviço é **LocalService**, sem privilégios administrativos de rotina. O serviço é registrado com inicialização **manual** e só deve ser iniciado depois que os bancos, os certificados TLS de PostgreSQL/Redis e as permissões dos arquivos estejam configurados e as migrações tenham sido aplicadas. O código Go aceita Stop/Shutdown do Gerenciador de Serviços.
 
 ### Gerar os segredos que pertencem ao Esterium
