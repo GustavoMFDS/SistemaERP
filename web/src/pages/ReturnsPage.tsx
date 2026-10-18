@@ -47,6 +47,13 @@ type ReturnCreateResponse = {
   replayed: boolean
 }
 
+function saleStatusLabel(status: string): string {
+  if (status === 'finalized') return 'Concluída'
+  if (status === 'cancelled') return 'Cancelada'
+  if (status === 'pending') return 'Pendente'
+  return 'A verificar'
+}
+
 // The device clock is not authoritative for return deadlines. Only an
 // explicit "denied" policy can prevent voluntary selection in this screen.
 // The server checks the exact deadline at the time of registration.
@@ -62,8 +69,8 @@ function policyDescription(item: SaleItem, saleAt?: string): string {
   const saleEpoch = saleAt ? new Date(saleAt).getTime() : NaN
   const deadline = saleEpoch + item.return_days_snapshot * 24 * 60 * 60 * 1000
   return Number.isFinite(deadline) && Date.now() > deadline
-    ? `Prazo de ${item.return_days_snapshot} dias aparentemente vencido — servidor fará a conferência`
-    : `Até ${item.return_days_snapshot} dias após a compra — servidor fará a conferência`
+    ? `Prazo de ${item.return_days_snapshot} dias aparentemente vencido — prazo confirmado ao registrar`
+    : `Até ${item.return_days_snapshot} dias após a compra — prazo confirmado ao registrar`
 }
 
 export default function ReturnsPage() {
@@ -226,7 +233,7 @@ export default function ReturnsPage() {
             <option value="">Escolha uma venda ou digite o número abaixo</option>
             {recentSales.map((sale) => (
               <option key={sale.id} value={sale.id}>
-                Venda {sale.id.slice(0, 8)} — R$ {sale.total.toFixed(2)} — {sale.status === 'finalized' ? 'Concluída' : sale.status}
+                Venda {sale.id.slice(0, 8)} — R$ {sale.total.toFixed(2)} — {saleStatusLabel(sale.status)}
               </option>
             ))}
           </select>
@@ -254,8 +261,8 @@ export default function ReturnsPage() {
         {detail ? (
           <div className="mt-4">
             <div className="text-sm">
-              Venda <span className="font-mono text-xs">{detail.sale.id}</span> • status{' '}
-              <strong>{detail.sale.status}</strong> • total R$ {detail.sale.total.toFixed(2)}
+              Venda <span className="font-mono text-xs">{detail.sale.id}</span> • situação{' '}
+              <strong>{saleStatusLabel(detail.sale.status)}</strong> • total R$ {detail.sale.total.toFixed(2)}
             </div>
 
             <div className="mt-3 overflow-auto rounded-md border">
@@ -396,7 +403,7 @@ export default function ReturnsPage() {
         {result ? (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             Registro <span className="font-mono text-xs">{result.id}</span> criado. Reembolso devido:
-            {' '}R$ {result.refund_due.toFixed(2)} • status financeiro: pendente.
+            {' '}R$ {result.refund_due.toFixed(2)} • reembolso pendente de conferência.
           </div>
         ) : null}
       </div>
