@@ -91,6 +91,20 @@ O pacote também instala `tools/check-esterium-backup-integrity.ps1`. Ele verifi
 
 O pacote também inclui um registrador protegido de backup diário Windows, **desabilitado por padrão**, e um executor que exige backup externo SMB e PostgreSQL TLS com segredos em arquivos de ACL restrita. Um técnico deve preparar o JSON de configuração fora do programa, testar a identidade NetworkService, a escrita na pasta remota e restauração em outra máquina **antes de habilitar o agendamento**. Consulte `docs/esterium-local-backup-externo.md` no repositório. O verificador sozinho não agenda nem restaura o banco.
 
+## Desregistro seguro do serviço (sem apagar dados)
+
+O pacote técnico inclui `tools/unregister-esterium-windows-service.ps1`. O modo padrão verifica **sem alterações** se existe o serviço `EsteriumERP`, se está parado, se aponta para o `esterium-server.exe` da pasta indicada, se utiliza LocalService e se a tarefa de backup está desabilitada ou ausente. Recusa atingir um serviço desconhecido, em execução, com caminho diferente ou com backup ativo.
+
+Após reconciliar as vendas, garantir cópia e recuperação dos dados e parar o serviço manualmente, o responsável técnico pode usar explicitamente `-Apply` com privilégios de administrador **somente para remover o registro SCM**. A pasta de programa, o banco PostgreSQL, Redis, os arquivos fiscais, os segredos, os backups e a tarefa de backup **são preservados**. A retirada completa do programa e a limpeza de dados exigem outro procedimento futuro e autorização específica.
+
+Exemplo do modo de leitura:
+
+```powershell
+.\tools\unregister-esterium-windows-service.ps1 -InstallDir 'C:\Program Files\EsteriumERP'
+```
+
+O CI Windows hospeda um serviço e uma tarefa sintéticos, exercita o plano, impede desregistro por caminho divergente, remove apenas o serviço e verifica que arquivos e backup foram preservados. Isso **não** equivale a uma desinstalação completa de loja real.
+
 ## Pendente para instalador completo
 
 Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, validação/ativação presencial da tarefa e restauração real de backups, inicialização automática e desinstalação preservando dados.
