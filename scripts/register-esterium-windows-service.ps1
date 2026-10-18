@@ -100,8 +100,12 @@ foreach ($secret in $secrets) {
     }
 }
 function Assert-SecureSecretFile([string]$filePath, [string]$variableName) {
-    # Conservative ACL preflight. File security cannot be delegated to
-    # ProgramData defaults or a generic Users/Everyone permission.
+    # Only the service identity, SYSTEM and Administrators may read credentials.
+    # A service account must never be able to overwrite its own trust material.
+    $item = Get-Item -LiteralPath $filePath -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "A credential file must not be a symbolic link: $variableName"
+    }
     $acl = Get-Acl -LiteralPath $filePath
     $hasLocalServiceRead = $false
     foreach ($entry in $acl.Access) {
@@ -115,10 +119,20 @@ function Assert-SecureSecretFile([string]$filePath, [string]$variableName) {
         }
         $canRead = ($entry.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -ne 0
         if (-not $canRead) { continue }
-        if ($sid -in @('S-1-1-0','S-1-5-11','S-1-5-32-545','S-1-5-7')) {
-            throw "Secret file is readable by an unsafe shared group: $variableName"
+        if ($sid -notin @('S-1-5-19', 'S-1-5-18', 'S-1-5-32-544')) {
+            throw "Secret file is readable by a non-approved Windows identity: $variableName"
         }
         if ($sid -eq 'S-1-5-19') {
+            $unsafeWrites = [Security.AccessControl.FileSystemRights]::WriteData -bor
+                [Security.AccessControl.FileSystemRights]::AppendData -bor
+                [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+                [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+                [Security.AccessControl.FileSystemRights]::Delete -bor
+                [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+                [Security.AccessControl.FileSystemRights]::TakeOwnership
+            if (($entry.FileSystemRights -band $unsafeWrites) -ne 0) {
+                throw "LocalService must not be able to change credential files: $variableName"
+            }
             $hasLocalServiceRead = $true
         }
     }
