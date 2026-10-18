@@ -18,6 +18,27 @@ Em uma máquina de testes, com o ZIP técnico extraído:
 
 Com `-RequireSignedServer`, exige executável com **assinatura Authenticode válida**, rejeitando o bundle técnico atual que ainda não é assinado. Sem essa chave, o script apenas verifica integridade por hash **e avisa explicitamente que não comprovou a origem do pacote**. Um resultado verde não certifica o equipamento, o instalador ou o uso comercial. Ainda faltam validar PostgreSQL e Redis reais, confiabilidade TLS dos clientes, impressoras, restauração externa e SEFAZ.
 
+## Um único comando de planejamento para o técnico
+
+O pacote Windows também contém `tools/plan-esterium-local-setup.ps1`, que **somente consulta** os requisitos para uma **instalação nova**, sem instalar ou iniciar nada. Ele combina três conferências: computador e integridade do pacote, serviços PostgreSQL/Redis compatíveis já existentes e plano do serviço Windows do Esterium. Uma falha interrompe a sequência sem modificar a instalação.
+
+Exemplo de laboratório, após o técnico preparar PostgreSQL/Redis, certificados e arquivos de segredos reais, sem senhas escritas no comando:
+
+```powershell
+.\tools\plan-esterium-local-setup.ps1 `
+  -BundleDir (Get-Location).Path `
+  -PostgresServiceName 'postgresql-x64-16' `
+  -RedisServiceName 'EsteriumGarnet' `
+  -PostgresBin 'C:\Program Files\PostgreSQL\16\bin' `
+  -DatabaseURLFile 'C:\ProgramData\Esterium\Secrets\database-url.secret' `
+  -RedisURLFile 'C:\ProgramData\Esterium\Secrets\redis-url.secret' `
+  -JWTSecretFile 'C:\ProgramData\Esterium\Secrets\jwt.secret' `
+  -MetricsBearerTokenFile 'C:\ProgramData\Esterium\Secrets\metrics.secret' `
+  -AllowedOrigin 'https://esterium.loja.example'
+```
+
+Esses nomes são **exemplos**, não nomes de serviços automaticamente criados. A ferramenta não prova TLS, versão SQL ou compatibilidade das operações atômicas do Redis; depois dela ainda é obrigatório validar `--check-config` e `--check-dependencies` na identidade real, e realizar os testes do piloto. O parâmetro opcional `-RequireSignedServer` recusa o pacote sem assinatura válida, que ainda é o estado atual do ZIP técnico.
+
 ## Segurança de instalação
 
 O programa **recusa sobrescrever** a pasta de instalação ou o serviço `EsteriumERP` já existentes. Copia o executável compilado, `web/`, `tools/`, `README_LOCAL.md` e `bundle-manifest.json`; os arquivos são verificados por SHA-256 **novamente na pasta temporária antes do registro SCM**. Nenhum valor de credencial, banco ou backup é copiado. As ferramentas de manutenção ficam disponíveis na pasta instalada, mesmo depois de descartar o ZIP extraído; sua execução e o agendamento de backup continuam procedimentos separados.
