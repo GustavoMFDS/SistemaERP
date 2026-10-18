@@ -11,7 +11,7 @@
 | 5. PDV real | Produto/estoque, leitura de código, dinheiro e troco, cartão e Pix confirmados manualmente, fechamento, devolução, impressão de **teste não fiscal** e bobinas 58/80 mm | [ ] |
 | 6. Falhas e recuperação | Venda pendente/offline não aparece como confirmada; queda de rede/reinício preserva dados e não duplica venda; caixa não fecha com pendências | [ ] |
 | 7. Backup independente | Tarefa diária agendada, cópia obrigatória em outro computador, integridade/frescor conferidos e **restauração ensaiada em outra máquina** com dados sintéticos | [ ] |
-| 8. Atualização segura | Backup restaurável antes de migração; nenhuma atualização automática/destrutiva; `esterium-migrate.exe` apenas empacotado e verificado, sem executá-lo sobre base real | [ ] |
+| 8. Atualização segura | Backup recuperável antes de migração, plano `plan-esterium-windows-upgrade.ps1` validado, serviço parado, versões SQL antigas intactas, release assinada e ensaio de rollback; nenhuma migração automática em base real | [ ] |
 | 9. Fiscal | Regra de bloqueio de transmissão ativa; não declarar NFC-e/NF-e autorizada. Aguardar credenciamento, protocolo SEFAZ autêntico, XML processado e aceite fiscal da UF/empresa | [ ] |
 
 ## Comandos de diagnóstico (executados pelo técnico, não pelo caixa)
