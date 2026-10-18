@@ -77,7 +77,39 @@ try {
         AllowedOrigin = 'https://esterium.ci.invalid'
         InstallDir = $install
     }
+    # Exercise an actual SCM create followed by an injected failure.
+    # The service must be removed automatically; package/data stay untouched.
+    $faultInstall = Join-Path $env:ProgramFiles "EsteriumERP-CI-failed-$guid"
+    $faultArguments = $arguments.Clone()
+    $faultArguments.InstallDir = $faultInstall
     $installCalled = $true
+    $faultRejected = $false
+    $env:ESTERIUM_TEST_FAIL_AFTER_SC_CREATE = '1'
+    try {
+        try {
+            & (Join-Path $tools 'register-esterium-windows-service.ps1') @faultArguments | Out-Null
+        } catch {
+            $faultRejected = $_.Exception.Message -match 'CI synthetic fault after Windows service creation'
+        }
+    } finally {
+        Remove-Item Env:ESTERIUM_TEST_FAIL_AFTER_SC_CREATE -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $faultInstall) {
+            Remove-Item -LiteralPath $faultInstall -Force -Recurse
+        }
+    }
+    if (-not $faultRejected) { throw 'The injected SCM configuration failure was not raised.' }
+    $serviceGone = $false
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        $check = & $sc query EsteriumERP 2>$null
+        $checkCode = $LASTEXITCODE
+        $global:LASTEXITCODE = 0
+        if ($checkCode -eq 1060) { $serviceGone = $true; break }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not $serviceGone) {
+        throw 'Failed SCM install left a partial Windows service behind.'
+    }
+    Write-Output 'PASS: injected post-create failure rolled back only the synthetic SCM entry.'
     & (Join-Path $tools 'register-esterium-windows-service.ps1') @arguments | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'SCM installer returned nonzero.' }
     $query = & $sc qc EsteriumERP 2>&1
