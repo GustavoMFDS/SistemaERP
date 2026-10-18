@@ -53,7 +53,8 @@ try {
     'check-esterium-windows-host.ps1',
     'unregister-esterium-windows-service.ps1',
     'check-esterium-local-dependencies.ps1',
-    'plan-esterium-windows-upgrade.ps1'
+    'plan-esterium-windows-upgrade.ps1',
+    'plan-esterium-local-setup.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $tools
     }
@@ -137,6 +138,7 @@ try {
         'tools\unregister-esterium-windows-service.ps1',
         'tools\check-esterium-local-dependencies.ps1',
         'tools\plan-esterium-windows-upgrade.ps1',
+        'tools\plan-esterium-local-setup.ps1',
         'tools\\esterium-migrate.exe',
         'README_LOCAL.md',
         'bundle-manifest.json',
