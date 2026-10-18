@@ -63,6 +63,14 @@ Em ambiente descartável, a partir da pasta extraída do pacote:
 .\tools\provision-esterium-app-secrets.ps1 -Apply
 ```
 
+### Compatibilidade do Garnet (opção Windows sem servidor de nuvem)
+
+O **Garnet** da Microsoft é uma alternativa local de código aberto compatível com parte do protocolo Redis, mas **não é uma substituição perfeitamente idêntica**. A documentação oficial indica suporte a scripts Lua com `--lua`, que não devem ser considerados habilitados sem configuração. O backend Esterium precisa de operações atômicas Redis para sessões e limitação de tentativas: a compatibilidade efetiva **depende da aprovação de `--check-dependencies` no serviço real**, incluindo scripts e semântica de consumo único; o inventário de portas não comprova isso.
+
+**Segurança essencial:** a configuração padrão documentada do Garnet pode escutar em todas as interfaces IPv4/IPv6, e isso **não serve para o servidor da loja**. O operador deve vinculá-lo somente a `127.0.0.1` / `::1`, habilitar autenticação forte e TLS com certificado PFX protegido por ACL, sem senha em linha de comando ou ZIP. O Windows/firewall precisa impedir acesso direto pela LAN, enquanto os caixas acessam **apenas o HTTPS do Esterium**. O teste local bloqueia escutas não-loopback, mas não comprova configuração TLS nem identidades de processo.
+
+O suporte declarado no site oficial não substitui ensaio de reinício, persistência, recuperação e revogação de sessão no ambiente real. Para referência: [compatibilidade e Lua](https://microsoft.github.io/garnet/docs/welcome/compatibility), [orientação de execução](https://microsoft.github.io/garnet/docs/getting-started) e [segurança/TLS](https://microsoft.github.io/garnet/docs/security). **Nenhum instalador ou configuração automática do Garnet está incluído neste PR.**
+
 ### Conferir PostgreSQL e Redis já instalados, sem modificar serviços
 
 O utilitário `tools/check-esterium-local-dependencies.ps1` **não instala** PostgreSQL nem o serviço Redis compatível (por exemplo, Garnet). Depois que um técnico provisionar esses componentes Windows com privilégios mínimos e autenticação/TLS próprios, ele confere apenas: nomes específicos dos dois serviços em execução, caminhos das ferramentas PostgreSQL existentes (incluindo `pg_restore`), portas distintas e escutas TCP **exclusivamente em loopback**. É um levantamento somente leitura, sem iniciar processos, abrir conexões ou examinar dados comerciais.
