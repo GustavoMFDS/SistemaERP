@@ -25,6 +25,8 @@ param(
     [ValidateRange(1, 65535)][int]$PostgresPort = 5432,
     [ValidateRange(1, 65535)][int]$RedisPort = 6379,
     [switch]$Apply,
+    [string]$ApprovedManifestSHA256 = '',
+    [string]$TrustedPublisherThumbprint = '',
     [switch]$UnsignedDisposableCIFixture
 )
 $ErrorActionPreference = 'Stop'
@@ -62,6 +64,16 @@ if (-not $Apply) {
     Write-Output 'PLAN: explicit administrator -Apply would register ONLY the prebuilt Windows service, STOPPED and MANUAL.'
     Write-Output 'PLAN: no database, cache, schema, backup, network firewall or fiscal operation performed.'
     return
+}
+if (-not $UnsignedDisposableCIFixture) {
+    if ([string]::IsNullOrWhiteSpace($ApprovedManifestSHA256) -or
+        [string]::IsNullOrWhiteSpace($TrustedPublisherThumbprint)) {
+        throw 'Real installation requires a separately approved manifest SHA-256 and trusted publisher thumbprint.'
+    }
+    # A signed executable alone does not authenticate bundled privileged tools.
+    & (Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1') -BundleDir $BundleDir \
+        -ExpectedManifestSHA256 $ApprovedManifestSHA256 \
+        -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
 }
 $current = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($current)
