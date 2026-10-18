@@ -16,6 +16,7 @@ $manifestWriter = Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1'
 $global:ESTERIUM_UPGRADE_CI_SERVICE_STATE = 'Stopped'
 $global:ESTERIUM_UPGRADE_CI_TASK_STATE = 'Disabled'
 $global:ESTERIUM_UPGRADE_CI_EXE = Join-Path $installed 'esterium-server.exe'
+$rollbackFixture = ''
 function Get-CimInstance {
     [CmdletBinding()]
     param([string]$ClassName, [string]$Filter)
@@ -141,9 +142,57 @@ try {
     Remove-Item -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Force
     & $manifestWriter -BundleDir $candidate | Out-Null
     Must-Reject 'two identical packages' 'no software update identified'
+    # Application-only update uses disposable Program Files fixture and no DB.
+    $appUpdater = Join-Path $PSScriptRoot 'apply-esterium-app-update.ps1'
+    $env:ESTERIUM_SCM_DISPOSABLE_CI = '1'
+    $appArgs = @{
+        InstalledDir=$installed; CandidateBundleDir=$candidate
+        BackupDir=$backupDir; ExternalBackupDir=$external
+        UnsignedDisposableCIFixture=$true
+    }
+    try {
+        Remove-Item -LiteralPath $candidate -Recurse -Force
+        Write-FixtureBundle $candidate 2 'synthetic-new-server'
+        $sqlUpdateBlocked = $false
+        try { & $appUpdater @appArgs 3>$null | Out-Null }
+        catch { $sqlUpdateBlocked = $_.Exception.Message -match 'refuses added or removed database migrations' }
+        if (-not $sqlUpdateBlocked) {
+            throw 'Application-only update accepted migration additions without a database recovery plan.'
+        }
+        Remove-Item -LiteralPath $candidate -Recurse -Force
+        Write-FixtureBundle $candidate 1 'synthetic-new-server'
+        $dryAppPlan = @(& $appUpdater @appArgs 3>$null) -join ' '
+        if ($dryAppPlan -notmatch 'no changes made') {
+            throw 'Application-only upgrade default mode is not a read-only plan.'
+        }
+        $changed = @(& $appUpdater @appArgs -Apply 3>$null) -join [Environment]::NewLine
+        if ($changed -notmatch 'PASS: application-only files updated') {
+            throw 'Synthetic application-only replacement did not complete.'
+        }
+        if ((Get-Content -LiteralPath (Join-Path $installed 'esterium-server.exe') -Raw) -ne 'synthetic-new-server') {
+            throw 'Application-only updater did not stage the new checked package.'
+        }
+        $rollbackFixture = (($changed -split [Environment]::NewLine) |
+            Where-Object { $_ -like 'ROLLBACK FOLDER: *' } |
+            Select-Object -First 1).Substring('ROLLBACK FOLDER: '.Length)
+        if (-not $rollbackFixture.StartsWith((Split-Path -Parent $installed) + '\.esterium-update-rollback-',
+                [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath (Join-Path $rollbackFixture 'esterium-server.exe') -PathType Leaf)) {
+            throw 'Application update failed to retain the prior package for rollback.'
+        }
+        if ((Get-Content -LiteralPath (Join-Path $rollbackFixture 'esterium-server.exe') -Raw) -ne 'old-synthetic-server') {
+            throw 'Application rollback copy no longer matches the old program.'
+        }
+        Write-Output 'PASS: synthetic application-only update preserved the old bundle and never changed SQL or database.'
+    } finally {
+        Remove-Item Env:ESTERIUM_SCM_DISPOSABLE_CI -ErrorAction SilentlyContinue
+    }
     Write-Output 'PASS: synthetic upgrade plan rejects active service, enabled backup, stale copy, unsigned release, rewritten SQL and no-op; UI-only upgrades allowed.'
 } finally {
     if (Test-Path -LiteralPath $installed) { Remove-Item -LiteralPath $installed -Recurse -Force }
+    if ($rollbackFixture -and (Test-Path -LiteralPath $rollbackFixture)) {
+        Remove-Item -LiteralPath $rollbackFixture -Recurse -Force
+    }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
     foreach ($name in @('ESTERIUM_UPGRADE_CI_SERVICE_STATE','ESTERIUM_UPGRADE_CI_TASK_STATE','ESTERIUM_UPGRADE_CI_EXE')) {
         Remove-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
