@@ -58,7 +58,8 @@ try {
     'install-esterium-local.ps1',
     'apply-esterium-app-update.ps1',
     'check-esterium-signed-release.ps1',
-    'check-esterium-offline-dependency-packages.ps1'
+    'check-esterium-offline-dependency-packages.ps1',
+    'provision-esterium-garnet-config.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $tools
     }
@@ -169,6 +170,7 @@ try {
         'tools\apply-esterium-app-update.ps1',
         'tools\check-esterium-signed-release.ps1',
         'tools\check-esterium-offline-dependency-packages.ps1',
+        'tools\provision-esterium-garnet-config.ps1',
         'tools\\esterium-migrate.exe',
         'README_LOCAL.md',
         'bundle-manifest.json',
