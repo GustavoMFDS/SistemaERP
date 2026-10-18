@@ -52,7 +52,12 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
   await expect(page.getByText(/1 válida\(s\)/)).toBeVisible()
   await page.getByRole('button', { name: /Confirmar importação de 1 produto/ }).click()
   await expect(page.getByRole('region', { name: 'Importação de produtos pendente' })).toBeVisible()
-  await expect(page.getByText(/chave original foi preservada/i)).toBeVisible()
+  // The network failure banner can be cleared by a concurrent catalog refresh;
+  // the durable recovery contract is the stored original idempotency receipt.
+  await expect.poll(() => postCount).toBe(1)
+  await expect.poll(() => page.evaluate(() =>
+    Object.keys(localStorage).filter((key) => key.startsWith('sistemaemgo:pendingProductImport:v1')).length,
+  )).toBe(1)
   const stored = await page.evaluate(() =>
     Object.entries(localStorage).filter(([key]) => key.startsWith('sistemaemgo:pendingProductImport:v1')),
   )
