@@ -79,6 +79,25 @@ Em ambiente descartável, a partir da pasta extraída do pacote:
 .\tools\provision-esterium-app-secrets.ps1 -Apply
 ```
 
+### Criar a configuração local do Garnet sem iniciar um serviço
+
+A ferramenta `tools/provision-esterium-garnet-config.ps1` é a primeira etapa com gravação **real e explicitamente autorizada** (`-Apply`) do preparo do cache para uma **instalação nova**. Antes disso, exige três arquivos externos previamente provisionados e com permissões seguras: um arquivo ACL Garnet com a conta do servidor, um certificado TLS válido `.pfx` com chave privada e um arquivo contendo **somente a senha do PFX**, todos legíveis exclusivamente por `NETWORK SERVICE`, `SYSTEM` e Administradores. A conta `NETWORK SERVICE` não pode alterar esses arquivos. O comando exige privilégios de administrador e recusa sobrescrever uma configuração existente.
+
+O padrão é apenas um plano **sem alterações**. Com `-Apply`, a ferramenta cria `ProgramData\\Esterium\\GarnetConfig\\garnet.conf` protegido com ACLs Windows, contendo `Address=127.0.0.1`, `AuthenticationMode=ACL`, `EnableTLS=true`, `EnableLua=true` e `LuaTransactionMode=true`, com limites de memória e execução de scripts Lua. A senha do PFX vai **somente para o JSON protegido**, porque o Garnet requer `CertPassword`; ela **não aparece na linha de comando, logs, console ou no ZIP**.
+
+Exemplo para o técnico, após criar os arquivos de modo seguro e verificar os certificados:
+
+```powershell
+.\\tools\\provision-esterium-garnet-config.ps1 `
+  -AclFile 'C:\\ProgramData\\Esterium\\GarnetSecrets\\users.acl' `
+  -CertificatePfxFile 'C:\\ProgramData\\Esterium\\GarnetSecrets\\tls.pfx' `
+  -CertificatePasswordFile 'C:\\ProgramData\\Esterium\\GarnetSecrets\\pfx-password.secret'
+```
+
+**Não é instalação completa nem um certificado de compatibilidade:** este utilitário não baixa Garnet, não cria contas do Windows, não registra ou inicia seu serviço, não altera firewall ou banco PostgreSQL, não emite certificados e não testa uma conexão TLS. Uma futura instalação deve usar somente um binário Garnet de procedência aprovada e validar o `garnet.conf` em execução sob `NETWORK SERVICE`, seguido da verificação das operações Redis/Lua do Esterium. Para execução, o Garnet documenta `GarnetServer.exe --config-import-path <caminho>` em [configuração oficial](https://microsoft.github.io/garnet/docs/getting-started/configuration). A senha no JSON reforça a obrigação de controlar ACL e ciclo de vida desse arquivo.
+
+O CI Windows usa um certificado PFX temporário, uma ACL e senha **100% fictícias** em um runner hospedado descartável. Verifica que o plano não grava, que ACLs inseguras são rejeitadas e que a geração explícita não altera serviços nem dados comerciais.
+
 ### Pacotes offline PostgreSQL e Garnet: verificação de procedência antes de instalar
 
 O utilitário `tools/check-esterium-offline-dependency-packages.ps1` confere **arquivos externos já baixados por um técnico** e não os executa. Requer o instalador Windows PostgreSQL em `.exe`, sua assinatura Authenticode válida sob um certificado de editor **previamente aprovado**, e os hashes SHA-256 PostgreSQL e Garnet obtidos **por um canal confiável independente** (nunca a partir do mesmo ZIP que se pretende validar). Para Garnet, aceita `.exe` assinado com identidade aprovada, ou um ZIP auditado por hash e por nomes de arquivo, **sem extrair**, destacando que ZIP com hash correto ainda precisa de aprovação independente da origem do fornecedor.
