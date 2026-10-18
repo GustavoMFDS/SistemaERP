@@ -72,6 +72,13 @@ const METHOD_LABELS: Record<string, string> = {
   voucher: 'Voucher',
 }
 
+const RECONCILIATION_LABELS: Record<string, string> = {
+  pending: 'A conferir',
+  reconciled: 'Conferido',
+  divergent: 'Com diferença',
+  not_applicable: 'Conferir no caixa',
+}
+
 export default function FinancePage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -174,7 +181,7 @@ export default function FinancePage() {
       return
     }
     if (Boolean(provider.trim()) !== Boolean(externalRef.trim())) {
-      setError('Provedor e ID externo devem ser informados juntos.')
+      setError('Informe o serviço e a referência da transação juntos.')
       return
     }
     setError('')
@@ -301,7 +308,7 @@ export default function FinancePage() {
       return
     }
     if (Boolean(refundProvider.trim()) !== Boolean(refundExternalRef.trim())) {
-      setError('Provedor e ID externo devem ser informados juntos.')
+      setError('Informe o serviço e a referência da transação juntos.')
       return
     }
     setError('')
@@ -342,7 +349,7 @@ export default function FinancePage() {
       <div className="mt-6"><FinancialOverview /></div>
       <p className="mt-4 text-sm text-slate-600">Para conferir horários de venda e produtos mais vendidos, abra a área Relatórios.</p>
       <details className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-        <summary className="cursor-pointer text-base font-bold text-slate-900">Conciliação avançada de pagamentos e devoluções</summary>
+        <summary className="cursor-pointer text-base font-bold text-slate-900">Conferir pagamentos e devoluções</summary>
         <p className="mt-2 text-sm text-slate-600">Abra apenas quando precisar conferir pagamentos, taxas ou reembolsos individualmente.</p>
 
       {error ? (
@@ -385,7 +392,7 @@ export default function FinancePage() {
       </form>
 
       <div className="mt-4 rounded-md border p-3">
-        <h3 className="text-sm font-semibold">Resumo do ledger</h3>
+        <h3 className="text-sm font-semibold">Resumo financeiro</h3>
         <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
           {dashboardRows.map(([key, value]) => (
             <div key={key} className="rounded-md bg-gray-50 p-2 text-xs">
@@ -418,7 +425,7 @@ export default function FinancePage() {
                   <td className="px-2 py-2">{METHOD_LABELS[payment.method] ?? payment.method}</td>
                   <td className="px-2 py-2">R$ {payment.amount.toFixed(2)}</td>
                   <td className="px-2 py-2 text-xs">{payment.provider ?? '—'} / {payment.transaction_ref ?? '—'}</td>
-                  <td className="px-2 py-2">{payment.reconciliation_status}</td>
+                  <td className="px-2 py-2">{RECONCILIATION_LABELS[payment.reconciliation_status] ?? 'A verificar'}</td>
                   <td className="px-2 py-2">
                     {payment.method === 'cash' ? (
                       <span className="text-xs text-gray-500">Fechamento do caixa</span>
@@ -456,7 +463,7 @@ export default function FinancePage() {
               <label className="text-xs">Adquirente/provedor
                 <input value={provider} onChange={(e) => setProvider(e.target.value)} className="mt-1 w-full rounded-md border px-2 py-2 text-sm" />
               </label>
-              <label className="text-xs">ID externo
+              <label className="text-xs">Referência da transação
                 <input value={externalRef} onChange={(e) => setExternalRef(e.target.value)} className="mt-1 w-full rounded-md border px-2 py-2 text-sm" />
               </label>
               <label className="text-xs md:col-span-2">Observação
@@ -628,10 +635,10 @@ export default function FinancePage() {
               <label className="text-xs">Sessão de caixa
                 <input value={refundCashSessionId} onChange={(e) => setRefundCashSessionId(e.target.value)} placeholder={refundMethod === 'cash' ? 'Obrigatória' : 'Opcional'} className="mt-1 w-full rounded-md border px-2 py-2 font-mono text-sm" />
               </label>
-              <label className="text-xs">Provedor
+              <label className="text-xs">Serviço do pagamento
                 <input value={refundProvider} onChange={(e) => setRefundProvider(e.target.value)} className="mt-1 w-full rounded-md border px-2 py-2 text-sm" />
               </label>
-              <label className="text-xs">ID externo
+              <label className="text-xs">Referência da transação
                 <input value={refundExternalRef} onChange={(e) => setRefundExternalRef(e.target.value)} className="mt-1 w-full rounded-md border px-2 py-2 text-sm" />
               </label>
               <label className="text-xs">Observação
