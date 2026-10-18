@@ -38,6 +38,86 @@ if ($UnsignedDisposableCIFixture -and (
     $env:ESTERIUM_SCM_DISPOSABLE_CI -ne '1')) {
     throw 'Unsigned installation fixtures are permitted only on disposable hosted Windows SCM CI.'
 }
+if ($Apply -and -not $UnsignedDisposableCIFixture) {
+    if ([string]::IsNullOrWhiteSpace($ApprovedManifestSHA256) -or
+        [string]::IsNullOrWhiteSpace($TrustedPublisherThumbprint)) {
+        throw 'Real installation requires a separately approved manifest SHA-256 and trusted publisher thumbprint.'
+    }
+    if ($TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}
+    BundleDir=$BundleDir
+    PostgresServiceName=$PostgresServiceName
+    RedisServiceName=$RedisServiceName
+    PostgresBin=$PostgresBin
+    DatabaseURLFile=$DatabaseURLFile
+    RedisURLFile=$RedisURLFile
+    JWTSecretFile=$JWTSecretFile
+    MetricsBearerTokenFile=$MetricsBearerTokenFile
+    AllowedOrigin=$AllowedOrigin
+    InstallDir=$InstallDir
+    ListenAddress=$ListenAddress
+    TLSCertFile=$TLSCertFile
+    TLSKeyFile=$TLSKeyFile
+    MinimumFreeGiB=$MinimumFreeGiB
+    PostgresPort=$PostgresPort
+    RedisPort=$RedisPort
+    RequireSignedServer=(-not $UnsignedDisposableCIFixture)
+    RequireServiceOwnership=$Apply
+}
+$planner = Join-Path $PSScriptRoot 'plan-esterium-local-setup.ps1'
+& $planner @planArgs | Out-Null
+if (-not $Apply) {
+    Write-Output 'PLAN: Windows host, local dependencies, signed release and service registration checks passed.'
+    Write-Output 'PLAN: explicit administrator -Apply would register ONLY the prebuilt Windows service, STOPPED and MANUAL.'
+    Write-Output 'PLAN: no database, cache, schema, backup, network firewall or fiscal operation performed.'
+    return
+}
+
+$current = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($current)
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Administrator approval is required before any application files or Windows service are created.'
+}
+$registrar = Join-Path $PSScriptRoot 'register-esterium-windows-service.ps1'
+$serviceArgs = @{
+    BundleDir=$BundleDir
+    DatabaseURLFile=$DatabaseURLFile
+    RedisURLFile=$RedisURLFile
+    JWTSecretFile=$JWTSecretFile
+    MetricsBearerTokenFile=$MetricsBearerTokenFile
+    AllowedOrigin=$AllowedOrigin
+    ListenAddress=$ListenAddress
+    TLSCertFile=$TLSCertFile
+    TLSKeyFile=$TLSKeyFile
+    InstallDir=$InstallDir
+}
+# The service registrar performs its own integrity and ACL checks and rolls
+# back a partial SCM registration; it never starts or migrates anything.
+& $registrar @serviceArgs | Out-Null
+Write-Output 'PASS: Esterium Local app files and Windows service registered; service remains manual and stopped.'
+Write-Output 'NOT INSTALLED: PostgreSQL/Redis, database schema, firewall rules, trusted LAN TLS or automatic backups.'
+Write-Output 'NEXT: verify disposable schema and Redis primitives, independently test recovery; never enable fiscal transmission before SEFAZ acceptance.'
+) {
+        throw 'Real deployment requires a valid independently approved publisher identity.'
+    }
+    # Before invoking any script from a release, verify the entrypoint and
+    # the gate itself. The OS/operator MUST also verify this launcher before
+    # starting it: an arbitrary unsigned script is unsafe to execute at all.
+    $gateScript = Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'
+    foreach ($scriptPath in @($PSCommandPath, $gateScript)) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $scriptPath
+        if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+            $null -eq $signature.SignerCertificate -or
+            $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $TrustedPublisherThumbprint.ToUpperInvariant()) {
+            throw 'Privileged PowerShell entrypoint is not signed by the independently approved publisher.'
+        }
+    }
+    $approvalArgs = @{
+    BundleDir = $BundleDir
+        ExpectedManifestSHA256 = $ApprovedManifestSHA256
+        ExpectedPublisherThumbprint = $TrustedPublisherThumbprint
+    }
+    & $gateScript @approvalArgs | Out-Null
+}
 $planArgs = @{
     BundleDir=$BundleDir
     PostgresServiceName=$PostgresServiceName
@@ -66,19 +146,7 @@ if (-not $Apply) {
     Write-Output 'PLAN: no database, cache, schema, backup, network firewall or fiscal operation performed.'
     return
 }
-if (-not $UnsignedDisposableCIFixture) {
-    if ([string]::IsNullOrWhiteSpace($ApprovedManifestSHA256) -or
-        [string]::IsNullOrWhiteSpace($TrustedPublisherThumbprint)) {
-        throw 'Real installation requires a separately approved manifest SHA-256 and trusted publisher thumbprint.'
-    }
-    # A signed executable alone does not authenticate bundled privileged tools.
-    $approvalArgs = @{
-        BundleDir = $BundleDir
-        ExpectedManifestSHA256 = $ApprovedManifestSHA256
-        ExpectedPublisherThumbprint = $TrustedPublisherThumbprint
-    }
-    & (Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1') @approvalArgs | Out-Null
-}
+
 $current = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($current)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
