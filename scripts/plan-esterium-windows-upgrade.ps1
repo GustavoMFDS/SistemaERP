@@ -94,10 +94,12 @@ foreach ($name in $oldMigrations.Keys) {
         throw 'Candidate altered an existing versioned SQL migration.'
     }
 }
-$oldServer = (Get-FileHash -LiteralPath (Join-Path $installed 'esterium-server.exe') -Algorithm SHA256).Hash
-$newServer = (Get-FileHash -LiteralPath (Join-Path $candidate 'esterium-server.exe') -Algorithm SHA256).Hash
-if ($oldServer -eq $newServer -and $oldMigrations.Count -eq $newMigrations.Count) {
-    throw 'Candidate server and migration inventory are identical; no software update identified.'
+# UI-only or maintenance-tool upgrades are valid even when the Go binary
+# and SQL count are unchanged. Compare complete verified package inventories.
+$installedManifestHash = (Get-FileHash -LiteralPath (Join-Path $installed 'bundle-manifest.json') -Algorithm SHA256).Hash
+$candidateManifestHash = (Get-FileHash -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Algorithm SHA256).Hash
+if ($installedManifestHash -eq $candidateManifestHash) {
+    throw 'Candidate package file inventory is identical; no software update identified.'
 }
 Write-Output 'PASS: read-only technical upgrade gate: verified archives, stopped service, disabled task and append-only SQL migration lineage.'
 Write-Output 'NOT EXECUTED: database schema checks, SQL migrations, file replacement, service restart, backup restore, sales or SEFAZ.'
