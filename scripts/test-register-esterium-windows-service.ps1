@@ -43,6 +43,31 @@ try {
     [IO.File]::WriteAllText((Join-Path $bundle 'README_LOCAL.md'), 'Synthetic setup directions')
     & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $bundle | Out-Null
     & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
+    $hostCheck = Join-Path $bundleTools 'check-esterium-windows-host.ps1'
+    $hostArgs = @{
+        BundleDir = $bundle; InstallDir = $install
+        ListenPort = 65399; MinimumFreeGiB = 1
+    }
+    $hostResult = @(& $hostCheck @hostArgs 3>$null) -join ' '
+    if ($hostResult -notmatch 'PASS: Windows x64 host' -or
+        (Test-Path -LiteralPath $install)) {
+        throw 'Host technical preflight failed or modified the installation.'
+    }
+    $unsignedRejected = $false
+    try { & $hostCheck @hostArgs -RequireSignedServer | Out-Null }
+    catch { $unsignedRejected = $_.Exception.Message -match 'signature check failed' }
+    if (-not $unsignedRejected) {
+        throw 'Host gate accepted an unsigned synthetic server as a signed release.'
+    }
+    $spaceRejected = $false
+    try { & $hostCheck @hostArgs -MinimumFreeGiB 512 3>$null | Out-Null }
+    catch { $spaceRejected = $_.Exception.Message -match 'Not enough free disk' }
+    if (-not $spaceRejected) { throw 'Host gate accepted an impossible disk threshold.' }
+    $outsideRejected = $false
+    try { & $hostCheck @hostArgs -InstallDir (Join-Path $root 'outside-program-files') 3>$null | Out-Null }
+    catch { $outsideRejected = $_.Exception.Message -match 'dedicated subdirectory of Program Files' }
+    if (-not $outsideRejected) { throw 'Host gate accepted an unsafe installation path.' }
+    Write-Output 'PASS: technical host preflight is read-only and rejects unsigned, low-disk and unsafe installation requests.'
     # The migration executable is mandatory and protected by the manifest.
     $migratorPath = Join-Path $bundle 'tools\\esterium-migrate.exe'
     $outside = Join-Path $root 'temporary-migrator-test-only'
