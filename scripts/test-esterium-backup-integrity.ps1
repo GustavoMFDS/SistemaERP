@@ -34,14 +34,14 @@ try {
         [IO.File]::WriteAllText($statusFile, ($status | ConvertTo-Json -Compress))
     }
     Write-SyntheticStatus
-    $args = @{ BackupDir = $local; ExternalBackupDir = $external; SyntheticCIFixture = $true }
-    $ok = @(& $checker @args) -join ' '
+    $backupParameters = @{ BackupDir = $local; ExternalBackupDir = $external; SyntheticCIFixture = $true }
+    $ok = @(& $checker @backupParameters) -join ' '
     if ($ok -notmatch 'PASS: recent local') {
         throw 'Health gate rejected a fully verified local/external fixture.'
     }
     function Require-Rejection([string]$reason) {
         $rejected = $false
-        try { & $checker @args | Out-Null }
+        try { & $checker @backupParameters | Out-Null }
         catch { $rejected = $true }
         if (-not $rejected) { throw "Health gate accepted $reason" }
     }
@@ -53,8 +53,8 @@ try {
         [IO.File]::WriteAllText((Join-Path $dir "$yesterday.sha256"),
             "$sha  $yesterday" + [Environment]::NewLine)
     }
-    $args.MinimumVerifiedCopies = 2
-    $two = @(& $checker @args) -join ' '
+    $backupParameters.MinimumVerifiedCopies = 2
+    $two = @(& $checker @backupParameters) -join ' '
     if ($two -notmatch 'PASS: recent local') { throw 'Backup gate rejected two complete synthetic generations.' }
     Remove-Item -LiteralPath (Join-Path $external "$yesterday.sha256") -Force
     Require-Rejection 'two generations when the older remote checksum is missing'
@@ -63,7 +63,7 @@ try {
     [IO.File]::AppendAllText((Join-Path $external $yesterday), 'altered')
     Require-Rejection 'two generations when the older remote bytes disagree'
     [IO.File]::WriteAllBytes((Join-Path $external $yesterday), $bytes)
-    $args.Remove('MinimumVerifiedCopies')
+    $backupParameters.Remove('MinimumVerifiedCopies')
 
     [IO.File]::AppendAllText((Join-Path $external $name), 'altered')
     Require-Rejection 'a corrupted external archive'
@@ -80,7 +80,7 @@ try {
     $status.archive_name = $oldName
     Write-SyntheticStatus
     $staleNameRejected = $false
-    try { & $checker @args | Out-Null }
+    try { & $checker @backupParameters | Out-Null }
     catch { $staleNameRejected = $_.Exception.Message -match 'archive itself is stale' }
     if (-not $staleNameRejected) { throw 'Accepted old backup bytes with a fresh status timestamp.' }
     $status.archive_name = $name
@@ -95,7 +95,7 @@ try {
     Write-SyntheticStatus
     Remove-Item -LiteralPath (Join-Path $external "$name.sha256") -Force
     Require-Rejection 'a missing external checksum file'
-    $args.ExternalBackupDir = $local
+    $backupParameters.ExternalBackupDir = $local
     Require-Rejection 'a backup allegedly on the same disk and path'
     Write-Output 'PASS: freshness, two verified archives, tampering, missing checksum, failed status and traversal guards.'
 }
