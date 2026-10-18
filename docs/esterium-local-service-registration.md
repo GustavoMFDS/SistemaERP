@@ -79,6 +79,8 @@ O utilitário `tools/check-esterium-offline-dependency-packages.ps1` confere **a
 
 Os parâmetros obrigatórios são `-PostgresInstaller`, `-ExpectedPostgresSHA256`, `-ExpectedPostgresPublisherThumbprint`, `-GarnetPackage` e `-ExpectedGarnetSHA256`; quando Garnet for EXE, exige também `-ExpectedGarnetPublisherThumbprint`. Os digests e certificados confiáveis devem ser fornecidos pelo responsável de segurança, não copiados automaticamente do pacote de instalação. Nenhum arquivo de terceiros é distribuído no bundle atual. O teste automatizado cria apenas pacotes fictícios em runner descartável, sem rede ou dados da loja.
 
+Para ZIPs, o gate também rejeita nomes duplicados/collisions de maiúsculas e minúsculas, entradas do tipo link simbólico, caminhos que escapariam da extração e arquivos compactados com razão de compressão ou tamanho total excessivos. Essas verificações examinam apenas metadados ZIP, **não extraem** arquivos e não garantem que um extrator posterior seja seguro. A liberação de um pacote precisa de procedência aprovada independentemente e inspeção de seu conteúdo.
+
 **Limite importante:** essa verificação de origem não instala PostgreSQL/Garnet, não aprova versões, não cria serviços, não configura TLS/credenciais, não valida compatibilidade Redis Lua e não serve como comprovante de homologação. É uma barreira adicional antes de construir um provisionador local assinado.
 
 ### Compatibilidade do Garnet (opção Windows sem servidor de nuvem)
