@@ -11,6 +11,8 @@ param(
     [Parameter(Mandatory = $true)][string]$BackupDir,
     [Parameter(Mandatory = $true)][string]$ExternalBackupDir,
     [switch]$Apply,
+    [string]$ApprovedManifestSHA256 = '',
+    [string]$TrustedPublisherThumbprint = '',
     [switch]$UnsignedDisposableCIFixture
 )
 $ErrorActionPreference = 'Stop'
@@ -59,6 +61,18 @@ if (-not $Apply) {
     Write-Output 'PLAN: application folder could be replaced with rollback folder preserved; no changes made.'
     Write-Output 'PLAN: this tool does not migrate PostgreSQL, start any Windows service or transmit SEFAZ.'
     return
+}
+if (-not $UnsignedDisposableCIFixture) {
+    if ([string]::IsNullOrWhiteSpace($ApprovedManifestSHA256) -or
+        [string]::IsNullOrWhiteSpace($TrustedPublisherThumbprint)) {
+        throw 'Real update requires a separately approved manifest SHA-256 and trusted publisher thumbprint.'
+    }
+    $approvalArgs = @{
+        BundleDir = $newPath
+        ExpectedManifestSHA256 = $ApprovedManifestSHA256
+        ExpectedPublisherThumbprint = $TrustedPublisherThumbprint
+    }
+    & (Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1') @approvalArgs | Out-Null
 }
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
