@@ -87,6 +87,10 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
     sku: 'CAD-AZUL', name: 'Caderno Brochurão — Azul',
     barcode: null, ncm: null, cost_price: 0, price_cash: 12.5,
   })
+  // onCreate updates the search to the new variant asynchronously after POST.
+  // Wait for the React form-reset and search state to settle before broadening
+  // the query; otherwise the mutation completion can overwrite this fill.
+  await expect(page.getByRole('textbox', { name: 'Buscar produto' })).toHaveValue('Caderno Brochurão — Azul')
   await page.getByRole('textbox', { name: 'Buscar produto' }).fill('Caderno')
   await expect(page.getByRole('row', { name: /CAD-AZUL/ })).toContainText('0.00')
   await expect(page.getByRole('row', { name: /CAD-BASE/ })).toContainText('15.00')
