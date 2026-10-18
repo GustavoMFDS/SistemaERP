@@ -39,6 +39,14 @@ Exemplo de laboratório, após o técnico preparar PostgreSQL/Redis, certificado
 
 Esses nomes são **exemplos**, não nomes de serviços automaticamente criados. A ferramenta não prova TLS, versão SQL ou compatibilidade das operações atômicas do Redis; depois dela ainda é obrigatório validar `--check-config` e `--check-dependencies` na identidade real, e realizar os testes do piloto. O parâmetro opcional `-RequireSignedServer` recusa o pacote sem assinatura válida, que ainda é o estado atual do ZIP técnico.
 
+## Instalador técnico controlado: planejamento por padrão
+
+O novo utilitário `tools/install-esterium-local.ps1` concentra a preparação e o **registro do serviço do Esterium**. Por padrão ele apenas **simula** a instalação e recusa avançar se a integridade do pacote, a assinatura digital do executável, a existência dos serviços locais PostgreSQL/Redis ou os caminhos dos arquivos protegidos forem inválidos.
+
+Para uma instalação real a opção `-Apply` requer execução administrativa, assinatura Authenticode válida do executável, banco e cache **previamente provisionados**. Ele então chama o registrador seguro já testado para copiar o app para uma pasta nova sob Program Files, conferir SHA-256 e registrar `EsteriumERP` como `LocalService`, com inicialização manual e **sem iniciar o processo**. Essa ferramenta **não executa migrações, não instala PostgreSQL/Garnet, não configura firewall, não gera senhas de banco, não registra nem habilita backup e não ativa SEFAZ**.
+
+O bundle técnico atual **ainda não tem assinatura de distribuição**: por isso, **não será instalado por este comando em máquinas de loja** até o processo de assinatura estar pronto. Existe uma exceção apenas para arquivos sintéticos em CI Windows hospedado descartável (`-UnsignedDisposableCIFixture`), proibida fora desse ambiente. Essa é uma medida de segurança deliberada, e não a conclusão de um instalador `Setup.exe` para usuário final. A instalação automática e confiável das dependências e o assistente visual são marcos posteriores.
+
 ## Segurança de instalação
 
 O programa **recusa sobrescrever** a pasta de instalação ou o serviço `EsteriumERP` já existentes. Copia o executável compilado, `web/`, `tools/`, `README_LOCAL.md` e `bundle-manifest.json`; os arquivos são verificados por SHA-256 **novamente na pasta temporária antes do registro SCM**. Nenhum valor de credencial, banco ou backup é copiado. As ferramentas de manutenção ficam disponíveis na pasta instalada, mesmo depois de descartar o ZIP extraído; sua execução e o agendamento de backup continuam procedimentos separados.
