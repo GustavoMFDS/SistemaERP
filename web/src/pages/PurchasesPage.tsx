@@ -529,7 +529,7 @@ export default function PurchasesPage() {
               </select>
             </label>
             <label className="block">
-              <span className="text-xs text-gray-600">Documento/NF fornecedor</span>
+              <span className="text-xs text-gray-600">Número da nota ou documento</span>
               <input
                 value={invoiceNumber}
                 onChange={(e) => setInvoiceNumber(e.target.value)}
@@ -570,7 +570,7 @@ export default function PurchasesPage() {
               </select>
             </label>
             <label className="block">
-              <span className="text-xs text-gray-600">Qtd pedida</span>
+              <span className="text-xs text-gray-600">Quantidade pedida</span>
               <input
                 type="number"
                 step="0.001"
@@ -606,7 +606,7 @@ export default function PurchasesPage() {
                 <thead className="bg-gray-50 text-xs text-gray-600">
                   <tr>
                     <th className="px-3 py-2">Produto</th>
-                    <th className="px-3 py-2">Qtd</th>
+                    <th className="px-3 py-2">Quantidade</th>
                     <th className="px-3 py-2">Custo</th>
                     <th className="px-3 py-2">Total</th>
                     <th className="px-3 py-2"></th>
