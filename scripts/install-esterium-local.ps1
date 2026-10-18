@@ -71,9 +71,12 @@ if (-not $UnsignedDisposableCIFixture) {
         throw 'Real installation requires a separately approved manifest SHA-256 and trusted publisher thumbprint.'
     }
     # A signed executable alone does not authenticate bundled privileged tools.
-    & (Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1') -BundleDir $BundleDir \
-        -ExpectedManifestSHA256 $ApprovedManifestSHA256 \
-        -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
+    $approvalArgs = @{
+        BundleDir = $BundleDir
+        ExpectedManifestSHA256 = $ApprovedManifestSHA256
+        ExpectedPublisherThumbprint = $TrustedPublisherThumbprint
+    }
+    & (Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1') @approvalArgs | Out-Null
 }
 $current = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($current)
