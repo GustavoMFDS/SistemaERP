@@ -20,6 +20,7 @@ $requiredTools = @(
     'tools/register-esterium-backup-task.ps1',
     'tools/check-esterium-windows-host.ps1',
     'tools/unregister-esterium-windows-service.ps1',
+    'tools/check-esterium-local-dependencies.ps1',
     'tools/esterium-migrate.exe',
     'README_LOCAL.md'
 )
