@@ -73,6 +73,14 @@ Em ambiente descartável, a partir da pasta extraída do pacote:
 .\tools\provision-esterium-app-secrets.ps1 -Apply
 ```
 
+### Pacotes offline PostgreSQL e Garnet: verificação de procedência antes de instalar
+
+O utilitário `tools/check-esterium-offline-dependency-packages.ps1` confere **arquivos externos já baixados por um técnico** e não os executa. Requer o instalador Windows PostgreSQL em `.exe`, sua assinatura Authenticode válida sob um certificado de editor **previamente aprovado**, e os hashes SHA-256 PostgreSQL e Garnet obtidos **por um canal confiável independente** (nunca a partir do mesmo ZIP que se pretende validar). Para Garnet, aceita `.exe` assinado com identidade aprovada, ou um ZIP auditado por hash e por nomes de arquivo, **sem extrair**, destacando que ZIP com hash correto ainda precisa de aprovação independente da origem do fornecedor.
+
+Os parâmetros obrigatórios são `-PostgresInstaller`, `-ExpectedPostgresSHA256`, `-ExpectedPostgresPublisherThumbprint`, `-GarnetPackage` e `-ExpectedGarnetSHA256`; quando Garnet for EXE, exige também `-ExpectedGarnetPublisherThumbprint`. Os digests e certificados confiáveis devem ser fornecidos pelo responsável de segurança, não copiados automaticamente do pacote de instalação. Nenhum arquivo de terceiros é distribuído no bundle atual. O teste automatizado cria apenas pacotes fictícios em runner descartável, sem rede ou dados da loja.
+
+**Limite importante:** essa verificação de origem não instala PostgreSQL/Garnet, não aprova versões, não cria serviços, não configura TLS/credenciais, não valida compatibilidade Redis Lua e não serve como comprovante de homologação. É uma barreira adicional antes de construir um provisionador local assinado.
+
 ### Compatibilidade do Garnet (opção Windows sem servidor de nuvem)
 
 O **Garnet** da Microsoft é uma alternativa local de código aberto compatível com parte do protocolo Redis, mas **não é uma substituição perfeitamente idêntica**. A documentação oficial indica suporte a scripts Lua com `--lua`, que não devem ser considerados habilitados sem configuração. O backend Esterium precisa de operações atômicas Redis para sessões e limitação de tentativas: a compatibilidade efetiva **depende da aprovação de `--check-dependencies` no serviço real**, incluindo scripts e semântica de consumo único; o inventário de portas não comprova isso.
