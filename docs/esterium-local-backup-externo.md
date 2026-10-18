@@ -74,6 +74,12 @@ de senha inline, banco remoto, destino local e ACL insegura.
 
 ## Escopo do teste automatizado
 
+### Conferir duas gerações independentes de backup
+
+Para um aceite mais rigoroso, depois de existirem **duas execuções diárias** com arquivos diferentes, o verificador `tools/check-esterium-backup-integrity.ps1` aceita `-MinimumVerifiedCopies 2`. Além do último backup válido, exige outro arquivo de data anterior (até sete dias), disponível tanto na pasta local quanto na cópia externa e conferido novamente por SHA-256 e seus arquivos auxiliares. Se a segunda cópia estiver ausente, alterada ou incompleta, a verificação reprova.
+
+Essa opção não altera o banco, não cria arquivos, não elimina backups e não substitui a restauração ensaiada em outra máquina. A rotina automática continua com `MinimumVerifiedCopies=1` na primeira execução para não falhar artificialmente quando ainda não existem dois dias de arquivos. O CI exercita esse reforço usando **somente dados sintéticos**.
+
 O teste `scripts/test-verified-external-backup.ps1` copia **somente bytes sintéticos**, verifica hash e arquivo de checksum, impede sobrescrita e rejeita arquivo vazio. Ele roda no CI Windows e não precisa de um PostgreSQL real.
 
 O teste **não prova** que um compartilhamento SMB é outro equipamento, nem autenticação, criptografia, desconexão da rede, falha de energia ou recuperação completa de uma base PostgreSQL com as migrações e obrigações fiscais existentes.
