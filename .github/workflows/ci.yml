@@ -98,6 +98,9 @@ jobs:
       - name: Verify loopback-only installed dependency inventory using Windows synthetic data
         shell: pwsh
         run: ./scripts/test-esterium-local-dependencies.ps1
+      - name: Validate immutable migration chain and verified backup before Windows upgrade
+        shell: pwsh
+        run: ./scripts/test-esterium-upgrade-plan.ps1
       - name: Validate protected daily backup scheduling without touching production
         shell: pwsh
         run: ./scripts/test-esterium-backup-task.ps1
