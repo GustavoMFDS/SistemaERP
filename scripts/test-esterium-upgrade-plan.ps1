@@ -90,7 +90,7 @@ try {
         InstalledDir=$installed; CandidateBundleDir=$candidate; BackupDir=$backupDir
         ExternalBackupDir=$external; TechnicalUnsignedPlan=$true; SyntheticCIFixture=$true
     }
-    $result = @(& $plan @args 3>$null) -join ' '
+    $result = @(& $plan @planParameters 3>$null) -join ' '
     if ($result -notmatch 'PASS: read-only technical upgrade gate') {
         throw 'Valid upgrade plan was rejected.'
     }
@@ -99,7 +99,7 @@ try {
     }
     function Must-Reject([string]$label, [string]$reason) {
         $rejected = $false
-        try { & $plan @args 3>$null | Out-Null }
+        try { & $plan @planParameters 3>$null | Out-Null }
         catch { $rejected = $_.Exception.Message -match $reason }
         if (-not $rejected) { throw "Upgrade plan accepted $label." }
     }
