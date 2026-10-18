@@ -50,6 +50,21 @@ try {
     [IO.File]::WriteAllText((Join-Path $bundle 'README_LOCAL.md'), 'Synthetic setup directions')
     & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $bundle | Out-Null
     & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
+    # Release packaging must never approve an unsigned developer bundle, even
+    # when it has a matching internal SHA-256 manifest.
+    $releaseGate = Join-Path $bundleTools 'check-esterium-signed-release.ps1'
+    $digest = (Get-FileHash -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Algorithm SHA256).Hash
+    $invalidHashRejected = $false
+    try {
+        & $releaseGate -BundleDir $bundle -ExpectedManifestSHA256 ('0' * 64) -ExpectedPublisherThumbprint ('0' * 40) | Out-Null
+    } catch { $invalidHashRejected = $_.Exception.Message -match 'independently approved SHA-256' }
+    if (-not $invalidHashRejected) { throw 'Release gate accepted a manifest hash that was not independently approved.' }
+    $unsignedReleaseRejected = $false
+    try {
+        & $releaseGate -BundleDir $bundle -ExpectedManifestSHA256 $digest -ExpectedPublisherThumbprint ('0' * 40) | Out-Null
+    } catch { $unsignedReleaseRejected = $_.Exception.Message -match 'lacks approved Authenticode signature' }
+    if (-not $unsignedReleaseRejected) { throw 'Release gate accepted unsigned synthetic server or privileged scripts.' }
+    Write-Output 'PASS: release gate rejects an unapproved digest and unsigned software distribution.'
     $hostCheck = Join-Path $bundleTools 'check-esterium-windows-host.ps1'
     $hostArgs = @{
         BundleDir = $bundle; InstallDir = $install
