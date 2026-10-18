@@ -18,6 +18,7 @@ $requiredTools = @(
     'tools/check-esterium-backup-integrity.ps1',
     'tools/run-esterium-scheduled-backup.ps1',
     'tools/register-esterium-backup-task.ps1',
+    'tools/check-esterium-windows-host.ps1',
     'tools/esterium-migrate.exe',
     'README_LOCAL.md'
 )
