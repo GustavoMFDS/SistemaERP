@@ -60,9 +60,13 @@ try {
     }
     function Assert-Reject([string]$reason, [string]$message) {
         $rejected = $false
+        $actualError = '(no exception)'
         try { & $checker @args | Out-Null }
-        catch { $rejected = $_.Exception.Message -match $message }
-        if (-not $rejected) { throw "Inventory accepted $reason." }
+        catch {
+            $actualError = $_.Exception.Message
+            $rejected = $actualError -match $message
+        }
+        if (-not $rejected) { throw "Inventory unexpectedly accepted $reason, or failed for another reason: $actualError" }
     }
     $global:ESTERIUM_TEST_LAN_BIND = $true
     Assert-Reject 'Redis bound on all interfaces' 'non-loopback address'
