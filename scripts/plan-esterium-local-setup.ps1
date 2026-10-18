@@ -22,7 +22,8 @@ param(
     [ValidateRange(1, 512)][int]$MinimumFreeGiB = 10,
     [ValidateRange(1, 65535)][int]$PostgresPort = 5432,
     [ValidateRange(1, 65535)][int]$RedisPort = 6379,
-    [switch]$RequireSignedServer
+    [switch]$RequireSignedServer,
+    [switch]$RequireServiceOwnership
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -59,6 +60,7 @@ $dependencyArgs = @{
     PostgresBin=$PostgresBin
     PostgresPort=$PostgresPort
     RedisPort=$RedisPort
+    RequireServiceOwnership=$RequireServiceOwnership
 }
 & $dependencyCheck @dependencyArgs | Out-Null
 Write-Output 'PASS 2/3: Windows dependency inventory checks passed (NOT TLS-certified).'
