@@ -56,6 +56,11 @@ try {
     Assert-Reject 'NETWORK SERVICE write' 'must not be able to change'
     & icacls.exe $aclFile '/grant:r' '*S-1-5-20:R' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Failed to restore NETWORK SERVICE read-only.' }
+    [IO.File]::WriteAllText($aclFile, 'user default on nopass')
+    Assert-Reject 'default Garnet account without authentication' 'Garnet ACL must disable default'
+    [IO.File]::WriteAllText($aclFile, ('user default off' + [Environment]::NewLine + 'user synthetic on nopass ~* +@all'))
+    Assert-Reject 'named Garnet ACL account with nopass' 'Garnet ACL must disable default'
+    [IO.File]::WriteAllText($aclFile, ('user default off' + [Environment]::NewLine + 'user synthetic on >synthetic-only ~* +@all'))
     $result = @(& $checker @parameters -Apply) -join ' '
     if ($result -notmatch 'PASS: new protected Garnet configuration') {
         throw 'Synthetic Garnet config provisioning failed.'
