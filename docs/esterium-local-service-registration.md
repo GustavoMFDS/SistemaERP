@@ -6,6 +6,18 @@ O script `scripts/register-esterium-windows-service.ps1` registra **apenas** o e
 
 O padrão permanece `127.0.0.1:8080` sem TLS, acessível apenas no próprio PC ou por proxy HTTPS externo. O registrador não configura proxy, DNS, firewall ou confiança dos clientes; tampouco substitui a revisão do `APP_PUBLIC_URL` utilizado no acesso real.
 
+## Verificação do computador antes da instalação
+
+O pacote técnico inclui `tools/check-esterium-windows-host.ps1`. Ele confere de forma **somente leitura** arquitetura Windows x64, versão base Windows 10/11, espaço livre mínimo (10 GiB por padrão, não é dimensionamento de banco), se o serviço e a pasta de instalação já existem, uso prévio da porta HTTP e integridade do pacote SHA-256. **Não instala, modifica nem inicia** software, firewall, rede, banco de dados ou backup.
+
+Em uma máquina de testes, com o ZIP técnico extraído:
+
+```powershell
+.\tools\check-esterium-windows-host.ps1 -BundleDir (Get-Location).Path
+```
+
+Com `-RequireSignedServer`, exige executável com **assinatura Authenticode válida**, rejeitando o bundle técnico atual que ainda não é assinado. Sem essa chave, o script apenas verifica integridade por hash **e avisa explicitamente que não comprovou a origem do pacote**. Um resultado verde não certifica o equipamento, o instalador ou o uso comercial. Ainda faltam validar PostgreSQL e Redis reais, confiabilidade TLS dos clientes, impressoras, restauração externa e SEFAZ.
+
 ## Segurança de instalação
 
 O programa **recusa sobrescrever** a pasta de instalação ou o serviço `EsteriumERP` já existentes. Copia o executável compilado, `web/`, `tools/`, `README_LOCAL.md` e `bundle-manifest.json`; os arquivos são verificados por SHA-256 **novamente na pasta temporária antes do registro SCM**. Nenhum valor de credencial, banco ou backup é copiado. As ferramentas de manutenção ficam disponíveis na pasta instalada, mesmo depois de descartar o ZIP extraído; sua execução e o agendamento de backup continuam procedimentos separados.
