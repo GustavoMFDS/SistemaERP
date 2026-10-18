@@ -82,6 +82,28 @@ try {
         AllowedOrigin = 'https://esterium.ci.invalid'
         InstallDir = $install
     }
+    # Fail closed before creating a service when LocalService could edit a
+    # password file or another account has direct read access.
+    $registrar = Join-Path $tools 'register-esterium-windows-service.ps1'
+    $weakSecret = $secretFiles.jwt
+    $badAcl = & icacls.exe $weakSecret '/grant:r' '*S-1-5-19:M' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not create synthetic writable secret: $badAcl" }
+    $mutableRejected = $false
+    try { & $registrar @arguments | Out-Null }
+    catch { $mutableRejected = $_.Exception.Message -match 'must not be able to change credential' }
+    if (-not $mutableRejected) { throw 'Installer accepted a writable LocalService credential.' }
+    $fixedAcl = & icacls.exe $weakSecret '/grant:r' '*S-1-5-19:R' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not restore synthetic read-only secret: $fixedAcl" }
+    $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $grantUser = & icacls.exe $weakSecret '/grant' ("*" + $currentSid + ':R') 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not add synthetic extra credential reader: $grantUser" }
+    $otherReaderRejected = $false
+    try { & $registrar @arguments | Out-Null }
+    catch { $otherReaderRejected = $_.Exception.Message -match 'non-approved Windows identity' }
+    if (-not $otherReaderRejected) { throw 'Installer accepted an unrelated Windows account reading credentials.' }
+    $removeReader = & icacls.exe $weakSecret '/remove' ("*" + $currentSid) 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not remove synthetic extra credential reader: $removeReader" }
+    Write-Output 'PASS: SCM refuses mutable secrets and direct read access by unrelated users before registration.'
     # Exercise an actual SCM create followed by an injected failure.
     # The service must be removed automatically; package/data stay untouched.
     $faultInstall = Join-Path $env:ProgramFiles "EsteriumERP-CI-failed-$guid"
