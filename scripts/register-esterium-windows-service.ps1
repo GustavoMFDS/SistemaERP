@@ -117,11 +117,6 @@ function Assert-SecureSecretFile([string]$filePath, [string]$variableName) {
         if ($entry.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
             continue
         }
-        $canRead = ($entry.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -ne 0
-        if (-not $canRead) { continue }
-        if ($sid -notin @('S-1-5-19', 'S-1-5-18', 'S-1-5-32-544')) {
-            throw "Secret file is readable by a non-approved Windows identity: $variableName"
-        }
         if ($sid -eq 'S-1-5-19') {
             $unsafeWrites = [Security.AccessControl.FileSystemRights]::WriteData -bor
                 [Security.AccessControl.FileSystemRights]::AppendData -bor
@@ -133,8 +128,13 @@ function Assert-SecureSecretFile([string]$filePath, [string]$variableName) {
             if (($entry.FileSystemRights -band $unsafeWrites) -ne 0) {
                 throw "LocalService must not be able to change credential files: $variableName"
             }
-            $hasLocalServiceRead = $true
         }
+        $canRead = ($entry.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -ne 0
+        if (-not $canRead) { continue }
+        if ($sid -notin @('S-1-5-19', 'S-1-5-18', 'S-1-5-32-544')) {
+            throw "Secret file is readable by a non-approved Windows identity: $variableName"
+        }
+        if ($sid -eq 'S-1-5-19') { $hasLocalServiceRead = $true }
     }
     if (-not $hasLocalServiceRead) {
         throw "LocalService needs explicit read access to $variableName (file ACL)."
