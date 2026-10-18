@@ -136,6 +136,8 @@ try {
         catch { $serviceRejected = $_.Exception.Message -match 'Unexpected dependency inventory query' }
         if (-not $serviceRejected) { throw 'Unified setup plan ignored an unexpected dependency.' }
         $installerTool = Join-Path $bundleTools 'install-esterium-local.ps1'
+        # Reset the deliberately invalid service name from the prior negative case.
+        $setupArgs.RedisServiceName = 'CI-Redis'
         $installerArgs = $setupArgs.Clone()
         $env:ESTERIUM_SCM_DISPOSABLE_CI = '1'
         try {
