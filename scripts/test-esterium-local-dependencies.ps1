@@ -85,5 +85,7 @@ try {
     Write-Output 'PASS: synthetic Windows dependency inventory rejects LAN exposure, invalid or missing services, and missing backup tooling.'
 } finally {
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-    Remove-Item Variable:ESTERIUM_TEST_PG_RUNNING,Variable:ESTERIUM_TEST_REDIS_RUNNING,Variable:ESTERIUM_TEST_LAN_BIND,Variable:ESTERIUM_TEST_PG_MISSING -ErrorAction SilentlyContinue
+    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING')) {
+        Remove-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
+    }
 }
