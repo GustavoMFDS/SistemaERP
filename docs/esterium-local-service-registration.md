@@ -160,6 +160,14 @@ Exemplo do modo de leitura:
 
 O CI Windows hospeda um serviço e uma tarefa sintéticos, exercita o plano, impede desregistro por caminho divergente, remove apenas o serviço e verifica que arquivos e backup foram preservados. Isso **não** equivale a uma desinstalação completa de loja real.
 
+## Atualização controlada somente do programa (sem banco de dados)
+
+O pacote contém `tools/apply-esterium-app-update.ps1`, com plano de leitura por padrão e `-Apply` administrativo explícito. Ele serve **exclusivamente** para atualizações do executável Go, telas React e ferramentas quando **todas as migrações SQL continuam exatamente iguais**. Se uma versão SQL nova for necessária, o comando recusa a operação: uma atualização completa com migração e teste de restauração continua pendente.
+
+Antes de qualquer troca, exige os dois pacotes íntegros, serviço parado, agendamento de backup desabilitado e backup local/externo fresco e verificado. Rejeita pacote sem assinatura Authenticode fora dos testes descartáveis do GitHub. Ao aplicar, copia o candidato para uma pasta temporária sob Program Files, verifica hashes, reconfere as condições, move a pasta antiga para um **diretório de rollback preservado** e coloca a nova no mesmo local. Uma falha de troca tenta restaurar a pasta anterior; se a recuperação automática falhar, retém os arquivos e avisa para intervenção técnica. O serviço não é iniciado.
+
+O pacote atual continua sem assinatura e o fluxo **não pode ser utilizado em uma loja real**. O smoke do CI simula pacotes e backup, recusando migrações adicionais e testando a troca/retenção do pacote anterior sem banco real. Nenhum passo deste procedimento acessa clientes, produtos, vendas, equipamentos periféricos ou SEFAZ.
+
 ## Verificação de atualização sem escrever no banco ou no programa
 
 O pacote inclui `tools/plan-esterium-windows-upgrade.ps1`. Ele serve **somente para planejar** uma futura atualização, exigindo que a instalação atual e o novo pacote tenham arquivos intactos e versões SQL antigas preservadas, sem modificação retroativa. Exige também serviço `EsteriumERP` já **parado**, tarefa diária de backup **desabilitada** e cópia local + externa comprovadamente recente e íntegra. Não acessa PostgreSQL/Redis e **não executa migrações, cópia de binários, instalação, rollback de dados nem reinício**.
