@@ -240,7 +240,7 @@ export default function HomePage() {
                 <input type="date" required value={to} onChange={(e)=>setTo(e.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label>
               <button disabled={loading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">{loading ? 'Consultando…' : 'Consultar período'}</button>
               <button type="button" onClick={exportSummary} disabled={!overview || loading}
-                className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50">Exportar CSV</button>
+                className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50">Baixar resumo</button>
             </form>
           </details>
         </section>
@@ -262,7 +262,7 @@ export default function HomePage() {
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {stock.items.slice(0,4).map((item)=>(
                 <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm">
-                  <div className="min-w-0"><p className="font-semibold text-slate-900">{item.name}</p><p className="text-xs text-slate-600">{item.sku}</p></div>
+                  <div className="min-w-0"><p className="font-semibold text-slate-900">{item.name}</p><p className="text-xs text-slate-600">Código: {item.sku}</p></div>
                   <span className="shrink-0 text-xs font-bold text-amber-900">{item.qty_on_hand.toFixed(2)} / {item.min_stock.toFixed(2)} {item.unit}</span>
                 </div>
               ))}
