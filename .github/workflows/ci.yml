@@ -98,6 +98,9 @@ jobs:
       - name: Verify loopback-only installed dependency inventory using Windows synthetic data
         shell: pwsh
         run: ./scripts/test-esterium-local-dependencies.ps1
+      - name: Verify independently approved offline database and cache installer packages (synthetic)
+        shell: pwsh
+        run: ./scripts/test-esterium-offline-dependency-packages.ps1
       - name: Validate immutable migration chain and verified backup before Windows upgrade
         shell: pwsh
         run: ./scripts/test-esterium-upgrade-plan.ps1
@@ -211,6 +214,7 @@ jobs:
             scripts/install-esterium-local.ps1 \
             scripts/apply-esterium-app-update.ps1 \
             scripts/check-esterium-signed-release.ps1 \
+            scripts/check-esterium-offline-dependency-packages.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
