@@ -76,6 +76,68 @@ try {
     if (-not $outsideRejected) { throw 'Host gate accepted an unsafe installation path.' }
     $hostArgs.InstallDir = $install
     Write-Output 'PASS: technical host preflight is read-only and rejects unsigned, low-disk and unsafe installation requests.'
+    # Exercise the single-command NEW installation plan with synthetic service
+    # inventory only. Do not create or start PostgreSQL, Redis or Esterium.
+    $fakePostgresBin = Join-Path $root 'synthetic-pg-tools'
+    [IO.Directory]::CreateDirectory($fakePostgresBin) | Out-Null
+    foreach ($exe in @('postgres.exe', 'pg_dump.exe', 'pg_restore.exe', 'psql.exe')) {
+        [IO.File]::WriteAllText((Join-Path $fakePostgresBin $exe), 'synthetic-only, never executable')
+    }
+    function Get-CimInstance {
+        [CmdletBinding()]
+        param([string]$ClassName, [string]$Filter)
+        if ($ClassName -ne 'Win32_Service' -or
+            $Filter -notin @("Name='CI-Postgres'", "Name='CI-Redis'")) {
+            throw 'Unexpected dependency inventory query in setup fixture.'
+        }
+        return [PSCustomObject]@{ State='Running' }
+    }
+    function Get-NetTCPConnection {
+        [CmdletBinding()]
+        param([string]$State, [int]$LocalPort)
+        if ($State -ne 'Listen') { throw 'Unexpected TCP state query.' }
+        if ($LocalPort -eq 65399) { return }
+        if ($LocalPort -in @(5432,6379)) {
+            return [PSCustomObject]@{LocalAddress='127.0.0.1'}
+        }
+        throw 'Unexpected TCP listener query.'
+    }
+    try {
+        $setup = Join-Path $bundleTools 'plan-esterium-local-setup.ps1'
+        $setupArgs = @{
+            BundleDir=$bundle
+            PostgresServiceName='CI-Postgres'
+            RedisServiceName='CI-Redis'
+            PostgresBin=$fakePostgresBin
+            DatabaseURLFile=$paths.database
+            RedisURLFile=$paths.redis
+            JWTSecretFile=$paths.jwt
+            MetricsBearerTokenFile=$paths.metrics
+            AllowedOrigin='https://esterium.loja.example'
+            InstallDir=$install
+            ListenAddress='127.0.0.1:65399'
+            MinimumFreeGiB=1
+        }
+        $planOutput = @(& $setup @setupArgs 3>$null) -join ' '
+        if ($planOutput -notmatch 'PASS: Esterium Local NEW-installation technical readiness plan only' -or
+            (Test-Path -LiteralPath $install)) {
+            throw 'Unified Windows setup plan failed or modified installation files.'
+        }
+        $setupArgs.RequireSignedServer = $true
+        $signedRejected = $false
+        try { & $setup @setupArgs | Out-Null }
+        catch { $signedRejected = $_.Exception.Message -match 'Production signature check failed' }
+        if (-not $signedRejected) { throw 'Unified setup plan accepted unsigned synthetic release.' }
+        $setupArgs.Remove('RequireSignedServer')
+        $setupArgs.RedisServiceName = 'Nonexistent'
+        $serviceRejected = $false
+        try { & $setup @setupArgs 3>$null | Out-Null }
+        catch { $serviceRejected = $_.Exception.Message -match 'Unexpected dependency inventory query' }
+        if (-not $serviceRejected) { throw 'Unified setup plan ignored an unexpected dependency.' }
+        Write-Output 'PASS: unified setup plan is read-only and enforces host, dependency and signature failures.'
+    } finally {
+        Remove-Item Function:Get-CimInstance,Function:Get-NetTCPConnection -ErrorAction SilentlyContinue
+    }
     # The migration executable is mandatory and protected by the manifest.
     $migratorPath = Join-Path $bundle 'tools\\esterium-migrate.exe'
     $outside = Join-Path $root 'temporary-migrator-test-only'
