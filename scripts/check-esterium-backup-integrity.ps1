@@ -121,8 +121,7 @@ if ($MinimumVerifiedCopies -eq 2) {
     foreach ($record in $prior) {
         $previous = $record.Name
         if ($previous -eq $name -or
-            $previous -notmatch '^esterium-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}\.dump
-) {
+            $previous -notmatch '^esterium-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}\.dump$') {
             continue
         }
         try {
