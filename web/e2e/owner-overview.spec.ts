@@ -19,7 +19,7 @@ test('proprietário autorizado vê resumo e exporta somente seu período', async
   await expect(page.getByRole('region', { name: 'Alertas de estoque' })).toBeVisible()
   await expandDisclosure(page, 'Consultar outro período e exportar resumo')
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Exportar CSV' }).click()
+  await page.getByRole('button', { name: 'Baixar resumo' }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toMatch(/^resumo-loja-\d{4}-\d{2}-\d{2}-a-\d{4}-\d{2}-\d{2}\.csv$/)
 })
