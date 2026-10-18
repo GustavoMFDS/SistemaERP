@@ -42,6 +42,22 @@ Em ambiente descartável, a partir da pasta extraída do pacote:
 .\tools\provision-esterium-app-secrets.ps1 -Apply
 ```
 
+### Conferir PostgreSQL e Redis já instalados, sem modificar serviços
+
+O utilitário `tools/check-esterium-local-dependencies.ps1` **não instala** PostgreSQL nem o serviço Redis compatível (por exemplo, Garnet). Depois que um técnico provisionar esses componentes Windows com privilégios mínimos e autenticação/TLS próprios, ele confere apenas: nomes específicos dos dois serviços em execução, caminhos das ferramentas PostgreSQL existentes (incluindo `pg_restore`), portas distintas e escutas TCP **exclusivamente em loopback**. É um levantamento somente leitura, sem iniciar processos, abrir conexões ou examinar dados comerciais.
+
+Exemplo para um ambiente de testes (substitua os nomes *reais* encontrados nos Serviços do Windows):
+
+```powershell
+.\tools\check-esterium-local-dependencies.ps1 `
+  -PostgresServiceName 'postgresql-x64-16' `
+  -RedisServiceName 'EsteriumGarnet' `
+  -PostgresBin 'C:\Program Files\PostgreSQL\16\bin' `
+  -PostgresPort 5432 -RedisPort 6379
+```
+
+Um resultado positivo **não comprova que o processo que escuta a porta pertence ao serviço informado**, nem versões, suporte do Garnet, conexões TLS, senha, migrações, proteção da pasta de dados ou compatibilidade real dos recursos atômicos do Redis. Essas verificações exigem o diagnóstico do próprio backend, `esterium-server.exe --check-config` e `--check-dependencies`, com URLs e certificados confiáveis de verdade. O segundo faz operações sintéticas de curta duração no Redis, mas não inicia vendas ou migrações. Redis e PostgreSQL **não devem ficar expostos à LAN** só porque o PDV roda em mais de um caixa.
+
 ### Antes de executar (ainda em ambiente descartável)
 
 - Separar `DATABASE_URL_FILE`, `REDIS_URL_FILE`, `JWT_SECRET_FILE` e `METRICS_BEARER_TOKEN_FILE` fora da pasta do programa. O conteúdo deve ser restrito por ACL à conta de serviço autorizada e aos administradores; os arquivos **não** são produzidos pelo script.
