@@ -759,7 +759,7 @@ export default function ProductsPage() {
         <form onSubmit={onCreate} className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-8">
           <p className="text-sm text-slate-600 md:col-span-8">Preencha o nome, o código e o preço. Os dados fiscais podem ser preenchidos depois, com ajuda do contador.</p>
           {variationSource ? <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 md:col-span-8">
-            Nova opção de {variationSource}: ela ficará vinculada ao produto original, mas terá código e estoque independentes. Informe um SKU diferente. O saldo começa zerado; ajuste-o na aba Estoque após cadastrar. Os dados fiscais e código de barras não são copiados automaticamente.
+            Nova opção de {variationSource}: ela ficará vinculada ao produto original, mas terá código e estoque independentes. Informe um código de produto diferente. O saldo começa zerado; ajuste-o na aba Estoque após cadastrar. Os dados fiscais e código de barras não são copiados automaticamente.
           </p> : null}
           <label className="block md:col-span-2">
             <span className="text-xs text-gray-600">Código do produto</span>
