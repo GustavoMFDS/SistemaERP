@@ -58,6 +58,11 @@ foreach ($record in @($document.files)) {
         @($relative.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -gt 0) {
         throw 'Unsafe relative path in manifest.'
     }
+    # Do not accept a correctly hashed bundle containing secrets under web/.
+    # The verifier must enforce the same policy as the manifest writer.
+    if ($relative -match '(^|/)(\.env(\.[^/]*)?|\.pgpass|id_rsa|id_ed25519|[^/]*\.(pem|key|pfx|p12|p8|pvk|jks|keystore|kdbx|crt|cer|der|db|sqlite|sqlite3|secret|dump|backup|options|rdb|aof))($|/)') {
+        throw 'Bundle manifest includes secret, certificate or database material.'
+    }
     if ($expected -notmatch '^[0-9a-fA-F]{64}$') { throw 'Invalid SHA-256 entry.' }
     if ($seen.ContainsKey($relative)) { throw 'Duplicate bundle manifest path.' }
     $target = Join-Path $root ($relative.Replace('/', '\'))
