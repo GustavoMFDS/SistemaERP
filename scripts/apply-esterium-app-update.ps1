@@ -50,6 +50,29 @@ if ($Apply -and -not $UnsignedDisposableCIFixture) {
     }
     & $gateScript @approvalArgs | Out-Null
 }
+# Validate the EXACT release being installed, not just the earlier candidate.
+# An accidental or hostile writer could change the candidate during staging.
+# Production mode requires independently approved digest and Authenticode
+# signer on every staged executable and privileged script.
+function Assert-CopiedReleaseTrust([string]$path) {
+    if ($UnsignedDisposableCIFixture) {
+        if ([string]::IsNullOrWhiteSpace($ApprovedManifestSHA256)) { return }
+        if ($ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$') {
+            throw 'Synthetic staged release requires a valid expected SHA-256.'
+        }
+        $copiedHash=(Get-FileHash -LiteralPath (Join-Path $path 'bundle-manifest.json') -Algorithm SHA256).Hash
+        if ($copiedHash -cne $ApprovedManifestSHA256.ToUpperInvariant()) {
+            throw 'Staged application release differs from the independently approved manifest SHA-256.'
+        }
+        return
+    }
+    $approval=@{
+        BundleDir=$path
+        ExpectedManifestSHA256=$ApprovedManifestSHA256
+        ExpectedPublisherThumbprint=$TrustedPublisherThumbprint
+    }
+    & (Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1') @approval | Out-Null
+}
 $oldPath = (Resolve-Path -LiteralPath $InstalledDir -ErrorAction Stop).Path.TrimEnd('\', '/')
 $newPath = (Resolve-Path -LiteralPath $CandidateBundleDir -ErrorAction Stop).Path.TrimEnd('\', '/')
 $plan = Join-Path $PSScriptRoot 'plan-esterium-windows-upgrade.ps1'
@@ -103,6 +126,7 @@ try {
     if (Test-Path -LiteralPath $rollback) { throw 'Rollback path already exists.' }
     Copy-Item -LiteralPath $newPath -Destination $staging -Recurse -ErrorAction Stop
     & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $staging | Out-Null
+    Assert-CopiedReleaseTrust $staging
     # Re-check all critical preconditions after copying and immediately before
     # the directory swap; never trust an earlier backup/service inspection.
     & $plan @planArgs | Out-Null
@@ -115,6 +139,7 @@ try {
     Move-Item -LiteralPath $staging -Destination $oldPath -ErrorAction Stop
     $newMoved = $true
     & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $oldPath | Out-Null
+    Assert-CopiedReleaseTrust $oldPath
     Write-Output 'PASS: application-only files updated with the prior full bundle kept intact in a rollback folder.'
     Write-Output "ROLLBACK FOLDER: $rollback"
     Write-Output 'Service remains STOPPED, backups untouched; do not start until the independent technical acceptance check.'
