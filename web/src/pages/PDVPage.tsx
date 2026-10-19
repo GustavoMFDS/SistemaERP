@@ -836,7 +836,9 @@ export default function PDVPage() {
     setCashReceived('')
     setConfirmedPaymentFingerprint('')
   }, [paymentFingerprint])
-  const cashValueText = cashReceived.trim()
+  // Local operators may enter decimal cents with ',' or '.'; do not accept
+  // thousands separators, exponential notation or more than two decimals.
+  const cashValueText = cashReceived.trim().replace(',', '.')
   const cashValue = Number(cashValueText)
   const cashCents = Math.round(cashValue * 100)
   const totalCents = Math.round(computedTotal * 100)
@@ -1547,15 +1549,16 @@ export default function PDVPage() {
                 <label className="block text-sm font-semibold text-slate-700">
                   Valor recebido em dinheiro (R$)
                   <input
-                    type="number"
+                    type="text"
                     inputMode="decimal"
-                    min="0"
-                    step="0.01"
+                    autoComplete="off"
+                    placeholder="Ex.: 20,00"
                     value={cashReceived}
                     onChange={(e) => setCashReceived(e.target.value)}
                     className="mt-2 w-full rounded-lg border px-4 py-3 text-base"
                   />
                 </label>
+                <p className="mt-2 text-xs text-slate-600">Use vírgula ou ponto para os centavos.</p>
                 {hasEnoughCash ? (
                   <p role="status" className="mt-3 text-sm font-semibold text-emerald-800">
                     Troco: R$ {changeAmount.toFixed(2)}
