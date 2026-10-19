@@ -119,6 +119,27 @@ try {
     }
     Remove-Item -LiteralPath $passwordOptions -Force
     [IO.File]::WriteAllText($candidateManifest,$goodManifest)
+    # A disguised credential file with a bland .json extension must not
+    # become a publicly served static asset, even when its hash is reissued.
+    $unexpectedWeb=Join-Path $candidate 'web\\credentials.json'
+    [IO.File]::WriteAllText($unexpectedWeb,'{"synthetic":"not a real credential"}')
+    Remove-Item -LiteralPath $candidateManifest -Force
+    $writerDeniedUnknown=$false
+    try { & $manifestWriter -BundleDir $candidate | Out-Null }
+    catch { $writerDeniedUnknown=$_.Exception.Message -match 'unsupported static asset extension' }
+    if (-not $writerDeniedUnknown) { throw 'Web asset allowlist accepted a synthetic credentials JSON.' }
+    $reissued=$goodManifest | ConvertFrom-Json
+    $reissued.files=@($reissued.files) + [PSCustomObject]@{
+        path='web/credentials.json'
+        sha256=(Get-FileHash -LiteralPath $unexpectedWeb -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    [IO.File]::WriteAllText($candidateManifest,($reissued | ConvertTo-Json -Depth 5))
+    $verifierDeniedUnknown=$false
+    try { & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $candidate | Out-Null }
+    catch { $verifierDeniedUnknown=$_.Exception.Message -match 'unsupported static asset extension' }
+    if (-not $verifierDeniedUnknown) { throw 'Web asset allowlist verifier accepted a forged credentials JSON.' }
+    Remove-Item -LiteralPath $unexpectedWeb -Force
+    [IO.File]::WriteAllText($candidateManifest,$goodManifest)
     [IO.Directory]::CreateDirectory($backupDir) | Out-Null
     [IO.Directory]::CreateDirectory($external) | Out-Null
     $name = 'esterium-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-1234abcd.dump'
