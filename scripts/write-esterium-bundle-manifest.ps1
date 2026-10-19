@@ -50,8 +50,10 @@ foreach ($file in $items) {
         -not ($requiredTools -contains $relative)) {
         throw "Unexpected bundle file: $relative"
     }
-    if ($relative -match '(^|/)(\.env|.*\.pem|.*\.key|.*\.db|.*\.sqlite|.*\.secret)(/|$)') {
-        throw 'Bundle contains a file resembling secret/database material.'
+    # Even web/ is an allowed output subtree: never publish private keys,
+    # certificate containers, env files or database archives as static assets.
+    if ($relative -match '(^|/)(\.env(\.[^/]*)?|\.pgpass|id_rsa|id_ed25519|[^/]*\.(pem|key|pfx|p12|p8|pvk|jks|keystore|kdbx|crt|cer|der|db|sqlite|sqlite3|secret|dump|backup))($|/)') {
+        throw 'Bundle contains a file resembling secret, certificate or database material.'
     }
     $records += @{
         path = $relative
