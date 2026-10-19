@@ -171,10 +171,14 @@ try {
     $checks.ExpectedPublisherThumbprint=$certThumb
     $modified=Join-Path $toolsDir 'install-esterium-local.ps1'
     $priorStatus=Get-AuthenticodeSignature -LiteralPath $modified
-    if ($priorStatus.Status -notin @([Management.Automation.SignatureStatus]::Valid,
-            [Management.Automation.SignatureStatus]::NotTrusted)) {
-        throw 'Synthetic privileged script was not signed before tampering.'
+    if ($null -eq $priorStatus.SignerCertificate -or
+        $priorStatus.SignerCertificate.Thumbprint -cne $certThumb -or
+        $priorStatus.Status -notin @([Management.Automation.SignatureStatus]::Valid,
+            [Management.Automation.SignatureStatus]::NotTrusted,
+            [Management.Automation.SignatureStatus]::UnknownError)) {
+        throw 'Synthetic privileged script lacked the expected signer before tampering.'
     }
+    $priorHash=(Get-FileHash -LiteralPath $modified -Algorithm SHA256).Hash
     $textBefore=[IO.File]::ReadAllText($modified)
     $changedText=$textBefore.Replace('Install only the prebuilt Esterium Windows application/service.',
         'Synthetic changed text within the signed script.')
@@ -183,9 +187,8 @@ try {
     # Windows may report UnknownError for both intact and tampered
     # Authenticode signatures when no trusted root is present. A signed CMS
     # above checks actual cryptographic tamper rejection without a trust store.
-    if ((Get-FileHash -LiteralPath $modified -Algorithm SHA256).Hash -eq
-        (Get-FileHash -LiteralPath $server -Algorithm SHA256).Hash) {
-        throw 'Synthetic test unexpectedly matched the executable hash.'
+    if ((Get-FileHash -LiteralPath $modified -Algorithm SHA256).Hash -ceq $priorHash) {
+        throw 'Synthetic privileged script did not change after tamper injection.'
     }
     Remove-Item -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Force
     & $writer -BundleDir $bundle | Out-Null
