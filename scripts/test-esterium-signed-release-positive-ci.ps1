@@ -56,12 +56,47 @@ try {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool)
     }
     Write-Output 'STEP: generating disposable Windows code-signing certificate.'
-    $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject ("CN=Esterium Disposable Test " + $id) -CertStoreLocation 'Cert:\CurrentUser\My' -ErrorAction Stop
+    # CertificateRequest avoids depending on New-SelfSignedCertificate's
+    # Windows key-provider enrollment path, which stalled hosted CI for >15m.
+    # This certificate is exclusively a synthetic runner-local fixture.
+    $rsa=[Security.Cryptography.RSA]::Create(2048)
+    try {
+        $request=[Security.Cryptography.X509Certificates.CertificateRequest]::new(
+            ("CN=Esterium Disposable Test " + $id),
+            $rsa,
+            [Security.Cryptography.HashAlgorithmName]::SHA256,
+            [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $request.CertificateExtensions.Add(
+            [Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
+                [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature, $true))
+        $uses=[Security.Cryptography.OidCollection]::new()
+        [void]$uses.Add([Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.3'))
+        $request.CertificateExtensions.Add(
+            [Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($uses,$false))
+        $temporaryCert=$request.CreateSelfSigned(
+            [DateTimeOffset]::UtcNow.AddMinutes(-5),[DateTimeOffset]::UtcNow.AddHours(3))
+        $password=[Guid]::NewGuid().ToString('N')
+        $pfx=Join-Path $root 'ephemeral-disposable-code-signing.pfx'
+        [IO.File]::WriteAllBytes($pfx,$temporaryCert.Export(
+            [Security.Cryptography.X509Certificates.X509ContentType]::Pfx,$password))
+        $cert=Import-PfxCertificate -FilePath $pfx -CertStoreLocation 'Cert:\CurrentUser\My' `
+            -Password (ConvertTo-SecureString $password -AsPlainText -Force) `
+            -ErrorAction Stop
+        Remove-Item -LiteralPath $pfx -Force
+        $temporaryCert.Dispose()
+    } finally {
+        $rsa.Dispose()
+    }
+    if ($null -eq $cert -or -not $cert.HasPrivateKey) {
+        throw 'Synthetic signing certificate missing the private signing key.'
+    }
     $certThumb=$cert.Thumbprint
+    Write-Output 'STEP: ephemeral certificate minted and imported; preparing local-only trust.'
     $cer=Join-Path $root 'synthetic-only.cer'
     Export-Certificate -Cert $cert -FilePath $cer | Out-Null
     Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
     Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+    Write-Output 'STEP: disposable trust stores prepared; signing fixtures.'
     Write-Output 'STEP: signing disposable executables and all packaged scripts.'
     $signTargets=@($server,(Join-Path $toolsDir 'esterium-migrate.exe'))
     $signTargets+=@(Get-ChildItem -LiteralPath $toolsDir -File -Filter '*.ps1' | ForEach-Object { $_.FullName })
