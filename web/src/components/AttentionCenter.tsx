@@ -24,7 +24,7 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
     const checks: Promise<Alert | null>[] = []
     if (canFiscal) checks.push(apiJson<Fiscal>('/api/v1/fiscal/obligations?unresolved=true&limit=1&offset=0').then((d) =>
       d.total > 0 ? { title: d.total + ' venda(s) com obrigação fiscal pendente',
-        detail: 'Pode incluir NF-e 55, histórico e notas não autorizadas. A emissão não é confirmada pela venda.',
+        detail: 'Pode incluir vendas anteriores e notas ainda sem autorização. Finalizar a venda não confirma a emissão da nota.',
         to: '/fiscal', severity: 'warning' as const } : null))
     if (canFinance) checks.push(apiJson<Finance>('/api/v1/finance/accounts?kind=all&limit=1&offset=0').then((d) =>
       Number(d.summary?.overdue_open ?? 0) > 0 ? {
@@ -68,7 +68,7 @@ export default function AttentionCenter({ permissions }: { permissions: string[]
       </div>
       {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
       {!loading && refreshed && alerts.length === 0 && !error && (
-        <p className="mt-3 text-sm text-slate-600">Nenhuma pendência encontrada nas áreas consultadas. Isso não confirma autorização de notas pela SEFAZ ou recuperação de backups.</p>
+        <p className="mt-3 text-sm text-slate-600">Nenhuma pendência encontrada nas áreas consultadas. Isso não confirma autorização da Secretaria da Fazenda nem que os dados possam ser recuperados.</p>
       )}
       {alerts.length > 0 && <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {alerts.map((item) => (
