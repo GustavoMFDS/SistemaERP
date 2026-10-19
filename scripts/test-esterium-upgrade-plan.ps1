@@ -107,6 +107,18 @@ try {
     }
     Remove-Item -LiteralPath $blockedArtifact -Force
     [IO.File]::WriteAllText($candidateManifest,$goodManifest)
+    # Password-bearing EDB unattended options are not safe web assets either.
+    $passwordOptions=Join-Path $candidate 'web\\postgresql-unattended.options'
+    [IO.File]::WriteAllText($passwordOptions,'superpassword=SYNTHETIC_NOT_REAL')
+    Remove-Item -LiteralPath $candidateManifest -Force
+    $optionBlocked=$false
+    try { & $manifestWriter -BundleDir $candidate | Out-Null }
+    catch { $optionBlocked=$_.Exception.Message -match 'secret, certificate or database material' }
+    if (-not $optionBlocked) {
+        throw 'Bundle writer accepted an unattended installer password file.'
+    }
+    Remove-Item -LiteralPath $passwordOptions -Force
+    [IO.File]::WriteAllText($candidateManifest,$goodManifest)
     [IO.Directory]::CreateDirectory($backupDir) | Out-Null
     [IO.Directory]::CreateDirectory($external) | Out-Null
     $name = 'esterium-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-1234abcd.dump'
