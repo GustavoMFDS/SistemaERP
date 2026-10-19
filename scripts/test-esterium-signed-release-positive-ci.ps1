@@ -103,6 +103,9 @@ try {
         Write-Output ('STEP: signing synthetic file ' + [IO.Path]::GetFileName($path))
         $result=Set-AuthenticodeSignature -FilePath $path -Certificate $cert -HashAlgorithm SHA256 -ErrorAction Stop
         $signed=Get-AuthenticodeSignature -LiteralPath $path
+        Write-Output ('TRACE: signing result=' + $result.Status + '; signature status=' +
+            $signed.Status + '; expected signer=' + [bool]($null -ne $signed.SignerCertificate -and
+                $signed.SignerCertificate.Thumbprint -ceq $certThumb))
         if ($null -eq $signed.SignerCertificate -or
             $signed.SignerCertificate.Thumbprint -cne $certThumb -or
             $signed.Status -notin @([Management.Automation.SignatureStatus]::NotTrusted,
