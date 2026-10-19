@@ -69,11 +69,11 @@ const fiscalDispatchLabel: Record<string, string> = {
   awaiting_fiscal_processing: 'Configuração registrada; emissão ainda não iniciada',
   waiting_sale: 'Aguardando finalização da venda',
   manual_review: 'Venda histórica: revisão manual obrigatória',
-  unsupported_model: 'NF-e 55: fluxo ainda não implementado',
+  unsupported_model: 'Este tipo de nota ainda não está disponível',
   reserved: 'Numeração reservada; preparação pendente',
-  xml_generated: 'XML técnico gerado; falta autorização',
-  signed: 'XML assinado; autorização pendente',
-  awaiting_sefaz: 'Resposta SEFAZ pendente de reconciliação',
+  xml_generated: 'Arquivo da nota preparado; falta autorização',
+  signed: 'Documento preparado; aguardando autorização',
+  awaiting_sefaz: 'Aguardando confirmação da Secretaria da Fazenda',
   missing_processed_xml: 'ALERTA: autorizado sem arquivo processado',
   authorized: 'Arquivo processado arquivado',
   rejected_review: 'Rejeição fiscal exige análise',
@@ -556,7 +556,7 @@ export default function FiscalPage() {
             <h2 className="text-base font-bold text-slate-900">Vendas e emissão fiscal</h2>
             <p className="mt-1 text-xs text-slate-600">
               Cada venda gera uma obrigação fiscal independente da impressão.
-              Uma pendência nesta lista não é uma NFC-e/NF-e autorizada.
+              Uma pendência nesta lista não significa que a nota foi autorizada.
             </p>
           </div>
           <button type="button" disabled={fiscalObligationsLoading}
