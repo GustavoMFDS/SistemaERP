@@ -50,7 +50,7 @@ const quickLinks = [
   { to: '/purchases', label: 'Registrar compras', permission: 'procurement:read', detail: 'Acompanhar fornecedores e recebimentos' },
   { to: '/customers', label: 'Cadastrar clientes', permission: 'customer:read', detail: 'Guardar contatos de clientes desta loja com privacidade' },
   { to: '/finance', label: 'Conferir pagamentos', permission: 'finance:read', detail: 'Ver divergências e conciliações' },
-  { to: '/fiscal', label: 'Configurar nota fiscal', permission: 'invoice:read', detail: 'Seguir o passo a passo da NFC-e' },
+  { to: '/fiscal', label: 'Configurar nota fiscal', permission: 'invoice:read', detail: 'Ver o passo a passo para preparar a emissão' },
 ]
 
 function saveCSV(rows: string[][], name: string) {
