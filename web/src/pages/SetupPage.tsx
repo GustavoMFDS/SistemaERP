@@ -64,7 +64,7 @@ const blockers: Record<string, string> = {
   issuer_identity: 'Dados fiscais oficiais da loja',
   issuer_address: 'Endereço da loja',
   issuer_municipality_code: 'Código IBGE do município',
-  nfce_config: 'Preparação da NFC-e',
+  nfce_config: 'Preparação da nota ao consumidor',
   homologation_environment: 'Ambiente de homologação',
   certificate_secret_reference: 'Certificado digital A1 vinculado com segurança',
   active_products: 'Ao menos um produto ativo',
@@ -141,7 +141,7 @@ export default function SetupPage() {
       if (permissions.has('invoice:read')) {
         jobs.push(apiJson<FiscalReadinessData>('/api/v1/fiscal/nfce/readiness')
           .then((response) => { if (isCurrent()) setReadiness(response) })
-          .catch((err: unknown) => { problems.push('NFC-e: ' + errorMessage(err)) }))
+          .catch((err: unknown) => { problems.push('Nota ao consumidor: ' + errorMessage(err)) }))
         jobs.push(apiJson<Issuer>('/api/v1/fiscal/nfce/issuer')
           .then((response) => { if (isCurrent()) { setIssuer(response); setFields(issuerFields(response)) } })
           .catch((err: unknown) => { problems.push('Dados da empresa: ' + errorMessage(err)) }))
@@ -247,7 +247,7 @@ export default function SetupPage() {
       ) : null}
       <details className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
         <summary className="cursor-pointer font-semibold">O que preciso saber sobre nota fiscal?</summary>
-        <p className="mt-2">A preparação da loja não libera notas fiscais automaticamente. A NFC-e exige certificado, regras tributárias
+        <p className="mt-2">A preparação da loja não libera notas fiscais automaticamente. A nota ao consumidor exige certificado, regras tributárias
         conferidas, homologação e autorização da SEFAZ. Cada CNPJ mantém dados e permissões separados.
         </p>
       </details>
@@ -422,11 +422,11 @@ export default function SetupPage() {
                 ) : <p>Não foi possível consultar a preparação fiscal ou você não tem essa permissão.</p>}
                 {me.permissions.includes('invoice:read') ? (
                   <Link to="/fiscal" className="inline-block rounded-md border px-3 py-2 font-medium text-blue-700">
-                    Abrir preparação da NFC-e →
+                    Abrir preparação da nota ao consumidor →
                   </Link>
                 ) : null}
                 <p className="text-xs text-amber-800">
-                  Não envie senha, PFX nem chave privada por esta tela. A emissão exige homologação e confirmação da SEFAZ.
+                  Não informe senhas nem envie arquivos de certificado por esta tela. A emissão exige homologação e confirmação da SEFAZ.
                 </p>
               </div>
             ) : null}
