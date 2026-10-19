@@ -107,6 +107,9 @@ jobs:
       - name: Create synthetic protected PostgreSQL offline unattended installer options
         shell: pwsh
         run: ./scripts/test-esterium-postgres-optionfile.ps1
+      - name: Prepare combined PostgreSQL and Garnet new-install configuration in disposable Windows CI
+        shell: pwsh
+        run: ./scripts/test-esterium-local-dependency-configs.ps1
       - name: Validate immutable migration chain and verified backup before Windows upgrade
         shell: pwsh
         run: ./scripts/test-esterium-upgrade-plan.ps1
@@ -223,6 +226,7 @@ jobs:
             scripts/check-esterium-offline-dependency-packages.ps1 \
             scripts/provision-esterium-garnet-config.ps1 \
             scripts/provision-esterium-postgres-optionfile.ps1 \
+            scripts/prepare-esterium-local-dependency-configs.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
