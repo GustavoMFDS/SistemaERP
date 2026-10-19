@@ -63,6 +63,9 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'PDV', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos da venda' })).toBeVisible()
+  const quickProduct = page.getByRole('button', { name: 'Adicionar Caderno à venda' })
+  await expect(quickProduct).toContainText('Código: TEST-TROCO')
+  await expect(quickProduct).toContainText('Em estoque: 10')
 
   const finalize = page.getByRole('button', { name: 'Finalizar venda', exact: true })
   await expect(finalize).toHaveCount(1)
