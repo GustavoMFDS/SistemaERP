@@ -34,11 +34,22 @@ try {
     if ($valid -notmatch 'PASS: static PostgreSQL config files') {
         throw 'Safe synthetic PostgreSQL policy was not accepted.'
     }
+    $auto=Join-Path $root 'postgresql.auto.conf'
+    [IO.File]::WriteAllText($auto, '# Default initdb file; no overrides')
+    $commentsOnly=@(& $gate @params) -join ' '
+    if ($commentsOnly -notmatch 'PASS: static PostgreSQL config files') {
+        throw 'Comments-only postgresql.auto.conf must not be treated as an active override.'
+    }
     function Must-Reject([string]$label,[string]$pattern) {
         $msg='(accepted)'
         try { & $gate @params | Out-Null } catch { $msg=$_.Exception.Message }
         if ($msg -notmatch $pattern) { throw "Policy accepted $label or rejected for another reason: $msg" }
     }
+    [IO.File]::WriteAllText($auto, "ssl = off" + [Environment]::NewLine)
+    Must-Reject 'ALTER SYSTEM TLS override' 'postgresql.auto.conf contains ALTER SYSTEM overrides'
+    [IO.File]::WriteAllText($auto, "shared_buffers = 256MB" + [Environment]::NewLine)
+    Must-Reject 'unreviewed unrelated auto.conf override' 'postgresql.auto.conf contains ALTER SYSTEM overrides'
+    Remove-Item -LiteralPath $auto -Force
     [IO.File]::WriteAllText($pg, $healthyPg.Replace("'localhost'","'*'"))
     Must-Reject 'all network listeners' 'listen only on loopback'
     [IO.File]::WriteAllText($pg, $healthyPg.Replace('ssl = on','ssl = off'))
