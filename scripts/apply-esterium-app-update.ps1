@@ -35,7 +35,16 @@ if ($Apply -and -not $UnsignedDisposableCIFixture) {
     # The OS/operator must authenticate this launcher BEFORE starting it:
     # an arbitrary unsigned PowerShell script cannot bootstrap its own trust.
     $gateScript = Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'
-    foreach ($scriptPath in @($PSCommandPath, $gateScript)) {
+    # The upgrade plan, backup gate and bundle validator execute in this
+    # privileged process: reject any replaced/unsigned helper as well.
+    $privilegedHelpers = @(
+        'plan-esterium-windows-upgrade.ps1',
+        'check-esterium-backup-integrity.ps1',
+        'verify-esterium-bundle.ps1'
+    )
+    $signedEntryPoints = @($PSCommandPath, $gateScript)
+    $signedEntryPoints += @($privilegedHelpers | ForEach-Object { Join-Path $PSScriptRoot $_ })
+    foreach ($scriptPath in $signedEntryPoints) {
         $signature = Get-AuthenticodeSignature -LiteralPath $scriptPath
         if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
             $null -eq $signature.SignerCertificate -or
