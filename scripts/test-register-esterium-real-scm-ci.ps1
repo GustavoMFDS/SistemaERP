@@ -61,7 +61,8 @@ try {
     'check-esterium-offline-dependency-packages.ps1',
     'provision-esterium-garnet-config.ps1',
     'provision-esterium-postgres-optionfile.ps1',
-    'prepare-esterium-local-dependency-configs.ps1'
+    'prepare-esterium-local-dependency-configs.ps1',
+    'check-esterium-postgres-tls-policy.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $tools
     }
@@ -175,6 +176,7 @@ try {
         'tools\provision-esterium-garnet-config.ps1',
         'tools\provision-esterium-postgres-optionfile.ps1',
         'tools\prepare-esterium-local-dependency-configs.ps1',
+        'tools\check-esterium-postgres-tls-policy.ps1',
         'tools\\esterium-migrate.exe',
         'README_LOCAL.md',
         'bundle-manifest.json',
