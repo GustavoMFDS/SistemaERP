@@ -178,7 +178,7 @@ export default function UnifiedImportHistoryPage() {
                     <th className="px-3 py-2">Tipo</th>
                     <th className="px-3 py-2">Responsável</th>
                     <th className="px-3 py-2">Itens</th>
-                    <th className="px-3 py-2">Lote</th>
+                    <th className="px-3 py-2">Referência</th>
                     <th className="px-3 py-2">Área</th>
                   </tr>
                 </thead>
@@ -191,7 +191,12 @@ export default function UnifiedImportHistoryPage() {
                       <td className="px-3 py-2">{item.kind === 'products' ? 'Cadastro de produtos' : 'Estoque inicial'}</td>
                       <td className="px-3 py-2">{item.actor_name}</td>
                       <td className="px-3 py-2">{item.item_count}</td>
-                      <td className="px-3 py-2"><code className="break-all">{item.batch_id}</code></td>
+                      <td className="px-3 py-2">
+                        <details>
+                          <summary className="cursor-pointer text-blue-700">Ver código</summary>
+                          <code className="block break-all pt-1">{item.batch_id}</code>
+                        </details>
+                      </td>
                       <td className="px-3 py-2">
                         <Link to={item.kind === 'products' ? '/products' : '/inventory'}
                           className="text-blue-700 underline">
