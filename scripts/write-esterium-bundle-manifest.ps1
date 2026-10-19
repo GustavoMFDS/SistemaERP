@@ -52,7 +52,7 @@ foreach ($file in $items) {
     }
     # Even web/ is an allowed output subtree: never publish private keys,
     # certificate containers, env files or database archives as static assets.
-    if ($relative -match '(^|/)(\.env(\.[^/]*)?|\.pgpass|id_rsa|id_ed25519|[^/]*\.(pem|key|pfx|p12|p8|pvk|jks|keystore|kdbx|crt|cer|der|db|sqlite|sqlite3|secret|dump|backup))($|/)') {
+    if ($relative -match '(^|/)(\.env(\.[^/]*)?|\.pgpass|id_rsa|id_ed25519|[^/]*\.(pem|key|pfx|p12|p8|pvk|jks|keystore|kdbx|crt|cer|der|db|sqlite|sqlite3|secret|dump|backup|options|rdb|aof))($|/)') {
         throw 'Bundle contains a file resembling secret, certificate or database material.'
     }
     $records += @{
