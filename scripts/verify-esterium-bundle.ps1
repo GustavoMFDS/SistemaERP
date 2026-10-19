@@ -35,6 +35,7 @@ $requiredTools = @(
     'tools/check-esterium-offline-dependency-packages.ps1',
     'tools/provision-esterium-garnet-config.ps1',
     'tools/provision-esterium-postgres-optionfile.ps1',
+    'tools/prepare-esterium-local-dependency-configs.ps1',
     'tools/esterium-migrate.exe',
     'README_LOCAL.md'
 )
