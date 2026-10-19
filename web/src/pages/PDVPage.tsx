@@ -1361,7 +1361,7 @@ export default function PDVPage() {
                     <img src={productThumbnails[product.id]} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
                   ) : null}
                   <span className="min-w-0"><strong className="block truncate text-sm text-slate-900">{product.name}</strong>
-                    <span className="text-xs text-slate-500">{product.sku} • saldo {product.qty_on_hand ?? '—'}</span></span>
+                    <span className="text-xs text-slate-500">Código: {product.sku} • Em estoque: {product.qty_on_hand ?? '—'}</span></span>
                   <span className="shrink-0 text-sm font-bold text-slate-900">R$ {productSalePrice(product).toFixed(2)} <span aria-hidden="true">+</span></span>
                 </button>
               ))}
