@@ -91,11 +91,38 @@ try {
         throw 'Synthetic signing certificate missing the private signing key.'
     }
     $certThumb=$cert.Thumbprint
-    Write-Output 'STEP: ephemeral signer minted. Do not modify trusted root stores in unattended CI.'
-    # Windows hosted runners can hang awaiting trust confirmation when a new
-    # self-signed root is installed. We intentionally do not trust this fixture.
-    # Signatures can still be checked for signer identity and byte tampering,
-    # while the production gate MUST reject a non-trusted publisher.
+    Write-Output 'STEP: ephemeral signer minted; installing test-only trust with bounded subprocess.'
+    # Windows GUI-backed trust writes may deadlock on hosted runners.
+    # certutil -user -f is noninteractive, isolated to the disposable CI account,
+    # and is killed after a short deadline. NEVER used by release/install tools.
+    $certutil=Join-Path $env:WINDIR 'System32\certutil.exe'
+    $cer=Join-Path $root 'synthetic-only.cer'
+    [IO.File]::WriteAllBytes($cer,$cert.Export(
+        [Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+    function Invoke-TestCertutil([string[]]$arguments) {
+        $startInfo=[Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName=$certutil
+        $startInfo.UseShellExecute=$false
+        $startInfo.CreateNoWindow=$true
+        $startInfo.RedirectStandardOutput=$true
+        $startInfo.RedirectStandardError=$true
+        foreach ($argument in $arguments) { [void]$startInfo.ArgumentList.Add($argument) }
+        $process=[Diagnostics.Process]::Start($startInfo)
+        try {
+            if (-not $process.WaitForExit(8000)) {
+                try { $process.Kill($true); [void]$process.WaitForExit(2000) } catch {}
+                return $false
+            }
+            return ($process.ExitCode -eq 0)
+        } finally { $process.Dispose() }
+    }
+    foreach ($storeName in @('Root','TrustedPublisher')) {
+        Write-Output ('STEP: adding synthetic trust to CurrentUser/' + $storeName)
+        if (-not (Invoke-TestCertutil @('-user','-f','-addstore',$storeName,$cer))) {
+            throw ('Temporary Windows certificate trust could not be established in bounded CI time: ' + $storeName)
+        }
+    }
+    Write-Output 'STEP: ephemeral Windows trust setup complete.'
     Write-Output 'STEP: signing disposable executables and all packaged scripts.'
     $signTargets=@($server,(Join-Path $toolsDir 'esterium-migrate.exe'))
     $signTargets+=@(Get-ChildItem -LiteralPath $toolsDir -File -Filter '*.ps1' | ForEach-Object { $_.FullName })
@@ -108,8 +135,7 @@ try {
                 $signed.SignerCertificate.Thumbprint -ceq $certThumb))
         if ($null -eq $signed.SignerCertificate -or
             $signed.SignerCertificate.Thumbprint -cne $certThumb -or
-            $signed.Status -notin @([Management.Automation.SignatureStatus]::NotTrusted,
-                [Management.Automation.SignatureStatus]::Valid)) {
+            $signed.Status -ne [Management.Automation.SignatureStatus]::Valid) {
             throw 'Synthetic file was not signed by the expected temporary certificate.'
         }
     }
@@ -174,7 +200,14 @@ try {
     }
 
 } finally {
-    # Only remove our own ephemeral signing identity. Never write trust stores.
+    # Revoke only our synthetic CI certificate, never any publisher identity.
+    if ($certThumb -and $null -ne (Get-Command Invoke-TestCertutil -ErrorAction SilentlyContinue)) {
+        foreach ($storeName in @('TrustedPublisher','Root')) {
+            if (-not (Invoke-TestCertutil @('-user','-delstore',$storeName,$certThumb))) {
+                Write-Warning ('Temporary test certificate cleanup needs runner disposal: ' + $storeName)
+            }
+        }
+    }
     if ($certThumb) {
         try {
             $store=[Security.Cryptography.X509Certificates.X509Store]::new(
