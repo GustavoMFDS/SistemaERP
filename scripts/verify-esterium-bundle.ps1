@@ -63,6 +63,17 @@ foreach ($record in @($document.files)) {
     if ($relative -match '(^|/)(\.env(\.[^/]*)?|\.pgpass|id_rsa|id_ed25519|[^/]*\.(pem|key|pfx|p12|p8|pvk|jks|keystore|kdbx|crt|cer|der|db|sqlite|sqlite3|secret|dump|backup|options|rdb|aof))($|/)') {
         throw 'Bundle manifest includes secret, certificate or database material.'
     }
+    # The verifier must not trust a forged, rehashed manifest containing
+    # extra static assets that Vite would not normally emit.
+    if ($relative.StartsWith('web/',[StringComparison]::Ordinal)) {
+        $ext=[IO.Path]::GetExtension($relative).ToLowerInvariant()
+        $webAssetExtensions=@('.html','.js','.mjs','.css','.svg','.png','.ico',
+            '.webmanifest','.jpg','.jpeg','.gif','.webp','.avif','.woff',
+            '.woff2','.ttf','.otf','.wasm')
+        if ($ext -notin $webAssetExtensions) {
+            throw 'Web bundle manifest includes an unsupported static asset extension.'
+        }
+    }
     if ($expected -notmatch '^[0-9a-fA-F]{64}$') { throw 'Invalid SHA-256 entry.' }
     if ($seen.ContainsKey($relative)) { throw 'Duplicate bundle manifest path.' }
     $target = Join-Path $root ($relative.Replace('/', '\'))
