@@ -26,13 +26,17 @@ function Assert-NoSharedReaders([string]$path, [string]$label) {
     foreach ($ace in $acl.Access) {
         if ($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
         $canRead = ($ace.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -ne 0
-        if (-not $canRead) { continue }
+        # Even write-only rights could alter backups or secrets before the
+        # scheduled job reads them, so inspect every Allow ACE, not just reads.
         try { $sid = $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }
         catch { throw "Cannot inspect all ACL readers for $label." }
-        if ($sid -in @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545', 'S-1-5-7')) {
-            throw "Backup $label is readable by a shared Windows user group."
+        # A blocklist of Everyone/Users/Authenticated Users is insufficient:
+        # a domain group or another local account may also read or replace
+        # protected backup credentials. Fail closed for ANY unrelated SID.
+        if ($sid -notin @('S-1-5-18', 'S-1-5-20', 'S-1-5-32-544')) {
+            throw "Backup $label grants rights to an unapproved Windows identity."
         }
-        if ($sid -eq 'S-1-5-20') { $networkServiceCanRead = $true }
+        if ($sid -eq 'S-1-5-20' -and $canRead) { $networkServiceCanRead = $true }
     }
     if (-not $networkServiceCanRead) {
         throw "NetworkService needs an explicit file read ACL for backup $label."
