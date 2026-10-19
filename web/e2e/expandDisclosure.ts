@@ -11,7 +11,7 @@ export async function expandDisclosure(page: Page, title: string): Promise<void>
     await expect(async () => {
       await expect(section).toBeVisible({ timeout: 3000 })
       if ((await section.getAttribute('open', { timeout: 3000 })) === null) {
-        await section.locator('summary').click({ timeout: 3000 })
+        await section.locator(':scope > summary').click({ timeout: 3000 })
       }
       await expect(section).toHaveAttribute('open', '', { timeout: 3000 })
     }).toPass({ timeout: 15000, intervals: [200, 500, 1000] })
