@@ -407,7 +407,7 @@ export default function FiscalSetupGuide({
               informe os dados solicitados da IE, o CPF do responsável autorizado e a senha
               pessoal; também existe acesso por certificado digital. O contador ou
               representante autorizado pode orientar o procedimento.
-              Esse login é feito no portal do governo, não no SistemaEmGo.</p>
+              Esse login é feito no portal do governo, não no Esterium ERP.</p>
             <p><strong>O que fazer:</strong> verificar se o CNPJ/IE está credenciado
               para emitir NFC-e modelo 65 e, se necessário, seguir as instruções
               oficiais de credenciamento. Confirme a situação antes de avançar.</p>
@@ -491,7 +491,6 @@ export default function FiscalSetupGuide({
               no ambiente correto. Salvar a configuração não liga transmissão.</p>
             <div className="flex flex-wrap gap-x-4 gap-y-2">
               <OfficialLink href={officialLinks.homologacao}>Serviços oficiais de MG</OfficialLink>
-              <OfficialLink href={officialLinks.nfe}>NF-e modelo 55: credenciamento separado</OfficialLink>
             </div>
             {manualTask('fiscal_previous_series_checked', 'Conferi com o responsável a numeração e a série já utilizadas')}
             <JumpButton onClick={onOpenCertificate}>Abrir configuração de homologação</JumpButton>
@@ -506,8 +505,7 @@ export default function FiscalSetupGuide({
               oficial de uma nota autorizada pode ser feita no portal de consultas MG.</p>
             <p>Na operação futura, cada venda deverá gerar sua obrigação fiscal.
               O cliente poderá escolher imprimir ou não o DANFE na térmica,
-              mas essa escolha nunca cancela a emissão. A NF-e modelo 55
-              segue um fluxo próprio, ainda não liberado neste sistema.</p>
+              mas essa escolha nunca cancela a emissão.</p>
             <OfficialLink href={officialLinks.consulta}>Consultas oficiais NFC-e MG</OfficialLink>
           </GuideStep>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
