@@ -78,6 +78,35 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
 try {
     Write-FixtureBundle $installed 1 'old-synthetic-server'
     Write-FixtureBundle $candidate 2 'new-synthetic-server'
+    # A Vite web/ asset subtree is permitted in bundles, but private
+    # certificate containers there would be served to unauthenticated clients.
+    # Test the writer AND the verifier, even with a forged matching SHA-256.
+    $blockedArtifact=Join-Path $candidate 'web\\synthetic-private-key.pfx'
+    $candidateManifest=Join-Path $candidate 'bundle-manifest.json'
+    $goodManifest=[IO.File]::ReadAllText($candidateManifest)
+    [IO.File]::WriteAllText($blockedArtifact,'Synthetic CI fixture: NOT a real certificate')
+    Remove-Item -LiteralPath $candidateManifest -Force
+    $writerBlocked=$false
+    try { & $manifestWriter -BundleDir $candidate | Out-Null }
+    catch { $writerBlocked=$_.Exception.Message -match 'secret, certificate or database material' }
+    if (-not $writerBlocked) {
+        throw 'Bundle manifest writer accepted a private-key container under web/.'
+    }
+    [IO.File]::WriteAllText($candidateManifest,$goodManifest)
+    $forged= $goodManifest | ConvertFrom-Json
+    $forged.files = @($forged.files) + [PSCustomObject]@{
+        path='web/synthetic-private-key.pfx'
+        sha256=(Get-FileHash -LiteralPath $blockedArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    [IO.File]::WriteAllText($candidateManifest,($forged | ConvertTo-Json -Depth 5))
+    $verifierBlocked=$false
+    try { & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $candidate | Out-Null }
+    catch { $verifierBlocked=$_.Exception.Message -match 'manifest includes secret, certificate or database material' }
+    if (-not $verifierBlocked) {
+        throw 'Bundle verifier accepted a rehashed manifest containing a private-key container.'
+    }
+    Remove-Item -LiteralPath $blockedArtifact -Force
+    [IO.File]::WriteAllText($candidateManifest,$goodManifest)
     [IO.Directory]::CreateDirectory($backupDir) | Out-Null
     [IO.Directory]::CreateDirectory($external) | Out-Null
     $name = 'esterium-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-1234abcd.dump'
