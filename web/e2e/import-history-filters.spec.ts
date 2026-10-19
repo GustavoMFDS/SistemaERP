@@ -1,13 +1,16 @@
 import { expect, test } from '@playwright/test'
 import { expandDisclosure } from './expandDisclosure'
 
-async function login(page: import('@playwright/test').Page, email: string) {
+async function login(page: import('@playwright/test').Page, email: string, destination: '/products' | '/inventory' = '/products') {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
-  await page.goto('/products')
+  // Avoid a redundant authenticated page load before testing inventory:
+  // under full-suite load, the extra transition can race permission/session checks.
+  await page.goto(destination)
+  await expect.poll(() => new URL(page.url()).pathname).toBe(destination)
 }
 
 test('filtro de período e CSV usam as mesmas datas sem mudar o CNPJ', async ({ page }) => {
@@ -88,8 +91,7 @@ test('estoque inicial apresenta erro sem baixar arquivo ao exceder limite do rel
       status: 422, contentType: 'application/json',
       body: '{"code":"validation_error","message":"mais de 1000 lotes; escolha um periodo menor para exportar"}',
     }))
-  await login(page, 'gerente@sistema.local')
-  await page.goto('/inventory')
+  await login(page, 'gerente@sistema.local', '/inventory')
   await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
   const history = page.getByRole('region', { name: 'Histórico de importações confirmadas' })
   await expect(history.getByRole('button', { name: 'Baixar histórico CSV' })).toBeEnabled()
