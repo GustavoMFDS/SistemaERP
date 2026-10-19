@@ -7,6 +7,36 @@ $bundle = Join-Path $root 'technical-bundle'
 $web = Join-Path $bundle 'web'
 $secrets = Join-Path $root 'secrets'
 $install = Join-Path $env:ProgramFiles ('EsteriumERP-Plan-' + [Guid]::NewGuid().ToString('N'))
+# Static defense-in-depth contract: every helper executed inside elevated
+# installation or update must be in the production Authenticode signer loop.
+# This checks delegation completeness only; real trusted-certificate positive
+# verification still requires a controlled signed Windows release.
+$delegations = @{
+    'install-esterium-local.ps1' = @(
+        'plan-esterium-local-setup.ps1',
+        'check-esterium-windows-host.ps1',
+        'check-esterium-local-dependencies.ps1',
+        'register-esterium-windows-service.ps1',
+        'verify-esterium-bundle.ps1'
+    )
+    'apply-esterium-app-update.ps1' = @(
+        'plan-esterium-windows-upgrade.ps1',
+        'check-esterium-backup-integrity.ps1',
+        'verify-esterium-bundle.ps1'
+    )
+}
+foreach ($entry in $delegations.GetEnumerator()) {
+    $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot $entry.Key))
+    if (-not $source.Contains('foreach ($scriptPath in $signedEntryPoints)') -or
+        -not $source.Contains('Get-AuthenticodeSignature -LiteralPath $scriptPath')) {
+        throw ('Elevated signer gate missing for ' + $entry.Key)
+    }
+    foreach ($helper in $entry.Value) {
+        if (-not $source.Contains("'" + $helper + "'")) {
+            throw ('Elevated helper omitted from publisher gate: ' + $helper)
+        }
+    }
+}
 try {
     [IO.Directory]::CreateDirectory($web) | Out-Null
     [IO.Directory]::CreateDirectory($secrets) | Out-Null
