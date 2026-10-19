@@ -59,6 +59,9 @@ if ($target.StartsWith($data + '\',[StringComparison]::OrdinalIgnoreCase) -or
     $data.StartsWith($target + '\',[StringComparison]::OrdinalIgnoreCase)) {
     throw 'Options and PostgreSQL data paths must be separate.'
 }
+if ($Port -eq 8080 -or $Port -eq 6379) {
+    throw 'PostgreSQL may not take the Esterium web or local cache port.'
+}
 if ((Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) -ne $null) {
     throw 'PostgreSQL Windows service already exists.'
 }
