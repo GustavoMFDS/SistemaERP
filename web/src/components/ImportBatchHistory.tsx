@@ -183,7 +183,7 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
           {exporting ? 'Preparando CSV…' : 'Baixar histórico CSV'}
         </button>
         <p className="w-full text-xs text-gray-600">
-          Datas no horário de Brasília. Exportação de até 1.000 lotes, somente metadados.
+          Datas no horário de Brasília. O arquivo traz até 1.000 registros do histórico, sem as planilhas originais.
           Para períodos muito grandes, reduza as datas.
         </p>
         {!periodValid ? (
@@ -220,7 +220,7 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
                 <th className="px-2 py-2">Data</th>
                 <th className="px-2 py-2">Responsável</th>
                 <th className="px-2 py-2">Produtos</th>
-                <th className="px-2 py-2">Identificador do lote</th>
+                <th className="px-2 py-2">Referência</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -231,7 +231,12 @@ export default function ImportBatchHistory({ kind, refreshVersion = 0 }: Props) 
                   </td>
                   <td className="px-2 py-2">{item.actor_name}</td>
                   <td className="px-2 py-2">{item.item_count}</td>
-                  <td className="px-2 py-2"><code className="break-all">{item.batch_id}</code></td>
+                  <td className="px-2 py-2">
+                    <details>
+                      <summary className="cursor-pointer text-blue-700">Ver código</summary>
+                      <code className="block break-all pt-1">{item.batch_id}</code>
+                    </details>
+                  </td>
                 </tr>
               ))}
             </tbody>
