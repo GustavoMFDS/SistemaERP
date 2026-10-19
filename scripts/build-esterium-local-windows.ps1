@@ -105,7 +105,8 @@ foreach ($tool in @(
     'check-esterium-signed-release.ps1',
     'check-esterium-offline-dependency-packages.ps1',
     'provision-esterium-garnet-config.ps1',
-    'provision-esterium-postgres-optionfile.ps1'
+    'provision-esterium-postgres-optionfile.ps1',
+    'prepare-esterium-local-dependency-configs.ps1'
 )) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool) -ErrorAction Stop
 }
