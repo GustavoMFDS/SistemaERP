@@ -110,6 +110,9 @@ jobs:
       - name: Prepare combined PostgreSQL and Garnet new-install configuration in disposable Windows CI
         shell: pwsh
         run: ./scripts/test-esterium-local-dependency-configs.ps1
+      - name: Validate static local-only TLS/SCRAM PostgreSQL config using fake Windows files
+        shell: pwsh
+        run: ./scripts/test-esterium-postgres-tls-policy.ps1
       - name: Validate immutable migration chain and verified backup before Windows upgrade
         shell: pwsh
         run: ./scripts/test-esterium-upgrade-plan.ps1
@@ -227,6 +230,7 @@ jobs:
             scripts/provision-esterium-garnet-config.ps1 \
             scripts/provision-esterium-postgres-optionfile.ps1 \
             scripts/prepare-esterium-local-dependency-configs.ps1 \
+            scripts/check-esterium-postgres-tls-policy.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
