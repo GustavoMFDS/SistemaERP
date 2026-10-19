@@ -1,0 +1,112 @@
+#requires -Version 5.1
+<#
+  Static, READ-ONLY check for a disposable, newly installed PostgreSQL
+  configuration. NEVER connects to databases, alters postgresql.conf/hba,
+  starts services or certifies effective pg_settings/pg_hba_file_rules.
+  ALTER SYSTEM/postgresql.auto.conf and runtime overrides need a real test
+  on an isolated Windows runner before deployment. No production approval.
+#>
+param(
+    [Parameter(Mandatory=$true)][string]$PostgresqlConf,
+    [Parameter(Mandatory=$true)][string]$PgHbaConf
+)
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+if ($env:OS -ne 'Windows_NT') { throw 'This PostgreSQL static policy check requires Windows.' }
+$files=@($PostgresqlConf,$PgHbaConf)
+foreach ($path in $files) {
+    if (-not [IO.Path]::IsPathRooted($path) -or
+        -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw 'Both PostgreSQL policy paths must be existing absolute files.'
+    }
+    $item=Get-Item -LiteralPath $path -Force
+    if ($item.Length -le 0 -or $item.Length -gt 1048576 -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'PostgreSQL policy file must be regular, nonempty and at most 1 MiB.'
+    }
+}
+$options=@{}
+$protected=@('listen_addresses','ssl','ssl_min_protocol_version','password_encryption',
+    'ssl_cert_file','ssl_key_file','hba_file','include','include_dir','include_if_exists')
+foreach ($line in [IO.File]::ReadAllLines($PostgresqlConf)) {
+    $t=$line.Trim()
+    if ($t -eq '' -or $t.StartsWith('#')) { continue }
+    if ($t -notmatch "^(?<name>[A-Za-z_]+)\s*=\s*(?:'(?<q>[^']*)'|(?<bare>[^#\s]+))\s*(?:#.*)?$") {
+        # Only skip unrelated comments/directives if they do not reference
+        # any security-critical variable in our immutable allowlist.
+        $candidate=($t -split '\s|=',2)[0]
+        if ($candidate -in $protected) {
+            throw 'A PostgreSQL security setting has an ambiguous or unsupported syntax.'
+        }
+        continue
+    }
+    $name=$Matches['name'].ToLowerInvariant()
+    $value=if ($Matches['q'] -ne $null -and $t.Contains("'")) { $Matches['q'] } else { $Matches['bare'] }
+    if ($name -in @('include','include_dir','include_if_exists','hba_file')) {
+        throw 'This static gate cannot certify overridden or included PostgreSQL policy files.'
+    }
+    if ($name -in $protected) {
+        if ($options.ContainsKey($name)) {
+            throw 'A PostgreSQL security setting was declared more than once.'
+        }
+        $options[$name]=$value
+    }
+}
+if ($options['listen_addresses'] -notin @('localhost','127.0.0.1','::1')) {
+    throw 'PostgreSQL must listen only on loopback, never on LAN or all addresses.'
+}
+if ($options['ssl'] -ne 'on') {
+    throw 'PostgreSQL must require TLS transport on its loopback listener.'
+}
+if ($options['password_encryption'] -ne 'scram-sha-256') {
+    throw 'PostgreSQL must require SCRAM-SHA-256 for new passwords.'
+}
+if ($options['ssl_min_protocol_version'] -notin @('TLSv1.2','TLSv1.3')) {
+    throw 'PostgreSQL TLS minimum must be at least TLS 1.2.'
+}
+foreach ($setting in @('ssl_cert_file','ssl_key_file')) {
+    if ([string]::IsNullOrWhiteSpace($options[$setting])) {
+        throw 'PostgreSQL TLS certificate/key paths must be explicit.'
+    }
+}
+$allowed=@{ '127.0.0.1/32'=$false; '::1/128'=$false }
+foreach ($line in [IO.File]::ReadAllLines($PgHbaConf)) {
+    $t=$line.Trim()
+    if ($t -eq '' -or $t.StartsWith('#')) { continue }
+    if ($t -match '^(?i)(include|include_dir|include_if_exists)\b') {
+        throw 'pg_hba.conf included files require a separate effective-policy inspection.'
+    }
+    $parts=@(($t -split '\s+') | Where-Object { $_ -ne '' })
+    if ($parts.Count -lt 4) {
+        throw 'Unsupported or incomplete pg_hba.conf access rule.'
+    }
+    $kind=$parts[0].ToLowerInvariant()
+    if ($kind -eq 'local') {
+        if ($parts.Count -lt 4 -or $parts[3] -notin @('scram-sha-256','reject')) {
+            throw 'Local socket access cannot use trust, peer or weak authentication.'
+        }
+        continue
+    }
+    if ($kind -notin @('host','hostssl','hostnossl','hostgssenc','hostnogssenc') -or $parts.Count -lt 5) {
+        throw 'Unsupported PostgreSQL HBA rule type.'
+    }
+    $address=$parts[3]
+    $method=$parts[4]
+    if ($kind -ne 'hostssl') {
+        if ($method -ne 'reject') {
+            throw 'Non-TLS PostgreSQL connection rules must be explicit rejects.'
+        }
+        continue
+    }
+    if ($address -notin @('127.0.0.1/32','::1/128') -or
+        $method -ne 'scram-sha-256') {
+        throw 'Only loopback hostssl rules with SCRAM-SHA-256 may accept connections.'
+    }
+    $allowed[$address]=$true
+}
+if (-not $allowed['127.0.0.1/32'] -or -not $allowed['::1/128']) {
+    throw 'Both IPv4 and IPv6 local hostssl/SCRAM entries are required.'
+}
+Write-Output 'PASS: static PostgreSQL config files specify loopback listeners, TLS and SCRAM-only HBA rules.'
+Write-Output 'NOT VERIFIED: actual running PostgreSQL settings, certificate validity, peer identity, auto.conf overrides, databases or schema.'
+Write-Output 'NEXT: confirm pg_settings and pg_hba_file_rules on an isolated disposable database; never infer production safety from static files.'
