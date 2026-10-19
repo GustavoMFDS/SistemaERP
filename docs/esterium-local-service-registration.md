@@ -95,6 +95,14 @@ Após aceite técnico, `-Apply` cria o arquivo de opções, mas **não baixa nem
 
 O CI cria esse arquivo exclusivamente com **credenciais sintéticas** em runner Windows hospedado e verifica ausência de operações de banco, não sobrescrita, permissões e recusas a acessos inseguros.
 
+### Preparar PostgreSQL e Garnet em um único comando seguro
+
+`tools/prepare-esterium-local-dependency-configs.ps1` reúne os **dois geradores de arquivos de configuração**, em vez de executar cada um separadamente. Por padrão, é uma simulação sem escrita: valida que as pastas de destino são novas e diferentes, as portas não conflitam, as origens dos segredos têm permissões corretas e os certificados/arquivos estão presentes. Só com `-Apply` cria o arquivo de opções PostgreSQL e o `garnet.conf` em pastas protegidas.
+
+Os parâmetros obrigatórios são `-PostgresSuperPasswordFile`, `-PostgresServicePasswordFile`, `-GarnetAclFile`, `-GarnetCertificatePfxFile` e `-GarnetCertificatePasswordFile`. Nenhuma senha vai para argumento de processo; são informados apenas **caminhos** de arquivos protegidos. As pastas já existentes são recusadas. O modo efetivo comercial requer que o próprio script e os dois geradores sejam assinados por um editor previamente aprovado, usando `-TrustedPublisherThumbprint` obtido de fonte independente. A exceção para scripts não assinados só funciona em Windows temporário e descartável do CI.
+
+**Limite de segurança:** na eventual falha da segunda configuração, o arquivo protegido da primeira é **mantido** para investigação e não é removido automaticamente. Nenhum serviço, executável, banco, conta Windows ou instalação de terceiros é criado por esse comando. A identidade real dos serviços, o TLS e a compatibilidade Redis/Lua continuam dependendo de testes posteriores. Sem assinatura oficial e dependências instaladas, não há liberação comercial.
+
 ### Preparar o arquivo restrito para o instalador offline PostgreSQL 16
 
 A ferramenta `tools/provision-esterium-postgres-optionfile.ps1` foi projetada **somente para uma instalação nova e ainda vazia**. O padrão é uma análise sem escrita. Com `-Apply` administrativo, cria um arquivo de opções EDB protegido, sob `ProgramData\\Esterium\\PostgresInstallOptions`, para posterior instalação sem interação: configura nome do serviço, conta Windows dedicada, pasta de binários, pasta separada de dados, porta e componentes **servidor + utilitários de linha de comando**, excluindo pgAdmin/StackBuilder. Verifica antes da criação que as pastas de instalação e dados e a conta/serviço alvo ainda não existem, que a porta não está ocupada e que ambos os arquivos de senhas são protegidos contra leitores comuns.
