@@ -95,6 +95,14 @@ Após aceite técnico, `-Apply` cria o arquivo de opções, mas **não baixa nem
 
 O CI cria esse arquivo exclusivamente com **credenciais sintéticas** em runner Windows hospedado e verifica ausência de operações de banco, não sobrescrita, permissões e recusas a acessos inseguros.
 
+### Conferir configuração estática de segurança do PostgreSQL sem acessar o banco
+
+`tools/check-esterium-postgres-tls-policy.ps1` inspeciona somente os **arquivos** `postgresql.conf` e `pg_hba.conf` fornecidos por caminho absoluto. Ele recusa escuta fora do próprio computador, TLS desligado, versão mínima inferior a TLS 1.2, novas senhas sem SCRAM-SHA-256, HBA que aceite conexões sem TLS ou com `trust`, autenticação via rede externa, duplicações contraditórias e `include`/regras incluídas que não podem ser verificadas por esta ferramenta. Não altera arquivos, não abre conexões, não lê clientes/produtos/vendas, não inicia processos.
+
+Para o ambiente novo e **descartável**, depois que PostgreSQL estiver instalado, o técnico poderá indicar os caminhos reais dos dois arquivos. Essa checagem estática **não demonstra a política ativa**: `postgresql.auto.conf`, parâmetros na linha de comando, certificados inválidos ou regras recarregadas podem modificar o comportamento real. O aceite exige conferir `pg_settings` e `pg_hba_file_rules` com uma conta mínima de diagnóstico, provar TLS e SCRAM em um banco fictício, e verificar a identidade do serviço e as permissões de sua chave privada. Até lá, não ligar o PDV a PostgreSQL de produção.
+
+O CI Windows exercita essa inspeção somente com arquivos fictícios e casos negativos, sem instalar ou inicializar PostgreSQL.
+
 ### Preparar PostgreSQL e Garnet em um único comando seguro
 
 `tools/prepare-esterium-local-dependency-configs.ps1` reúne os **dois geradores de arquivos de configuração**, em vez de executar cada um separadamente. Por padrão, é uma simulação sem escrita: valida que as pastas de destino são novas e diferentes, as portas não conflitam, as origens dos segredos têm permissões corretas e os certificados/arquivos estão presentes. Só com `-Apply` cria o arquivo de opções PostgreSQL e o `garnet.conf` em pastas protegidas.
