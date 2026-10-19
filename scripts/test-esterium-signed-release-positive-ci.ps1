@@ -92,15 +92,33 @@ try {
     }
     $certThumb=$cert.Thumbprint
     Write-Output 'STEP: ephemeral certificate minted and imported; preparing local-only trust.'
-    $cer=Join-Path $root 'synthetic-only.cer'
-    Export-Certificate -Cert $cert -FilePath $cer | Out-Null
-    Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
-    Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+    # Import-Certificate hangs on the hosted Windows runner for the
+    # disposable self-signed fixture. Use the framework store API so there
+    # is no installer/UI enrollment path or external revocation request.
+    $publicCert=[Security.Cryptography.X509Certificates.X509Certificate2]::new(
+        $cert.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+    try {
+        foreach ($storeName in @('Root','TrustedPublisher')) {
+            Write-Output ("STEP: registering ephemeral public trust in CurrentUser/" + $storeName)
+            $trustStore=[Security.Cryptography.X509Certificates.X509Store]::new(
+                $storeName,[Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+            try {
+                $trustStore.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+                $trustStore.Add($publicCert)
+            } finally {
+                $trustStore.Close()
+                $trustStore.Dispose()
+            }
+        }
+    } finally {
+        $publicCert.Dispose()
+    }
     Write-Output 'STEP: disposable trust stores prepared; signing fixtures.'
     Write-Output 'STEP: signing disposable executables and all packaged scripts.'
     $signTargets=@($server,(Join-Path $toolsDir 'esterium-migrate.exe'))
     $signTargets+=@(Get-ChildItem -LiteralPath $toolsDir -File -Filter '*.ps1' | ForEach-Object { $_.FullName })
     foreach ($path in $signTargets) {
+        Write-Output ('STEP: signing synthetic file ' + [IO.Path]::GetFileName($path))
         $result=Set-AuthenticodeSignature -FilePath $path -Certificate $cert -HashAlgorithm SHA256 -ErrorAction Stop
         if ($result.Status -ne [Management.Automation.SignatureStatus]::Valid) {
             throw 'Synthetic code signing did not produce a trusted local fixture.'
@@ -137,8 +155,23 @@ try {
     Write-Output 'PASS: ephemeral code-signed Windows bundle approved; wrong signer and rehashed tampering rejected.'
 } finally {
     if ($certThumb) {
-        foreach ($store in @('My','Root','TrustedPublisher')) {
-            Remove-Item -LiteralPath ("Cert:\CurrentUser\" + $store + "\" + $certThumb) -Force -ErrorAction SilentlyContinue
+        foreach ($storeName in @('My','Root','TrustedPublisher')) {
+            try {
+                $store=[Security.Cryptography.X509Certificates.X509Store]::new(
+                    $storeName,[Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+                try {
+                    $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+                    $matches=$store.Certificates.Find(
+                        [Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                        $certThumb,$false)
+                    foreach ($found in $matches) { $store.Remove($found) }
+                } finally {
+                    $store.Close()
+                    $store.Dispose()
+                }
+            } catch {
+                Write-Warning ("Could not retire synthetic CurrentUser certificate from " + $storeName)
+            }
         }
     }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
