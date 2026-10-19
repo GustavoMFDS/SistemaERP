@@ -182,6 +182,18 @@ try {
         if (-not $rejectedUnsignedLauncher) {
             throw 'Real application update delegated scripts before verifying the signer of its entrypoint.'
         }
+        # The source can be replaced between early approval and directory swap.
+        # A wrong independently expected digest MUST stop the installer even in
+        # synthetic unsigned mode, before the installed folder is moved.
+        $appArgs.ApprovedManifestSHA256 = '0' * 64
+        $stagedDigestRejected = $false
+        try { & $appUpdater @appArgs -Apply 3>$null | Out-Null }
+        catch { $stagedDigestRejected = $_.Exception.Message -match 'Staged application release differs' }
+        if (-not $stagedDigestRejected -or
+            (Get-Content -LiteralPath (Join-Path $installed 'esterium-server.exe') -Raw) -ne 'old-synthetic-server') {
+            throw 'Updater swapped files despite invalid independent staged release approval.'
+        }
+        $appArgs.ApprovedManifestSHA256 = (Get-FileHash -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Algorithm SHA256).Hash
         $changed = @(& $appUpdater @appArgs -Apply 3>$null) -join [Environment]::NewLine
         if ($changed -notmatch 'PASS: application-only files updated') {
             throw 'Synthetic application-only replacement did not complete.'
