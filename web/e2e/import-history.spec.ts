@@ -64,7 +64,11 @@ test('estoque inicial possui histórico próprio de recibos, sem CSV', async ({ 
   await expandDisclosure(page, 'Cadastrar estoque inicial por planilha')
   const history = page.getByRole('region', { name: 'Histórico de importações confirmadas' })
   await expect(history).toContainText('Responsável estoque')
-  await expect(history).toContainText('00000000-0000-4000-8000-000000000200')
+  const reference = history.locator('details').first()
+  await expect(reference).not.toHaveAttribute('open', '')
+  await reference.locator(':scope > summary').click()
+  await expect(reference).toHaveAttribute('open', '')
+  await expect(reference.locator('code')).toHaveText('00000000-0000-4000-8000-000000000200')
   await expect(history.getByRole('button', { name: 'Próxima página' })).toBeDisabled()
 })
 
