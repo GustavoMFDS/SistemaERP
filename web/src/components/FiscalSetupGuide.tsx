@@ -55,7 +55,6 @@ const officialLinks = {
   perguntas: 'https://portalsped.fazenda.mg.gov.br/spedmg/nfce/Perguntas-Frequentes/respostas_i/index.html',
   homologacao: 'https://portalsped.fazenda.mg.gov.br/spedmg/nfce/web-services/',
   consulta: 'https://portalsped.fazenda.mg.gov.br/spedmg/nfce/consultas/',
-  nfe: 'https://portalsped.fazenda.mg.gov.br/spedmg/nfe/credenciamento/',
 }
 
 function OfficialLink({ href, children }: { href: string; children: string }) {
