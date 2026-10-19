@@ -95,6 +95,22 @@ Após aceite técnico, `-Apply` cria o arquivo de opções, mas **não baixa nem
 
 O CI cria esse arquivo exclusivamente com **credenciais sintéticas** em runner Windows hospedado e verifica ausência de operações de banco, não sobrescrita, permissões e recusas a acessos inseguros.
 
+### Preparar o arquivo restrito para o instalador offline PostgreSQL 16
+
+A ferramenta `tools/provision-esterium-postgres-optionfile.ps1` foi projetada **somente para uma instalação nova e ainda vazia**. O padrão é uma análise sem escrita. Com `-Apply` administrativo, cria um arquivo de opções EDB protegido, sob `ProgramData\\Esterium\\PostgresInstallOptions`, para posterior instalação sem interação: configura nome do serviço, conta Windows dedicada, pasta de binários, pasta separada de dados, porta e componentes **servidor + utilitários de linha de comando**, excluindo pgAdmin/StackBuilder. Verifica antes da criação que as pastas de instalação e dados e a conta/serviço alvo ainda não existem, que a porta não está ocupada e que ambos os arquivos de senhas são protegidos contra leitores comuns.
+
+A senha de administrador do PostgreSQL e a senha da conta de serviço são lidas de **dois arquivos separados**, exclusivamente acessíveis por `SYSTEM` e `Administradores`; devem ser diferentes. Seus valores **não são colocados na linha de comando**. O arquivo resultante contém as senhas em texto, pois é assim que a opção `--optionfile` do instalador as recebe, e por isso fica protegido por permissões Windows restritas e deve ser aposentado com segurança após o uso. O comando não imprime nenhum valor.
+
+Exemplo de preparação sem efeito colateral:
+
+```powershell
+.\\tools\\provision-esterium-postgres-optionfile.ps1 `
+  -SuperPasswordFile 'C:\\ProgramData\\Esterium\\Bootstrap\\pg-super.secret' `
+  -ServicePasswordFile 'C:\\ProgramData\\Esterium\\Bootstrap\\pg-service.secret'
+```
+
+**Limite:** não executamos `--optionfile`, não criamos conta de serviço, instalação PostgreSQL ou cluster, nem alteramos firewall, política TLS, configuração `pg_hba.conf`, bases ou esquemas. A autenticação das versões/assinaturas vem do gate de pacotes offline; o comportamento de provisionamento/ACL da conta Windows precisa de ensaio em ambiente descartável antes de qualquer automação efetiva. Referência dos parâmetros: [documentação oficial EDB](https://www.enterprisedb.com/docs/supported-open-source/postgresql/installing/command_line_parameters/). O runner Windows testa geração e recusas com senhas **100% sintéticas**, sem executar instaladores de terceiros.
+
 ### Criar a configuração local do Garnet sem iniciar um serviço
 
 A ferramenta `tools/provision-esterium-garnet-config.ps1` é a primeira etapa com gravação **real e explicitamente autorizada** (`-Apply`) do preparo do cache para uma **instalação nova**. Antes disso, exige três arquivos externos previamente provisionados e com permissões seguras: um arquivo ACL Garnet com **usuário default desabilitado, nenhum `nopass` e uma conta nomeada com senha**, um certificado TLS válido `.pfx` com chave privada e um arquivo contendo **somente a senha do PFX**, todos legíveis exclusivamente por `NETWORK SERVICE`, `SYSTEM` e Administradores. A conta `NETWORK SERVICE` não pode alterar esses arquivos. O comando exige privilégios de administrador e recusa sobrescrever uma configuração existente.
