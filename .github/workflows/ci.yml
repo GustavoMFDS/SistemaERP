@@ -82,11 +82,16 @@ jobs:
 
   local-windows-installer-plan:
     runs-on: windows-2025
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Validate non-destructive service installer plan
         shell: pwsh
         run: ./scripts/test-register-esterium-windows-service.ps1
+      - name: Verify ephemeral signed release and reject wrong signer or tampering
+        shell: pwsh
+        timeout-minutes: 15
+        run: ./scripts/test-esterium-signed-release-positive-ci.ps1
 
   local-backup-integrity-gate:
     runs-on: windows-2025
