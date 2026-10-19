@@ -55,6 +55,18 @@ foreach ($file in $items) {
     if ($relative -match '(^|/)(\.env(\.[^/]*)?|\.pgpass|id_rsa|id_ed25519|[^/]*\.(pem|key|pfx|p12|p8|pvk|jks|keystore|kdbx|crt|cer|der|db|sqlite|sqlite3|secret|dump|backup|options|rdb|aof))($|/)') {
         throw 'Bundle contains a file resembling secret, certificate or database material.'
     }
+    # A web/ asset is publicly served by the local UI: keep unknown
+    # extensions out, even if a secret is disguised as harmless JSON/TXT.
+    # Adjust this allowlist deliberately if the compiled frontend changes.
+    if ($relative.StartsWith('web/',[StringComparison]::Ordinal)) {
+        $ext=[IO.Path]::GetExtension($relative).ToLowerInvariant()
+        $webAssetExtensions=@('.html','.js','.mjs','.css','.svg','.png','.ico',
+            '.webmanifest','.jpg','.jpeg','.gif','.webp','.avif','.woff',
+            '.woff2','.ttf','.otf','.wasm')
+        if ($ext -notin $webAssetExtensions) {
+            throw 'Web bundle includes an unsupported static asset extension.'
+        }
+    }
     $records += @{
         path = $relative
         sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
