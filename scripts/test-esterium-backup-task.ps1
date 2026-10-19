@@ -75,6 +75,13 @@ try {
     Assert-Reject 'PostgreSQL password file readable by Users'
     $aclOutput = & icacls.exe $passPath '/remove:g' '*S-1-5-32-545' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "ACL cleanup failed: $aclOutput" }
+    # A different OS identity is not a public group, but must still not be
+    # allowed to read the backup service's protected files.
+    $aclOutput = & icacls.exe $passPath '/grant' '*S-1-5-19:R' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic LocalService ACL setup failed: $aclOutput" }
+    Assert-Reject 'PostgreSQL password file readable by an unapproved Windows service account'
+    $aclOutput = & icacls.exe $passPath '/remove:g' '*S-1-5-19' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic LocalService ACL cleanup failed: $aclOutput" }
     $badTime = $false
     try { & $registration -ConfigFile $configPath -DailyAt '25:90' | Out-Null }
     catch { $badTime = $true }
