@@ -13,6 +13,25 @@ Esta folha descreve a sequência **proposta**, não uma aprovação de distribui
 | 5 | [#99](https://github.com/GustavoMFDS/SistemaERP/pull/99) | Verificação opcional de duas gerações locais e externas de backup | Fixtures de arquivo fresco, antigo, corrompido e ausente |
 | 6 | [#100](https://github.com/GustavoMFDS/SistemaERP/pull/100) | Gate que recusa release sem assinatura e hash independentemente aprovado | Assinaturas válidas de EXE/scripts, editor confiável e manifesto aprovado |
 
+
+### Continuação da cadeia de instalação local (19/10/2026)
+
+| PR | Dependência de base | Entrega | Gate ainda necessário |
+| --- | --- | --- | --- |
+| [#101](https://github.com/GustavoMFDS/SistemaERP/pull/101) | #100 | Inventário SHA-256 e origem dos instaladores offline PostgreSQL/Garnet | Aprovação independente dos fornecedores e assinaturas |
+| [#102](https://github.com/GustavoMFDS/SistemaERP/pull/102) | #101 | Processos Windows verdadeiros nas portas PostgreSQL/Garnet | Testes com serviços reais descartáveis |
+| [#103](https://github.com/GustavoMFDS/SistemaERP/pull/103) | #102 | Linguagem simples de compras, devoluções e importações | Revisão completa das 19 telas |
+| [#104](https://github.com/GustavoMFDS/SistemaERP/pull/104) | #103 | Rejeição de ZIPs terceiros perigosos | Fonte aprovada, sem extração automática |
+| [#105](https://github.com/GustavoMFDS/SistemaERP/pull/105) | #104 | Assinatura antes de delegar scripts privilegiados | Launcher confiável antes de iniciar execução |
+| [#106](https://github.com/GustavoMFDS/SistemaERP/pull/106) | #105 | Configuração protegida Garnet TLS/ACL/Lua, sem serviço | Compatibilidade real e identidade TLS/ACL |
+| [#107](https://github.com/GustavoMFDS/SistemaERP/pull/107) | #106 | Opções offline EDB PostgreSQL 16 em pasta protegida | Execução EDB/conta/TLS em Windows descartável |
+| [#108](https://github.com/GustavoMFDS/SistemaERP/pull/108) | #107 | Testes independentes de assinatura Authenticode | CI e revisão de diferença **em ramo irmão** |
+| [#109](https://github.com/GustavoMFDS/SistemaERP/pull/109) | #107 | Preparação conjunta dos arquivos PostgreSQL e Garnet | CI verde e install real ainda não realizado |
+| [#110](https://github.com/GustavoMFDS/SistemaERP/pull/110) | #109 | Verificação estática de PostgreSQL TLS/loopback/SCRAM | Inspecionar política ativa com banco de teste |
+
+**Atenção à bifurcação:** #108 e #109 partiram de #107. **Não** presumir que um está contido no outro nem juntá-los automaticamente. Reconciliar e revisar ambas as diferenças, depois refazer CI na base escolhida antes de integrar à `main`. `#110` depende de `#109`, não de `#108`.
+
+
 ### Como integrar futuramente
 
 1. Resolver a cadeia anterior **#25–#94** e suas dependências, conferindo HEAD, base, versões SQL, mergeability, CI e conflitos reais, sem pular para a branch mais recente.
