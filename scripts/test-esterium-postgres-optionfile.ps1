@@ -45,8 +45,9 @@ try {
         if ($actual -notmatch $expected) { throw "PostgreSQL options accepted $label or failed unexpectedly: $actual" }
     }
     $p.Port=8080
-    # Unlike the app listener, this is a legal port number but no listener
-    # might exist; prefer an explicit invalid account name for a deterministic rejection.
+    Assert-Reject 'PostgreSQL on the ERP web port' 'may not take the Esterium web'
+    $p.Port=6379
+    Assert-Reject 'PostgreSQL on the Garnet cache port' 'may not take the Esterium web'
     $p.ServiceAccount='administrator'
     Assert-Reject 'Windows administrator service identity' 'Invalid or unsafe'
     $p.ServiceAccount=('epg_ci' + $short)
