@@ -126,7 +126,7 @@ try {
     $certStorePath='Cert:\LocalMachine\My\'+$cert.Thumbprint
     $pfxPath=Join-Path $stage 'garnet.pfx'
     $pfxPassword=ConvertTo-SecureString $pfxSecret -AsPlainText -Force
-    Export-PfxCertificate -Cert $certStorePath -FilePath $pfxPath -Password $pfxPassword -ErrorAction Stop | Out-Null
+    Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pfxPassword -ErrorAction Stop | Out-Null
     Protect-Item $pfxPath $true
     if (-not (Test-Path -LiteralPath $pfxPath -PathType Leaf)) {
         throw 'Arquivo PFX não foi criado.'
