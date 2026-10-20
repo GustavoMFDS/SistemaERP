@@ -35,8 +35,9 @@ export default function AcceptStaffInvitePage() {
       : 'Use pelo menos 12 caracteres e evite reutilizar senhas de outros serviços.'
 
   useEffect(() => {
+    const previousTitle = document.title
     document.title = 'Ativar acesso — Esterium ERP'
-    return () => { initialInviteToken = '' }
+    return () => { initialInviteToken = ''; document.title = previousTitle }
   }, [])
 
   async function submit(event: FormEvent) {
@@ -111,7 +112,7 @@ export default function AcceptStaffInvitePage() {
               {password && confirm && password !== confirm ? (
                 <p role="alert" className="text-xs text-red-700">As senhas não são iguais. Confira a confirmação.</p>
               ) : null}
-              {error ? <p role="alert" className="text-sm text-red-700">Não foi possível ativar o acesso: {error}. Se o link venceu ou foi utilizado, peça outro ao responsável pela loja.</p> : null}
+              {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
               <button type="submit" disabled={busy || !password || password !== confirm || !validStaffPassword(password)}
                 className="w-full rounded-md bg-gray-900 px-4 py-2.5 text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
                 {busy ? 'Ativando…' : 'Ativar minha conta'}
