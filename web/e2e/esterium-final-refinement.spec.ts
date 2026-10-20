@@ -56,7 +56,7 @@ test('refino final: alertas, resumo fiscal e relatórios com permissões', async
 
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('teste@exemplo.local')
-  await page.getByLabel('Senha').fill('somente-teste')
+  await page.getByLabel('Senha', { exact: true }).fill('somente-teste')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('link', { name: 'Início' }).click()

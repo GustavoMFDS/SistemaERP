@@ -8,7 +8,7 @@ const apiBase = process.env.E2E_API_BASE_URL ?? 'http://127.0.0.1:8080'
 async function login(page: Page, identity: string, password: string) {
   await page.goto('/login')
   await page.getByLabel('E-mail ou nome de usuário').fill(identity)
-  await page.getByLabel('Senha').fill(password)
+  await page.getByLabel('Senha', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 }

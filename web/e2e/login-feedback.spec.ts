@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 async function submit(page: import('@playwright/test').Page) {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('operador@loja.test')
-  await page.getByLabel('Senha').fill('senha-de-teste')
+  await page.getByLabel('Senha', { exact: true }).fill('senha-de-teste')
   await page.getByRole('button', { name: 'Entrar', exact: true }).click()
 }
 

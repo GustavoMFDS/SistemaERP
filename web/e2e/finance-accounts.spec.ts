@@ -5,7 +5,7 @@ test('contas financeiras integradas: cadastrar, dar baixa e consultar evolução
   page.on('pageerror', (e) => pageErrors.push(e.message))
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('navigation', { name: 'Navegação principal' }).getByText('Mais áreas do sistema').click()
   await page.getByRole('link', { name: 'Financeiro', exact: true }).click()
@@ -30,7 +30,7 @@ test('contas financeiras integradas: cadastrar, dar baixa e consultar evolução
 test('operador de caixa não acessa contas financeiras', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('caixa@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await expect(page.getByRole('link', { name: 'Financeiro' })).toHaveCount(0)

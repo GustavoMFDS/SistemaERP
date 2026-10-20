@@ -3,7 +3,7 @@ import { expect, test } from './fixtures'
 test('devolução aplica a regra registrada na venda, mesmo depois de editar o produto', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 
@@ -110,7 +110,7 @@ test('devolução aplica a regra registrada na venda, mesmo depois de editar o p
 test('gerente não pode declarar direito legal sem permissão especial', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('gerente@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   const result = await page.evaluate(async () => {
@@ -140,7 +140,7 @@ test('gerente não pode declarar direito legal sem permissão especial', async (
 test('administrador de outro CNPJ não pode consultar uma venda da loja principal', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   const saleId = await page.evaluate(async () => {
@@ -151,7 +151,7 @@ test('administrador de outro CNPJ não pode consultar uma venda da loja principa
   expect(saleId).toBeTruthy()
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin-b@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   const result = await page.evaluate(async (saleId) => {

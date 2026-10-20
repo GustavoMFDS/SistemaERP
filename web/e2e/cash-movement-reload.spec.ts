@@ -3,7 +3,7 @@ import { expect, test } from './fixtures'
 test('ambiguous cash movement key survives PDV reload', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()

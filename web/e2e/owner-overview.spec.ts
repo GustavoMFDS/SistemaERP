@@ -4,7 +4,7 @@ import { expandDisclosure } from './expandDisclosure'
 async function signIn(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill(email)
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   // O login deve abrir a página inicial aprovada.
   await expect(page).toHaveURL(/\/home$/)

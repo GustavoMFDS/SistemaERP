@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test('paginacao de contas usa saldos totais do servidor', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.goto('/finance')
@@ -35,7 +35,7 @@ test('paginacao de contas usa saldos totais do servidor', async ({ page }) => {
 test('navegar entre páginas preserva saldo global calculado no servidor', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 
@@ -72,7 +72,7 @@ test('servidor antigo não quebra a página nem inventa totais financeiros', asy
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.route('**/api/v1/finance/accounts?*', (route) =>
