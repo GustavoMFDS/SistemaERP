@@ -196,7 +196,7 @@ test('network failure during logout does not pretend the HttpOnly session was re
 
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
-  await expect(page.getByText(/Não foi possível encerrar a sessão no servidor/)).toBeVisible()
+  await expect(page.getByText(/Não foi possível confirmar a saída com segurança/)).toBeVisible()
 
   const suspendedAfterFailure = await page.evaluate(async () => {
     const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
