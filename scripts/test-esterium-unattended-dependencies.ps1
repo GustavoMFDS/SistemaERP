@@ -117,6 +117,7 @@ try {
     $values.GarnetPort=64322
     [IO.File]::AppendAllText($options,'other=evil'+[Environment]::NewLine)
     Assert-Reject 'extra EDB option' 'Opções EDB duplicadas ou extras'
+    [IO.File]::WriteAllText($options,$optionsText+[Environment]::NewLine)
     $garnetConfig.EnableTLS=$false
     [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
     Assert-Reject 'TLS disabled in protected Garnet config' 'Garnet exige loopback'
