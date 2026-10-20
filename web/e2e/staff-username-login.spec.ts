@@ -27,7 +27,7 @@ test('funcionário sem e-mail ativa seu acesso e entra por nome de usuário', as
   expect(invite.token).toMatch(/^[a-f0-9]{64}$/)
 
   await page.goto('/accept-invite#token=' + invite.token)
-  await page.getByLabel('Criar senha (12 a 72 caracteres)').fill(password)
+  await page.getByLabel('Criar senha', { exact: true }).fill(password)
   await page.getByLabel('Confirmar nova senha').fill(password)
   await page.getByRole('button', { name: 'Ativar minha conta' }).click()
   await expect(page.getByText(/Conta ativada/)).toBeVisible()
