@@ -124,6 +124,19 @@ try {
     Assert-Reject 'PostgreSQL password file readable by an unapproved Windows service account'
     $aclOutput = & icacls.exe $passPath '/remove:g' '*S-1-5-19' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Synthetic LocalService ACL cleanup failed: $aclOutput" }
+    # The task account needs only ReadData; Modify lets a compromised
+    # backup process replace its own credentials/remote destination.
+    foreach ($protectedPath in @($passPath, $configPath)) {
+        $aclOutput = & icacls.exe $protectedPath '/grant:r' '*S-1-5-20:M' 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Synthetic NetworkService Modify ACL failed: $aclOutput" }
+        Assert-Reject 'NetworkService modifying its own protected backup input'
+        $aclOutput = & icacls.exe $protectedPath '/grant:r' '*S-1-5-20:R' 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Synthetic read-only ACL recovery failed: $aclOutput" }
+        $restored = @(& $runner -ConfigFile $configPath -CheckOnly) -join ' '
+        if ($restored -notmatch 'PASS: protected backup task configuration validated') {
+            throw 'Restored read-only NetworkService permission is still rejected.'
+        }
+    }
     $badTime = $false
     try { & $registration -ConfigFile $configPath -DailyAt '25:90' | Out-Null }
     catch { $badTime = $true }
