@@ -250,7 +250,7 @@ test('logout is blocked while offline finalized sales are preserved', async ({ p
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await expect(
-    page.getByText(/Não é possível sair enquanto existirem 1 venda\(s\) offline preservada\(s\)/),
+    page.getByText(/1 venda.*guardada.*neste dispositivo/),
   ).toBeVisible()
   expect(logoutCalls).toBe(0)
 
@@ -356,7 +356,7 @@ test('logout is blocked while legacy offline work is unresolved', async ({ page 
 
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/home$/)
-  await expect(page.getByText(/fila offline legada ainda não revisada/)).toBeVisible()
+  await expect(page.getByText(/1 registro.*antigo.*neste dispositivo/)).toBeVisible()
   expect(logoutCalls).toBe(0)
 
   await page.evaluate(async () => {

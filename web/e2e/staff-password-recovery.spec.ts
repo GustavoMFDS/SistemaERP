@@ -36,7 +36,7 @@ test('recuperação presencial consome link único e revoga sessões anteriores'
     const employee = await employeeContext.newPage()
     await employee.goto('/accept-invite#token=' + invitation.token)
     await expect(employee).toHaveURL(/\/accept-invite$/)
-    await employee.getByLabel('Criar senha (12 a 72 caracteres)').fill(oldPassword)
+    await employee.getByLabel('Criar senha', { exact: true }).fill(oldPassword)
     await employee.getByLabel('Confirmar nova senha').fill(oldPassword)
     await employee.getByRole('button', { name: 'Ativar minha conta' }).click()
     await expect(employee.getByText(/Conta ativada/)).toBeVisible()
@@ -124,7 +124,7 @@ test('recuperação presencial consome link único e revoga sessões anteriores'
         .some((value) => value.includes(token)), secret)
     expect(secretAtRest).toBe(false)
 
-    await reset.getByLabel('Nova senha (12 a 72 caracteres)').fill(newPassword)
+    await reset.getByLabel('Nova senha', { exact: true }).fill(newPassword)
     await reset.getByLabel('Confirmar nova senha').fill(newPassword)
     await reset.getByRole('button', { name: 'Alterar minha senha' }).click()
     await expect(reset.getByRole('status')).toContainText('Senha alterada')
