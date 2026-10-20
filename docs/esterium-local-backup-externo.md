@@ -44,7 +44,9 @@ PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSFILE, PGSSLROOTCERT, PostgresBin,
 BackupDir, ExternalBackupDir e RetentionDays. Nenhum valor de senha pode
 existir nesse JSON nem nos argumentos do Agendador; PGPASSFILE aponta para
 um arquivo secreto separado. Os dois arquivos exigem ACL de leitura explícita
-para NT AUTHORITY\NETWORK SERVICE, sem Users/Everyone/Authenticated Users.
+para NT AUTHORITY\NETWORK SERVICE, **sem permissão de modificar, excluir ou alterar ACL**;
+somente SYSTEM e Administradores podem administrá-los. Qualquer outra conta ou
+grupo autorizado é rejeitado, inclusive Users/Everyone/Authenticated Users.
 
 O executor recusa banco fora de loopback, exige TLS PostgreSQL com
 PGSSLMODE=verify-full, ferramentas PostgreSQL existentes, arquivo de senha
