@@ -162,7 +162,7 @@ $bootstrapArgs=@{DestinationDir=$BootstrapDir}
 & $bootstrap @bootstrapArgs | Out-Null
 if (-not $Apply) {
     Write-Output 'PLAN: pacotes aprovados, portas e pastas novas, geração de segredos e execução offline planejadas.'
-    Write-Output 'NEXT: modo real assinado cria PostgreSQL manual/parado e Garnet manual/parado; não configura banco comercial.'
+    Write-Output 'NEXT: modo real assinado cria PostgreSQL desabilitado/parado e Garnet desabilitado/parado; não configura banco comercial.'
     Write-Output 'PLAN: nenhum segredo, serviço, pasta ou dado foi alterado.'
     return
 }
@@ -210,5 +210,5 @@ $installArgs=@{
     Apply=$true
 }
 & $install @installArgs | Out-Null
-Write-Output 'PASS: dependências locais instaladas com um comando técnico; serviços permanecem parados.'
+Write-Output 'PASS: dependências locais instaladas com um comando técnico; serviços permanecem desabilitados e parados.'
 Write-Output 'NOT READY: confiança TLS/SQL/migrações e teste real de recuperação ainda necessários antes da primeira venda.'
