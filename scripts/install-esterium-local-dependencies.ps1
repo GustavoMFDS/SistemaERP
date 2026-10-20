@@ -206,14 +206,51 @@ if ($config.Address -cne '127.0.0.1' -or [int]$config.Port -ne $GarnetPort -or
 # or PFX, or turn off scripting limits, without changing the basic flags.
 $keys=@('Address','Port','EnableCluster','AuthenticationMode','AclFile',
     'EnableTLS','CertFileName','CertPassword','EnableLua','LuaTransactionMode',
-    'LuaMemoryManagementMode','LuaScriptMemoryLimit','LuaScriptTimeoutMs')
+    'LuaMemoryManagementMode','LuaScriptMemoryLimit','LuaScriptTimeoutMs',
+    'EnableAOF','WaitForCommit','CommitFrequencyMs','Recover',
+    'FailOnRecoveryError','UseAofNullDevice','LogDir','CheckpointDir')
 $names=@($config.PSObject.Properties | ForEach-Object { $_.Name })
 if ($names.Count -ne $keys.Count -or @($names | Where-Object { $_ -notin $keys }).Count -ne 0 -or
     $config.EnableCluster -cne $false -or
     $config.LuaMemoryManagementMode -cne 'Tracked' -or
     $config.LuaScriptMemoryLimit -cne '8m' -or
-    [int]$config.LuaScriptTimeoutMs -ne 5000) {
+    [int]$config.LuaScriptTimeoutMs -ne 5000 -or
+    $config.EnableAOF -cne $true -or $config.WaitForCommit -cne $true -or
+    [int]$config.CommitFrequencyMs -ne 0 -or
+    $config.Recover -cne $true -or $config.FailOnRecoveryError -cne $true -or
+    $config.UseAofNullDevice -cne $false) {
     throw 'Configuração Garnet não corresponde ao perfil protegido do Esterium.'
+}
+# Mutable AOF state must be a separate directory below the protected
+# configuration parent; NETWORK SERVICE may write state but not settings.
+$stateRoot=Join-Path (Split-Path -Parent $configPath) 'state'
+$expectedLog=[IO.Path]::GetFullPath((Join-Path $stateRoot 'logs'))
+$expectedCheckpoint=[IO.Path]::GetFullPath((Join-Path $stateRoot 'checkpoints'))
+if (-not [string]::Equals([string]$config.LogDir,$expectedLog,[StringComparison]::OrdinalIgnoreCase) -or
+    -not [string]::Equals([string]$config.CheckpointDir,$expectedCheckpoint,[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Pastas AOF e checkpoint Garnet devem ser isoladas sob state.'
+}
+foreach ($dir in @($stateRoot,$expectedLog,$expectedCheckpoint)) {
+    if (-not (Test-Path -LiteralPath $dir -PathType Container) -or
+        ((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Armazenamento de durabilidade Garnet ausente ou link proibido.'
+    }
+    $hasWritableService=$false
+    foreach ($ace in (Get-Acl -LiteralPath $dir).Access) {
+        if ($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+        $sid=$ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        $writes=[Security.AccessControl.FileSystemRights]::WriteData -bor
+            [Security.AccessControl.FileSystemRights]::AppendData -bor
+            [Security.AccessControl.FileSystemRights]::Delete -bor
+            [Security.AccessControl.FileSystemRights]::ChangePermissions
+        if (($ace.FileSystemRights -band $writes) -ne 0) {
+            if ($sid -notin @('S-1-5-18','S-1-5-32-544','S-1-5-20')) {
+                throw 'Armazenamento Garnet permite gravacao por usuario nao aprovado.'
+            }
+            if ($sid -eq 'S-1-5-20') { $hasWritableService=$true }
+        }
+    }
+    if (-not $hasWritableService) { throw 'Servico Garnet nao pode gravar AOF/checkpoint.' }
 }
 $aclPath=Get-SafeFile ([string]$config.AclFile)
 $pfxPath=Get-SafeFile ([string]$config.CertFileName)
