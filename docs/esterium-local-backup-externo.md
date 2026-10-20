@@ -59,12 +59,23 @@ provisionar arquivos de configuração e segredos restritos no Windows:
     .\tools\register-esterium-backup-task.ps1 -ConfigFile 'C:\ProgramData\Esterium\Backup\backup-config.json'
 
 O segundo comando é apenas um **plano** por padrão. O registro real requer
--Apply, administrador, pacote instalado com manifesto válido e inexistência de
-uma tarefa EsteriumERP-Backup anterior. Cria a tarefa diária com identidade
-NetworkService, **desabilitada por padrão** até verificação presencial e
-autorização explícita de habilitação. A conta da máquina deve ter direito
-de escrita no compartilhamento remoto: não presumir que uma credencial de
-usuário logado seja herdada pelo serviço.
+`-Apply`, administrador, **SHA-256 do manifesto aprovado por canal independente**
+(`-ApprovedManifestSHA256`) e impressão digital do certificado do editor já
+aprovado (`-TrustedPublisherThumbprint`). Antes de registrar, exige assinatura
+Authenticode válida do launcher e dos auxiliares, além de validar **todo o
+pacote instalado** pelo gate de distribuição. Não reutilize um hash ou editor
+informado pelo próprio ZIP não confiável como se fosse aprovação. A tarefa
+`EsteriumERP-Backup` anterior deve estar ausente.
+
+Cria a tarefa diária com identidade NetworkService, **desabilitada por padrão**
+até verificação presencial e autorização explícita de habilitação. A conta da
+máquina deve ter direito de escrita no compartilhamento remoto: não presumir
+que uma credencial de usuário logado seja herdada pelo serviço.
+
+O teste automatizado de registro real do Agendador usa uma exceção
+`-UnsignedDisposableCIFixture` **somente** no runner descartável e identificado
+do GitHub Actions, com dados sintéticos e tarefa desabilitada, removida no
+encerramento. Essa opção **não** é uma alternativa à assinatura para uma loja.
 
 O administrador deve demonstrar previamente permissões, execução e
 **restauração em outro PC**, além de monitorar falhas; esta ferramenta
