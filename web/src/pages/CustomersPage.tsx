@@ -45,7 +45,7 @@ export default function CustomersPage() {
     void apiJson<{ permissions: string[] }>('/api/v1/auth/me').then((data) => {
       if (!active || requestID !== authSequence.current || currentScope !== getSessionScope()) return
       setPermissions(data.permissions)
-    }).catch((cause: unknown) => {
+    }).catch(() => {
       if (!active || requestID !== authSequence.current || currentScope !== getSessionScope()) return
       setError('Não foi possível verificar seu acesso aos clientes. Atualize a página e tente novamente.')
       setLoading(false)
@@ -114,7 +114,7 @@ export default function CustomersPage() {
       resetForm()
       setOffset(0)
       setRefresh((n) => n + 1)
-    } catch (cause: unknown) {
+    } catch {
       setError('Não foi possível salvar o cadastro. Confira os dados e tente novamente.')
     } finally {
       setSaving(false)
