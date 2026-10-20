@@ -17,14 +17,14 @@ test('entrada permite conferir a senha e não altera a senha ao limpar o usuári
   const password = page.locator('#login-password')
   const enter = page.getByRole('button', { name: 'Entrar' })
 
-  await expect(enter).toBeDisabled()
+  await expect(enter).toBeEnabled()
   await username.fill('  caixa  ')
   await password.fill(' senha com espaços ')
   await expect(password).toHaveAttribute('type', 'password')
 
-  await page.getByRole('button', { name: 'Mostrar senha' }).click()
+  await page.getByRole('button', { name: 'Mostrar caracteres' }).click()
   await expect(password).toHaveAttribute('type', 'text')
-  await page.getByRole('button', { name: 'Ocultar senha' }).click()
+  await page.getByRole('button', { name: 'Ocultar caracteres' }).click()
   await expect(password).toHaveAttribute('type', 'password')
 
   await enter.click()
@@ -38,7 +38,7 @@ for (const scenario of [
     name: 'ativação',
     path: '/accept-invite',
     endpoint: '/api/v1/staff/accept-invite',
-    label: 'Criar senha',
+    label: 'Criar senha (12 a 72 caracteres)',
     submit: 'Ativar minha conta',
     confirmation: 'Conta ativada.',
   },
@@ -46,7 +46,7 @@ for (const scenario of [
     name: 'recuperação',
     path: '/reset-password',
     endpoint: '/api/v1/staff/complete-password-reset',
-    label: 'Nova senha',
+    label: 'Nova senha (12 a 72 caracteres)',
     submit: 'Alterar minha senha',
     confirmation: 'Senha alterada.',
   },
@@ -75,7 +75,7 @@ for (const scenario of [
     await password.fill('senhaMuitoForte123')
     await confirmation.fill('senhaMuitoForte123')
     await expect(submit).toBeEnabled()
-    await page.getByRole('button', { name: 'Mostrar senha' }).first().click()
+    await page.getByRole('button', { name: 'Mostrar caracteres' }).first().click()
     await expect(password).toHaveAttribute('type', 'text')
 
     await submit.click()
