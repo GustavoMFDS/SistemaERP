@@ -44,6 +44,27 @@ try {
         @(Get-ScheduledTask -TaskName 'EsteriumERP-Backup' -ErrorAction SilentlyContinue).Count -ne 0) {
         throw 'Backup plan mode unexpectedly installed or enabled a scheduled task.'
     }
+    # Neither a missing approval nor a forged digest/thumbprint may
+    # register a scheduled privileged entry point, even if left disabled.
+    $missingApprovalRejected = $false
+    try { & $registration -ConfigFile $configPath -DailyAt '02:00' -Apply | Out-Null }
+    catch { $missingApprovalRejected = $_.Exception.Message -match 'requires independent release SHA-256' }
+    if (-not $missingApprovalRejected) {
+        throw 'Backup task registration allowed Apply without independent release approval.'
+    }
+    $fakePublisherRejected = $false
+    try {
+        & $registration -ConfigFile $configPath -DailyAt '02:00' -Apply `
+            -ApprovedManifestSHA256 ('A' * 64) -TrustedPublisherThumbprint ('B' * 40) | Out-Null
+    } catch {
+        $fakePublisherRejected = $_.Exception.Message -match 'requires signed scripts'
+    }
+    if (-not $fakePublisherRejected) {
+        throw 'Backup task registration trusted an unsigned launcher with forged approval values.'
+    }
+    if (@(Get-ScheduledTask -TaskName 'EsteriumERP-Backup' -ErrorAction SilentlyContinue).Count -ne 0) {
+        throw 'Denied backup registration unexpectedly created a task.'
+    }
     function Assert-Reject([string]$reason) {
         $rejected = $false
         try { & $runner -ConfigFile $configPath -CheckOnly | Out-Null }
