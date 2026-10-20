@@ -314,6 +314,10 @@ $published=$false
 $created=$false
 try {
     [IO.Directory]::CreateDirectory($stage) | Out-Null
+    # Restrict the empty staging directory BEFORE extracting or copying any
+    # untrusted vendor bytes. All children inherit the safe ACL at creation.
+    & icacls.exe $stage '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)RX' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Não foi possível proteger pasta temporária Garnet.' }
     if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -cne $ExpectedGarnetSHA256.ToUpperInvariant()) {
         throw 'Arquivo Garnet mudou após a validação.'
     }
@@ -331,8 +335,6 @@ try {
     if ((Get-FileHash -LiteralPath $stagedWrapper -Algorithm SHA256).Hash -cne $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
         throw 'Wrapper copiado difere da versão aprovada.'
     }
-    & icacls.exe $stage '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)RX' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Não foi possível proteger pasta Garnet.' }
     if (Test-Path -LiteralPath $garnetDir) { throw 'Outro instalador criou a pasta de destino.' }
     Move-Item -LiteralPath $stage -Destination $garnetDir -ErrorAction Stop
     $published=$true
