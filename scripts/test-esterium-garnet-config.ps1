@@ -61,7 +61,12 @@ try {
     [IO.File]::WriteAllText($aclFile, ('user default off' + [Environment]::NewLine + 'user synthetic on nopass ~* +@all'))
     Assert-Reject 'named Garnet ACL account with nopass' 'Garnet ACL must disable default'
     [IO.File]::WriteAllText($aclFile, ('user default off' + [Environment]::NewLine + 'user synthetic on >synthetic-only ~* +@all'))
-    $result = @(& $checker @parameters -Apply) -join ' '
+    $unapprovedDenied = $false
+    try { & $checker @parameters -Apply | Out-Null }
+    catch { $unapprovedDenied = $_.Exception.Message -match 'independently approved publisher identity' }
+    if (-not $unapprovedDenied) { throw 'Direct Garnet helper accepted unsigned real Apply.' }
+    $env:ESTERIUM_DEPENDENCY_CONFIG_DISPOSABLE_CI='1'
+    $result = @(& $checker @parameters -Apply -UnsignedDisposableCIFixture) -join ' '
     if ($result -notmatch 'PASS: new protected Garnet configuration') {
         throw 'Synthetic Garnet config provisioning failed.'
     }
@@ -82,6 +87,7 @@ try {
     Assert-Reject 'existing Garnet config destination' 'Target exists'
     Write-Output 'PASS: synthetic Garnet config plan, ACL protection, TLS/Lua and fail-closed validations.'
 } finally {
+    Remove-Item Env:ESTERIUM_DEPENDENCY_CONFIG_DISPOSABLE_CI -ErrorAction SilentlyContinue
     if ($thumbprint) {
         Remove-Item -LiteralPath ("Cert:\CurrentUser\My\" + $thumbprint) -Force -ErrorAction SilentlyContinue
     }
