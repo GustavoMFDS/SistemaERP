@@ -87,7 +87,7 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   await cashReceived.fill('1e3')
   await expect(finalize).toBeDisabled()
   await cashReceived.fill('20,00')
-  await expect(page.getByRole('status').filter({ hasText: 'Troco: R$ 7.50' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Troco: R$ 7,50' })).toBeVisible()
   await expect(finalize).toBeEnabled()
   await expect(page.getByRole('checkbox')).toHaveCount(0)
 
@@ -97,7 +97,7 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   await expect(cashReceived).toHaveValue('')
   await expect(finalize).toBeDisabled()
   await cashReceived.fill('30')
-  await expect(page.getByRole('status').filter({ hasText: 'Troco: R$ 5.00' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Troco: R$ 5,00' })).toBeVisible()
   await expect(finalize).toBeEnabled()
 
   // Each electronic payment needs explicit operator confirmation. A previous
@@ -132,7 +132,7 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   await expect(cashReceived).toHaveValue('')
   await expect(finalize).toBeDisabled()
   await cashReceived.fill('30,00')
-  await expect(page.getByRole('status').filter({ hasText: 'Troco: R$ 5.00' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Troco: R$ 5,00' })).toBeVisible()
   await finalize.click()
   await expect(page.getByText(/Venda finalizada:/)).toBeVisible()
   expect(salePosts).toBe(1)
