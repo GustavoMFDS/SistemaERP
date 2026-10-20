@@ -23,6 +23,8 @@ $garnet=Join-Path $root 'garnet.zip'
 $wrapper=Join-Path $root 'nssm.exe'
 $options=Join-Path $root 'postgresql-unattended.options'
 $config=Join-Path $root 'garnet.conf'
+$aclFile=Join-Path $root 'garnet.acl'
+$pfxFile=Join-Path $root 'garnet.pfx'
 $unpacked=Join-Path $root 'source'
 $pgDir=Join-Path $env:ProgramFiles ('PostgreSQL\16-fixture-'+$testId)
 $data=Join-Path $env:ProgramData ('Esterium\pg-fixture-'+$testId)
@@ -51,11 +53,24 @@ try {
         'unattendedmodeui=minimal'
     ) -join [Environment]::NewLine
     [IO.File]::WriteAllText($options,$optionsText+[Environment]::NewLine)
-    [IO.File]::WriteAllText($config,'{"Address":"127.0.0.1","Port":64322,"EnableTLS":true,"AuthenticationMode":"ACL","EnableLua":true,"LuaTransactionMode":true}')
+    [IO.File]::WriteAllText($aclFile,('user default off'+[Environment]::NewLine+'user esteriumcache on >synthetic-strong-test ~* +@all'))
+    [IO.File]::WriteAllText($pfxFile,'synthetic-only-nonexecuted-PFX')
+    $garnetConfig=[ordered]@{
+        Address='127.0.0.1';Port=64322;EnableCluster=$false
+        AuthenticationMode='ACL';AclFile=$aclFile
+        EnableTLS=$true;CertFileName=$pfxFile;CertPassword='synthetic-only'
+        EnableLua=$true;LuaTransactionMode=$true
+        LuaMemoryManagementMode='Tracked';LuaScriptMemoryLimit='8m';LuaScriptTimeoutMs=5000
+    }
+    [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
     & icacls.exe $options '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Synthetic PostgreSQL option ACL failed.' }
     & icacls.exe $config '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' '*S-1-5-20:R' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Synthetic Garnet ACL failed.' }
+    foreach ($item in @($aclFile,$pfxFile)) {
+        & icacls.exe $item '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' '*S-1-5-20:R' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Synthetic Garnet source ACL failed.' }
+    }
     $values=@{
         PostgresInstaller=$pg
         ExpectedPostgresSHA256=(Get-FileHash $pg -Algorithm SHA256).Hash
@@ -102,6 +117,17 @@ try {
     $values.GarnetPort=64322
     [IO.File]::AppendAllText($options,'other=evil'+[Environment]::NewLine)
     Assert-Reject 'extra EDB option' 'Opções EDB duplicadas ou extras'
+    $garnetConfig.EnableTLS=$false
+    [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
+    Assert-Reject 'TLS disabled in protected Garnet config' 'Garnet exige loopback'
+    $garnetConfig.EnableTLS=$true
+    $garnetConfig.LuaScriptMemoryLimit='unlimited'
+    [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
+    Assert-Reject 'unlimited Lua memory in Garnet config' 'perfil protegido'
+    $garnetConfig.LuaScriptMemoryLimit='8m'
+    $garnetConfig.AclFile=$options
+    [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
+    Assert-Reject 'Garnet ACL replaced by unreadable PostgreSQL secret' 'acesso esperado'
     Write-Output 'PASS: synthetic plan checks origin/ACL/ports, never executes vendor binaries, and rejects unsafe installation.'
 } finally {
     Remove-Item Env:ESTERIUM_DEPENDENCY_PACKAGE_DISPOSABLE_CI -ErrorAction SilentlyContinue
