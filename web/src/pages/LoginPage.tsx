@@ -19,7 +19,9 @@ export default function LoginPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    const previousTitle = document.title
     document.title = 'Entrar — Esterium ERP'
+    return () => { document.title = previousTitle }
   }, [])
 
   async function onSubmit(e: FormEvent) {
@@ -67,6 +69,7 @@ export default function LoginPage() {
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
+                disabled={loading}
                 required
               />
             </label>
