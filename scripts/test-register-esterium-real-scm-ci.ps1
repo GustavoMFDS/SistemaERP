@@ -62,6 +62,7 @@ try {
     'provision-esterium-garnet-config.ps1',
     'provision-esterium-postgres-optionfile.ps1',
     'prepare-esterium-local-dependency-configs.ps1',
+        'install-esterium-local-dependencies.ps1',
     'check-esterium-postgres-tls-policy.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $tools
