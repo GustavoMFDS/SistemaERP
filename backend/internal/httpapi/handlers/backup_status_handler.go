@@ -10,9 +10,9 @@ import (
 )
 
 type backupReport struct {
-	LastRunUTC       string `json:"last_run_utc"`
-	State            string `json:"state"`
-	ArchiveVerified  bool   `json:"archive_verified"`
+	LastRunUTC      string `json:"last_run_utc"`
+	State           string `json:"state"`
+	ArchiveVerified bool   `json:"archive_verified"`
 }
 
 // BackupStatus exposes only a sanitized global status to audit administrators.
@@ -53,9 +53,9 @@ func (h *AuditHandler) BackupStatus(w http.ResponseWriter, r *http.Request) {
 		state = "stale"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configured": true,
-		"state": state,
-		"last_run_utc": attemptAt.UTC().Format(time.RFC3339),
+		"configured":       true,
+		"state":            state,
+		"last_run_utc":     attemptAt.UTC().Format(time.RFC3339),
 		"archive_verified": record.ArchiveVerified,
 	})
 }

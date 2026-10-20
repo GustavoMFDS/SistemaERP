@@ -46,7 +46,7 @@ func TestProductImportIsAtomicReplaySafeAndTenantScoped(t *testing.T) {
 	var companies []string
 	for i := 0; i < 2; i++ {
 		var tenant string
-		cnpj := fmt.Sprintf("%014d", (now + int64(i)) % 100000000000000)
+		cnpj := fmt.Sprintf("%014d", (now+int64(i))%100000000000000)
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO companies(legal_name, cnpj) VALUES('Product Batch Test', $1)
 			RETURNING id::text

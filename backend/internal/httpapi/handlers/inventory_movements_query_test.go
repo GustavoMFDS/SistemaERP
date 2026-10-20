@@ -32,13 +32,13 @@ func TestReadMovementsQueryFailsClosedOnMalformedFilters(t *testing.T) {
 func TestReadMovementsQueryAcceptsBoundedPages(t *testing.T) {
 	productID := "00000000-0000-4000-8000-000000000333"
 	cases := []struct {
-		url string
-		product string
+		url           string
+		product       string
 		limit, offset int
 	}{
 		{"/api/v1/inventory/movements", "", 100, 0},
 		{"/api/v1/inventory/movements?limit=20&offset=40", "", 20, 40},
-		{"/api/v1/inventory/movements?limit=500&offset=5000&product_id="+productID, productID, 500, 5000},
+		{"/api/v1/inventory/movements?limit=500&offset=5000&product_id=" + productID, productID, 500, 5000},
 	}
 	for _, tc := range cases {
 		id, limit, offset, err := readMovementsQuery(httptest.NewRequest("GET", tc.url, nil))

@@ -59,9 +59,9 @@ func TestOwnerOverviewAndGlobalLowStockAreTenantScoped(t *testing.T) {
 		})
 	}
 	for _, entry := range []struct {
-		kind    string
-		net     string
-		profit  string
+		kind   string
+		net    string
+		profit string
 	}{
 		{"sale", "100.00", "25.00"},
 		{"sale_cancel", "-20.00", "-5.00"},
@@ -75,7 +75,10 @@ func TestOwnerOverviewAndGlobalLowStockAreTenantScoped(t *testing.T) {
 		}
 	}
 	suffix := time.Now().UnixNano()
-	for _, fixture := range []struct{ tenant string; n int }{{tenantA, 2}, {tenantB, 1}} {
+	for _, fixture := range []struct {
+		tenant string
+		n      int
+	}{{tenantA, 2}, {tenantB, 1}} {
 		for i := 0; i < fixture.n; i++ {
 			if _, err := pool.Exec(ctx, `
 				INSERT INTO products(tenant_id, sku, name, unit, price_cash, min_stock, active)
