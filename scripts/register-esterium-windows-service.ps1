@@ -232,6 +232,22 @@ try {
             -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
     }
     Move-Item -LiteralPath $staging -Destination $installPath -ErrorAction Stop
+    # Test a late mutation *after* the staging rename but before SCM creation.
+    # This fault may run ONLY in GitHub-hosted disposable Windows SCM CI.
+    if ($UnsignedDisposableCIFixture -and
+        $env:GITHUB_ACTIONS -eq 'true' -and
+        $env:RUNNER_ENVIRONMENT -eq 'github-hosted' -and
+        $env:ESTERIUM_SCM_DISPOSABLE_CI -eq '1' -and
+        $env:ESTERIUM_TEST_TAMPER_INSTALLED_BUNDLE -eq '1') {
+        [IO.File]::AppendAllText((Join-Path $installPath 'web\\index.html'), '-synthetic-corruption')
+    }
+    # The installed directory is the actual service target. Validate it a
+    # final time: a verified staging folder alone is not a release guarantee.
+    & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $installPath | Out-Null
+    if (-not $UnsignedDisposableCIFixture) {
+        & $gateScript -BundleDir $installPath -ExpectedManifestSHA256 $ApprovedManifestSHA256 `
+            -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
+    }
     $binary = Join-Path $installPath 'esterium-server.exe'
     $out = & $sc create $serviceName 'binPath=' ('"' + $binary + '"') 'start=' 'demand' 'obj=' 'NT AUTHORITY\LocalService' 'DisplayName=' 'Esterium ERP' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Windows service registration failed: $out" }
