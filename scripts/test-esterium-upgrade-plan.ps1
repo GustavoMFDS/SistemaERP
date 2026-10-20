@@ -78,6 +78,33 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
 try {
     Write-FixtureBundle $installed 1 'old-synthetic-server'
     Write-FixtureBundle $candidate 2 'new-synthetic-server'
+    # Directory junctions are not ordinary files and may escape a manifest
+    # writer that checks only Get-ChildItem -File. Reject them before hashing
+    # or reading any file outside the physical staging directory.
+    $junctionTarget = Join-Path $root 'unlisted-other-folder'
+    [IO.Directory]::CreateDirectory($junctionTarget) | Out-Null
+    $junction = Join-Path $candidate 'web\\linked-external-assets'
+    New-Item -ItemType Junction -Path $junction -Target $junctionTarget -ErrorAction Stop | Out-Null
+    $manifestBeforeJunction = Join-Path $candidate 'bundle-manifest.json'
+    $unchangedManifest = [IO.File]::ReadAllText($manifestBeforeJunction)
+    try {
+        $junctionVerifyDenied = $false
+        try {
+            & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $candidate | Out-Null
+        } catch {
+            $junctionVerifyDenied = $_.Exception.Message -match 'symbolic link/junction'
+        }
+        if (-not $junctionVerifyDenied) { throw 'Verifier traversed an unlisted directory junction.' }
+        Remove-Item -LiteralPath $manifestBeforeJunction -Force
+        $junctionWriterDenied = $false
+        try { & $manifestWriter -BundleDir $candidate | Out-Null }
+        catch { $junctionWriterDenied = $_.Exception.Message -match 'symbolic links or junctions' }
+        if (-not $junctionWriterDenied) { throw 'Manifest writer accepted a directory junction.' }
+    } finally {
+        # Never recursively delete the junction's target; remove just the link.
+        if (Test-Path -LiteralPath $junction) { Remove-Item -LiteralPath $junction -Force }
+        [IO.File]::WriteAllText($manifestBeforeJunction, $unchangedManifest)
+    }
     # A Vite web/ asset subtree is permitted in bundles, but private
     # certificate containers there would be served to unauthenticated clients.
     # Test the writer AND the verifier, even with a forged matching SHA-256.
