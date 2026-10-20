@@ -84,6 +84,7 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
   // persisted for safe, idempotent recovery after the lookup.
   await expect.poll(() => receiptChecks).toBeGreaterThan(checkedBefore)
   await expect(section).toBeVisible()
+  await expect(section.getByRole('status')).toContainText('ainda não aparece como confirmado')
   await expect.poll(() => page.evaluate(() =>
     Object.keys(localStorage).filter((key) => key.startsWith('sistemaemgo:pendingProductImport:v1')).length,
   )).toBe(1)
