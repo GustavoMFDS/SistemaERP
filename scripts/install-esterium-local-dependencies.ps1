@@ -201,6 +201,56 @@ if ($config.Address -cne '127.0.0.1' -or [int]$config.Port -ne $GarnetPort -or
     $config.EnableLua -cne $true -or $config.LuaTransactionMode -cne $true) {
     throw 'Garnet exige loopback, TLS, ACL e operações Lua.'
 }
+# The vendor JSON is untrusted until every sensitive path, policy and ACL
+# is checked. In particular, a forged config could point at a different ACL
+# or PFX, or turn off scripting limits, without changing the basic flags.
+$keys=@('Address','Port','EnableCluster','AuthenticationMode','AclFile',
+    'EnableTLS','CertFileName','CertPassword','EnableLua','LuaTransactionMode',
+    'LuaMemoryManagementMode','LuaScriptMemoryLimit','LuaScriptTimeoutMs')
+$names=@($config.PSObject.Properties | ForEach-Object { $_.Name })
+if ($names.Count -ne $keys.Count -or @($names | Where-Object { $_ -notin $keys }).Count -ne 0 -or
+    $config.EnableCluster -cne $false -or
+    $config.LuaMemoryManagementMode -cne 'Tracked' -or
+    $config.LuaScriptMemoryLimit -cne '8m' -or
+    [int]$config.LuaScriptTimeoutMs -ne 5000) {
+    throw 'Configuração Garnet não corresponde ao perfil protegido do Esterium.'
+}
+$aclPath=Get-SafeFile ([string]$config.AclFile)
+$pfxPath=Get-SafeFile ([string]$config.CertFileName)
+if ($aclPath -eq $pfxPath -or [IO.Path]::GetExtension($pfxPath).ToLowerInvariant() -ne '.pfx') {
+    throw 'Arquivo de certificado e ACL Garnet devem ser separados e conter PFX válido.'
+}
+Assert-Readers $aclPath @('S-1-5-18','S-1-5-32-544','S-1-5-20') 'S-1-5-20'
+Assert-Readers $pfxPath @('S-1-5-18','S-1-5-32-544','S-1-5-20') 'S-1-5-20'
+$garnetAclText=[IO.File]::ReadAllText($aclPath)
+if ($garnetAclText.Length -gt 131072 -or
+    $garnetAclText -notmatch '(?im)^\s*user\s+default\s+off(?:\s|$)' -or
+    $garnetAclText -match '(?i)\bnopass\b' -or
+    $garnetAclText -notmatch '(?im)^\s*user\s+(?!default\b)\S+\s+on\b[^\r\n]*[>#]\S+') {
+    throw 'ACL Garnet deve proibir usuário padrão e senhas ausentes.'
+}
+if ([string]::IsNullOrWhiteSpace([string]$config.CertPassword) -or
+    ([string]$config.CertPassword).Length -gt 4096) {
+    throw 'Senha PFX Garnet não configurada ou longa demais.'
+}
+if ($Apply) {
+    # Validate certificate+private key locally; no network or third-party code.
+    $certificate=$null
+    try {
+        $certificate=[Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $pfxPath, [string]$config.CertPassword,
+            [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+        if (-not $certificate.HasPrivateKey -or
+            $certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or
+            $certificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow) {
+            throw 'Certificado Garnet está sem chave privada ou fora de validade.'
+        }
+    } catch {
+        throw 'Arquivo PFX Garnet não foi validado: revisar certificado e senha.'
+    } finally {
+        if ($null -ne $certificate) { $certificate.Dispose() }
+    }
+}
 if (-not $Apply) {
     Write-Output 'PLAN: pacotes, fontes, portas e configurações validados sem alteração no PC.'
     Write-Output 'NEXT: -Apply instalará EDB silenciosamente e registrará Garnet parado (ainda sem banco/schema TLS comercial).'
