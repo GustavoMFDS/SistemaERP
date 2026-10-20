@@ -229,7 +229,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Synthetic backup task ACL failed: $aclResult" }
     }
     $taskInstallAttempted = $true
-    & (Join-Path $install 'tools\register-esterium-backup-task.ps1') -ConfigFile $configFile -InstallDir $install -DailyAt '02:31' -Apply | Out-Null
+    & (Join-Path $install 'tools\register-esterium-backup-task.ps1') -ConfigFile $configFile -InstallDir $install -DailyAt '02:31' -Apply -UnsignedDisposableCIFixture | Out-Null
     $installedTask = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
     if ($installedTask.State -ne 'Disabled' -or
         $installedTask.Principal.UserId -notmatch '(?i)NETWORK SERVICE|S-1-5-20') {
