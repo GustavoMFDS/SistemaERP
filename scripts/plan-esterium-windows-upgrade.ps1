@@ -94,12 +94,32 @@ foreach ($name in $oldMigrations.Keys) {
         throw 'Candidate altered an existing versioned SQL migration.'
     }
 }
+# An append-only candidate may legitimately carry NEW SQL files, but it
+# must never be mistaken for an app-files-only upgrade. Derive the count
+# from the two independently verified package inventories; DB state is NOT
+# inferred or modified here.
+$addedSQL = @($newMigrations.Keys | Where-Object { -not $oldMigrations.ContainsKey($_) })
+$addedUp = @($addedSQL | Where-Object { $_.EndsWith('.up.sql') })
+if ($addedSQL.Count -ne (2 * $addedUp.Count)) {
+    throw 'New SQL migrations lack complete up/down rollback file pairs.'
+}
+foreach ($upFile in $addedUp) {
+    if (-not $newMigrations.ContainsKey($upFile.Replace('.up.sql', '.down.sql'))) {
+        throw 'New SQL migration lacks a matching down file.'
+    }
+}
 # UI-only or maintenance-tool upgrades are valid even when the Go binary
 # and SQL count are unchanged. Compare complete verified package inventories.
 $installedManifestHash = (Get-FileHash -LiteralPath (Join-Path $installed 'bundle-manifest.json') -Algorithm SHA256).Hash
 $candidateManifestHash = (Get-FileHash -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Algorithm SHA256).Hash
 if ($installedManifestHash -eq $candidateManifestHash) {
     throw 'Candidate package file inventory is identical; no software update identified.'
+}
+if ($addedUp.Count -gt 0) {
+    Write-Output ("PLAN: DATABASE MIGRATION REQUIRED: {0} new version(s) found in the candidate bundle." -f $addedUp.Count)
+    Write-Output 'PLAN: application-only updater MUST refuse this candidate; use a separately reviewed database upgrade and recovery procedure.'
+} else {
+    Write-Output 'PLAN: no new SQL migration files; actual PostgreSQL schema version still requires an independent check.'
 }
 Write-Output 'PASS: read-only technical upgrade gate: verified archives, stopped service, disabled task and append-only SQL migration lineage.'
 Write-Output 'NOT EXECUTED: database schema checks, SQL migrations, file replacement, service restart, backup restore, sales or SEFAZ.'
