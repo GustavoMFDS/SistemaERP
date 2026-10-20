@@ -252,7 +252,15 @@ try {
     try { & $unregister -InstallDir (Join-Path $env:ProgramFiles 'EsteriumERP-Other') -Apply | Out-Null }
     catch { $unsafeUnregister = $_.Exception.Message -match 'Service executable differs' }
     if (-not $unsafeUnregister) { throw 'Unregister allowed deleting a service owned by another path.' }
-    & $unregister -InstallDir $install -Apply | Out-Null
+    # Production service removal must refuse an unsigned/unapproved admin
+    # script, while the disposable SCM smoke can still check actual deletion.
+    $deniedRelease = $false
+    try { & $unregister -InstallDir $install -Apply | Out-Null }
+    catch { $deniedRelease = $_.Exception.Message -match 'requires independently approved release digest' }
+    if (-not $deniedRelease) {
+        throw 'Real Windows service removal accepted missing release approval.'
+    }
+    & $unregister -InstallDir $install -Apply -UnsignedDisposableCIFixture | Out-Null
     $gone = $false
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
         $queryResult = & $sc query EsteriumERP 2>$null
