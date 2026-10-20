@@ -4,7 +4,7 @@ test('fiscal page rendering diagnostic',async({page})=>{
  page.on('pageerror',error=>errors.push(error.stack||error.message));
  await page.goto('/login');
  await page.getByLabel('E-mail').fill('admin@sistema.local');
- await page.getByLabel('Senha').fill('admin123');
+ await page.getByLabel('Senha', { exact: true }).fill('admin123');
  await page.getByRole('button',{name:'Entrar'}).click();
  await page.getByRole('navigation', { name: 'Navegação principal' }).getByText('Mais áreas do sistema').click();
  await page.getByRole('link',{name:'Fiscal', exact: true}).click();

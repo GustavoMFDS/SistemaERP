@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 async function submit(page: import('@playwright/test').Page) {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('operador@loja.test')
-  await page.getByLabel('Senha').fill('senha-de-teste')
+  await page.getByLabel('Senha', { exact: true }).fill('senha-de-teste')
   await page.getByRole('button', { name: 'Entrar', exact: true }).click()
 }
 
@@ -30,4 +30,21 @@ test('falha de conexão não informa sucesso de autenticação', async ({ page }
   await submit(page)
   await expect(page).toHaveURL(/\/login$/)
   await expect(page.getByRole('alert')).toHaveText('Não foi possível acessar o sistema agora. Confira sua conexão e tente novamente.')
+})
+
+test('mostrar e ocultar senha preserva valor e campo acessivel sem ambiguidade', async ({ page }) => {
+  await page.goto('/login')
+  const password = page.getByLabel('Senha', { exact: true })
+  await expect(password).toHaveAttribute('type', 'password')
+  await password.fill('senha-exemplo')
+  const show = page.getByRole('button', { name: 'Mostrar senha', exact: true })
+  await expect(show).toHaveAttribute('aria-pressed', 'false')
+  await show.click()
+  await expect(password).toHaveAttribute('type', 'text')
+  await expect(password).toHaveValue('senha-exemplo')
+  const hide = page.getByRole('button', { name: 'Ocultar senha', exact: true })
+  await expect(hide).toHaveAttribute('aria-pressed', 'true')
+  await hide.click()
+  await expect(password).toHaveAttribute('type', 'password')
+  await expect(password).toHaveValue('senha-exemplo')
 })

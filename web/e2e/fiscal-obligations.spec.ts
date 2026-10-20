@@ -110,7 +110,7 @@ test('Fiscal: vendas sem autorização aparecem e filtro nunca confunde XML com 
 
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('fiscal@teste.local')
-  await page.getByLabel('Senha').fill('senha-de-teste')
+  await page.getByLabel('Senha', { exact: true }).fill('senha-de-teste')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('navigation', { name: 'Navegação principal' }).getByText('Mais áreas do sistema').click()
   await page.getByRole('link', { name: 'Fiscal', exact: true }).click()

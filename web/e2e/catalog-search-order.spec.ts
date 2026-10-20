@@ -52,7 +52,7 @@ test('catálogo mantém resultado da busca mais recente quando respostas chegam 
 
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('gestor@teste.local')
-  await page.getByLabel('Senha').fill('teste1234')
+  await page.getByLabel('Senha', { exact: true }).fill('teste1234')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('navigation', { name: 'Navegação principal' })

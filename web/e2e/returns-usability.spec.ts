@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 test('devoluções: escolha de venda recente e consulta sem digitar UUID', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.goto('/returns')

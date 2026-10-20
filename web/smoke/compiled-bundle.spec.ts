@@ -6,7 +6,8 @@ test('compiled ERP interface communicates with the bundled Go API', async ({ pag
 
   await page.goto('/login')
   await expect(page.getByRole('heading', { name: 'Bem-vindo de volta' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Entrar' })).toBeEnabled()
+  const submit = page.getByRole('button', { name: 'Entrar' })
+  await expect(submit).toBeDisabled()
 
   const ready = await page.evaluate(async () => {
     const result = await fetch('/health/ready')
@@ -16,8 +17,9 @@ test('compiled ERP interface communicates with the bundled Go API', async ({ pag
   expect(ready.sameOrigin).toBe(true)
 
   await page.getByLabel('E-mail ou nome de usuário').fill('ci-nonexistent-user')
-  await page.getByLabel('Senha').fill('ci-incorrect-password')
-  await page.getByRole('button', { name: 'Entrar' }).click()
+  await page.getByLabel('Senha', { exact: true }).fill('ci-incorrect-password')
+  await expect(submit).toBeEnabled()
+  await submit.click()
   await expect(page.getByRole('alert')).toContainText('Não foi possível entrar')
 
   expect(errors).toEqual([])

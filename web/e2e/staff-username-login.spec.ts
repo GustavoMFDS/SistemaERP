@@ -6,7 +6,7 @@ test('funcionário sem e-mail ativa seu acesso e entra por nome de usuário', as
 
   await page.goto('/login')
   await page.getByLabel('E-mail ou nome de usuário').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 
@@ -27,14 +27,14 @@ test('funcionário sem e-mail ativa seu acesso e entra por nome de usuário', as
   expect(invite.token).toMatch(/^[a-f0-9]{64}$/)
 
   await page.goto('/accept-invite#token=' + invite.token)
-  await page.getByLabel('Criar senha (12 a 72 caracteres)').fill(password)
+  await page.getByLabel('Criar senha', { exact: true }).fill(password)
   await page.getByLabel('Confirmar nova senha').fill(password)
   await page.getByRole('button', { name: 'Ativar minha conta' }).click()
   await expect(page.getByText(/Conta ativada/)).toBeVisible()
 
   await page.goto('/login')
   await page.getByLabel('E-mail ou nome de usuário').fill(username)
-  await page.getByLabel('Senha').fill(password)
+  await page.getByLabel('Senha', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 
@@ -51,7 +51,7 @@ test('funcionário sem e-mail ativa seu acesso e entra por nome de usuário', as
   // Another company's administrator cannot take or link that identity.
   await page.goto('/login')
   await page.getByLabel('E-mail ou nome de usuário').fill('admin-b@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   const status = await page.evaluate(async (username) => {
@@ -71,7 +71,7 @@ test('funcionário sem e-mail ativa seu acesso e entra por nome de usuário', as
   // Suspension in the original company immediately prevents another login.
   await page.goto('/login')
   await page.getByLabel('E-mail ou nome de usuário').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   const disabled = await page.evaluate(async (username) => {
@@ -108,7 +108,7 @@ test('funcionário sem e-mail ativa seu acesso e entra por nome de usuário', as
   // User-facing login must also refuse the suspended membership.
   await page.goto('/login')
   await page.getByLabel('E-mail ou nome de usuário').fill(username)
-  await page.getByLabel('Senha').fill(password)
+  await page.getByLabel('Senha', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/login$/)
   await expect(page.getByRole('heading', { name: 'Bem-vindo de volta' })).toBeVisible()

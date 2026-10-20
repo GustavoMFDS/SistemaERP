@@ -15,7 +15,7 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
 }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 
@@ -47,7 +47,7 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
   })
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).not.toHaveURL(/\/login$/)
-  await expect(page.getByText(/Não foi possível encerrar a sessão no servidor/)).toBeVisible()
+  await expect(page.getByText(/Não foi possível confirmar a saída com segurança/)).toBeVisible()
 
   const cookieAfterFailedLogout = (await context.cookies()).find(
     (cookie) => cookie.name === '__Host-refresh_token',

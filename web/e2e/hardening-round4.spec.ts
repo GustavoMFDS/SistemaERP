@@ -3,7 +3,7 @@ import { expect, test } from './fixtures'
 async function login(page: import('@playwright/test').Page) {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 }
@@ -196,7 +196,7 @@ test('network failure during logout does not pretend the HttpOnly session was re
 
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/pdv$/)
-  await expect(page.getByText(/Não foi possível encerrar a sessão no servidor/)).toBeVisible()
+  await expect(page.getByText(/Não foi possível confirmar a saída com segurança/)).toBeVisible()
 
   const suspendedAfterFailure = await page.evaluate(async () => {
     const { getSuspendedCarts } = await import('/src/lib/suspendedCart.ts')
@@ -210,7 +210,7 @@ test('network failure during logout does not pretend the HttpOnly session was re
 
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   const suspendedAfterSuccess = await page.evaluate(async () => {
@@ -250,7 +250,7 @@ test('logout is blocked while offline finalized sales are preserved', async ({ p
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await expect(
-    page.getByText(/Não é possível sair enquanto existirem 1 venda\(s\) offline preservada\(s\)/),
+    page.getByText(/1 venda.*guardada.*neste dispositivo/),
   ).toBeVisible()
   expect(logoutCalls).toBe(0)
 
@@ -356,7 +356,7 @@ test('logout is blocked while legacy offline work is unresolved', async ({ page 
 
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/home$/)
-  await expect(page.getByText(/fila offline legada ainda não revisada/)).toBeVisible()
+  await expect(page.getByText(/1 registro.*antigo.*neste dispositivo/)).toBeVisible()
   expect(logoutCalls).toBe(0)
 
   await page.evaluate(async () => {

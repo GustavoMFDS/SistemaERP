@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { apiJson } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
 import { getLegacyQueueCount, getQueueCount } from '../lib/offlineQueue'
 import { useInstallApp } from '../lib/installApp'
@@ -35,8 +35,8 @@ export default function Layout() {
       .then((data) => {
         if (!cancelled) setMe(data)
       })
-      .catch((e: unknown) => {
-        if (!cancelled) setMeError(errorMessage(e))
+      .catch(() => {
+        if (!cancelled) setMeError('Não foi possível carregar seus acessos. Atualize a página para tentar novamente.')
       })
     return () => {
       cancelled = true
@@ -73,7 +73,7 @@ export default function Layout() {
     const legacyPending = getLegacyQueueCount()
     if (legacyPending > 0) {
       setLogoutError(
-        `Não é possível sair enquanto existirem ${legacyPending} item(ns) na fila offline legada ainda não revisada. Abra o PDV e importe a fila para atenção ou descarte-a explicitamente antes de encerrar a sessão.`,
+        `Há ${legacyPending} registro(s) antigo(s) neste dispositivo que precisam de atenção. Abra o PDV e escolha “Importar para revisão” ou descarte esses registros antes de sair.`,
       )
       return
     }
@@ -81,7 +81,7 @@ export default function Layout() {
     const pending = getQueueCount()
     if (pending > 0) {
       setLogoutError(
-        `Não é possível sair enquanto existirem ${pending} venda(s) offline preservada(s). Sincronize, reconcilie ou descarte cada item explicitamente no PDV antes de encerrar a sessão.`,
+        `Há ${pending} venda(s) guardada(s) neste dispositivo. Abra o PDV para enviar, conferir ou descartar cada venda antes de sair.`,
       )
       return
     }
@@ -100,10 +100,8 @@ export default function Layout() {
       clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
       clearToken()
       navigate('/login', { replace: true })
-    } catch (e: unknown) {
-      setLogoutError(
-        `Não foi possível encerrar a sessão no servidor. Verifique a conexão e tente novamente. ${errorMessage(e)}`,
-      )
+    } catch {
+      setLogoutError('Não foi possível confirmar a saída com segurança. Confira sua conexão e tente novamente.')
     } finally {
       setLoggingOut(false)
     }
@@ -111,6 +109,12 @@ export default function Layout() {
 
   return (
     <div className="min-h-full">
+      <a
+        href="#conteudo-principal"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:shadow-lg"
+      >
+        Pular para o conteúdo
+      </a>
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
           <Link to="/home" className="text-sm font-semibold">
@@ -140,12 +144,13 @@ export default function Layout() {
               {me ? (
                 <span>{me.name}{me.email ? ' · ' + me.email : ''}</span>
               ) : meError ? (
-                <span className="text-red-600">Falha ao carregar usuario</span>
+                <span className="text-red-600">Acessos indisponíveis</span>
               ) : (
                 <span>Carregando...</span>
               )}
             </div>
             <button
+              type="button"
               onClick={() => void logout()}
               disabled={loggingOut}
               className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-60"
@@ -156,8 +161,13 @@ export default function Layout() {
         </div>
       </header>
 
+      {meError ? (
+        <div role="alert" className="mx-auto mt-3 max-w-6xl rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {meError}
+        </div>
+      ) : null}
       {logoutError ? (
-        <div className="mx-auto mt-3 max-w-6xl rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div role="alert" className="mx-auto mt-3 max-w-6xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {logoutError}
         </div>
       ) : null}
@@ -166,7 +176,7 @@ export default function Layout() {
         'mx-auto grid max-w-[1680px] grid-cols-1 items-start gap-5 px-4 py-5 lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-6 lg:px-6',
       )}>
         <aside className="min-w-0 lg:sticky lg:top-5">
-          <nav aria-label="Navegação principal" className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <nav aria-label="Navegação principal" aria-busy={!me && !meError} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
             <p className="px-2 pb-2 text-xs font-bold text-slate-500">Acessos principais</p>
             <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-1">
               {mainLinks.map((item) => (
@@ -201,7 +211,7 @@ export default function Layout() {
             ) : null}
           </nav>
         </aside>
-        <main className="min-w-0">
+        <main id="conteudo-principal" tabIndex={-1} className="min-w-0">
           <div className={isPDV
             ? 'min-w-0'
             : 'min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6'}>

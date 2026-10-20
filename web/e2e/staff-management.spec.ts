@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 async function login(page: import('@playwright/test').Page, email = 'admin@sistema.local') {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill(email)
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 }
@@ -87,7 +87,7 @@ test('ativação remove o segredo da URL e envia token apenas em POST', async ({
   })
   await page.goto('/accept-invite#token=' + secret)
   await expect(page).toHaveURL(/\/accept-invite$/)
-  await page.getByLabel('Criar senha (12 a 72 caracteres)').fill('MinhaSenhaUnica2026!')
+  await page.getByLabel('Criar senha', { exact: true }).fill('MinhaSenhaUnica2026!')
   await page.getByLabel('Confirmar nova senha').fill('MinhaSenhaUnica2026!')
   await page.getByRole('button', { name: 'Ativar minha conta' }).click()
   await expect(page.getByText(/Conta ativada/)).toBeVisible()

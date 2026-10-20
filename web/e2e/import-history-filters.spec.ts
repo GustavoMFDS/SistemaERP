@@ -4,7 +4,7 @@ import { expandDisclosure } from './expandDisclosure'
 async function login(page: import('@playwright/test').Page, email: string, destination: '/products' | '/inventory' = '/products') {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill(email)
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   // Avoid a redundant authenticated page load before testing inventory:

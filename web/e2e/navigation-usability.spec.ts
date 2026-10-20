@@ -5,7 +5,7 @@ test('navegação clara em Início, Produtos, Estoque e Configurar loja', async 
   page.on('pageerror', e => errors.push(e.message))
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('link', { name: 'Início' }).click()
@@ -35,7 +35,7 @@ test('navegação clara em Início, Produtos, Estoque e Configurar loja', async 
 test('busca de produto no PDV consulta catálogo completo online', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'PDV', exact: true }).click()
   const result = page.waitForResponse(r => r.url().includes('/api/v1/products?query=') && r.url().includes('limit=200'))
@@ -48,7 +48,7 @@ test('busca de produto no PDV consulta catálogo completo online', async ({ page
 test('compras, devoluções e histórico de importações exibem termos simples', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.getByText('Mais áreas do sistema').click()
