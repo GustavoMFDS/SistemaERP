@@ -94,9 +94,16 @@ function Start-Garnet([string]$conf,[string]$phase) {
         } catch { } finally { $tcp.Dispose() }
         Start-Sleep -Milliseconds 900
     }
+    $proc.Refresh()
+    $diagnostic=if ($proc.HasExited) { 'vendor process exited '+$proc.ExitCode } else { 'vendor process stayed running but did not listen' }
     if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    $proc.WaitForExit()
+    Write-Output ('Garnet CI diagnostic: '+$diagnostic)
     foreach ($log in @($out,$err)) {
-        if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 10 }
+        if (Test-Path -LiteralPath $log) {
+            Write-Output ('Garnet CI log '+[IO.Path]::GetFileName($log)+' bytes='+((Get-Item -LiteralPath $log).Length))
+            Get-Content -LiteralPath $log -Tail 35
+        }
     }
     throw "Garnet $phase failed to bind its local TLS port."
 }
