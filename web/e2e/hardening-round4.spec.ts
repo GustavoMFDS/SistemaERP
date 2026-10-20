@@ -305,7 +305,7 @@ test('legacy offline queue blocks cash close until explicitly reviewed', async (
   }, cashSessionId)
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
-  await expect(page.getByText(/registro\(s\) antigo\(s\) neste dispositivo/)).toBeVisible()
+  await expect(page.getByText(/fila offline legada ainda não revisada/)).toBeVisible()
 
   const stillOpen = await page.evaluate(async () => {
     const { getCashSessionId } = await import('/src/lib/auth.ts')
