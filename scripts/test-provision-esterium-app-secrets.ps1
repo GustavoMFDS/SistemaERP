@@ -14,7 +14,12 @@ try {
     if ($plan -notmatch 'no files or services changed' -or (Test-Path -LiteralPath $target)) {
         throw 'Default mode is not non-destructive.'
     }
-    $output = @(& $helper -DestinationDir $target -Apply) -join [Environment]::NewLine
+    $realRejected = $false
+    try { & $helper -DestinationDir $target -Apply | Out-Null }
+    catch { $realRejected = $_.Exception.Message -match 'independently approved publisher identity' }
+    if (-not $realRejected) { throw 'Direct secret provisioner accepted unsigned real Apply.' }
+    $env:ESTERIUM_SECRET_DISPOSABLE_CI = '1'
+    $output = @(& $helper -DestinationDir $target -Apply -UnsignedDisposableCIFixture) -join [Environment]::NewLine
     if ($output -notmatch 'PASS: generated two application credentials') {
         throw 'Credential generation did not report success.'
     }
@@ -55,7 +60,7 @@ try {
         throw 'JWT and metrics credentials are identical.'
     }
     $secondRejected = $false
-    try { & $helper -DestinationDir $target -Apply | Out-Null }
+    try { & $helper -DestinationDir $target -Apply -UnsignedDisposableCIFixture | Out-Null }
     catch { $secondRejected = $_.Exception.Message -match 'already exists' }
     if (-not $secondRejected) { throw 'Existing credential folder was overwritten.' }
     $after = (Get-Content -LiteralPath (Join-Path $target 'jwt.secret') -Raw).Trim()
@@ -64,6 +69,7 @@ try {
     }
     Write-Output 'PASS: random tokens, LocalService read ACL, no stdout leak, dry-run and overwrite refusal.'
 } finally {
+    Remove-Item Env:ESTERIUM_SECRET_DISPOSABLE_CI -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $target) {
         Remove-Item -LiteralPath $target -Recurse -Force
     }
