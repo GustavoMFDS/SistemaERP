@@ -60,7 +60,12 @@ try {
     $p.ServicePasswordFile=$adminSecret
     Assert-Reject 'reusing one file for both accounts' 'distinct files'
     $p.ServicePasswordFile=$serviceSecret
-    $result=@(& $checker @p -Apply) -join ' '
+    $unapprovedDenied=$false
+    try { & $checker @p -Apply | Out-Null }
+    catch { $unapprovedDenied=$_.Exception.Message -match 'independently approved publisher identity' }
+    if (-not $unapprovedDenied) { throw 'Direct PostgreSQL option helper accepted unsigned real Apply.' }
+    $env:ESTERIUM_DEPENDENCY_CONFIG_DISPOSABLE_CI='1'
+    $result=@(& $checker @p -Apply -UnsignedDisposableCIFixture) -join ' '
     if ($result -notmatch 'PASS: new protected PostgreSQL 16 unattended installer option file') {
         throw 'Synthetic PostgreSQL option file was not created.'
     }
@@ -89,6 +94,7 @@ try {
     if (Test-Path -LiteralPath $data) { throw 'PostgreSQL setup unexpectedly initialized database data.' }
     Write-Output 'PASS: synthetic protected PostgreSQL 16 installer option file and fail-closed checks.'
 } finally {
+    Remove-Item Env:ESTERIUM_DEPENDENCY_CONFIG_DISPOSABLE_CI -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
 }
