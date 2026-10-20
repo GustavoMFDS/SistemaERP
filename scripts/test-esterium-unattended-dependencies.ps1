@@ -92,6 +92,48 @@ try {
     }
     $env:ESTERIUM_DEPENDENCY_PACKAGE_DISPOSABLE_CI='1'
     $env:ESTERIUM_DEPENDENCY_INSTALL_DISPOSABLE_CI='1'
+    $env:ESTERIUM_SETUP_PLAN_DISPOSABLE_CI='1'
+    $setup=Join-Path $PSScriptRoot 'setup-esterium-local-dependencies.ps1'
+    $setupArgs=@{
+        PostgresInstaller=$pg
+        ExpectedPostgresSHA256=(Get-FileHash $pg -Algorithm SHA256).Hash
+        ExpectedPostgresPublisherThumbprint=('A'*40)
+        GarnetPackage=$garnet
+        ExpectedGarnetSHA256=(Get-FileHash $garnet -Algorithm SHA256).Hash
+        ServiceWrapperExe=$wrapper
+        ExpectedServiceWrapperSHA256=(Get-FileHash $wrapper -Algorithm SHA256).Hash
+        BootstrapDir=(Join-Path $env:ProgramData ('Esterium\BootstrapCI-'+$testId))
+        PostgresOptionsDir=(Join-Path $env:ProgramData ('Esterium\OptionsCI-'+$testId))
+        GarnetConfigDir=(Join-Path $env:ProgramData ('Esterium\GarnetCI-'+$testId))
+        PostgresInstallDir=$pgDir
+        PostgresDataDir=$data
+        GarnetInstallDir=$cache
+        PostgresServiceName=$servicePg
+        GarnetServiceName=$serviceCache
+        PostgresPort=64321
+        GarnetPort=64322
+        SyntheticPlanCIFixture=$true
+    }
+    $source=Get-Content -LiteralPath $setup -Raw
+    $tokens=$null
+    $errors=$null
+    [Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors) | Out-Null
+    if (@($errors).Count -gt 0) {
+        throw ('Coordinator PowerShell syntax rejected: ' + $errors[0].Message)
+    }
+    $setupPlan=@(& $setup @setupArgs) -join ' '
+    if ($setupPlan -notmatch 'PLAN: nenhum segredo' -or
+        (Test-Path -LiteralPath $setupArgs.BootstrapDir) -or
+        (Test-Path -LiteralPath $setupArgs.PostgresOptionsDir)) {
+        throw 'Unified offline coordinator plan modified the host.'
+    }
+    $setupArgs.Apply=$true
+    $reject=''
+    try { & $setup @setupArgs | Out-Null } catch { $reject=$_.Exception.Message }
+    if ($reject -notmatch 'Teste sem assinatura restrito') {
+        throw 'Unified coordinator incorrectly allowed unsigned Apply.'
+    }
+    $setupArgs.Remove('Apply')
     $ok=@(& $tool @values) -join ' '
     if ($ok -notmatch 'PLAN: pacotes, fontes, portas e configurações validados') {
         throw 'Offline dependency plan did not complete.'
@@ -133,5 +175,6 @@ try {
 } finally {
     Remove-Item Env:ESTERIUM_DEPENDENCY_PACKAGE_DISPOSABLE_CI -ErrorAction SilentlyContinue
     Remove-Item Env:ESTERIUM_DEPENDENCY_INSTALL_DISPOSABLE_CI -ErrorAction SilentlyContinue
+    Remove-Item Env:ESTERIUM_SETUP_PLAN_DISPOSABLE_CI -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
 }
