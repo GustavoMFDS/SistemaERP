@@ -239,7 +239,9 @@ O pacote também inclui um registrador protegido de backup diário Windows, **de
 
 O pacote técnico inclui `tools/unregister-esterium-windows-service.ps1`. O modo padrão verifica **sem alterações** se existe o serviço `EsteriumERP`, se está parado, se aponta para o `esterium-server.exe` da pasta indicada, se utiliza LocalService e se a tarefa de backup está desabilitada ou ausente. Recusa atingir um serviço desconhecido, em execução, com caminho diferente ou com backup ativo.
 
-Após reconciliar as vendas, garantir cópia e recuperação dos dados e parar o serviço manualmente, o responsável técnico pode usar explicitamente `-Apply` com privilégios de administrador **somente para remover o registro SCM**. A pasta de programa, o banco PostgreSQL, Redis, os arquivos fiscais, os segredos, os backups e a tarefa de backup **são preservados**. A retirada completa do programa e a limpeza de dados exigem outro procedimento futuro e autorização específica.
+Após reconciliar as vendas, garantir cópia e recuperação dos dados e parar o serviço manualmente, o responsável técnico pode usar explicitamente `-Apply` com privilégios de administrador **somente para remover o registro SCM**. No modo real, deve fornecer `-ApprovedManifestSHA256` e `-TrustedPublisherThumbprint` por **canal independente do pacote**; o utilitário exige assinatura Authenticode válida do launcher, dos auxiliares e do pacote instalado antes de remover o serviço. Uma exceção `-UnsignedDisposableCIFixture` existe apenas para o runner Windows descartável e identificado do GitHub Actions, nunca para uma loja.
+
+A pasta de programa, o banco PostgreSQL, Redis, os arquivos fiscais, os segredos, os backups e a tarefa de backup **são preservados**. A retirada completa do programa e a limpeza de dados exigem outro procedimento futuro e autorização específica.
 
 Exemplo do modo de leitura:
 
