@@ -5,30 +5,30 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 test('gestor acessa assistente e encontra caminhos para cada configuração', async ({ page }) => {
   await login(page, 'admin@sistema.local')
-  await page.getByRole('link', { name: 'Configurar loja' }).click()
+  await page.goto('/setup')
   await expect(page).toHaveURL(/\/setup$/)
-  await expect(page.getByRole('heading', { name: 'Configurar minha loja' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Vamos preparar sua loja' })).toBeVisible()
   await expect(page.getByRole('button', { name: /1\. Dados da minha loja/ })).toBeVisible()
   await expect(page.getByText('Razão social:', { exact: false })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Resumo da configuração' })).toContainText('dados básicos verificados')
-  await expect(page.getByText('Etapa 1 de 5')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Resumo da configuração' })).toContainText('Seu progresso')
+  await expect(page.getByRole('navigation', { name: 'Navegação do assistente' }).getByText('Etapa 1 de 5')).toBeVisible()
   await page.getByRole('button', { name: /Próxima etapa/ }).click()
-  await expect(page.getByText('Etapa 2 de 5')).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Navegação do assistente' }).getByText('Etapa 2 de 5')).toBeVisible()
   await page.getByRole('button', { name: /Etapa anterior/ }).click()
-  await expect(page.getByText('Etapa 1 de 5')).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Navegação do assistente' }).getByText('Etapa 1 de 5')).toBeVisible()
   await page.getByRole('button', { name: /2\. Produtos e preços/ }).click()
   await expect(page.getByRole('link', { name: /Ir para Produtos/ })).toBeVisible()
   await page.getByRole('button', { name: /3\. Estoque inicial/ }).click()
   await expect(page.getByRole('link', { name: /Ir para Estoque/ })).toBeVisible()
   await page.getByRole('button', { name: /4\. Funcionários e permissões/ }).click()
-  await expect(page.getByText(/ainda não cria funcionários nem altera permissões/)).toBeVisible()
+  await expect(page.getByRole('link', { name: /Abrir administração de funcionários e permissões/ })).toBeVisible()
   await page.getByRole('button', { name: /5\. Preparar a NFC-e/ }).click()
-  await expect(page.getByText(/emissão exige homologação/)).toBeVisible()
+  await expect(page.getByText(/emissão exige homologação/i)).toBeVisible()
 })
 
 test('caixa não recebe formulário de empresa ou acesso a dados fiscais', async ({ page }) => {
@@ -44,7 +44,7 @@ test('caixa não recebe formulário de empresa ou acesso a dados fiscais', async
     await route.continue()
   })
   await page.goto('/setup')
-  await expect(page.getByRole('heading', { name: 'Configurar minha loja' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Vamos preparar sua loja' })).toBeVisible()
   await expect(page.getByText('Sem acesso').first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Salvar dados da minha loja' })).toHaveCount(0)
   expect(fiscalRequests).toBe(0)
@@ -54,7 +54,8 @@ test('caixa não recebe formulário de empresa ou acesso a dados fiscais', async
 
 test('revisão manual fica registrada entre recargas, sem virar aprovação fiscal', async ({ page }) => {
   let stockReviewedAt = ''
-  await page.route('**/api/v1/setup/reviews**', async (route) => {
+  await page.route(/\/api\/v1\/setup\/reviews(?:\/stock)?(?:\?.*)?$/, async (route) => {
+    if (route.request().method() === 'OPTIONS') return route.continue()
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200, contentType: 'application/json',
@@ -82,7 +83,15 @@ test('revisão manual fica registrada entre recargas, sem virar aprovação fisc
   await reviewSection.getByRole('button', { name: 'Registrar revisão' }).click()
   await expect(reviewSection).toContainText('Revisão registrada em')
   await expect(page.getByRole('button', { name: /3\. Estoque inicial/ })).toContainText('Conferir')
+  expect(stockReviewedAt).toBe('2026-10-08T20:00:00Z')
+  const reviewsAfterReload = page.waitForResponse((response) =>
+    response.url().endsWith('/api/v1/setup/reviews') &&
+    response.request().method() === 'GET' && response.status() === 200,
+  )
   await page.reload()
+  expect(await (await reviewsAfterReload).json()).toEqual({
+    items: [{ step: 'stock', reviewed_at: stockReviewedAt }],
+  })
   await page.getByRole('button', { name: /3\. Estoque inicial/ }).click()
   await expect(page.getByRole('region', { name: 'Revisão registrada da etapa' })).toContainText('Revisão registrada em')
   await reviewSection.getByRole('button', { name: 'Reabrir revisão' }).click()
