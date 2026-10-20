@@ -40,4 +40,11 @@ test('ambiguous cash movement key survives PDV reload', async ({ page }) => {
 
   await page.getByLabel('Dinheiro declarado').fill('1')
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
+  // Do not finish this test while its asynchronous close request is still in flight:
+  // the next E2E scenario uses the same disposable tenant and cash register.
+  await expect.poll(async () => page.evaluate(async () => {
+    const { getCashSessionId } = await import('/src/lib/auth.ts')
+    return getCashSessionId()
+  })).toBe('')
+  await expect(page.getByRole('button', { name: 'Abrir' })).toBeVisible()
 })
