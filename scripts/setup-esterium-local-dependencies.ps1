@@ -98,6 +98,29 @@ foreach ($filename in $trustedHelpers) {
         throw 'Instalador está incompleto: falta componente confiável.'
     }
 }
+if ($TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$' -or
+    $ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$') {
+    throw 'Execução real exige certificado de editor e manifesto aprovados fora do ZIP.'
+}
+$principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Execução real exige Administrador.'
+}
+# The outer installer/OS must establish the launcher's trust before this code
+# runs. Verify all delegated privileged scripts before the first write.
+foreach ($signedPath in @($PSCommandPath) + @($trustedHelpers | ForEach-Object {
+    Join-Path $PSScriptRoot $_
+})) {
+    $signature=Get-AuthenticodeSignature -LiteralPath $signedPath
+    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+        $null -eq $signature.SignerCertificate -or
+        $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
+           $TrustedPublisherThumbprint.ToUpperInvariant()) {
+        throw 'Instalador e componentes precisam de assinatura do editor previamente aprovado.'
+    }
+}
+& $releaseGate -BundleDir $BundleDir -ExpectedManifestSHA256 $ApprovedManifestSHA256 -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
+
 $packageArgs=@{
     PostgresInstaller=$PostgresInstaller
     ExpectedPostgresSHA256=$ExpectedPostgresSHA256
@@ -123,28 +146,6 @@ if (-not $Apply) {
     Write-Output 'PLAN: nenhum segredo, serviço, pasta ou dado foi alterado.'
     return
 }
-if ($TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$' -or
-    $ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$') {
-    throw 'Execução real exige certificado de editor e manifesto aprovados fora do ZIP.'
-}
-$principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw 'Execução real exige Administrador.'
-}
-# The outer installer/OS must establish the launcher's trust before this code
-# runs. Verify all delegated privileged scripts before the first write.
-foreach ($signedPath in @($PSCommandPath) + @($trustedHelpers | ForEach-Object {
-    Join-Path $PSScriptRoot $_
-})) {
-    $signature=Get-AuthenticodeSignature -LiteralPath $signedPath
-    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
-        $null -eq $signature.SignerCertificate -or
-        $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
-           $TrustedPublisherThumbprint.ToUpperInvariant()) {
-        throw 'Instalador e componentes precisam de assinatura do editor previamente aprovado.'
-    }
-}
-& $releaseGate -BundleDir $BundleDir -ExpectedManifestSHA256 $ApprovedManifestSHA256 -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
 # Confirm vendor files again after the release provenance check.
 & $sourceGate @packageArgs | Out-Null
 $bootstrapArgs.Apply=$true
