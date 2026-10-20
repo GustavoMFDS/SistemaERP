@@ -24,11 +24,17 @@ param(
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [string]$TrustedPublisherThumbprint='',
+    [switch]$SyntheticUnsignedCIFixture,
     [switch]$Apply
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'Instalador exige Windows.' }
+if ($SyntheticUnsignedCIFixture -and ($Apply -or $env:GITHUB_ACTIONS -ne 'true' -or
+    $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:ESTERIUM_DEPENDENCY_INSTALL_DISPOSABLE_CI -ne '1')) {
+    throw 'Fixture sem assinatura somente em planejamento no runner Windows descartável.'
+}
 if ($PostgresPort -in @(8080,$GarnetPort) -or $GarnetPort -eq 8080) {
     throw 'Portas da aplicação, banco e cache devem ser distintas.'
 }
@@ -135,7 +141,15 @@ if ($Apply) {
         throw 'Instalação real requer administrador.'
     }
 }
-& $checker -PostgresInstaller $pg -ExpectedPostgresSHA256 $ExpectedPostgresSHA256 -ExpectedPostgresPublisherThumbprint $ExpectedPostgresPublisherThumbprint -GarnetPackage $zip -ExpectedGarnetSHA256 $ExpectedGarnetSHA256 | Out-Null
+$packageArgs=@{
+    PostgresInstaller=$pg
+    ExpectedPostgresSHA256=$ExpectedPostgresSHA256
+    ExpectedPostgresPublisherThumbprint=$ExpectedPostgresPublisherThumbprint
+    GarnetPackage=$zip
+    ExpectedGarnetSHA256=$ExpectedGarnetSHA256
+}
+if ($SyntheticUnsignedCIFixture) { $packageArgs.SyntheticUnsignedCIFixture=$true }
+& $checker @packageArgs | Out-Null
 $allowedKeys=@('mode','prefix','datadir','serverport','servicename','serviceaccount',
     'superaccount','superpassword','servicepassword','enable-components','create_shortcuts','unattendedmodeui')
 $lines=@([IO.File]::ReadAllLines($options))
