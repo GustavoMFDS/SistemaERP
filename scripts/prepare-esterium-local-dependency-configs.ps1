@@ -80,6 +80,18 @@ if ($Apply -and -not $UnsignedDisposableCIFixture) {
         }
     }
 }
+# Each helper also protects its direct -Apply entry point; forward the
+# already-verified publisher identity, or only the explicitly isolated
+# hosted-CI fixture identity, to both helpers.
+if ($Apply) {
+    if ($UnsignedDisposableCIFixture) {
+        $pgArgs.UnsignedDisposableCIFixture=$true
+        $garnetArgs.UnsignedDisposableCIFixture=$true
+    } else {
+        $pgArgs.TrustedPublisherThumbprint=$TrustedPublisherThumbprint
+        $garnetArgs.TrustedPublisherThumbprint=$TrustedPublisherThumbprint
+    }
+}
 # Always check both inputs and destinations before any file is created.
 & $pgTool @pgArgs | Out-Null
 Write-Output 'PASS 1/2: new PostgreSQL installer options can be prepared.'
