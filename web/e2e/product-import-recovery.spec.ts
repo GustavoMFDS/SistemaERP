@@ -67,6 +67,13 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
   await page.reload()
   const section = page.getByRole('region', { name: 'Importação de produtos pendente' })
   await expect(section).toBeVisible()
+  const supportReference = section.locator('code')
+  await expect(supportReference).toBeHidden()
+  await section.getByText('Ver código da tentativa', { exact: true }).click()
+  await expect(supportReference).toBeVisible()
+  await expect(supportReference).toHaveText(keys[0])
+  await section.getByText('Ver código da tentativa', { exact: true }).click()
+  await expect(supportReference).toBeHidden()
   await section.getByRole('button', { name: 'Conferir lote no servidor' }).click()
   await expect(page.getByText(/ainda não aparece como confirmado/i)).toBeVisible()
 
