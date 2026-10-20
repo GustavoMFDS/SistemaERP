@@ -36,7 +36,21 @@ function Assert-NoSharedReaders([string]$path, [string]$label) {
         if ($sid -notin @('S-1-5-18', 'S-1-5-20', 'S-1-5-32-544')) {
             throw "Backup $label grants rights to an unapproved Windows identity."
         }
-        if ($sid -eq 'S-1-5-20' -and $canRead) { $networkServiceCanRead = $true }
+        if ($sid -eq 'S-1-5-20') {
+            # This service must be able to read the configuration/password
+            # but not rewrite its own connection authority or trust material.
+            $unsafeWrites = [Security.AccessControl.FileSystemRights]::WriteData -bor
+                [Security.AccessControl.FileSystemRights]::AppendData -bor
+                [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+                [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+                [Security.AccessControl.FileSystemRights]::Delete -bor
+                [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+                [Security.AccessControl.FileSystemRights]::TakeOwnership
+            if (($ace.FileSystemRights -band $unsafeWrites) -ne 0) {
+                throw "NetworkService must have read-only ACL access to backup $label."
+            }
+            if ($canRead) { $networkServiceCanRead = $true }
+        }
     }
     if (-not $networkServiceCanRead) {
         throw "NetworkService needs an explicit file read ACL for backup $label."
