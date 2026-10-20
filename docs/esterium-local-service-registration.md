@@ -285,3 +285,10 @@ Os scripts de validação exigem que **ambas as instalações contenham o conjun
 ## Pendente para instalador completo
 
 Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/Credential Manager, `APP_PUBLIC_URL`/CORS reais, certificado HTTPS confiável para LAN, isolamento no firewall, migrações em banco novo, atualização sem perda de dados, validação/ativação presencial da tarefa e restauração real de backups, inicialização automática e desinstalação preservando dados.
+
+
+## Execução técnica offline do PostgreSQL e Garnet (nova etapa, sem liberação comercial)
+
+Depois de preparar os arquivos restritos acima, o pacote passa a incluir `tools/install-esterium-local-dependencies.ps1`. Seu modo padrão é **somente leitura**: verifica procedência dos pacotes EDB/Garnet e do gerenciador Windows NSSM, caminhos novos, ACL, portas e conteúdo exato do arquivo de opções PostgreSQL. `-Apply` administrativo exige **script e verificador assinados por editor independente aprovado**, executa o PostgreSQL 16 em modo silencioso, confere cluster/serviço/escuta local e registra Garnet como serviço NetworkService com **inicialização manual, ainda parado**. Se houver erro, mantém qualquer banco para análise e tenta desfazer apenas o serviço Garnet criado pela própria execução.
+
+**Não é um instalador de um clique concluído:** certificados PostgreSQL, SQL/banco, configurações TLS/SCRAM, usuário de aplicação, migrações e smoke com binários externos reais ainda precisam ser automatizados/validados antes de operar. O teste do CI é sintético; ver o procedimento completo em `docs/esterium-local-unattended-dependencies.md` (repositório de origem).
