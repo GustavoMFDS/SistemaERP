@@ -49,12 +49,30 @@ foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
     }
 }
 if ($PostgresServiceName -eq $GarnetServiceName) { throw 'Nomes de serviços devem ser distintos.' }
-if ($PostgresServiceAccount -cnotmatch '^[a-zA-Z][a-zA-Z0-9_-]{2,30}
+if ($PostgresServiceAccount -cnotmatch '^[a-zA-Z][a-zA-Z0-9_-]{2,30}$' -or
+    $PostgresServiceAccount -in @('postgres','administrator','system','networkservice','localservice')) {
+    throw 'Conta de servico PostgreSQL invalida.'
+}
+$existingAccounts=@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='$PostgresServiceAccount' AND LocalAccount=TRUE" -ErrorAction Stop)
+if ($existingAccounts.Count -ne 0) { throw 'Conta PostgreSQL existente: nao sobrescrever.' }
+$pgBase=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')
+$programBase=[IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\')
+foreach ($candidate in @($BootstrapDir,$PostgresOptionsDir,$GarnetConfigDir,$PostgresDataDir)) {
+    if (-not [IO.Path]::GetFullPath($candidate).StartsWith($pgBase+'\',[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Dados e configuracoes devem ficar sob ProgramData Esterium.'
+    }
+}
+foreach ($candidate in @($PostgresInstallDir,$GarnetInstallDir)) {
+    if (-not [IO.Path]::GetFullPath($candidate).StartsWith($programBase+'\',[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Executaveis devem ficar sob Program Files.'
+    }
+}
+foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir)) {
     if (-not [IO.Path]::IsPathRooted($dir) -or $dir.StartsWith('\\')) {
-        throw 'Destino de instalação deve usar disco local absoluto.'
+        throw 'Destino de instalacao deve usar disco local absoluto.'
     }
     if (Test-Path -LiteralPath $dir) {
-        throw 'Há arquivos anteriores de instalação: não sobrescrever nem rotacionar.'
+        throw 'Ha arquivos anteriores de instalacao: nao sobrescrever.'
     }
 }
 $allPaths=@($BootstrapDir,$PostgresOptionsDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir) |
