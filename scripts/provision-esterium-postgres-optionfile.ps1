@@ -15,11 +15,35 @@ param(
     [string]$ServiceName='EsteriumPostgreSQL16',
     [string]$ServiceAccount='esterium_pgsvc',
     [ValidateRange(1,65535)][int]$Port=5432,
-    [switch]$Apply
+    [switch]$Apply,
+    [string]$TrustedPublisherThumbprint = '',
+    [switch]$UnsignedDisposableCIFixture
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'Windows is required.' }
+# A direct -Apply bypasses the signed orchestration script. Each helper
+# therefore authenticates its own publisher before reading private inputs
+# or creating new credential/configuration files.
+if ($UnsignedDisposableCIFixture -and (
+    $env:GITHUB_ACTIONS -ne 'true' -or
+    $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:ESTERIUM_DEPENDENCY_CONFIG_DISPOSABLE_CI -ne '1')) {
+    throw 'Unsigned configuration fixture requires isolated GitHub-hosted Windows CI.'
+}
+if ($Apply -and -not $UnsignedDisposableCIFixture) {
+    if ($TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
+        throw 'PostgreSQL option creation requires an independently approved publisher identity.'
+    }
+    $signature = Get-AuthenticodeSignature -LiteralPath $PSCommandPath
+    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+        $null -eq $signature.SignerCertificate -or
+        $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
+            $TrustedPublisherThumbprint.ToUpperInvariant()) {
+        throw 'PostgreSQL option creation requires the original helper signed by the approved publisher.'
+    }
+}
+
 if ($ServiceName -cnotmatch '^[a-zA-Z][a-zA-Z0-9_-]{2,63}$' -or
     $ServiceAccount -cnotmatch '^[a-zA-Z][a-zA-Z0-9_-]{2,30}$' -or
     $ServiceAccount -in @('postgres','administrator','system','networkservice','localservice')) {
