@@ -1,10 +1,12 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/home$/)
+  await page.getByRole('link', { name: 'Produtos', exact: true }).click()
   await expect(page).toHaveURL(/\/products$/)
 }
 
@@ -27,6 +29,7 @@ test('histórico de produtos mostra apenas recibos confirmados e permite paginar
     })
   })
   await login(page, 'gerente@sistema.local')
+  await page.getByText('Importar uma planilha de produtos', { exact: true }).click()
   const history = page.getByRole('region', { name: 'Histórico de importações confirmadas' })
   await expect(history.getByText('Gerente da loja').first()).toBeVisible()
   await expect(history).toContainText('Página 1')
@@ -55,6 +58,7 @@ test('estoque inicial possui histórico próprio de recibos, sem CSV', async ({ 
     }))
   await login(page, 'gerente@sistema.local')
   await page.goto('/inventory')
+  await page.getByText('Cadastrar estoque inicial por planilha', { exact: true }).click()
   const history = page.getByRole('region', { name: 'Histórico de importações confirmadas' })
   await expect(history).toContainText('Responsável estoque')
   await expect(history).toContainText('00000000-0000-4000-8000-000000000200')
