@@ -91,7 +91,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading || !email.trim() || !password}
+              disabled={loading}
               className="w-full rounded-md bg-gray-900 px-3 py-2.5 text-sm font-medium text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? 'Entrando…' : 'Entrar'}

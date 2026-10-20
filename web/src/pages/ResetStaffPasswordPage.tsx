@@ -83,7 +83,7 @@ export default function ResetStaffPasswordPage() {
             <form onSubmit={(event) => void submit(event)} className="mt-4 space-y-3">
               <PasswordField
                 id="reset-password"
-                label="Nova senha"
+                label="Nova senha (12 a 72 caracteres)"
                 value={password}
                 onChange={(value) => { setPassword(value); setError('') }}
                 autoComplete="new-password"
