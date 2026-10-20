@@ -44,5 +44,5 @@ test('navegação avisa quando acessos e saída não podem ser confirmados', asy
   const exitWarning = page.getByRole('alert').filter({ hasText: 'Não foi possível confirmar a saída' })
   await expect(exitWarning).toBeVisible()
   await expect(exitWarning).not.toContainText('detalhe interno')
-  await expect(page).toHaveURL(/\/home$/)
+  await expect(page).toHaveURL(/\/home(?:#conteudo-principal)?$/)
 })

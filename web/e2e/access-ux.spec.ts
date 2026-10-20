@@ -61,7 +61,7 @@ for (const scenario of [
 
     await page.goto(`${scenario.path}#token=exemplo-descartavel`)
     await expect(page).toHaveURL(new RegExp(`${scenario.path}$`))
-    const password = page.getByLabel(scenario.label)
+    const password = page.getByLabel(scenario.label, { exact: true })
     const confirmation = page.getByLabel('Confirmar nova senha')
     const submit = page.getByRole('button', { name: scenario.submit })
 
