@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { apiJson } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 
 type Movement = {
@@ -63,9 +63,9 @@ export default function StockMovementsPage() {
       setItems(data.items ?? [])
       setTotal(data.total)
       setLoading(false)
-    }).catch((cause: unknown) => {
+    }).catch(() => {
       if (!active || id !== seq.current || originalScope !== getSessionScope()) return
-      setError(errorMessage(cause))
+      setError('Não foi possível carregar as movimentações desta loja. Confira sua conexão e tente novamente.')
       setLoading(false)
     })
     return () => { active = false }
@@ -95,11 +95,21 @@ export default function StockMovementsPage() {
         ) : null}
       </div>
       {loading ? <p className="mt-3 text-sm" role="status">Consultando movimentações…</p> : null}
-      {error ? <p className="mt-3 text-sm text-red-700" role="alert">
-        Não foi possível consultar: {error}
-      </p> : null}
+      {error ? (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+          <p>{error}</p>
+          {scope ? (
+            <button type="button" className="mt-2 rounded-md border border-red-300 bg-white px-3 py-2 font-medium"
+              onClick={() => setReload((n) => n + 1)}>
+              Tentar novamente
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {!loading && !error && items.length === 0 ? (
-        <p className="mt-4 text-sm text-gray-600">Nenhuma movimentação encontrada.</p>
+        <p role="status" className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700">
+          {product ? 'Este produto ainda não tem movimentações registradas.' : 'Ainda não há movimentações registradas nesta loja.'}
+        </p>
       ) : null}
       {!loading && items.length > 0 ? (
         <div className="mt-4 overflow-x-auto rounded-md border">
@@ -131,7 +141,7 @@ export default function StockMovementsPage() {
                     </button>
                     <span className="block text-gray-500">Código: {entry.product_sku}</span>
                   </td>
-                  <td className="px-3 py-2">{typeLabels[entry.movement_type] ?? entry.movement_type}</td>
+                  <td className="px-3 py-2">{typeLabels[entry.movement_type] ?? 'Outro movimento'}</td>
                   <td className="px-3 py-2 font-medium">
                     {entry.delta > 0 ? '+' : ''}{number(entry.delta)}
                   </td>
@@ -144,7 +154,7 @@ export default function StockMovementsPage() {
           </table>
         </div>
       ) : null}
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+      {!loading && !error && total > 0 ? <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
         <button type="button" disabled={loading || offset === 0}
           onClick={() => setOffset((n) => Math.max(0, n - pageSize))}
           className="rounded-md border px-3 py-2 disabled:opacity-50">
@@ -157,7 +167,7 @@ export default function StockMovementsPage() {
           Próxima página
         </button>
         {offset >= maxOffset ? <span className="text-amber-800">Limite de consulta atingido.</span> : null}
-      </div>
+      </div> : null}
       <p className="mt-4 text-xs text-gray-600">
         Esta lista reflete os lançamentos registrados pelo sistema. Não substitui contagem física
         ou conciliação independente dos saldos em prateleira.
