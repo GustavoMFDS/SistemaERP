@@ -65,6 +65,27 @@ try {
     if (@(Get-ScheduledTask -TaskName 'EsteriumERP-Backup' -ErrorAction SilentlyContinue).Count -ne 0) {
         throw 'Denied backup registration unexpectedly created a task.'
     }
+    # Spoofing the CI-only fixture flag without the dedicated disposable
+    # SCM job marker must also refuse registration before checking any data.
+    $previousFixtureMarker = $env:ESTERIUM_SCM_DISPOSABLE_CI
+    try {
+        $env:ESTERIUM_SCM_DISPOSABLE_CI = '0'
+        $fixtureRejected = $false
+        try {
+            & $registration -ConfigFile $configPath -Apply -UnsignedDisposableCIFixture | Out-Null
+        } catch {
+            $fixtureRejected = $_.Exception.Message -match 'requires disposable hosted Windows SCM CI'
+        }
+        if (-not $fixtureRejected) {
+            throw 'Backup task registration permitted CI-only bypass without disposable marker.'
+        }
+    } finally {
+        if ($null -eq $previousFixtureMarker) {
+            Remove-Item Env:ESTERIUM_SCM_DISPOSABLE_CI -ErrorAction SilentlyContinue
+        } else {
+            $env:ESTERIUM_SCM_DISPOSABLE_CI = $previousFixtureMarker
+        }
+    }
     function Assert-Reject([string]$reason) {
         $rejected = $false
         try { & $runner -ConfigFile $configPath -CheckOnly | Out-Null }
