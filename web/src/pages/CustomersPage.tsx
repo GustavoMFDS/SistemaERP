@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiJson, errorMessage } from '../lib/api'
+import { apiJson } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 
 type Customer = {
@@ -28,6 +28,7 @@ export default function CustomersPage() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [listError, setListError] = useState('')
   const [message, setMessage] = useState('')
   const authSequence = useRef(0)
   const listSequence = useRef(0)
@@ -46,7 +47,7 @@ export default function CustomersPage() {
       setPermissions(data.permissions)
     }).catch((cause: unknown) => {
       if (!active || requestID !== authSequence.current || currentScope !== getSessionScope()) return
-      setError(errorMessage(cause))
+      setError('Não foi possível verificar seu acesso aos clientes. Atualize a página e tente novamente.')
       setLoading(false)
     })
     return () => { active = false }
@@ -63,17 +64,18 @@ export default function CustomersPage() {
       return
     }
     setLoading(true)
-    setError('')
+    setListError('')
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) })
     if (query) params.set('q', query)
     void apiJson<CustomerPage>(`/api/v1/customers?${params.toString()}`).then((data) => {
       if (!active || requestID !== listSequence.current || currentScope !== getSessionScope()) return
       setItems(data.items ?? [])
       setTotal(data.total)
+      setListError('')
       setLoading(false)
-    }).catch((cause: unknown) => {
+    }).catch(() => {
       if (!active || requestID !== listSequence.current || currentScope !== getSessionScope()) return
-      setError(errorMessage(cause))
+      setListError('Não foi possível consultar os clientes agora. Confira sua conexão e tente novamente.')
       setItems([])
       setTotal(0)
       setLoading(false)
@@ -113,7 +115,7 @@ export default function CustomersPage() {
       setOffset(0)
       setRefresh((n) => n + 1)
     } catch (cause: unknown) {
-      setError(errorMessage(cause))
+      setError('Não foi possível salvar o cadastro. Confira os dados e tente novamente.')
     } finally {
       setSaving(false)
     }
@@ -129,8 +131,8 @@ export default function CustomersPage() {
     <div>
       <h2 className="text-lg font-semibold">Clientes da loja</h2>
       <p className="mt-2 text-sm text-gray-600">
-        Cadastre e consulte contatos somente do CNPJ desta sessão. Esta agenda não faz vendas
-        a prazo, não consulta crédito e não libera emissão de nota fiscal.
+        Guarde o nome e os contatos dos seus clientes em um só lugar.
+        Os dados ficam disponíveis apenas para pessoas autorizadas nesta loja.
       </p>
       {error ? <p role="alert" className="mt-3 text-sm text-red-700">{error}</p> : null}
       {message ? <p role="status" className="mt-3 text-sm">{message}</p> : null}
@@ -178,8 +180,8 @@ export default function CustomersPage() {
                 </label>
               </div>
               <div className="mt-3 flex gap-2">
-                <button type="submit" disabled={saving}
-                  className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+                <button type="submit" disabled={saving || draft.name.trim().length < 2}
+                  className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50">
                   {saving ? 'Salvando…' : editingID ? 'Salvar alterações' : 'Cadastrar cliente'}
                 </button>
                 {editingID ? (
@@ -188,15 +190,28 @@ export default function CustomersPage() {
                 ) : null}
               </div>
               <p className="mt-3 text-xs text-gray-600">
-                Informe apenas dados de contato necessários e autorizados. CPF/CNPJ,
-                cobranças e limites de crédito não são solicitados aqui.
+                Cadastre apenas informações de contato que o cliente autorizou compartilhar.
               </p>
             </form>
           ) : null}
           {loading ? <p role="status" className="mt-4 text-sm">Consultando clientes…</p> : null}
-          <section aria-label="Lista de clientes" className="mt-5 overflow-auto">
-            <p className="mb-2 text-xs text-gray-600">{total} cliente(s) encontrados</p>
-            <table className="min-w-full text-left text-xs">
+          {listError ? (
+            <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <p>{listError}</p>
+              <button type="button" onClick={() => setRefresh((n) => n + 1)}
+                className="mt-2 rounded-md border border-red-300 bg-white px-3 py-2 font-medium hover:bg-red-50">
+                Tentar novamente
+              </button>
+            </div>
+          ) : null}
+          <section aria-label="Lista de clientes" className="mt-5 overflow-auto" aria-busy={loading}>
+            {!loading && !listError ? (
+              <p className="mb-2 text-xs text-gray-600">
+                {total === 0 ? 'Nenhum cliente encontrado' : `${total} cliente(s) encontrado(s)`}
+                {query ? ` para “${query}”` : ''}
+              </p>
+            ) : null}
+            {!listError ? <table className="min-w-full text-left text-xs">
               <thead className="bg-gray-50 text-gray-600">
                 <tr><th className="px-2 py-2">Nome</th><th className="px-2 py-2">E-mail</th>
                   <th className="px-2 py-2">Telefone</th><th className="px-2 py-2">Ações</th></tr>
@@ -214,10 +229,18 @@ export default function CustomersPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
-            {!loading && items.length === 0 ? <p className="mt-3 text-xs">Nenhum cliente nesta página.</p> : null}
+            </table> : null}
+            {!loading && !listError && items.length === 0 ? (
+              <p role="status" className="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700">
+                {query
+                  ? 'Não encontramos clientes com esse nome. Experimente outra busca ou escolha “Mostrar todos”.'
+                  : canWrite
+                    ? 'Ainda não há clientes cadastrados. Preencha o formulário acima para adicionar o primeiro.'
+                    : 'Ainda não há clientes cadastrados nesta loja.'}
+              </p>
+            ) : null}
           </section>
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+          {!listError ? <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
             <button type="button" disabled={loading || offset === 0}
               onClick={() => setOffset((n) => Math.max(0, n - pageSize))}
               className="rounded-md border px-3 py-2 disabled:opacity-50">Página anterior</button>
@@ -225,7 +248,7 @@ export default function CustomersPage() {
             <button type="button" disabled={loading || offset + pageSize >= total || offset + pageSize > 5000}
               onClick={() => setOffset((n) => n + pageSize)}
               className="rounded-md border px-3 py-2 disabled:opacity-50">Próxima página</button>
-          </div>
+          </div> : null}
         </>
       ) : null}
     </div>
