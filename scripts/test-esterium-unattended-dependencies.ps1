@@ -16,6 +16,11 @@ if (@($parseErrors).Count -gt 0) {
     }) -join '; '
     throw ('Unattended install script PowerShell parser failed: '+$details)
 }
+$implementation=[IO.File]::ReadAllText($tool)
+if (-not $implementation.Contains('Set-Service -Name $PostgresServiceName -StartupType Disabled') -or
+    -not $implementation.Contains("'Start','SERVICE_DISABLED'")) {
+    throw 'Unattended dependency installer must leave PostgreSQL and Garnet disabled.'
+}
 $testId=[Guid]::NewGuid().ToString('N').Substring(0,10)
 $root=Join-Path $env:RUNNER_TEMP ('esterium-install-'+$testId)
 $pg=Join-Path $root 'postgresql-16.exe'
