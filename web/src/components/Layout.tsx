@@ -101,7 +101,7 @@ export default function Layout() {
       clearToken()
       navigate('/login', { replace: true })
     } catch {
-      setLogoutError('Não foi possível confirmar a saída com segurança. Confira sua conexão e tente novamente.')
+      setLogoutError('Não foi possível encerrar a sessão no servidor. Sua sessão continua aberta. Confira sua conexão e tente novamente.')
     } finally {
       setLoggingOut(false)
     }
