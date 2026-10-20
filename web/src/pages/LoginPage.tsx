@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { APIError, apiJson } from '../lib/api'
 import { setToken } from '../lib/auth'
+import PasswordField from '../components/PasswordField'
 import { resetFiscalReminderForLogin } from '../lib/fiscalReminderSession'
 
 type LoginResponse = {
@@ -17,14 +18,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    document.title = 'Entrar — Esterium ERP'
+  }, [])
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if (loading) return
     setError('')
     setLoading(true)
     try {
       const data = await apiJson<LoginResponse>('/api/v1/auth/login', {
         method: 'POST',
-        body: { email, password },
+        body: { email: email.trim(), password },
       })
       setToken(data.token.access_token)
       resetFiscalReminderForLogin()
@@ -55,35 +61,35 @@ export default function LoginPage() {
               <span className="text-sm text-gray-700">E-mail ou nome de usuário</span>
               <input
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setError('') }}
                 type="text"
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                 autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
                 required
               />
             </label>
 
-            <label className="block">
-              <span className="text-sm text-gray-700">Senha</span>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                autoComplete="current-password"
-                required
-              />
-            </label>
+            <PasswordField
+              id="login-password"
+              label="Senha"
+              value={password}
+              onChange={(value) => { setPassword(value); setError('') }}
+              autoComplete="current-password"
+              disabled={loading}
+            />
 
             {error ? (
-              <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+              <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                 {error}
               </div>
             ) : null}
 
             <button
-              disabled={loading}
-              className="w-full rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+              type="submit"
+              disabled={loading || !email.trim() || !password}
+              className="w-full rounded-md bg-gray-900 px-3 py-2.5 text-sm font-medium text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? 'Entrando…' : 'Entrar'}
             </button>
