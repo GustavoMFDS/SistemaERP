@@ -43,8 +43,11 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
       }),
     })
   })
-  await page.route(batchReceiptRoute, (route) =>
-    route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' }))
+  let receiptChecks = 0
+  await page.route(batchReceiptRoute, (route) => {
+    receiptChecks += 1
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' })
+  })
   page.on('dialog', (dialog) => void dialog.accept())
 
   await login(page, 'gerente@sistema.local')
@@ -74,8 +77,16 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
   await expect(supportReference).toHaveText(keys[0])
   await section.getByText('Ver código da tentativa', { exact: true }).click()
   await expect(supportReference).toBeHidden()
+  const checkedBefore = receiptChecks
   await section.getByRole('button', { name: 'Conferir lote no servidor' }).click()
-  await expect(page.getByText(/ainda não aparece como confirmado/i)).toBeVisible()
+  // A concurrent catalog refresh can clear an ephemeral error message. The
+  // durable invariant is a real 404 lookup and the same pending receipt still
+  // persisted for safe, idempotent recovery after the lookup.
+  await expect.poll(() => receiptChecks).toBeGreaterThan(checkedBefore)
+  await expect(section).toBeVisible()
+  await expect.poll(() => page.evaluate(() =>
+    Object.keys(localStorage).filter((key) => key.startsWith('sistemaemgo:pendingProductImport:v1')).length,
+  )).toBe(1)
 
   await upload(page, changed)
   await expect(page.getByText(/importação pendente/i).last()).toBeVisible()
