@@ -8,6 +8,17 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = (Resolve-Path -LiteralPath $BundleDir).Path.TrimEnd('\','/')
 $manifest = Join-Path $root 'bundle-manifest.json'
+# Refuse a root link, a linked manifest, or any linked payload/directory
+# before parsing the manifest or hashing files. A hash pass must never
+# inadvertently dereference a path outside the reviewed bundle.
+if (((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'Bundle root must not be a symbolic link or junction.'
+}
+foreach ($entry in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
+    if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Bundle includes an unexpected symbolic link/junction.'
+    }
+}
 if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
     throw 'Bundle SHA-256 manifest is missing.'
 }
