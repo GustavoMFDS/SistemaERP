@@ -265,6 +265,8 @@ O pacote atual continua sem assinatura e o fluxo **não pode ser utilizado em um
 
 O pacote inclui `tools/plan-esterium-windows-upgrade.ps1`. Ele serve **somente para planejar** uma futura atualização, exigindo que a instalação atual e o novo pacote tenham arquivos intactos e versões SQL antigas preservadas, sem modificação retroativa. Exige também serviço `EsteriumERP` já **parado**, tarefa diária de backup **desabilitada** e cópia local + externa comprovadamente recente e íntegra. Não acessa PostgreSQL/Redis e **não executa migrações, cópia de binários, instalação, rollback de dados nem reinício**.
 
+Quando o candidato contém versões SQL adicionais, o planejamento somente leitura agora mostra **quantas migrações novas** precisam de um procedimento separado e sinaliza que o atualizador de arquivos deve **recusá-las**. Um candidato sem novas versões recebe uma mensagem diferente, mas isso **não** comprova que o esquema do PostgreSQL esteja atualizado: a versão real, as migrações reversíveis e o ensaio de recuperação exigem verificação independente.
+
 Antes da distribuição comercial, a opção padrão recusa o novo executável sem assinatura Authenticode válida. Como o pacote técnico ainda não é assinado, `-TechnicalUnsignedPlan` permite **apenas um plano explícito de laboratório**, com aviso de que SHA-256 não garante procedência. Mesmo uma assinatura válida do executável ainda não comprova a identidade de todos os scripts/artefatos da release; a cadeia de assinatura completa continua pendente.
 
 O procedimento de laboratório exige caminhos reais e **uma cópia SMB em outro computador**:
