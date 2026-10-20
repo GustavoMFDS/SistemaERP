@@ -98,6 +98,7 @@ foreach ($filename in $trustedHelpers) {
         throw 'Instalador está incompleto: falta componente confiável.'
     }
 }
+if ($Apply) {
 if ($TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$' -or
     $ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$') {
     throw 'Execução real exige certificado de editor e manifesto aprovados fora do ZIP.'
@@ -121,6 +122,7 @@ foreach ($signedPath in @($PSCommandPath) + @($trustedHelpers | ForEach-Object {
 }
 & $releaseGate -BundleDir $BundleDir -ExpectedManifestSHA256 $ApprovedManifestSHA256 -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
 
+}
 $packageArgs=@{
     PostgresInstaller=$PostgresInstaller
     ExpectedPostgresSHA256=$ExpectedPostgresSHA256
