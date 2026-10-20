@@ -225,11 +225,25 @@ if (-not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_isready.exe')) -or
     $null -eq (Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue)) {
     throw 'PostgreSQL não confirmou serviço, binários e cluster versão 16.'
 }
+$nonLocalListener=$false
 foreach ($listener in @(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue)) {
     if ([string]$listener.LocalAddress -notin @('127.0.0.1','::1')) {
-        Stop-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue
-        throw 'PostgreSQL abriu porta fora do computador; serviço interrompido.'
+        $nonLocalListener=$true
     }
+}
+# EDB can register a service as Automatic. Do not leave an un-hardened
+# bootstrap cluster running or ready to start at the next reboot.
+try {
+    Set-Service -Name $PostgresServiceName -StartupType Manual -ErrorAction Stop
+    if ((Get-Service -Name $PostgresServiceName).Status -ne 'Stopped') {
+        Stop-Service -Name $PostgresServiceName -ErrorAction Stop
+    }
+} catch {
+    Stop-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue
+    throw 'Não foi possível deixar o PostgreSQL parado e com início manual; revisar serviço antes de usar.'
+}
+if ($nonLocalListener) {
+    throw 'PostgreSQL abriu porta fora do computador durante bootstrap; serviço parado e bloqueado para ajuste de rede.'
 }
 Write-Output '2/3: instalando binários e serviço Garnet...'
 $stage=$garnetDir+'.staging-'+[Guid]::NewGuid().ToString('N')
@@ -241,6 +255,11 @@ try {
         throw 'Arquivo Garnet mudou após a validação.'
     }
     Expand-Archive -LiteralPath $zip -DestinationPath $stage -ErrorAction Stop
+    foreach ($entry in @(Get-ChildItem -LiteralPath $stage -Recurse -Force)) {
+        if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Garnet extraído contém link/junção proibido.'
+        }
+    }
     $servers=@(Get-ChildItem -LiteralPath $stage -Recurse -Filter 'GarnetServer.exe' -File)
     if ($servers.Count -ne 1) { throw 'Pacote exige exatamente um GarnetServer.exe.' }
     $relative=$servers[0].FullName.Substring($stage.Length).TrimStart('\')
