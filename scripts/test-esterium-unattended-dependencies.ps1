@@ -55,12 +55,24 @@ try {
     [IO.File]::WriteAllText($options,$optionsText+[Environment]::NewLine)
     [IO.File]::WriteAllText($aclFile,('user default off'+[Environment]::NewLine+'user esteriumcache on >synthetic-strong-test ~* +@all'))
     [IO.File]::WriteAllText($pfxFile,'synthetic-only-nonexecuted-PFX')
+    $state=Join-Path $root 'state'
+    $logs=Join-Path $state 'logs'
+    $checkpoints=Join-Path $state 'checkpoints'
+    [IO.Directory]::CreateDirectory($logs) | Out-Null
+    [IO.Directory]::CreateDirectory($checkpoints) | Out-Null
+    foreach ($dir in @($state,$logs,$checkpoints)) {
+        & icacls.exe $dir '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)M' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Synthetic AOF storage ACL failed.' }
+    }
     $garnetConfig=[ordered]@{
         Address='127.0.0.1';Port=64322;EnableCluster=$false
         AuthenticationMode='ACL';AclFile=$aclFile
         EnableTLS=$true;CertFileName=$pfxFile;CertPassword='synthetic-only'
         EnableLua=$true;LuaTransactionMode=$true
         LuaMemoryManagementMode='Tracked';LuaScriptMemoryLimit='8m';LuaScriptTimeoutMs=5000
+        EnableAOF=$true;WaitForCommit=$true;CommitFrequencyMs=0
+        Recover=$true;FailOnRecoveryError=$true;UseAofNullDevice=$false
+        LogDir=$logs;CheckpointDir=$checkpoints
     }
     [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
     & icacls.exe $options '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
@@ -171,6 +183,18 @@ try {
     $garnetConfig.AclFile=$options
     [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
     Assert-Reject 'Garnet ACL replaced by unreadable PostgreSQL secret' 'acesso esperado'
+    $garnetConfig.AclFile=$aclFile
+    $garnetConfig.WaitForCommit=$false
+    [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
+    Assert-Reject 'AOF write acknowledgment disabled' 'perfil protegido'
+    $garnetConfig.WaitForCommit=$true
+    $garnetConfig.CheckpointDir=$root
+    [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
+    Assert-Reject 'checkpoint escapes state directory' 'Pastas AOF'
+    $garnetConfig.CheckpointDir=$checkpoints
+    $garnetConfig.EnableAOF=$false
+    [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
+    Assert-Reject 'AOF explicitly disabled' 'perfil protegido'
     Write-Output 'PASS: synthetic plan checks origin/ACL/ports, never executes vendor binaries, and rejects unsafe installation.'
 } finally {
     Remove-Item Env:ESTERIUM_DEPENDENCY_PACKAGE_DISPOSABLE_CI -ErrorAction SilentlyContinue
