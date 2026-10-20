@@ -48,7 +48,7 @@ try {
         throw 'Database secret generation did not produce independent strong tokens.'
     }
     $acl=[IO.File]::ReadAllText((Join-Path $target 'garnet.acl'))
-    if ($acl -notmatch '(?m)^user default off$' -or $acl -match 'nopass' -or
+    if ($acl -notmatch '(?m)^user default off\r?$' -or $acl -match 'nopass' -or
         $acl -notmatch '(?m)^user esteriumcache on >[a-zA-Z0-9_-]{48,}') {
         throw 'Garnet ACL credentials are missing or unsafe.'
     }
