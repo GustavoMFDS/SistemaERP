@@ -2,10 +2,12 @@ import { expect, test } from './fixtures'
 
 test('histórico do estoque diferencia falha e ausência de movimentos por produto', async ({ page }) => {
   let calls = 0
+  // Keep the API unavailable across initial rerenders; it only recovers on explicit retry.
+  let failRequests = true
   await page.route('**/api/v1/inventory/movements?*', async (route) => {
     calls += 1
     const url = new URL(route.request().url())
-    if (calls === 1) {
+    if (failRequests) {
       await route.fulfill({
         status: 503,
         contentType: 'application/json',
@@ -41,6 +43,7 @@ test('histórico do estoque diferencia falha e ausência de movimentos por produ
   await expect(error).not.toContainText('erro técnico')
   await expect(page.getByText(/Página 1 — 0 movimentações/)).toHaveCount(0)
 
+  failRequests = false
   await page.getByRole('button', { name: 'Tentar novamente' }).click()
   await expect(page.getByRole('button', { name: 'Arroz 5kg' })).toBeVisible()
   await page.getByRole('button', { name: 'Arroz 5kg' }).click()
