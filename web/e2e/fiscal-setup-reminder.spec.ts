@@ -47,7 +47,7 @@ async function mockSetup(page: import('@playwright/test').Page, setup: Setup) {
 async function login(page: import('@playwright/test').Page) {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('teste@loja.local')
-  await page.getByLabel('Senha').fill('senha-teste')
+  await page.getByLabel('Senha', { exact: true }).fill('senha-teste')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
 }

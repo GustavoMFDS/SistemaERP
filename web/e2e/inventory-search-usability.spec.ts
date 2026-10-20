@@ -3,7 +3,7 @@ import { expect, test } from './fixtures'
 test('estoque: busca de produto além dos primeiros 200 sem rolagem', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
+  await page.getByLabel('Senha', { exact: true }).fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('link', { name: 'Estoque', exact: true }).click()

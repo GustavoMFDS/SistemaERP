@@ -59,7 +59,7 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
 
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('caixa@teste.local')
-  await page.getByLabel('Senha').fill('senha-ficticia')
+  await page.getByLabel('Senha', { exact: true }).fill('senha-ficticia')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'PDV', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos da venda' })).toBeVisible()

@@ -49,7 +49,7 @@ test('PDV: escolher SKU e saldo da cor sem trocar o produto original', async ({ 
   })
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('loja@teste.local')
-  await page.getByLabel('Senha').fill('teste1234')
+  await page.getByLabel('Senha', { exact: true }).fill('teste1234')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'PDV', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos da venda' })).toBeVisible()

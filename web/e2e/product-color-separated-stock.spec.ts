@@ -64,7 +64,7 @@ test('catálogo: criar cor com estoque próprio sem dividir saldo existente', as
   })
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('loja@teste.local')
-  await page.getByLabel('Senha').fill('teste1234')
+  await page.getByLabel('Senha', { exact: true }).fill('teste1234')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Produtos', exact: true }).click()
