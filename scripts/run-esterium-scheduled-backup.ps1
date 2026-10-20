@@ -56,6 +56,32 @@ function Assert-NoSharedReaders([string]$path, [string]$label) {
         throw "NetworkService needs an explicit file read ACL for backup $label."
     }
 }
+function Assert-ProtectedTLSRoot([string]$path) {
+    # The PostgreSQL root CA is public information, so shared READ access
+    # is acceptable; unauthorized WRITE/DELETE/ACL changes are not. Otherwise
+    # verify-full could accept a replaced trust anchor.
+    $file = Get-Item -LiteralPath $path -Force
+    if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'PostgreSQL root CA must not be a symbolic link.'
+    }
+    $acl = Get-Acl -LiteralPath $path
+    $writes = [Security.AccessControl.FileSystemRights]::WriteData -bor
+        [Security.AccessControl.FileSystemRights]::AppendData -bor
+        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership
+    foreach ($ace in $acl.Access) {
+        if ($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+        try { $sid = $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }
+        catch { throw 'Cannot inspect PostgreSQL root CA ACL identity.' }
+        if ($sid -notin @('S-1-5-18', 'S-1-5-32-544') -and
+            ($ace.FileSystemRights -band $writes) -ne 0) {
+            throw 'PostgreSQL root CA may not be modified by unapproved Windows identities.'
+        }
+    }
+}
 Assert-NoSharedReaders $absoluteConfig 'configuration'
 $config = Get-Content -LiteralPath $absoluteConfig -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
 if ($null -eq $config -or $config -isnot [PSCustomObject]) {
@@ -108,6 +134,7 @@ if (-not (Test-Path -LiteralPath $config.PGPASSFILE -PathType Leaf) -or
     throw 'Backup requires existing password file and PostgreSQL TLS CA certificate.'
 }
 Assert-NoSharedReaders ([IO.Path]::GetFullPath([string]$config.PGPASSFILE)) 'PostgreSQL password file'
+Assert-ProtectedTLSRoot ([IO.Path]::GetFullPath([string]$config.PGSSLROOTCERT))
 if ((Get-Item -LiteralPath $config.PGSSLROOTCERT).Length -eq 0 -or
     (Get-Item -LiteralPath $config.PGPASSFILE).Length -eq 0) {
     throw 'Backup password file or TLS CA certificate is empty.'
