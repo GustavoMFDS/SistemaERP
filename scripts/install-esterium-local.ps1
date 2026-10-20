@@ -122,8 +122,17 @@ $serviceArgs = @{
     TLSKeyFile=$TLSKeyFile
     InstallDir=$InstallDir
 }
-# The service registrar performs its own integrity and ACL checks and rolls
-# back a partial SCM registration; it never starts or migrates anything.
+# The registrar also enforces release provenance independently because it
+# can be called directly without the high-level installer. Forward approval
+# only for an actual installation, not for planning.
+if ($UnsignedDisposableCIFixture) {
+    $serviceArgs.UnsignedDisposableCIFixture = $true
+} else {
+    $serviceArgs.ApprovedManifestSHA256 = $ApprovedManifestSHA256
+    $serviceArgs.TrustedPublisherThumbprint = $TrustedPublisherThumbprint
+}
+# The registrar performs its own integrity and ACL checks and rolls back
+# a partial SCM registration; it never starts or migrates anything.
 & $registrar @serviceArgs | Out-Null
 Write-Output 'PASS: Esterium Local app files and Windows service registered; service remains manual and stopped.'
 Write-Output 'NOT INSTALLED: PostgreSQL/Redis, database schema, firewall rules, trusted LAN TLS or automatic backups.'
