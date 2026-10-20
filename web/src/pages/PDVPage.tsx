@@ -1561,7 +1561,7 @@ export default function PDVPage() {
                 <p className="mt-2 text-xs text-slate-600">Use vírgula ou ponto para os centavos.</p>
                 {hasEnoughCash ? (
                   <p role="status" className="mt-3 text-sm font-semibold text-emerald-800">
-                    Troco: R$ {changeAmount.toFixed(2)}
+                    Troco: R$ {changeAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 ) : (
                   <p className="mt-3 text-sm text-amber-800">
