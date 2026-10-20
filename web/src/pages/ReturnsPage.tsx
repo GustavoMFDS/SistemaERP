@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { APIError, apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson } from '../lib/api'
 
 type Sale = {
   id: string
@@ -46,6 +46,10 @@ type ReturnCreateResponse = {
   refund_status: string
   replayed: boolean
 }
+
+const money = (value: number) => new Intl.NumberFormat('pt-BR', {
+  style: 'currency', currency: 'BRL',
+}).format(value)
 
 function saleStatusLabel(status: string): string {
   if (status === 'finalized') return 'Concluída'
@@ -95,8 +99,8 @@ export default function ReturnsPage() {
     try {
       const data = await apiJson<ReturnsList>('/api/v1/returns?limit=50&offset=0')
       setReturns(data.items)
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+    } catch {
+      setError('Não foi possível carregar as devoluções recentes. Atualize a página e tente novamente.')
     }
   }
 
@@ -144,7 +148,9 @@ export default function ReturnsPage() {
       setRestockByItem(restock)
     } catch (e: unknown) {
       setDetail(null)
-      setError(errorMessage(e))
+      setError(e instanceof APIError && e.status === 404
+        ? 'Não encontramos essa venda. Confira o código e tente novamente.'
+        : 'Não foi possível buscar a venda agora. Confira sua conexão e tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -200,7 +206,7 @@ export default function ReturnsPage() {
       if (e instanceof APIError && e.status === 409 && basis === 'voluntary') {
         setError('Não foi possível registrar a devolução ou troca voluntária. O prazo ou outra condição da venda pode impedir a operação. Se houver direito legal, procure o responsável.')
       } else {
-        setError(errorMessage(e))
+        setError('Não foi possível confirmar o registro. Confira sua conexão e tente novamente com os mesmos dados. A tentativa original foi preservada.')
       }
     } finally {
       setSaving(false)
@@ -216,7 +222,7 @@ export default function ReturnsPage() {
       </p>
 
       {error ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
@@ -233,7 +239,7 @@ export default function ReturnsPage() {
             <option value="">Escolha uma venda ou digite o número abaixo</option>
             {recentSales.map((sale) => (
               <option key={sale.id} value={sale.id}>
-                Venda {sale.id.slice(0, 8)} — R$ {sale.total.toFixed(2)} — {saleStatusLabel(sale.status)}
+                Venda {sale.id.slice(0, 8)} — {money(sale.total)} — {saleStatusLabel(sale.status)}
               </option>
             ))}
           </select>
@@ -262,7 +268,7 @@ export default function ReturnsPage() {
           <div className="mt-4">
             <div className="text-sm">
               Venda <span className="font-mono text-xs">{detail.sale.id}</span> • situação{' '}
-              <strong>{saleStatusLabel(detail.sale.status)}</strong> • total R$ {detail.sale.total.toFixed(2)}
+              <strong>{saleStatusLabel(detail.sale.status)}</strong> • total {money(detail.sale.total)}
             </div>
 
             <div className="mt-3 overflow-auto rounded-md border">
@@ -403,7 +409,7 @@ export default function ReturnsPage() {
         {result ? (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             Registro <span className="font-mono text-xs">{result.id}</span> criado. Reembolso devido:
-            {' '}R$ {result.refund_due.toFixed(2)} • reembolso pendente de conferência.
+            {' '}{money(result.refund_due)} • reembolso pendente de conferência.
           </div>
         ) : null}
       </div>
@@ -426,7 +432,7 @@ export default function ReturnsPage() {
                   <td className="px-2 py-2 font-mono text-xs" title={item.sale_id}>{item.sale_id.slice(0, 8)}…</td>
                   <td className="px-2 py-2">{item.kind === 'exchange' ? 'Troca' : 'Devolução'}</td>
                   <td className="px-2 py-2">{item.reason}</td>
-                  <td className="px-2 py-2">R$ {item.refund_due.toFixed(2)}</td>
+                  <td className="px-2 py-2">{money(item.refund_due)}</td>
                 </tr>
               ))}
               {returns.length === 0 ? (

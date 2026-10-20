@@ -10,6 +10,7 @@ type AccessStatus = 'checking' | 'allowed' | 'denied' | 'error'
 export default function ReportsPage() {
   const scope = getSessionScope()
   const [access, setAccess] = useState<AccessStatus>('checking')
+  const [retryVersion, setRetryVersion] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -20,7 +21,7 @@ export default function ReportsPage() {
       })
       .catch(() => { if (active) setAccess('error') })
     return () => { active = false }
-  }, [scope])
+  }, [scope, retryVersion])
 
   return (
     <div className="space-y-4">
@@ -39,10 +40,17 @@ export default function ReportsPage() {
       ) : null}
       {access === 'error' ? (
         <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          Não foi possível verificar suas permissões. Volte ao Início e tente novamente.
+          Não foi possível verificar seu acesso aos relatórios. Confira sua conexão e tente novamente.
         </p>
       ) : null}
-      {access !== 'allowed' ? <Link to="/home" className="inline-block text-sm font-semibold text-blue-700 underline">Voltar ao Início</Link> : null}
+      {access === 'error' ? (
+        <button type="button"
+          onClick={() => { setAccess('checking'); setRetryVersion((version) => version + 1) }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-50">
+          Tentar novamente
+        </button>
+      ) : null}
+      {access !== 'allowed' ? <Link to="/home" className="ml-3 inline-block text-sm font-semibold text-blue-700 underline">Voltar ao Início</Link> : null}
       {access === 'allowed' ? (
         <>
           <OperationalReports />
