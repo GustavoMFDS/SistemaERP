@@ -1,0 +1,447 @@
+# Catálogo funcional histórico e checklist — SistemaEmGo
+
+> **ARQUIVO HISTÓRICO (09/10/2026):** este inventário conserva as decisões e evidências anteriores, mas seus números e parte das pendências foram superados por implementações posteriores. Para o estado corrente, consultar o **[Catálogo geral do Esterium ERP — 16/10/2026](catalogo-geral-esterium-2026-10-16.md)**. Não somar as contagens deste documento às do catálogo novo nem interpretar observações históricas como estado do PR #25 hoje.
+
+> **Referência:** 09/10/2026 · `ops/pilot-readiness-20260923`, PR [#15](https://github.com/GustavoMFDS/SistemaERP/pull/15), HEAD `4333739799874ed98cf533079e9342fc2711734b`, anterior à criação deste catálogo.
+>
+> **Maturidade:** candidato a **pré-produção**, **não liberado** para uso fiscal real ou implantação definitiva. O PR segue aberto, sem merge. No último CI verificado (`37879908966`), os jobs `backend`, `frontend`, `integration`, `security`, `e2e` e `e2e-prodlike` falharam **antes de iniciar**, todos com `runner_id=0` e `steps=0`. Nenhum teste dessa execução prova aprovação.
+>
+> **Revalidação local Docker/PDV (2026-10-09):** PostgreSQL e Redis saudáveis; migrations até v34; seed/RBAC e fluxos selecionados do PDV aprovados. O rollback v33 protegeu vínculo suspenso. **A suíte Chromium completa continua bloqueando o merge: 14 passaram, 12 falharam e 74 não rodaram.** Veja [Relatório de validação Docker e PDV](validacao-docker-pdv-20261009.md).
+>
+> **Nova rodada de UX e financeiro (2026-10-09):** telas Fiscal (correção de branco), Configurar loja, Início, Produtos, Estoque e PDV revisitadas. Contas a pagar/receber e gráfico por lançamentos reais implementados na migration 0035 como **fase inicial**, não contabilidade ou integração bancária completa. Testes locais selecionados aprovados; suíte E2E integral ainda pendente. [Relatório e limites](ux-financeiro-fiscal-20261009.md).
+>
+> **Simplificação de balcão e correção de saldos (2026-10-09):** reorganização do PDV, cadastro de produtos, busca global no ajuste de estoque, Fiscal, Configurar loja, Funcionários e Devoluções. Contas financeiras agora paginam e calculam saldos globais no banco. [Resultados e pendências](simplificacao-operacional-20261009.md). Ainda não homologado para produção.
+>
+> **Regra estrutural:** cada loja/CNPJ pertence a uma empresa **independente**, ainda que familiares sejam proprietários. Não modelar as lojas como filiais de uma única pessoa jurídica; contas compartilhadas entre CNPJs precisam de vínculos e autorizações separadas.
+
+## Como ler e atualizar esta checklist
+
+- `[x]` = **implementação localizada no código** da branch, com rota, serviço e/ou tela. **Não** significa teste executado, homologação ou prontidão de produção.
+- `[ ]` = **pendência aberta**: funcionalidade não implementada, não identificada como completa na inspeção estática, ou etapa ainda dependente de implantação/validação.
+- **Parcial** = existe fundamento/fluxo, mas faltam etapas essenciais descritas na mesma linha.
+- **API apenas** = backend presente, sem interface final integrada no aplicativo verificada.
+- **P0** = bloqueio de uso real/merge; **P1** = expansão operacional prioritária; **P2** = melhoria de produto; **P3** = expansão futura.
+- Evidência primária: [roteador/API](../backend/internal/httpapi/router.go), [telas do app](../web/src/App.tsx), [API documentada](api.md), [expansões de UX](ux-expansion-app.md), [visão do projeto](../README.md), [validação histórica](production-validation-report.md), [CI](../.github/workflows/ci.yml).
+- Em cada alteração futura: marcar o item **após inspeção do commit correspondente**; acrescentar link de PR, teste e evidência de execução ao liberar como validado. Não converter `[x]` em "pronto para produção" automaticamente.
+
+## Visão geral por módulo
+
+| Módulo | Itens com código identificado | Pendências e melhorias | Leitura |
+|---|---:|---:|---|
+| Empresas, contas e permissões | 12 | 6 | Administração multi-CNPJ parcial |
+| Assistente inicial e proprietário | 7 | 5 | Guias prontos no código; implantação ainda assistida |
+| Produtos | 10 | 5 | Catálogo e CSV; falta edição/exportação avançada |
+| Estoque | 11 | 7 | Movimentos e CSV; falta inventário físico formal |
+| PDV e caixa | 15 | 8 | Vendas e caixa; faltam integrações de hardware/pagamento |
+| Compras e fornecedores | 8 | 5 | Fluxo operacional; faltam automatizações |
+| Devoluções | 7 | 3 | Reembolso; falta troca inteiramente guiada |
+| Financeiro | 7 | 7 | Ledger/conciliação; faltam crediário e integrações reais |
+| Clientes | 5 | 6 | Agenda básica; falta relação completa com vendas |
+| Fiscal/SEFAZ | 8 | 9 | Fundação técnica; produção **bloqueada** |
+| Privacidade e segurança | 8 | 4 | APIs técnicas; validação externa e UX pendentes |
+| PWA/periféricos | 5 | 5 | PWA e impressão do navegador; hardware não integrado |
+| Infraestrutura e qualidade | 6 | 9 | Ferramentas prontas; evidências do SHA atual faltando |
+| **Total de linhas das seções 1–13** | **109** | **79** | **Não equivale a percentual de produção** |
+
+As seções P0–P3 contêm **22 linhas de ação adicionais**, que em
+parte **repetem e priorizam** as 79 pendências acima. Não somar essas
+linhas como novas funcionalidades independentes. As contagens são
+itens editoriais desta checklist, não métricas de cobertura, de
+qualidade de código ou de progresso validado.
+
+## 1. Empresas, contas, funcionários e permissões
+
+**Localização:** autenticação/API, `/staff` e `/accept-invite`. **Estado:** núcleo implementado; onboarding autônomo e alguns casos multiloja ainda parciais.
+
+- [x] Cadastro e isolamento lógico de empresas por `tenant_id` / CNPJ.
+- [x] Autenticação com usuário/senha e JWT de acesso.
+- [x] Refresh token em cookie HttpOnly, rotação e logout confirmado pelo servidor.
+- [x] RBAC contextual por empresa, permissões verificadas em rotas protegidas.
+- [x] Revalidação de usuário/vínculo ativo ao usar tokens existentes.
+- [x] Administração da equipe na própria loja: listar função e status.
+- [x] Convite de 48h, token aleatório de uso único, armazenamento somente do hash.
+- [x] Ativação com senha própria, não compartilhada pelo administrador.
+- [x] Funções gerente/caixa, alteração de papel com confirmação.
+- [x] Suspensão/reativação de vínculo **somente do CNPJ atual**, sem desligar usuário global.
+- [x] Revogação de convite não utilizado e auditoria das mudanças.
+- [x] Bloqueio de autoelevação e de mudanças de papel administrativo nessa UI.
+- [ ] **Parcial:** convidar conta já existente em outro CNPJ mediante verificação segura da identidade; o convite atual restringe-se a novo e-mail.
+- [ ] Bootstrap autônomo e seguro de novo dono/nova empresa; atualmente requer procedimento controlado.
+- [ ] Recuperação de senha por e-mail ou outro mecanismo comprovado de posse.
+- [ ] Envio automático de convites por canal verificado e reenvio seguro, evitando depender de copiar um link manualmente.
+- [ ] Gestão de equipes maiores que 200 registros com paginação/filtros e desativação em lote.
+- [ ] Teste de alteração/revogação concorrente de autorização durante operações em andamento.
+
+**Melhorias:** convite acessível por e-mail verificado; permissões apresentadas em linguagem de lojista ("Pode dar descontos?", "Pode alterar estoque?"); trilha de mudanças por funcionário; vinculação entre contas existentes sem compartilhar dados dos CNPJs.
+
+## 2. Configuração inicial e experiência do proprietário
+
+**Localização:** `/home`, `/setup` e `/fiscal`.
+
+- [x] Página inicial com atalhos adaptados às permissões.
+- [x] Assistente em cinco etapas: empresa, produtos, estoque, equipe, NFC-e.
+- [x] Verificação de evidências por APIs e indicação de etapas pendentes/não verificadas.
+- [x] Botões de navegação anterior/próxima e revisão de etapas.
+- [x] Revisões manuais persistentes por empresa para estoque/equipe, com auditoria.
+- [x] Formulário guiado de dados fiscais do emitente e verificação da configuração.
+- [x] Atalho para gestão de funcionários a partir do assistente, quando autorizado.
+- [ ] **Parcial:** automação integral da ativação de uma loja sem ajuda técnica; provisionamento, segredos e ambiente seguem externos.
+- [ ] **Parcial:** verificação de estoque físico; um registro de movimentação não prova inventário conferido.
+- [ ] Ajuda contextual, tutoriais curtos e linguagem consistente para primeiro uso.
+- [ ] Fluxo de checklist operacional final de abertura da loja com confirmação de caixa, impressora, backup e testes.
+- [ ] Teste de usabilidade com donos/caixas sem experiência técnica.
+
+**Melhorias:** sequência de preparação com ações claras e "corrigir agora"; recomendações sem mostrar jargões como tenant, secret-store e idempotência ao usuário comum.
+
+## 3. Produtos e catálogo
+
+**Localização:** `/products` e `/api/v1/products`.
+
+- [x] Cadastro individual e atualização de produto, SKU e nome.
+- [x] Preço de venda, preço promocional, custo e estoque mínimo.
+- [x] Proteção RBAC para visualizar custo/margem; atualização não deve apagar custo oculto.
+- [x] Busca no catálogo e consulta por código de barras.
+- [x] Scanner de código de barras no PDV e restrição de duplicidade por empresa.
+- [x] Dados fiscais por produto (NCM, CEST e perfil de preparação).
+- [x] Ativação/inativação de produto.
+- [x] Importação assistida de CSV com modelo, prévia e validação de separadores/decimais brasileiros.
+- [x] Importação atômica com até 500 itens, idempotência, recuperação de resposta ambígua e rollback completo em conflito.
+- [x] Histórico de lotes confirmados por empresa, paginação, datas e CSV de metadados.
+- [ ] Edição em massa de produtos já cadastrados (preço, nome, categoria etc.) com revisão e rollback seguro.
+- [ ] Catálogo de categorias/marcas e filtros completos com interface de gestão verificada ponta a ponta.
+- [ ] Exportação estruturada de todo o cadastro de produtos **com níveis explícitos de permissão para preço e custo**.
+- [ ] Etiquetas com código de barras/preço para prateleiras e balança, quando aplicável.
+- [ ] **Galeria opcional de fotos (prioridade P1):** até cinco fotos por produto, selecionadas no PC ou celular, com principal automática, prévias no estoque/PDV, compressão e exclusão; não exigir foto para cadastro ou venda.
+- [ ] **Variações opcionais (prioridade P1):** perguntar em linguagem simples se o produto tem cores/tamanhos/modelos e se a loja quer controlar saldo por opção; se sim, SKU/código de barras e saldo distintos para cada opção, com baixa, devolução, inventário e relatórios consistentes.
+- [ ] **Unidades de embalagem e kits (P2):** manter separados do cadastro de variações e definir conversão/estoque antes de liberar vendas.
+
+**Melhorias:** validação de preço/custo em telas simples, diagnóstico de CSV linha a linha, comparação antes/depois da importação, importação de atualização sem recriar produtos.
+
+## 4. Estoque, recebimentos e inventário físico
+
+**Localização:** `/inventory` e `/stock-movements`.
+
+- [x] Saldos por produto e empresa.
+- [x] Aviso de estoque mínimo/baixo e contagem global.
+- [x] Ajuste manual auditado com tipos restritos; compra/devolução não podem ser forjadas como ajuste.
+- [x] Movimentações de entradas, saídas e ajustes no backend.
+- [x] Página histórica somente leitura com SKU, produto, variação e saldo antes/depois.
+- [x] Filtro de movimentações por produto e paginação limitada.
+- [x] Carga inicial por CSV de até 100 SKUs por lote, prévia, revisão e idempotência.
+- [x] Proteção contra segunda carga inicial sobre item já movimentado.
+- [x] Histórico de cargas iniciais e exportação de metadados.
+- [x] Histórico administrativo unificado de produtos/estoque inicial, com RBAC de cada fluxo.
+- [x] Exportação CSV de todos os produtos e saldos da empresa até 5.000 itens, sem dados de custo.
+- [ ] **Parcial:** conferência com o estoque físico. Não existe fluxo completo de sessão de inventário: contagem, diferença, aprovação e lançamento auditado reconciliado.
+- [ ] Consulta/exportação segmentada para catálogo acima de 5.000 itens sem truncamento.
+- [ ] Alertas configuráveis por família/produto com previsão de reposição e notificação operacional.
+- [ ] Controle de lote, validade, perecíveis e PEPS/FEFO onde necessário.
+- [ ] Reservas de estoque, transferência rastreada entre depósitos da **mesma empresa** (não entre CNPJs).
+- [ ] Relatórios de perdas, rupturas, giro e cobertura de estoque.
+- [ ] Reconciliar tentativas de importação sem recibo local, sem presumir sucesso/falha por erro de rede.
+
+**Melhorias:** inventário guiado para celular, com leitor de código de barras, comparação física vs. sistema e confirmação dupla de ajustes.
+
+## 5. PDV, vendas e operação de caixa
+
+**Localização:** `/pdv`, `/sales`, `/cash`.
+
+- [x] Abrir e fechar sessão de caixa.
+- [x] Suprimento/sangria ou movimentação manual de caixa, com controles de permissão.
+- [x] Conferência de valor esperado vs. valor declarado ao fechar, incluindo diferenças e métodos.
+- [x] Carrinho de venda e busca/leitura de produtos.
+- [x] Atalhos de teclado, modo scanner e busca rápida.
+- [x] Cálculo de preços no servidor e revalidação do preço promocional.
+- [x] Descontos controlados por permissões.
+- [x] Suspender/retomar carrinhos, com reconsulta de preços e tratamento de alterações.
+- [x] Finalizar venda e registrar métodos de pagamento.
+- [x] Registrar `pix` como **forma informada** de pagamento; isso **não** representa integração real com PSP, QR dinâmico ou conciliação bancária automática.
+- [x] Cancelar venda observando as proteções de devolução já vinculada.
+- [x] Fila offline com idempotência, reconciliação manual, limites e proteção para não perder intencionalmente referências pendentes.
+- [x] Cache de catálogo offline por usuário/CNPJ, com validade controlada.
+- [x] Comprovante **não fiscal** usando impressão do navegador.
+- [x] Interface do PDV reorganizada por etapas (caixa, produtos, pagamento, fechamento), menu lateral categorizado e apresentação responsiva com testes de layout desktop e celular. [Detalhes](ux-pdv-operacao-guidada.md).
+- [ ] Integração certificada com impressora térmica ESC/POS e perfis de modelos/papel.
+- [ ] Acionamento de gaveta de dinheiro e teste físico do periférico.
+- [ ] Interface completa de teclado de caixa, atalhos configuráveis e acessibilidade testada em terminais reais.
+- [ ] Integração com balança comercial, quando aplicável.
+- [ ] Conciliação automática de pagamentos por Pix e TEF com adquirente/PSP, webhooks e estorno seguro.
+- [ ] Integração comprovada cliente–venda a partir da nova agenda.
+- [ ] Teste de falha de energia, múltiplas abas, sincronização entre terminais e restauração do navegador com vendas offline.
+- [ ] Emissão NFC-e vinculada à operação real (ver seção fiscal).
+
+**Melhorias:** fluxo do caixa focado em poucos cliques, erros recuperáveis, destaque de pendência offline e modo tela cheia configurável.
+
+## 6. Fornecedores, compras e recebimento
+
+**Localização:** `/purchases`, `/suppliers`.
+
+- [x] Cadastro, consulta e edição de fornecedores por empresa.
+- [x] Registro de pedido/compra com fornecedor e itens.
+- [x] Recebimento parcial e atualização de saldo/custo **na confirmação do recebimento**, não ao criar pedido.
+- [x] Cancelamento de compra permitido sob regras de status.
+- [x] Ligação opcional com contas a pagar no modelo existente.
+- [x] Permissões dedicadas para leitura, escrita e recebimento.
+- [x] Rejeição de produtos e fornecedores inativos onde aplicável.
+- [x] Auditoria transacional de criar, receber e cancelar.
+- [ ] **Parcial:** rotina financeira completa de contas a pagar, vencimento, baixa, conciliação e contas vencidas em uma experiência simples.
+- [ ] Importação assistida de XML de fornecedor (NF-e) para pré-preencher compra, com conferência fiscal/estoque e sem lançamento cego.
+- [ ] Sugestão de reposição baseada em estoque mínimo, giro e prazo do fornecedor.
+- [ ] Histórico analítico de preços de compra e comparação de fornecedores.
+- [ ] Fluxo de devolução a fornecedor, com aprovação e movimentações específicas.
+
+**Melhorias:** "receber mercadorias" guiado por SKU e quantidade, sem obrigar reentrada manual de cada item.
+
+## 7. Devoluções, trocas e reembolsos
+
+**Localização:** `/returns`, `/sales/{id}/returns` e financeiro.
+
+- [x] Devolução parcial/total com limite das quantidades originalmente vendidas.
+- [x] Distinção entre retorno ao estoque vendável e item sem reposição (avaria etc.).
+- [x] Troca tratada como devolução mais nova venda de substituição.
+- [x] Cálculo no servidor do valor potencial de reembolso.
+- [x] Status financeiro de reembolso pendente e liquidação controlada.
+- [x] Liquidação de reembolsos em múltiplos meios e prevenção de repetição idempotente.
+- [x] Proteção contra cancelar venda que já possui devolução.
+- [ ] Fluxo de troca inteiramente guiado em uma tela, com diferença a pagar/devolver.
+- [ ] Impressão de comprovante de troca/devolução adaptado ao contexto comercial.
+- [ ] Relatório de causas de devoluções, avarias e impacto financeiro/estoque.
+
+**Melhorias:** orientações claras sobre quando reestocar, cancelar ou reembolsar; evitar compensações financeiras automáticas sem confirmação.
+
+## 8. Financeiro e conciliação
+
+**Localização:** `/finance`, `/home` e endpoints `/finance/*`.
+
+- [x] Livro financeiro (`ledger`) e dashboard por período.
+- [x] Resumo da loja e exportação CSV de indicadores exibidos.
+- [x] Registro de pagamentos associados a vendas.
+- [x] Conciliação inicial de pagamento digital, imutável e idempotente.
+- [x] Ajuste posterior de conciliação com justificativa, ator e histórico auditado.
+- [x] Reembolsos e conciliação do fechamento de caixa por forma de pagamento.
+- [x] Ranking por subtotal de produtos de vendas finalizadas, por período e CNPJ.
+- [ ] **Parcial:** relatório de receita **líquida** e lucro contábil; ranking atual não abate devoluções, taxas, tributos e despesas.
+- [ ] Relatórios por operador, turno, meio de pagamento, margem autorizada e períodos comparáveis.
+- [ ] Fluxo completo de contas a pagar e a receber com liquidações, juros e multas.
+- [ ] Crediário com cliente, limite, vencimentos, parcelas, inadimplência, pagamento e estorno **auditáveis**.
+- [ ] Pix dinâmico com confirmação de recebimento por PSP e conciliação real.
+- [ ] TEF/maquininhas com comprovante, falhas, cancelamento e conciliação real.
+- [ ] Conexão com extratos/importação OFX/CSV para conciliação bancária, sem lançamentos presumidos.
+
+**Melhorias:** apresentar "valor vendido", "recebido", "pendente", "reembolsado" e "lucro estimado" separadamente, sem induzir erro contábil.
+
+## 9. Clientes e relacionamento
+
+**Localização:** `/customers`.
+
+- [x] Diretório de clientes separado por CNPJ.
+- [x] Listagem paginada e busca literal por nome.
+- [x] Cadastro e edição de nome, telefone e e-mail opcionais.
+- [x] Permissões `customer:read` e `customer:write` para gerente/admin; sem acesso automático do caixa.
+- [x] Auditoria transacional e verificação de vínculo ativo para alterar contatos.
+- [ ] **Parcial:** histórico de compras por cliente: a agenda ainda não está conectada plenamente às vendas.
+- [ ] Cadastro opcional de documento/dados fiscais com regras estritas de privacidade quando houver necessidade legal.
+- [ ] Exclusão/anomização/autorização de uso comercial integrada à jornada do contato, conforme política LGPD.
+- [ ] Crediário e contas a receber (dependem do módulo financeiro seguro).
+- [ ] Regras de comunicação com consentimento/opt-out e trilha de alterações.
+- [ ] Importação e deduplicação assistida de clientes sob a empresa atual.
+
+**Melhorias:** formulário mínimo por padrão, dados fiscais opcionais e justificativa de finalidade antes de armazenar informações adicionais.
+
+## 10. NFC-e, documentos e SEFAZ
+
+**Localização:** `/fiscal` e módulo fiscal. **Estado:** fundação extensa implementada; **produção não homologada**.
+
+- [x] Preparação de dados da empresa emissora, endereço, IE/CRT, município IBGE.
+- [x] Campos de NCM/CEST e preparação fiscal de produtos.
+- [x] Configuração NFC-e modelo 65 por empresa, série, ambiente e referências a segredos/certificado.
+- [x] Consulta de prontidão, com lista de pendências.
+- [x] Prévia XML de desenvolvimento e histórico/download de XML.
+- [x] Código de construção/validação de XML e assinatura A1 sob configuração externa.
+- [x] Rotas e infraestrutura técnicas para reserva, contingência, inutilização, autorização/cancelamento em homologação, estados de retorno e DANFE.
+- [x] Restrições explícitas de acesso, ambiente e transmissão; a UI de configuração **não** promete emissão ao digitar os dados.
+- [ ] Homologação efetiva em ambiente SEFAZ para cada UF/CNPJ e certificados/CSC/QR válidos e atuais.
+- [ ] Comprovação de compatibilidade com schemas, NTs e regras tributárias **vigentes** no ambiente de destino, incluindo mudanças de 2026.
+- [ ] Emissão de NFC-e de produção comprovada ponta a ponta: venda → XML → assinatura → envio → protocolo → DANFE.
+- [ ] Rejeições, retransmissão/consulta por chave, indisponibilidade e estados ambíguos comprovados em condições reais.
+- [ ] Cancelamento, contingência, inutilização e reconciliação de documentos **homologados** ponta a ponta.
+- [ ] Interface operacional de documentos fiscais com pesquisa, status, alertas e orientações de correção, sem autorizar reenvio indevido.
+- [ ] Governança de certificado/segredos: rotação, expiração, responsável e recuperação operacional.
+- [ ] Revisão fiscal/contábil independente e liberação controlada por empresa.
+- [ ] Considerar NF-e modelo 55, se o negócio vier a precisar: **não confundir** o preview existente com emissor modelo 55 pronto.
+
+**Melhorias:** assistente simples com validações passo a passo, pré-preenchimento seguro, estados claros e botões de suporte — mantendo a autorização da SEFAZ como requisito incontornável.
+
+## 11. Privacidade, auditoria e segurança
+
+**Localização:** módulos `privacy`, `audit`, middleware e `/privacy/*`.
+
+- [x] Registros de auditoria com requisição, ator e metadados sanitizados.
+- [x] API de consulta de auditoria por empresa e permissão.
+- [x] Fluxos técnicos de solicitações de titulares: criar, consultar, atualizar status.
+- [x] Exportação, bloqueio e anonimização suportados para tipos de titulares, com retenções legais respeitadas.
+- [x] Registro e revogação de consentimentos.
+- [x] Rate limiting em rotas sensíveis e proteção de métricas.
+- [x] Cabeçalhos de segurança, origens confiáveis para operações sensíveis, CORS configurável.
+- [x] Logs estruturados, IDs de requisição e erros HTTP padronizados sem revelar segredos.
+- [ ] **Parcial:** painel visual para gestão de privacidade e auditoria; endpoints existem, mas a navegação principal não exibe uma tela dedicada verificada.
+- [ ] Política de retenção/anonimização revisada por jurídico/DPO e comprovada no ambiente final.
+- [ ] Teste de intrusão independente, rotação de credenciais, varredura de dependências e revisão atualizada de acessos.
+- [ ] Revisão de acessibilidade e exposição acidental de dados pessoais em todas as novas telas.
+
+**Melhorias:** trilha administrativa visual e exportação segura sob permissão, filtros por incidente, guardas explícitas para operações destrutivas.
+
+## 12. PWA, experiência em dispositivos e periféricos
+
+- [x] Interface web responsiva React + TypeScript.
+- [x] Manifesto, ícones, service worker e instruções de instalação como PWA.
+- [x] Arquivos estáticos versionados tratados pelo service worker, sem cache de respostas fiscais/API.
+- [x] Fila de vendas offline do navegador com proteção de referências até reconciliação.
+- [x] Impressão **via navegador** de comprovante não fiscal.
+- [ ] Aplicativo nativo Android/iOS publicado e assinado nas lojas oficiais.
+- [ ] Uso validado em dispositivos reais (Android, iOS, desktop e diferentes navegadores).
+- [ ] Integração direta ESC/POS com impressoras, gavetas e balanças.
+- [ ] Sincronização multi-terminal tolerante a conflitos e quedas de rede.
+- [ ] Testes de acessibilidade, contraste, teclado, leitores de tela e eficiência sob carga real.
+
+**Melhorias:** manter PWA como caminho principal inicialmente; criar app nativo apenas se requisitos de hardware, distribuição, notificações ou trabalho offline justificarem.
+
+## 13. Infraestrutura, qualidade e prontidão operacional
+
+- [x] Backend Go, PostgreSQL, Redis e Docker Compose para desenvolvimento.
+- [x] Migrations versionadas; últimas expansões incluem `0033` (equipe) e `0034` (clientes).
+- [x] Testes Go, integração PostgreSQL, Playwright e checks de segurança **escritos no repositório**.
+- [x] Pipeline com seis grupos de jobs: backend, frontend, integração, segurança, E2E e E2E em configuração similar à produção.
+- [x] Scripts/runbooks de implantação, migração, backup/restore e observabilidade.
+- [x] Health/readiness, métricas Prometheus protegidas e rastreabilidade técnica.
+- [ ] **P0:** executar todos os jobs do CI com runners efetivos no SHA final do PR, incluindo lint/build e teste de regressão das migrations `0033`/`0034`.
+- [ ] **P0:** corrigir quaisquer falhas reais de compilação, migração, segurança ou E2E encontradas nessas execuções.
+- [ ] **P0:** evidenciar backup/restauração e rollback seguro no ambiente real do piloto; uma documentação de comandos não substitui ensaio realizado.
+- [ ] **P0:** validar recuperação de PostgreSQL/Redis, TTL e filas offline sob falhas reais e carga delimitada.
+- [ ] **P0:** validar hardware, permissões e jornada completa com atendentes e responsáveis de cada CNPJ.
+- [ ] **P0:** homologar fiscalmente antes de ativar transmissão de produção.
+- [ ] Licença, política de distribuição, termos, suporte e processo de atualização para usuários externos.
+- [ ] Relatório de prontidão atualizado para o SHA atual: documentos antigos ainda mencionam schema 23/32 e precisam ser reconciliados com schema 34.
+- [ ] Plano de migração progressiva e monitoramento por cliente/loja sem compartilhamento indevido de dados.
+
+**Nota histórica:** houve CI verde em commits antigos de `main`; esses resultados **não** validam os novos commits do PR #15.
+
+## 14. Priorização: o que fazer a seguir
+
+### P0 — fechamento da integração e segurança (antes de expandir)
+
+- [ ] Resolver disponibilidade de executor CI e rodar pipeline completo **na cabeça atual**.
+- [ ] Rodar Go `gofmt`, `go vet` e `go test` com integração PostgreSQL.
+- [ ] Rodar `npm ci`, `npm run lint`, `npm run build` e Playwright (com HTTPS/ambiente similar ao real).
+- [ ] Migrar do zero até schema 34 e simular upgrade/rollback/reapply com dados de teste e vínculos desativados.
+- [ ] Fazer auditoria E2E de login, CNPJ A/B, convites, clientes, PDV, estoque, compras, devoluções e financeiro.
+- [ ] Definir/aprovar critérios de merge. **Não fazer merge automaticamente.**
+
+### P1 — maior impacto na operação diária
+
+- [ ] Inventário físico com sessão de contagem, divergências, aprovação e ajuste auditado.
+- [ ] Integração entre cadastro de clientes e vendas (sem ativar crediário inadvertidamente).
+- [ ] Contas a receber/crediário com regras de negócio, testes de liquidação e recuperação.
+- [ ] Contas a pagar com vencimentos e baixas assistidas.
+- [ ] Impressão térmica não fiscal, configurações de periféricos e teste do caixa real.
+- [ ] Monitoramento de pendências de estoque, vendas offline e divergências financeiras.
+
+### P2 — facilidade e inteligência do lojista
+
+- [ ] Relatórios avançados de vendas, perdas, estoque, rentabilidade com definições contábeis precisas.
+- [ ] Importação de XML de compra e sugestões de reposição.
+- [ ] Onboarding/autosserviço assistido com suporte para usuário não técnico.
+- [ ] Exportação/atualização em massa de catálogo e estoque sem truncamento.
+- [ ] Agenda de clientes com deduplicação, vínculo de compras e tratamento LGPD.
+- [ ] Painéis administrativos de auditoria, privacidade e operações fiscais.
+
+### P3 — integrações externas e expansão de mercado
+
+- [ ] Pix dinâmico e TEF reais com prestadores habilitados e homologação.
+- [ ] Homologação SEFAZ de produção por UF/CNPJ; não antecipar por pressão de UX.
+- [ ] Aplicativo nativo somente se houver necessidade comprovada além da PWA.
+- [ ] E-commerce/omnichannel e conectores contábeis, após estabilidade do PDV e estoques.
+
+## Critérios para mover um item de "implementado no código" para "validado"
+
+Um item só pode ser apresentado como **validado** quando existirem, no mínimo:
+
+1. Link para o commit/PR com backend, interface e migration necessários.
+2. Teste automatizado executado em SHA correspondente, com resultado aprovado e logs.
+3. Teste negativo de RBAC e isolamento entre **dois CNPJs** quando a função manipula dados de empresa.
+4. Testes de entradas inválidas, idempotência/concorrência e recuperação quando houver escrita.
+5. Teste manual no fluxo real, com documentação de evidências, para operação física/fiscal.
+6. Aprovação externa para tributos, certificado, SEFAZ, privacidade ou pagamento quando aplicável.
+
+### Quadro de atualização contínua
+
+| Data | Entrega/área | Referência | Código | Testes executados | Piloto | Bloqueios |
+|---|---|---|---|---|---|---|
+| 2026-10-09 | Catálogo de estado do sistema | PR #15 / HEAD acima | Inventariado | **Não**: runner 0 / steps 0 | Não | CI, migrations 33–34, homologação fiscal e operação real |
+
+**Observação final:** nenhum item marcado `[x]` neste documento, isoladamente, autoriza emissão de documento fiscal, movimentação bancária real, merge ou implantação em produção.
+
+
+## Adição aprovada — fotos e variações no catálogo (09/10/2026)
+
+**Solicitação do proprietário:** cadastrar por exemplo um único "Caderno Brochurão 96 folhas" com três fotos (azul, rosa e verde), preservando um cadastro simples e permitindo controlar por cor **apenas quando a loja pedir**. Cada CNPJ permanece isolado.
+
+**Fluxo de loja:** clicar em "Adicionar fotos" (opcional); até cinco arquivos JPG/PNG/WebP, arrastar/reordenar a principal, excluir/substituir; visualizar miniaturas na busca do catálogo, tela de estoque e seleção no PDV. Escolher "Este produto tem cores ou tamanhos diferentes?" (não por padrão). Em caso afirmativo: "Quer acompanhar quantas unidades há de cada opção?" (não obrigatório).
+
+**Dois comportamentos, sem duplicação fiscal acidental:** (A) só fotos/cores ilustrativas com **um único estoque**; (B) variações comercializáveis com identificador próprio, estoque e código de barras por opção. Fotos nunca criam automaticamente nova linha de estoque. O modo B exige compatibilidade transacional com venda, devolução/troca, recebimentos, ajuste, carga inicial, estoque mínimo, CSV/relatórios e snapshot de venda; alterar depois de vender deve preservar histórico. Não deduzir quantidades de cores de uma foto.
+
+**Validações obrigatórias:** tenant/RBAC em todas as operações de fotos, tamanho/tipo de arquivo e contagem limite no backend, mídia privada (sem URLs públicas abertas entre lojas), prevenção de HTML/SVG/script, otimização e armazenamento escalável, auditoria de inclusão/remoção/seleção de principal, teste de permissões cruzadas, concorrência e idempotência de tentativas ambíguas, busca paginada sem carregar fotos originais, E2E desktop e celular, leitura com conexão instável/offline sem quebrar a venda. Não incluir imagens no XML fiscal como se fossem item tributário.
+
+**Ordem proposta:** 1) galeria persistente e miniaturas; 2) representação de variações sem estoque por opção; 3) fluxo de variações com controle de saldo e integração transacional; 4) testes, migração reversível, acessibilidade e homologação. Até essas provas, manter os itens acima [ ] e não declarar a funcionalidade pronta nem efetuar merge.
+
+**Bloqueios gerais preservados:** PR #15 continua sem merge; CI do SHA corrente não está validado, e fiscal/SEFAZ real continua condicionado a testes/homologação externos.
+
+### Implementação inicial rastreada (PR #25, ainda rascunho)
+
+- **Código novo na branch feature/catalog-product-photos-20261009:** migration 0036, API privada de até cinco fotos por produto, JPEG normalizado no servidor, miniaturas bateladas no catálogo/estoque/PDV, permissão de leitura/escrita, auditoria de adição/remoção, replay idempotente e galeria opcional na UI.
+- **Atenção:** a galeria está implementada no código, mas **não foi testada ponta a ponta** nesta branch. A escolha/reordenação manual da foto principal também não foi implementada; por enquanto a primeira foto é principal automaticamente. O requisito fica marcado aberto até o aceite e a validação.
+- **Variações e estoque por cor/tamanho:** permanecem explicitamente pendentes na [issue #24](https://github.com/GustavoMFDS/SistemaERP/issues/24). O envio de múltiplas imagens hoje **não divide o estoque**: as imagens são ilustrativas de um produto único.
+- [PR #25 — fotos e miniaturas](https://github.com/GustavoMFDS/SistemaERP/pull/25) foi aberto como *draft* contra a branch do PR #15, sem merge.
+- **CI da branch:** runs recentes continuam sem executar steps (jobs runner_id=0, steps=[]), inclusive o run 37958899385; não há evidência de go test, build, lint, integração, E2E ou upgrade/rollback de 0036 aprovado. A etapa de verificação de migration foi adicionada ao workflow, não executada com sucesso.
+- **Gate para merge:** validar testes Go, build/lint, migração v36 com rollback/reapply, controle de acesso de duas lojas e E2E de galeria, seleção no PDV, devoluções e estoque. O PR #15 e a homologação fiscal continuam gates independentes.
+
+### Resultado complementar v37 — identificação visual por cor (09/10/2026)
+
+- A galeria agora oferece **nome opcional por foto** (ex.: Azul, Rosa ou Verde; até 40 caracteres), com gravação via rota protegida por CNPJ, auditoria e verificação de formato e tamanho. **Isto não cria SKU ou estoque por cor.** A escolha de controle de saldo por variação comercial segue na issue #24.
+- Migração 0037 acrescenta `caption` e limite em banco. O ambiente PostgreSQL isolado foi atualizado até `schema_migrations=37, dirty=false` e a coluna foi confirmada. O workflow tem procedimento de upgrade/rollback/reapply; **o rollback ainda não foi executado localmente**.
+- Banco real: `backend/tests/integration/product_images_isolation.sql` aprovado (DO, seguido de ROLLBACK), testando duas empresas independentes, associação entre CNPJs rejeitada, chave repetida rejeitada, legenda persistida, limite de 40 caracteres e impedimento de editar legenda usando tenant incorreto. O script entrou no job de integração.
+- Após a mudança: `go test ./...` aprovado, `npm run build` aprovado; teste Playwright Chromium com API simulada `web/e2e/product-photos.spec.ts` passou 1/1, incluindo salvar "Azul" e preservar o saldo. Não equivale a validação E2E com API/DB conectados.
+- Os jobs GitHub-hosted do PR #25 continuam falhando antes de iniciar (`runner_id=0, steps=[]`); dependência externa registrada na issue #28. Não fazer merge, nem liberar a funcionalidade/fiscal para produção, até integração e gates passarem.
+
+### Entrega incremental: cadastrar cor com saldo próprio (09/10/2026)
+
+- Para uma loja que não quer diferenciar quantidades por cor, mantém-se um único produto com até cinco fotos e legendas. Nenhuma nova movimentação de estoque é criada por essas legendas.
+- Para uma loja que **escolher saldo por cor/tamanho**, o catálogo oferece `Nova cor/tamanho com estoque próprio` no produto original. Esta ação **não converte nem divide saldos existentes**; prepara o cadastro de um **novo produto com SKU exclusivo** e estoque inicial zero. O operador pode então fazer o ajuste da nova quantidade no fluxo normal do Estoque.
+- O formulário reaproveita nome base, unidade, preço à vista e estoque mínimo, mas exige SKU novo e deixa código de barras, NCM e CEST vazios para revisão, evitando duplicação silenciosa de GTIN ou tributação.
+- Vendas, devoluções, compras e relatórios continuarão vinculados a cada `product_id` e ao seu estoque independente. **Ainda faltam** agrupamento formal de produtos da mesma família, seletor de opção no PDV, testes integrados das movimentações e UX de estoque consolidado (issue #24). Não considerar a issue concluída.
+- No upload de imagens, a miniatura é agora **gerada a partir da foto normalizada pelo servidor**, impedindo divergência deliberada entre foto grande e foto que aparece no caixa. O cliente envia somente `image_base64`; `thumbnail_base64` antigo é aceito mas ignorado para compatibilidade.
+- Evidências locais deste SHA: `go test ./...` passou; `npm run build` passou; dois testes Playwright Chromium (API simulada) passaram. Na execução anterior também passou `go test -tags=integration ./tests/integration/... -count=1` contra PostgreSQL real e Redis de teste. Os testes E2E de autenticação e transações reais ainda não foram substituídos.
+
+### Variações vinculadas — incremento 0038 (09/10/2026)
+
+- **Sem controle por cor:** fotos e legendas continuam opcionais; todas as opções visuais usam o saldo do mesmo produto.
+- **Com controle por cor/tamanho:** o cadastro `Nova cor/tamanho com estoque próprio` grava, numa única transação, um **SKU novo** e seu vínculo ao produto original (`product_variations`). Cada SKU tem `product_id`, `inventory_balances`, preço e histórico próprios; o estoque do produto-base não é dividido nem transferido.
+- O banco assegura que base e variante pertençam à **mesma empresa/CNPJ**, impedindo referências cruzadas; também impede vincular o mesmo SKU a múltiplas famílias e nomes de opção duplicados na mesma família, ignorando maiúsculas/minúsculas.
+- Não se permite criar subvariantes usando uma variante como base. O serviço transacional valida opções não vazias de até 40 caracteres, existência de pai, exclusividade da opção e reversão do SKU novo caso falhe qualquer etapa, inclusive auditoria.
+- `GET /api/v1/products/{id}/variations` aceita o código do produto-base ou de uma variante e retorna os SKUs agrupados com seus respectivos saldos e preços, **limitados ao tenant autenticado**. `POST /api/v1/products/{id}/variations` cria a opção de forma atômica, com autorização `product:write`, origem confiável e controle de taxa.
+- O catálogo exibe o painel **Ver cores/tamanhos**, mostrando família, SKU, preços e saldos independentes; criar nova opção a partir de uma cor existente resolve o produto-base e cria uma irmã, sem aninhar grupos.
+- O PDV exibe o seletor **Cor ou tamanho deste produto** quando houver mais de um SKU na família. Ao mudar de opção, os itens adicionados à venda continuam registrados pelo `product_id` exato; outras opções não são consumidas.
+- A migração **0038** foi aplicada no PostgreSQL Docker isolado e confirmada em `schema_migrations=38, dirty=false`. Os testes Go com banco real `TestProductVariationAtomicStockAndTenantBoundary` passaram, cobrindo estoque original preservado, saldo zero da variante, SKU órfão inexistente após conflito, subvariante bloqueada e vínculo inter-CNPJ negado. Testes Chromium com API simulada: **3/3** (criação, seleção no PDV, fotos). `go test ./...` e `npm run build` também passaram.
+- Workflow de CI ganhou teste de `up/down/up` da migração 0038, **ainda não executado pelos runners GitHub** devido ao bloqueio da issue #28. E2E completo com backend real, offline/cache, venda + devolução por variação e homologação fiscal por SKU seguem como critérios pendentes na issue #24; não classificar a expansão como pronta para produção.
+
+
+### Evidência integrada local — vendas, devoluções, ajustes e compras (09/10/2026)
+
+- `backend/tests/integration/product_variations_sale_return_test.go`: exercício transacional **real** em PostgreSQL isolado, com **Redis habilitado**, que cria uma família de SKUs em CNPJ temporário de teste, abre uma sessão de caixa e registra uma venda de 2 unidades Azuis. O saldo muda apenas no SKU Azul (5→3); produto-base (10) e Rosa (3) ficam intactos.
+- A mesma `Idempotency-Key` da venda não gera nova venda; venda acima do saldo da cor é bloqueada. A devolução de uma Azul com reposição move só Azul (3→4), preserva o reembolso correto, não duplica em replay e impede devolução acima do vendido.
+- Ajuste de estoque direto no SKU Rosa (+1 e -1) não altera outras cores; ajuste que resultaria em estoque negativo é recusado.
+- Compra vinculada ao SKU Rosa, recebimento de duas unidades e replay do mesmo comprovante aumentam só o saldo Rosa (3→5), sem duplicação.
+- O teste também confere que o cache Redis retorna o novo saldo após venda e devolução. Corrigiu-se a implementação `CachedProductsRepo.CreateVariation`, que antes não repassava a criação de variantes: a composição com Redis podia recusar novos grupos mesmo com PostgreSQL correto.
+- O PDV agora persiste no **cache offline escopado ao tenant/usuário** as variantes descobertas depois das primeiras 200 linhas, sem estender a idade original (24h). Falha de `localStorage` não invalida um catálogo online recém-carregado. Estoque/cache offline é somente indicativo e sempre revalidado no servidor durante a sincronização.
+- A migração `0038.down` passou a rejeitar rollback caso existam vínculos de variantes, preservando dados e impedindo perda silenciosa de agrupamento. A reversão real da migração **não foi executada nesta rodada**, mesmo em ambiente de teste; continua como gate técnico.
+- Não foram realizadas operações em ambiente fiscal real ou na SEFAZ. O escopo desta validação cobre serviços locais e banco/Redis de testes; navegador Chromium usa API simulada. Aparelhos físicos, sincronização após falhas complexas de rede e homologação fiscal permanecem pendentes.

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { APIError, apiJson, errorMessage } from '../lib/api'
+import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
+import { useProductThumbnails } from '../lib/productThumbnails'
 import {
   claimLegacyQueue,
   discardLegacyQueue,
@@ -10,30 +11,63 @@ import {
   getLegacyQueueCount,
   getQueueItems,
   getQueueSummary,
+  getQueueSummaryForCashSession,
   markQueueItemAttention,
   rebindQueueItemToCashSession,
   retryQueueItem,
   type QueuedRequest,
 } from '../lib/offlineQueue'
 import {
+  getSessionScope,
   clearCashSessionId,
   getCashSessionId,
   setCashSessionId,
   scopedStorageKey,
 } from '../lib/auth'
+import {
+  getSuspendedCarts,
+  removeSuspendedCart,
+  suspendCart,
+  type SuspendedCart,
+} from '../lib/suspendedCart'
 
 type Product = {
   id: string
   sku: string
   name: string
   unit: string
+  barcode?: string | null
   price_cash: number
+  promo_price?: number | null
+  qty_on_hand?: number
   active: boolean
 }
 
+type MeResponse = {
+  permissions?: string[]
+}
+
 type ProductsListResponse = { items: Product[]; total: number }
+type ProductVariant = Product & { option_label: string; is_base: boolean }
+type ProductFamilyResponse = { parent_id: string; items: ProductVariant[] }
+type ProductCache = { savedAt: number; items: Product[] }
+
+type CashMovementAttempt = {
+  sessionId: string
+  movementType: 'supply' | 'withdrawal'
+  amount: number
+  fingerprint: string
+  key: string
+}
 
 type CashOpenResponse = { id: string }
+type CurrentCashSessionResponse = {
+  id: string
+  cash_register_id: string
+  opened_by_user_id: string
+  status: string
+  opening_amount: number
+}
 type CashCloseResponse = {
   status: string
   expected_cash: number
@@ -55,7 +89,24 @@ type SaleItem = {
 
 type SalePayment = { method: string; amount: number }
 
+type SaleFiscalStatus = {
+  sale_id: string
+  required: boolean
+  document_kind: 'nfce' | 'nfe'
+  status: string
+  authorized: boolean
+  printable: boolean
+  invoice_id?: string
+  access_key?: string
+  legacy_review: boolean
+  automatic_state?: string
+  consultation_state?: string
+  consultation_attempts?: number
+}
+
+const CASH_MOVEMENT_ATTEMPT_NAMESPACE = 'sistemaemgo:cashMovementAttempt:v1'
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
+const PRODUCTS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const CLOSE_METHODS = [
   ['pix', 'PIX'],
   ['debit', 'Débito'],
@@ -63,6 +114,69 @@ const CLOSE_METHODS = [
   ['transfer', 'Transferência'],
   ['voucher', 'Voucher'],
 ] as const
+
+function loadCashMovementAttempt(): CashMovementAttempt | null {
+  const key = scopedStorageKey(CASH_MOVEMENT_ATTEMPT_NAMESPACE)
+  if (!key) return null
+  const raw = localStorage.getItem(key)
+  if (!raw) return null
+  try {
+    const value = JSON.parse(raw) as CashMovementAttempt
+    if (
+      !value ||
+      typeof value.sessionId !== 'string' ||
+      (value.movementType !== 'supply' && value.movementType !== 'withdrawal') ||
+      !Number.isFinite(value.amount) ||
+      value.amount <= 0 ||
+      typeof value.fingerprint !== 'string' ||
+      typeof value.key !== 'string' ||
+      value.key.trim() === ''
+    ) {
+      return null
+    }
+    return value
+  } catch {
+    return null
+  }
+}
+
+function persistCashMovementAttempt(attempt: CashMovementAttempt): void {
+  const key = scopedStorageKey(CASH_MOVEMENT_ATTEMPT_NAMESPACE)
+  if (!key) throw new Error('authenticated tenant/user scope is required')
+  localStorage.setItem(key, JSON.stringify(attempt))
+}
+
+function clearPersistedCashMovementAttempt(): void {
+  const key = scopedStorageKey(CASH_MOVEMENT_ATTEMPT_NAMESPACE)
+  if (key) localStorage.removeItem(key)
+}
+
+function productSalePrice(product: Product): number {
+  const promo = Number(product.promo_price)
+  if (Number.isFinite(promo) && promo > 0) return promo
+  return Number(product.price_cash) || 0
+}
+
+// Newly discovered SKUs may fall outside the first 200 catalog rows. Preserve
+// them in the *existing*, tenant/user-scoped offline snapshot without extending
+// its age or creating an untrusted partial catalog from scratch.
+function cacheOnlineFamilyForOffline(items: Product[]): void {
+  const key = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
+  if (!key) return
+  const raw = localStorage.getItem(key)
+  if (!raw) return
+  const saved = JSON.parse(raw) as ProductCache
+  if (!saved || !Array.isArray(saved.items) ||
+      !Number.isFinite(saved.savedAt) ||
+      Date.now() - saved.savedAt > PRODUCTS_CACHE_MAX_AGE_MS) return
+  const combined = new Map(saved.items.map((product) => [product.id, product]))
+  for (const product of items) {
+    if (product.active) combined.set(product.id, product)
+  }
+  localStorage.setItem(key, JSON.stringify({
+    savedAt: saved.savedAt, items: Array.from(combined.values()),
+  } satisfies ProductCache))
+}
 
 export default function PDVPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -89,15 +203,35 @@ export default function PDVPage() {
   const [movementAmount, setMovementAmount] = useState<number>(0)
   const [cashCloseSummary, setCashCloseSummary] = useState<CashCloseResponse | null>(null)
 
+  const [barcodeScan, setBarcodeScan] = useState('')
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
+  const productSearchRef = useRef<HTMLInputElement>(null)
+  const [productQuery, setProductQuery] = useState('')
   const [itemProductId, setItemProductId] = useState('')
+  const [selectedFamily, setSelectedFamily] = useState<ProductFamilyResponse | null>(null)
   const [itemQty, setItemQty] = useState<number>(1)
   const [items, setItems] = useState<SaleItem[]>([])
+  const [saleDiscount, setSaleDiscount] = useState(0)
+  const [canDiscount, setCanDiscount] = useState(false)
+  const [suspendedCarts, setSuspendedCarts] = useState<SuspendedCart[]>(getSuspendedCarts())
 
   const [payMethod, setPayMethod] = useState('pix')
+  const [cashReceived, setCashReceived] = useState('')
+  const [confirmedPaymentFingerprint, setConfirmedPaymentFingerprint] = useState('')
   const [saleId, setSaleId] = useState('')
   const [saleTotal, setSaleTotal] = useState<number>(0)
+  const [fiscalStatus, setFiscalStatus] = useState<SaleFiscalStatus | null>(null)
+  const [fiscalStatusError, setFiscalStatusError] = useState('')
+  const [printDecisionOpen, setPrintDecisionOpen] = useState(false)
+  const [printerWidthMM, setPrinterWidthMM] = useState<58 | 80>(80)
+  const [printerSaving, setPrinterSaving] = useState(false)
+  const [printerLoading, setPrinterLoading] = useState(!!getCashSessionId())
+  const [printerReloadSeq, setPrinterReloadSeq] = useState(0)
+  const [printerError, setPrinterError] = useState('')
+  const fiscalSaleRef = useRef('')
   const [finalizing, setFinalizing] = useState(false)
   const finalizeInFlight = useRef(false)
+  const cashMovementAttempt = useRef<CashMovementAttempt | null>(loadCashMovementAttempt())
 
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
@@ -105,11 +239,88 @@ export default function PDVPage() {
     return map
   }, [products])
 
+  const productByBarcode = useMemo(() => {
+    const map = new Map<string, Product>()
+    for (const p of products) {
+      const code = p.barcode?.trim()
+      if (code) map.set(code, p)
+    }
+    return map
+  }, [products])
+
+  const productThumbnails = useProductThumbnails(products.map((product) => product.id))
+
+  const filteredProducts = useMemo(() => {
+    const q = productQuery.trim().toLowerCase()
+    if (!q) return products
+    return products.filter((p) =>
+      [p.sku, p.name, p.barcode ?? ''].some((value) => value.toLowerCase().includes(q)),
+    )
+  }, [products, productQuery])
+
+  useEffect(() => {
+    const search = productQuery.trim()
+    if (search.length < 2 || !online) return
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await apiJson<ProductsListResponse>(
+          `/api/v1/products?query=${encodeURIComponent(search)}&limit=200&offset=0`,
+        )
+        if (cancelled) return
+        // Merge search results instead of dropping cart product metadata.
+        setProducts((previous) => {
+          const combined = new Map(previous.map((item) => [item.id, item]))
+          for (const product of result.items ?? []) {
+            if (product.active) combined.set(product.id, product)
+          }
+          return Array.from(combined.values())
+        })
+      } catch {
+        // Keep cached products available on intermittent connectivity errors.
+      }
+    }, 300)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [productQuery, online])
+
+  useEffect(() => {
+    if (!itemProductId || !online) {
+      setSelectedFamily(null)
+      return
+    }
+    let cancelled = false
+    const scope = getSessionScope()
+    setSelectedFamily(null)
+    apiJson<ProductFamilyResponse>('/api/v1/products/' + encodeURIComponent(itemProductId) + '/variations')
+      .then((family) => {
+        if (cancelled || scope !== getSessionScope()) return
+        if (family.items.length < 2) return
+        setSelectedFamily(family)
+        try {
+          cacheOnlineFamilyForOffline(family.items)
+        } catch {
+          // Failure to persist an optional cache must never prevent an online
+          // checkout. The server remains the authority on stock.
+          setError('Opções carregadas, mas não foi possível salvá-las para uso offline neste dispositivo.')
+        }
+        // Some family options may be beyond the first 200 catalog rows;
+        // merge them without discarding cart item metadata or offline hints.
+        setProducts((previous) => {
+          const next = new Map(previous.map((item) => [item.id, item]))
+          for (const item of family.items) if (item.active) next.set(item.id, item)
+          return Array.from(next.values())
+        })
+      })
+      .catch(() => { if (!cancelled) setSelectedFamily(null) })
+    return () => { cancelled = true }
+  }, [itemProductId, online])
+
   const computedTotal = useMemo(() => {
     let t = 0
     for (const it of items) t += it.unit_price * it.qty - it.discount_value
+    t -= canDiscount ? saleDiscount : 0
     return Math.max(0, Math.round(t * 100) / 100)
-  }, [items])
+  }, [items, saleDiscount, canDiscount])
 
   function refreshPending() {
     const summary = getQueueSummary()
@@ -141,19 +352,49 @@ export default function PDVPage() {
       const active = data.items.filter((p) => p.active)
       setProducts(active)
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
-      if (cacheKey) localStorage.setItem(cacheKey, JSON.stringify(active))
+      if (cacheKey) {
+        const cache: ProductCache = { savedAt: Date.now(), items: active }
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(cache))
+        } catch {
+          // A storage quota/privacy failure must not masquerade as an API
+          // outage or discard a successfully loaded live product catalog.
+          setError('Catálogo online carregado, mas o cache offline não pôde ser atualizado neste navegador.')
+        }
+      }
     } catch (e: unknown) {
+      const canUseOfflineCache =
+        !(e instanceof APIError) ||
+        e.status >= 500 ||
+        [408, 425, 429].includes(e.status)
+
+      if (!canUseOfflineCache) {
+        setProducts([])
+        setError(errorMessage(e))
+        return
+      }
+
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
       const cachedRaw = cacheKey ? localStorage.getItem(cacheKey) : null
       if (cachedRaw) {
         try {
-          const cached = JSON.parse(cachedRaw) as Product[]
-          if (Array.isArray(cached) && cached.length > 0) {
-            setProducts(cached)
+          const parsed = JSON.parse(cachedRaw) as ProductCache | Product[]
+          if (
+            !Array.isArray(parsed) &&
+            Number.isFinite(parsed.savedAt) &&
+            Array.isArray(parsed.items) &&
+            parsed.items.length > 0 &&
+            Date.now() - parsed.savedAt <= PRODUCTS_CACHE_MAX_AGE_MS
+          ) {
+            setProducts(parsed.items.filter((product) => product.active))
+            setError('Catálogo carregado do cache local. Saldos e preços podem estar desatualizados; as vendas serão revalidadas pelo servidor ao sincronizar.')
             return
           }
+          setError('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.')
+          return
         } catch {
-          // ignore
+          setError('O catálogo offline local está inválido. Conecte-se para atualizá-lo.')
+          return
         }
       }
       setError(errorMessage(e))
@@ -164,6 +405,19 @@ export default function PDVPage() {
 
   useEffect(() => {
     void loadProducts()
+    void reconcileCurrentCashSession().catch(() => {
+      // Keep the local session hint on transient connectivity failures.
+    })
+    apiJson<MeResponse>('/api/v1/auth/me')
+      .then((me) => {
+        const allowed = Boolean(me.permissions?.includes('sale:discount'))
+        setCanDiscount(allowed)
+        if (!allowed) setSaleDiscount(0)
+      })
+      .catch(() => {
+        setCanDiscount(false)
+        setSaleDiscount(0)
+      })
   }, [])
 
   useEffect(() => {
@@ -190,6 +444,22 @@ export default function PDVPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function reconcileCurrentCashSession(): Promise<boolean> {
+    try {
+      const current = await apiJson<CurrentCashSessionResponse>('/api/v1/cash/sessions/current')
+      setCashSessionId(current.id)
+      setCashSessionIdState(current.id)
+      return true
+    } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 404) {
+        clearCashSessionId()
+        setCashSessionIdState('')
+        return false
+      }
+      throw e
+    }
+  }
+
   async function openCash(e: FormEvent) {
     e.preventDefault()
     setError('')
@@ -202,6 +472,16 @@ export default function PDVPage() {
       setCashSessionIdState(res.id)
       setCashCloseSummary(null)
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) {
+        try {
+          if (await reconcileCurrentCashSession()) {
+            setError('Sessão de caixa já estava aberta e foi recuperada.')
+            return
+          }
+        } catch {
+          // Fall through to the original API error.
+        }
+      }
       setError(errorMessage(e))
     }
   }
@@ -209,17 +489,50 @@ export default function PDVPage() {
   async function recordCashMovement(movementType: 'supply' | 'withdrawal') {
     if (!cashSessionId || movementAmount <= 0) return
     setError('')
+
+    const amount = Number(movementAmount) || 0
+    const fingerprint = `${cashSessionId}|${movementType}|${amount.toFixed(2)}`
+    let attempt = cashMovementAttempt.current ?? loadCashMovementAttempt()
+
+    if (attempt && attempt.fingerprint !== fingerprint) {
+      setError(
+        `Existe uma movimentação anterior com resposta pendente: ${attempt.movementType === 'supply' ? 'suprimento' : 'sangria'} de R$ ${attempt.amount.toFixed(2)}. Repita essa operação primeiro para reconciliar o resultado.`,
+      )
+      return
+    }
+
+    if (!attempt) {
+      attempt = {
+        sessionId: cashSessionId,
+        movementType,
+        amount,
+        fingerprint,
+        key: crypto.randomUUID(),
+      }
+      try {
+        persistCashMovementAttempt(attempt)
+      } catch (e: unknown) {
+        setError(`Não foi possível preservar a tentativa de caixa antes do envio: ${errorMessage(e)}`)
+        return
+      }
+      cashMovementAttempt.current = attempt
+    }
+
     try {
       await apiJson(`/api/v1/cash/sessions/${cashSessionId}/movements`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': attempt.key },
         body: {
           movement_type: movementType,
-          amount: Number(movementAmount) || 0,
+          amount,
           notes: null,
         },
       })
+      cashMovementAttempt.current = null
+      clearPersistedCashMovementAttempt()
       setMovementAmount(0)
     } catch (e: unknown) {
+      cashMovementAttempt.current = attempt
       setError(errorMessage(e))
     }
   }
@@ -227,6 +540,34 @@ export default function PDVPage() {
   async function closeCash() {
     if (!cashSessionId) return
     setError('')
+
+    const legacyPending = getLegacyQueueCount()
+    if (legacyPending > 0) {
+      setLegacyQueueCount(legacyPending)
+      setError(
+        `Não é possível fechar o caixa: existem ${legacyPending} item(ns) na fila offline legada ainda não revisada. Importe a fila para atenção ou descarte-a explicitamente antes do fechamento.`,
+      )
+      return
+    }
+
+    const unresolvedMovement = cashMovementAttempt.current ?? loadCashMovementAttempt()
+    if (unresolvedMovement?.sessionId === cashSessionId) {
+      cashMovementAttempt.current = unresolvedMovement
+      setError(
+        'Não é possível fechar o caixa enquanto uma sangria/suprimento tiver resposta pendente. Repita a mesma movimentação para reconciliar o resultado.',
+      )
+      return
+    }
+
+    const queuedForCash = getQueueSummaryForCashSession(cashSessionId)
+    if (queuedForCash.total > 0) {
+      refreshPending()
+      setError(
+        `Não é possível fechar o caixa: existem ${queuedForCash.total} venda(s) offline deste caixa (${queuedForCash.pending} pendente(s), ${queuedForCash.attention} em atenção). Sincronize ou reconcilie essas vendas primeiro.`,
+      )
+      return
+    }
+
     try {
       const result = await apiJson<CashCloseResponse>(
         `/api/v1/cash/sessions/${cashSessionId}/close`,
@@ -240,6 +581,8 @@ export default function PDVPage() {
         },
       )
       setCashCloseSummary(result)
+      cashMovementAttempt.current = null
+      clearPersistedCashMovementAttempt()
       clearCashSessionId()
       setCashSessionIdState('')
       setClosingAmount(0)
@@ -251,6 +594,17 @@ export default function PDVPage() {
         voucher: 0,
       })
     } catch (e: unknown) {
+      if (e instanceof APIError && e.status === 409) {
+        try {
+          const stillOpen = await reconcileCurrentCashSession()
+          if (!stillOpen) {
+            setError('A sessão de caixa já estava fechada e o estado local foi reconciliado.')
+            return
+          }
+        } catch {
+          // Fall through to the original API error.
+        }
+      }
       setError(errorMessage(e))
     }
   }
@@ -261,7 +615,7 @@ export default function PDVPage() {
   }
 
   function discardAttention(id: string) {
-    if (!window.confirm('Descartar esta venda offline preservada? Esta ação não pode ser desfeita.')) {
+    if (!window.confirm('Descartar a cópia local desta venda? Antes, confira no servidor se ela já foi registrada. A perda do registro local não pode ser desfeita.')) {
       return
     }
     discardQueueItem(id)
@@ -272,7 +626,7 @@ export default function PDVPage() {
     if (!cashSessionId) return
     if (
       !window.confirm(
-        'Recriar esta venda para o caixa atual preservando a Idempotency-Key original? Se a venda antiga já tiver sido processada, o backend bloqueará a duplicação.',
+        'Vincular esta venda pendente ao caixa atual e conferir novamente o resultado? O sistema mantém a identificação original da operação para evitar uma venda duplicada.',
       )
     ) {
       return
@@ -292,31 +646,342 @@ export default function PDVPage() {
   }
 
   function removeLegacyQueue() {
-    if (!window.confirm('Descartar a fila offline legada deste navegador?')) return
+    if (!window.confirm('Descartar todas as vendas pendentes da versão anterior neste dispositivo? Antes, confira no servidor se já foram registradas. Essa perda local não pode ser desfeita.')) return
     discardLegacyQueue()
     refreshPending()
+  }
+
+  function addProductToCart(p: Product, qty = 1) {
+    const rawQty = Number(qty)
+    if (!Number.isFinite(rawQty) || rawQty <= 0) {
+      setError('Informe uma quantidade maior que zero.')
+      return
+    }
+    const normalizedQty = Math.round(rawQty * 1000) / 1000
+    if (normalizedQty <= 0) {
+      setError('Informe uma quantidade válida com até 3 casas decimais.')
+      return
+    }
+    setItems((prev) => {
+      const idx = prev.findIndex((item) => item.product_id === p.id && item.discount_value === 0)
+      if (idx >= 0) {
+        return prev.map((item, i) =>
+          i === idx ? { ...item, qty: item.qty + normalizedQty } : item,
+        )
+      }
+      return [
+        ...prev,
+        {
+          product_id: p.id,
+          qty: normalizedQty,
+          unit_price: productSalePrice(p),
+          discount_value: 0,
+        },
+      ]
+    })
   }
 
   function addItem() {
     const p = productById.get(itemProductId)
     if (!p) return
-    const next: SaleItem = {
-      product_id: p.id,
-      qty: Number(itemQty) || 1,
-      unit_price: Number(p.price_cash) || 0,
-      discount_value: 0,
+    addProductToCart(p, itemQty)
+  }
+
+  async function scanBarcode(e: FormEvent) {
+    e.preventDefault()
+    const code = barcodeScan.trim()
+    if (!code) return
+
+    setError('')
+    try {
+      let product = productByBarcode.get(code)
+      if (!product && navigator.onLine) {
+        const fetched = await apiJson<Product>(`/api/v1/products/barcode/${encodeURIComponent(code)}`)
+        product = fetched
+      }
+      if (!product) {
+        setError(
+          navigator.onLine
+            ? `Nenhum produto encontrado para o código ${code}.`
+            : `Código ${code} não está no cache local. Conecte-se para consultar o catálogo completo.`,
+        )
+        return
+      }
+      if (!product.active) {
+        setError(`O produto ${product.name} está inativo.`)
+        return
+      }
+      setProducts((prev) => (prev.some((item) => item.id === product!.id) ? prev : [...prev, product!]))
+      addProductToCart(product, 1)
+      setBarcodeScan('')
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    } finally {
+      barcodeInputRef.current?.focus()
     }
-    setItems((prev) => [...prev, next])
+  }
+
+  function updateItemQty(idx: number, qty: number) {
+    const normalized = Math.round(Math.max(0, Number(qty) || 0) * 1000) / 1000
+    if (normalized <= 0) {
+      removeItem(idx)
+      return
+    }
+    setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, qty: normalized } : item)))
   }
 
   function removeItem(idx: number) {
     setItems((prev) => prev.filter((_, i) => i !== idx))
   }
 
-  const canFinalize = useMemo(
-    () => cashSessionId && items.length > 0 && computedTotal > 0,
-    [cashSessionId, items.length, computedTotal],
-  )
+  function refreshSuspended() {
+    setSuspendedCarts(getSuspendedCarts())
+  }
+
+  function suspendCurrentCart() {
+    if (items.length === 0) return
+    try {
+      suspendCart({
+        items,
+        payMethod,
+        saleDiscount: canDiscount ? saleDiscount : 0,
+      })
+      setItems([])
+      setSaleDiscount(0)
+      setCashReceived('')
+      setConfirmedPaymentFingerprint('')
+      refreshSuspended()
+      barcodeInputRef.current?.focus()
+    } catch (e: unknown) {
+      setError(errorMessage(e))
+    }
+  }
+
+  async function resumeSuspended(cart: SuspendedCart) {
+    if (items.length > 0 && !window.confirm('Substituir o carrinho atual pela venda suspensa?')) return
+
+    setError('')
+    let catalog = products
+    if (navigator.onLine) {
+      try {
+        const data = await apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0')
+        catalog = data.items.filter((product) => product.active)
+        setProducts(catalog)
+        const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
+        if (cacheKey) {
+          const cache: ProductCache = { savedAt: Date.now(), items: catalog }
+          localStorage.setItem(cacheKey, JSON.stringify(cache))
+        }
+      } catch (e: unknown) {
+        setError(`Não foi possível atualizar preços antes de retomar a venda: ${errorMessage(e)}`)
+        return
+      }
+    }
+
+    const currentById = new Map(catalog.map((product) => [product.id, product]))
+    let priceChanged = false
+    const refreshedItems: SaleItem[] = []
+    for (const item of cart.items) {
+      const product = currentById.get(item.product_id)
+      if (!product?.active) {
+        setError('A venda suspensa contém produto indisponível ou inativo. Revise o catálogo antes de retomar.')
+        return
+      }
+      const currentPrice = productSalePrice(product)
+      if (Math.abs(currentPrice - item.unit_price) > 0.0001) priceChanged = true
+      refreshedItems.push({ ...item, unit_price: currentPrice })
+    }
+
+    try {
+      removeSuspendedCart(cart.id)
+    } catch (e: unknown) {
+      setError(`Não foi possível retirar a venda da lista de suspensas: ${errorMessage(e)}`)
+      return
+    }
+
+    setItems(refreshedItems)
+    setPayMethod(cart.payMethod)
+    setCashReceived('')
+    setConfirmedPaymentFingerprint('')
+    setSaleDiscount(canDiscount ? cart.saleDiscount : 0)
+    refreshSuspended()
+    if (priceChanged) {
+      setError('A venda suspensa foi retomada com os preços atuais do catálogo.')
+    }
+    barcodeInputRef.current?.focus()
+  }
+
+  function discardSuspended(id: string) {
+    if (!window.confirm('Descartar esta venda suspensa?')) return
+    try {
+      removeSuspendedCart(id)
+      refreshSuspended()
+    } catch (e: unknown) {
+      setError(`Não foi possível descartar a venda suspensa: ${errorMessage(e)}`)
+    }
+  }
+
+  // Approval is tied to this exact sale amount, items and payment method.
+  // Any edit after confirming a Pix/card payment requires a new confirmation.
+  const paymentFingerprint = JSON.stringify({
+    cashSessionId,
+    payMethod,
+    computedTotal,
+    items,
+    discount: canDiscount ? saleDiscount : 0,
+  })
+  // Reset immediately after *any* basket/payment edit. Reverting to an
+  // earlier total must not resurrect an approval given to the old basket.
+  useEffect(() => {
+    setCashReceived('')
+    setConfirmedPaymentFingerprint('')
+  }, [paymentFingerprint])
+  // Local operators may enter decimal cents with ',' or '.'; do not accept
+  // thousands separators, exponential notation or more than two decimals.
+  const cashValueText = cashReceived.trim().replace(',', '.')
+  const cashValue = Number(cashValueText)
+  const cashCents = Math.round(cashValue * 100)
+  const totalCents = Math.round(computedTotal * 100)
+  // Reject exponential notation, a third decimal place and unrepresentable
+  // amounts instead of rounding an ambiguous tender up at checkout.
+  const validCashAmount = /^\d+(?:\.\d{1,2})?$/.test(cashValueText) &&
+    Number.isSafeInteger(cashCents) && Number.isSafeInteger(totalCents)
+  const hasEnoughCash = validCashAmount && cashCents >= totalCents
+  const changeAmount = hasEnoughCash ? (cashCents - totalCents) / 100 : 0
+  const paymentReady = payMethod === 'cash'
+    ? hasEnoughCash
+    : confirmedPaymentFingerprint === paymentFingerprint
+  const canFinalize = Boolean(cashSessionId && items.length > 0 && computedTotal > 0 && paymentReady)
+
+  async function refreshFiscalStatus(id: string) {
+    if (!id || id.startsWith('offline:')) return
+    setFiscalStatusError('')
+    try {
+      const status = await apiJson<SaleFiscalStatus>(
+        '/api/v1/sales/' + encodeURIComponent(id) + '/fiscal-status',
+      )
+      if (fiscalSaleRef.current === id) setFiscalStatus(status)
+    } catch (error: unknown) {
+      if (fiscalSaleRef.current === id) {
+        setFiscalStatusError('Não foi possível consultar a situação fiscal: ' + errorMessage(error))
+      }
+    }
+  }
+
+  // A finalized sale always keeps its fiscal obligation, even while an
+  // automated issuer prepares/signs/transmits it. Only enable printing once
+  // the backend confirms a real authorized and archived document.
+  useEffect(() => {
+    if (!saleId || saleId.startsWith('offline:') ||
+        fiscalStatus?.authorized || fiscalStatus?.status === 'legacy_review') return
+
+    let requestInFlight = false
+    const interval = window.setInterval(() => {
+      if (requestInFlight || fiscalSaleRef.current !== saleId) return
+      requestInFlight = true
+      void apiJson<SaleFiscalStatus>(
+        '/api/v1/sales/' + encodeURIComponent(saleId) + '/fiscal-status',
+      ).then((next) => {
+        if (fiscalSaleRef.current === saleId) {
+          setFiscalStatus(next)
+          setFiscalStatusError('')
+        }
+      }).catch((error: unknown) => {
+        if (fiscalSaleRef.current === saleId) {
+          setFiscalStatusError('Não foi possível atualizar a situação fiscal: ' + errorMessage(error))
+        }
+      }).finally(() => { requestInFlight = false })
+    }, 5000)
+    return () => window.clearInterval(interval)
+  }, [saleId, fiscalStatus?.authorized, fiscalStatus?.status])
+
+  useEffect(() => {
+    if (!cashSessionId || !online) return
+    let cancelled = false
+    const scope = getSessionScope()
+    setPrinterLoading(true)
+    setPrinterError('')
+    void apiJson<{ paper_width_mm: number }>(
+      '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer',
+    ).then((settings) => {
+      if (cancelled || scope !== getSessionScope()) return
+      if (settings.paper_width_mm !== 58 && settings.paper_width_mm !== 80) {
+        setPrinterError('O servidor retornou uma bobina inválida. Confira a configuração.')
+        return
+      }
+      setPrinterWidthMM(settings.paper_width_mm)
+    }).catch(() => {
+      if (!cancelled && scope === getSessionScope()) {
+        setPrinterError('Não foi possível carregar a bobina configurada neste caixa.')
+      }
+    }).finally(() => {
+      if (!cancelled && scope === getSessionScope()) setPrinterLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [cashSessionId, online, printerReloadSeq])
+
+  async function setPrinterPaperWidth(width: 58 | 80) {
+    if (!cashSessionId || printerSaving || printerLoading || !online) return
+    const previousWidth = printerWidthMM
+    setPrinterSaving(true)
+    setPrinterError('')
+    try {
+      const settings = await apiJson<{ paper_width_mm: number }>(
+        '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer',
+        { method: 'PUT', body: { paper_width_mm: width } },
+      )
+      if (settings.paper_width_mm !== 58 && settings.paper_width_mm !== 80) {
+        throw new Error('O servidor retornou uma largura de bobina inválida.')
+      }
+      setPrinterWidthMM(settings.paper_width_mm)
+    } catch (error: unknown) {
+      setPrinterWidthMM(previousWidth)
+      setPrinterError('Não foi possível salvar a bobina: ' + errorMessage(error))
+    } finally {
+      setPrinterSaving(false)
+    }
+  }
+
+  async function printPrinterCalibration(previewOnly = false) {
+    if (!cashSessionId || !online || printerSaving || printerLoading || printerError) return
+    try {
+      // A non-fiscal test coupon only: no sale, note, certificate or SEFAZ.
+      await apiOpenPrintable(
+        '/api/v1/cash/sessions/' + encodeURIComponent(cashSessionId) + '/printer/test',
+        !previewOnly,
+      )
+    } catch (error: unknown) {
+      setPrinterError('Não foi possível abrir o teste da impressora: ' + errorMessage(error))
+    }
+  }
+
+  async function downloadFiscalXML() {
+    if (!fiscalStatus?.authorized || !fiscalStatus?.printable ||
+        !fiscalStatus.access_key || fiscalStatus.sale_id !== fiscalSaleRef.current) return
+    setFiscalStatusError('')
+    try {
+      await apiDownload(
+        '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-xml',
+        fiscalStatus.access_key + '-procNFe.xml',
+        'application/xml',
+      )
+    } catch (error: unknown) {
+      setFiscalStatusError('Não foi possível baixar o XML autorizado: ' + errorMessage(error))
+    }
+  }
+
+  async function printFiscalDANFE(previewOnly = false) {
+    if (!fiscalStatus?.printable || printerSaving || printerLoading || printerError || fiscalStatus.sale_id !== fiscalSaleRef.current) return
+    try {
+      await apiOpenPrintable(
+        '/api/v1/sales/' + encodeURIComponent(fiscalStatus.sale_id) + '/fiscal-danfe',
+        !previewOnly,
+      )
+      if (!previewOnly) setPrintDecisionOpen(false)
+    } catch (error: unknown) {
+      setFiscalStatusError('Não foi possível abrir o DANFE: ' + errorMessage(error))
+    }
+  }
 
   async function finalizeSale() {
     if (!canFinalize || finalizeInFlight.current) return
@@ -326,12 +991,16 @@ export default function PDVPage() {
     setError('')
     setSaleId('')
     setSaleTotal(0)
+    setFiscalStatus(null)
+    setFiscalStatusError('')
+    setPrintDecisionOpen(false)
+    fiscalSaleRef.current = ''
 
     const payments: SalePayment[] = [{ method: payMethod, amount: computedTotal }]
     const body = {
       cash_session_id: cashSessionId,
       customer_id: null,
-      discount_value: 0,
+      discount_value: canDiscount ? saleDiscount : 0,
       items: items.map(({ product_id, qty, discount_value }) => ({
         product_id,
         qty,
@@ -354,7 +1023,7 @@ export default function PDVPage() {
       refreshPending()
     } catch (e: unknown) {
       setError(
-        `Não foi possível preservar a intenção de venda no navegador. Nenhuma venda foi enviada. ${errorMessage(e)}`,
+        `Não foi possível salvar esta venda com segurança neste dispositivo. Nenhuma solicitação de venda foi enviada ao servidor. ${errorMessage(e)}`,
       )
       finalizeInFlight.current = false
       setFinalizing(false)
@@ -366,6 +1035,9 @@ export default function PDVPage() {
         setSaleId(`offline:${queuedId}`)
         setSaleTotal(computedTotal)
         setItems([])
+        setSaleDiscount(0)
+        setCashReceived('')
+        setConfirmedPaymentFingerprint('')
         return
       }
 
@@ -379,7 +1051,14 @@ export default function PDVPage() {
       refreshPending()
       setSaleId(res.id)
       setSaleTotal(res.total)
+      fiscalSaleRef.current = res.id
+      setPrintDecisionOpen(true)
+      void refreshFiscalStatus(res.id)
       setItems([])
+      setSaleDiscount(0)
+      setCashReceived('')
+      setConfirmedPaymentFingerprint('')
+      void loadProducts()
     } catch (e: unknown) {
       const msg = errorMessage(e)
       const permanent =
@@ -400,161 +1079,647 @@ export default function PDVPage() {
       setSaleId(`offline:${queuedId}`)
       setSaleTotal(computedTotal)
       setItems([])
+      setSaleDiscount(0)
+      setCashReceived('')
+      setConfirmedPaymentFingerprint('')
       refreshPending()
-      setError(`Venda preservada para reenvio seguro: ${msg}`)
+      setError(`Venda salva neste dispositivo, mas o resultado no servidor ainda não foi confirmado. Não refaça a venda. Abra as pendências para conferir e sincronizar com segurança. Detalhe: ${msg}`)
     } finally {
       finalizeInFlight.current = false
       setFinalizing(false)
+      barcodeInputRef.current?.focus()
     }
   }
 
+  useEffect(() => {
+    function onShortcut(event: KeyboardEvent) {
+      if (event.key === 'F2') {
+        event.preventDefault()
+        barcodeInputRef.current?.focus()
+      } else if (event.key === 'F4') {
+        event.preventDefault()
+        productSearchRef.current?.focus()
+      } else if (event.key === 'F8') {
+        event.preventDefault()
+        document.getElementById('pdv-finalize')?.click()
+      }
+    }
+    window.addEventListener('keydown', onShortcut)
+    return () => window.removeEventListener('keydown', onShortcut)
+  }, [])
+
   return (
-    <div>
-      <div className="flex items-start justify-between gap-3">
+    <div className="space-y-6">
+      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
-          <h2 className="text-base font-semibold">PDV</h2>
-          <p className="text-sm text-gray-600">Abrir caixa e registrar venda finalizada.</p>
-          <p className="mt-1 text-xs text-gray-600">
-            Status: {online ? 'online' : 'offline'} • Pendências: {pendingSync} • Atenção: {attentionSync}
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Frente de caixa</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">PDV</h2>
+          <p className="mt-1 max-w-xl text-sm text-slate-600">
+            Prepare a venda, confira o valor e só então finalize o pagamento.
+          </p>
+          <p className="mt-2 text-sm font-medium text-slate-700">
+            {cashSessionId ? 'Caixa pronto para atender.' : 'Abra o caixa para começar.'}
           </p>
         </div>
-        <button
-          onClick={() => void loadProducts()}
-          className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-          disabled={loading}
-        >
-          {loading ? 'Atualizando…' : 'Atualizar produtos'}
-        </button>
-      </div>
+      </header>
+
+      {(!online || pendingSync > 0 || attentionSync > 0) ? (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {!online ? 'Sem internet. Vendas salvas neste dispositivo ainda precisam de confirmação no servidor. ' : ''}
+          {pendingSync > 0 ? `${pendingSync} venda(s) aguardando sincronização. ` : ''}
+          {attentionSync > 0 ? `${attentionSync} operação(ões) precisam de revisão.` : ''}
+        </div>
+      ) : null}
 
       {error ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {error}
         </div>
       ) : null}
 
-      <div className="mt-4 rounded-md border p-3">
-        <h3 className="text-sm font-semibold">Sessão de caixa</h3>
-        <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-end">
-          <form onSubmit={openCash} className="flex flex-1 items-end gap-2">
-            <label className="block flex-1">
-              <span className="text-xs text-gray-600">Abertura (R$)</span>
+      <section aria-labelledby="pdv-cash-title" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="mb-2">
+          <h3 id="pdv-cash-title" className="text-base font-bold text-slate-900">{cashSessionId ? "Caixa aberto" : "Abrir caixa"}</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            {cashSessionId ? 'O caixa está aberto. Você já pode registrar vendas.' : 'Informe o valor inicial em dinheiro para começar o turno.'}
+          </p>
+        </div>
+        {cashSessionId ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h4 className="text-sm font-semibold text-slate-900">Impressora térmica do caixa</h4>
+              <p className="mt-1 text-xs text-slate-600">
+                Configure e teste a impressora antes da primeira venda. O cupom de teste não registra venda nem emite NFC-e.
+              </p>
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <label className="text-xs font-semibold text-slate-900">
+                  Bobina deste caixa
+                  <select
+                    aria-label="Largura da bobina do DANFE"
+                    className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    value={printerWidthMM}
+                    disabled={!cashSessionId || !online || printerSaving || printerLoading}
+                    onChange={(event) => {
+                      const width = Number(event.target.value)
+                      if (width === 58 || width === 80) void setPrinterPaperWidth(width)
+                    }}
+                  >
+                    <option value={58}>58 mm</option>
+                    <option value={80}>80 mm</option>
+                  </select>
+                </label>
+                <span className="text-xs text-slate-600">Use o mesmo tamanho no driver da impressora.</span>
+              </div>
+              {printerLoading ? <p role="status" className="mt-2 text-xs text-slate-600">Carregando bobina do caixa…</p> : null}
+              {printerSaving ? <p role="status" className="mt-2 text-xs text-slate-600">Salvando largura da bobina…</p> : null}
+              {printerError ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <p role="alert" className="text-xs text-red-700">{printerError}</p>
+                  <button type="button" className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs"
+                    onClick={() => setPrinterReloadSeq((value) => value + 1)}
+                    disabled={!online || printerLoading || printerSaving}>
+                    Tentar carregar bobina novamente
+                  </button>
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" disabled={!online || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printPrinterCalibration(true)}
+                  className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm disabled:opacity-50">
+                  Pré-visualizar teste
+                </button>
+                <button type="button" disabled={!online || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printPrinterCalibration()}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+                  Imprimir cupom de teste
+                </button>
+              </div>
+            </div>
+            <details className="rounded-xl bg-slate-50 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">Movimentar dinheiro (entrada ou retirada)</summary>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="block max-w-xs flex-1 text-sm font-medium text-slate-700">
+                <span>Movimento (R$)</span>
+                <input
+                  value={String(movementAmount)}
+                  onChange={(e) => setMovementAmount(Number(e.target.value))}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void recordCashMovement('supply')}
+                  className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium hover:bg-slate-50">
+                  Suprimento
+                </button>
+                <button type="button" onClick={() => void recordCashMovement('withdrawal')}
+                  className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium hover:bg-slate-50">
+                  Sangria
+                </button>
+              </div>
+            </div>
+              <p className="mt-3 text-xs text-slate-500">Suprimento: entrada de dinheiro no caixa. Sangria: retirada de dinheiro.</p>
+            </details>
+          </div>
+        ) : (
+          <form onSubmit={openCash} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="block w-full max-w-xs text-sm font-medium text-slate-700">
+              <span>Abertura (R$)</span>
               <input
                 value={String(openingAmount)}
                 onChange={(e) => setOpeningAmount(Number(e.target.value))}
                 type="number"
+                min="0"
                 step="0.01"
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
               />
             </label>
-            <button
-              disabled={Boolean(cashSessionId)}
-              className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-            >
+            <button type="submit" disabled={Boolean(cashSessionId)}
+              className="rounded-lg bg-slate-900 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
               Abrir
             </button>
           </form>
+        )}
+      </section>
 
-          <div className="flex flex-1 items-end justify-between gap-2">
-            <div className="text-sm">
-              <div className="text-xs text-gray-600">cash_session_id</div>
-              <div className="font-mono text-xs">{cashSessionId || '—'}</div>
-            </div>
-            {cashSessionId ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-end gap-2">
-                  <label className="block">
-                    <span className="text-xs text-gray-600">Movimento (R$)</span>
-                    <input
-                      value={String(movementAmount)}
-                      onChange={(e) => setMovementAmount(Number(e.target.value))}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="mt-1 w-32 rounded-md border px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void recordCashMovement('supply')}
-                    className="rounded-md border px-3 py-2 text-xs hover:bg-gray-50"
-                  >
-                    Suprimento
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void recordCashMovement('withdrawal')}
-                    className="rounded-md border px-3 py-2 text-xs hover:bg-gray-50"
-                  >
-                    Sangria
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-                  <label className="block">
-                    <span className="text-xs text-gray-600">Dinheiro declarado</span>
-                    <input
-                      value={String(closingAmount)}
-                      onChange={(e) => setClosingAmount(Number(e.target.value))}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
-                    />
-                  </label>
-                  {CLOSE_METHODS.map(([method, label]) => (
-                    <label key={method} className="block">
-                      <span className="text-xs text-gray-600">{label} declarado</span>
-                      <input
-                        value={String(closingByMethod[method] ?? 0)}
-                        onChange={(e) =>
-                          setClosingByMethod((prev) => ({
-                            ...prev,
-                            [method]: Number(e.target.value) || 0,
-                          }))
-                        }
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
-                      />
-                    </label>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void closeCash()}
-                  className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-                >
-                  Fechar caixa
-                </button>
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(380px,1fr)]">
+        <div className="min-w-0 space-y-5">
+          <section aria-labelledby="pdv-items-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex items-center gap-3">
+              <div>
+                <h3 id="pdv-items-title" className="text-lg font-bold text-slate-900">Produtos da venda</h3>
+                <p className="text-sm text-slate-500">Leia o código ou busque o produto para montar a venda.</p>
               </div>
-            ) : null}
+            </div>
+
+
+        <form onSubmit={scanBarcode} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="block flex-1">
+            <span className="text-xs text-gray-600">Código de barras</span>
+            <input
+              ref={barcodeInputRef}
+              value={barcodeScan}
+              onChange={(e) => setBarcodeScan(e.target.value)}
+              placeholder="Bipe o produto e pressione Enter"
+              autoComplete="off"
+              autoFocus
+              className="mt-1 w-full rounded-md border px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 sm:self-end"
+          >
+            Ler código
+          </button>
+        </form>
+        <p className="mt-1 text-xs text-gray-500">
+          Leitores USB/Bluetooth que funcionam como teclado podem enviar o código seguido de Enter.
+        </p>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-6">
+          <label className="block md:col-span-6">
+            <span className="text-xs text-gray-600">Busca rápida por nome ou código</span>
+            <input
+              ref={productSearchRef}
+              value={productQuery}
+              onChange={(e) => setProductQuery(e.target.value)}
+              placeholder="Digite para filtrar produtos"
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block md:col-span-4">
+            <span className="text-xs text-gray-600">Produto</span>
+            <select
+              value={itemProductId}
+              onChange={(e) => setItemProductId(e.target.value)}
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            >
+              <option value="">Selecione…</option>
+              {filteredProducts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.sku} — {p.name} • estoque {p.qty_on_hand ?? '—'}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedFamily && selectedFamily.items.length > 1 ? (
+            <label className="block md:col-span-8">
+              <span className="text-xs font-medium text-slate-700">Cor ou tamanho deste produto</span>
+              <select
+                value={itemProductId}
+                onChange={(e) => setItemProductId(e.target.value)}
+                aria-label="Cor ou tamanho para vender"
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              >
+                {selectedFamily.items.map((option) => (
+                  <option key={option.id} value={option.id} disabled={!option.active}>
+                    {option.is_base ? 'Padrão' : option.option_label} — {option.sku} • estoque {option.qty_on_hand}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-slate-600">
+                Cada opção tem seu próprio saldo. Selecione a correta antes de adicionar.
+              </span>
+            </label>
+          ) : null}
+          <label className="block md:col-span-1">
+            <span className="text-xs text-gray-600">Qtd</span>
+            <input
+              value={String(itemQty)}
+              onChange={(e) => setItemQty(Number(e.target.value))}
+              type="number"
+              step="0.01"
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            />
+          </label>
+          <div className="md:col-span-1">
+            <button
+              type="button"
+              onClick={addItem}
+              className="w-full rounded-lg bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-200 sm:mt-5"
+            >
+              Adicionar
+            </button>
           </div>
         </div>
-      </div>
 
-      {cashCloseSummary ? (
-        <div className="mt-3 rounded-md border bg-gray-50 p-3 text-sm">
-          <div className="font-semibold">Conciliação do último fechamento</div>
-          <div className="mt-1 text-xs text-gray-700">
-            Dinheiro — esperado R$ {cashCloseSummary.expected_cash.toFixed(2)} • declarado R 
-            {cashCloseSummary.closing_amount.toFixed(2)} • diferença R 
-            {cashCloseSummary.closing_difference.toFixed(2)}
+        <div aria-label="Produtos para adicionar" className="mt-5">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold text-slate-800">{loading ? 'Carregando produtos…' : 'Escolha um produto'}</h4>
+            <p className="text-xs text-slate-500">{productQuery ? 'Resultados da busca' : 'Catálogo carregado'} • até 8 opções rápidas</p>
           </div>
-          <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-gray-700 md:grid-cols-2">
-            {CLOSE_METHODS.map(([method, label]) => (
-              <div key={method}>
-                {label}: esperado R$ {(cashCloseSummary.expected_by_method[method] ?? 0).toFixed(2)}
-                {' • '}declarado R 
-                {(cashCloseSummary.declared_by_method[method] ?? 0).toFixed(2)}
-                {' • '}diferença R 
-                {(cashCloseSummary.difference_by_method[method] ?? 0).toFixed(2)}
+          {filteredProducts.length > 0 ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {filteredProducts.slice(0,8).map((product) => (
+                <button key={product.id} type="button" onClick={() => addProductToCart(product)}
+                  aria-label={`Adicionar ${product.name} à venda`}
+                  className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:border-slate-500 hover:bg-white focus-visible:outline-2">
+                  {productThumbnails[product.id] ? (
+                    <img src={productThumbnails[product.id]} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
+                  ) : null}
+                  <span className="min-w-0"><strong className="block truncate text-sm text-slate-900">{product.name}</strong>
+                    <span className="text-xs text-slate-500">Código: {product.sku} • Em estoque: {product.qty_on_hand ?? '—'}</span></span>
+                  <span className="shrink-0 text-sm font-bold text-slate-900">R$ {productSalePrice(product).toFixed(2)} <span aria-hidden="true">+</span></span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Nenhum produto encontrado. Revise a busca ou atualize o catálogo.</p>
+          )}
+        </div>
+
+        <div className="mt-6 overflow-auto rounded-xl border border-slate-200">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-gray-50 text-xs text-gray-600">
+              <tr>
+                <th className="px-3 py-2">Produto</th>
+                <th className="px-3 py-2">Qtd</th>
+                <th className="px-3 py-2">Preço</th>
+                <th className="px-3 py-2">Total</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {items.map((it, idx) => {
+                const p = productById.get(it.product_id)
+                const name = p ? `${p.sku} — ${p.name}` : it.product_id
+                return (
+                  <tr key={idx}>
+                    <td className="px-3 py-2">{name}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => updateItemQty(idx, it.qty - 1)}
+                          className="rounded border px-2 py-1 text-xs"
+                          aria-label={`Diminuir quantidade de ${name}`}
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          min="0.001"
+                          step="0.001"
+                          value={String(it.qty)}
+                          onChange={(e) => updateItemQty(idx, Number(e.target.value))}
+                          className="w-20 rounded border px-2 py-1 text-center text-xs"
+                          aria-label={`Quantidade de ${name}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateItemQty(idx, it.qty + 1)}
+                          className="rounded border px-2 py-1 text-xs"
+                          aria-label={`Aumentar quantidade de ${name}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">{it.unit_price.toFixed(2)}</td>
+                    <td className="px-3 py-2">
+                      {(it.unit_price * it.qty - it.discount_value).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => removeItem(idx)}
+                        className="text-xs text-red-700 hover:underline"
+                      >
+                        Remover
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+              {items.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-10 text-center text-sm text-gray-500" colSpan={5}>
+                    Nenhum item.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+          </section>
+      {suspendedCarts.length > 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold">Vendas suspensas</h3>
+          <p className="mt-1 text-xs text-gray-600">
+            Carrinhos locais deste operador/tenant. Nenhuma venda foi enviada ao servidor.
+          </p>
+          <div className="mt-2 space-y-2">
+            {suspendedCarts.map((cart) => (
+              <div key={cart.id} className="flex flex-col gap-2 rounded-md border p-2 text-xs md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div>
+                    {new Date(cart.createdAt).toLocaleString()} • {cart.items.length} item(ns) •{' '}
+                    {cart.payMethod.toUpperCase()}
+                  </div>
+                  {cart.saleDiscount > 0 ? (
+                    <div className="text-gray-600">Desconto salvo: R$ {cart.saleDiscount.toFixed(2)}</div>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void resumeSuspended(cart)}
+                    className="rounded-md border px-2 py-1"
+                  >
+                    Retomar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => discardSuspended(cart.id)}
+                    className="rounded-md border border-red-300 px-2 py-1 text-red-700"
+                  >
+                    Descartar
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         </div>
       ) : null}
+        </div>
+        <aside className="min-w-0 space-y-5 xl:sticky xl:top-5">
+          <section aria-labelledby="pdv-payment-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-6">
+              <div>
+                <h3 id="pdv-payment-title" className="text-lg font-bold text-slate-900">Pagamento</h3>
+                <p className="text-sm text-slate-500">Revise o total e escolha a forma de pagamento.</p>
+              </div>
+            </div>
+        <div className="mt-5 flex flex-col gap-5">
+          <div className="flex flex-col gap-5 rounded-xl bg-slate-50 p-4">
+            <div className="text-sm">
+              <div className="text-xs text-gray-600">Total</div>
+              <div className="text-4xl font-bold tracking-tight text-slate-900">R$ {computedTotal.toFixed(2)}</div>
+            </div>
+            {canDiscount ? (
+              <label className="block">
+                <span className="text-xs text-gray-600">Desconto da venda (R$)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={String(saleDiscount)}
+                  onChange={(e) => setSaleDiscount(Math.max(0, Number(e.target.value) || 0))}
+                  className="mt-1 w-full rounded-md border px-3 py-3 text-sm"
+                />
+              </label>
+            ) : (
+              <span className="text-xs text-gray-500">Desconto requer permissão.</span>
+            )}
+          </div>
 
+          <div className="flex flex-col gap-4">
+            <button
+              type="button"
+              onClick={suspendCurrentCart}
+              disabled={items.length === 0}
+              className="rounded-lg border border-slate-300 px-4 py-3 text-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              Suspender
+            </button>
+            <label className="block w-full">
+              <span className="text-sm font-semibold text-slate-700">Forma de pagamento</span>
+              <select
+                value={payMethod}
+                onChange={(e) => {
+                  setPayMethod(e.target.value)
+                  setCashReceived('')
+                  setConfirmedPaymentFingerprint('')
+                }}
+                className="mt-2 w-full rounded-lg border px-4 py-3 text-base"
+              >
+                <option value="cash">Dinheiro</option>
+                <option value="pix">Pix</option>
+                <option value="debit">Débito</option>
+                <option value="credit">Crédito</option>
+                <option value="transfer">Transferência</option>
+                <option value="voucher">Voucher</option>
+              </select>
+            </label>
+            {payMethod === 'cash' ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <label className="block text-sm font-semibold text-slate-700">
+                  Valor recebido em dinheiro (R$)
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="Ex.: 20,00"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                    className="mt-2 w-full rounded-lg border px-4 py-3 text-base"
+                  />
+                </label>
+                <p className="mt-2 text-xs text-slate-600">Use vírgula ou ponto para os centavos.</p>
+                {hasEnoughCash ? (
+                  <p role="status" className="mt-3 text-sm font-semibold text-emerald-800">
+                    Troco: R$ {changeAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm text-amber-800">
+                    Informe o valor entregue pelo cliente, igual ou maior que o total.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={confirmedPaymentFingerprint === paymentFingerprint}
+                  onChange={(e) => setConfirmedPaymentFingerprint(
+                    e.target.checked ? paymentFingerprint : '',
+                  )}
+                  className="mt-1 size-5"
+                />
+                <span>
+                  {payMethod === 'pix'
+                    ? 'Confirmei que o Pix foi recebido.'
+                    : payMethod === 'credit' || payMethod === 'debit'
+                      ? 'Confirmei que o pagamento foi aprovado na máquina.'
+                      : 'Confirmei que o pagamento foi recebido e conferido.'}
+                </span>
+              </label>
+            )}
+            <button
+              id="pdv-finalize"
+              type="button"
+              onClick={() => void finalizeSale()}
+              disabled={!canFinalize || finalizing}
+              className="min-h-12 w-full rounded-lg bg-slate-900 px-5 py-3 text-base font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {finalizing ? 'Finalizando…' : 'Finalizar venda'}
+            </button>
+          </div>
+        </div>
+            <p className="mt-4 rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+              Dinheiro calcula o troco automaticamente. Para Pix, cartões e outros meios, confira o recebimento antes de finalizar. Ainda não há confirmação automática do banco.
+            </p>
+          </section>
+        {saleId ? (
+          <div role="status" className={saleId.startsWith('offline:')
+            ? 'rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'
+            : 'rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900'}>
+            {saleId.startsWith('offline:') ? (
+              <>
+                Venda salva neste dispositivo (não confirmada pelo servidor): <span className="font-mono text-xs">{saleId.replace('offline:', '')}</span> • Total R$ {saleTotal.toFixed(2)}
+                <span className="mt-2 block font-semibold">Aguardando confirmação no servidor. Confira as pendências antes de encerrar o caixa.</span>
+              </>
+            ) : (
+              <>
+                Venda finalizada: <span className="font-mono text-xs">{saleId}</span> • Total R$ {saleTotal.toFixed(2)}
+                <span className="mt-2 block font-semibold">
+                  Obrigação fiscal registrada. A emissão só é concluída após autorização fiscal.
+                </span>
+              </>
+            )}
+          </div>
+        ) : null}
+      {saleId && !saleId.startsWith('offline:') ? (
+        <section aria-label="Situação fiscal da venda" className="mt-3 rounded-xl border border-slate-300 bg-white p-4 text-sm">
+          <h3 className="font-semibold">Documento fiscal da venda</h3>
+          <p className="mt-1" role="status">
+            {fiscalStatus?.authorized
+              ? 'NFC-e autorizada. O DANFE pode ser impresso em 58 ou 80 mm conforme a impressora configurada.'
+              : fiscalStatus?.status === 'authorized'
+                ? 'ALERTA: nota marcada como autorizada, mas seu XML processado não está íntegro. Procure o responsável fiscal e não emita outra nota.'
+              : fiscalStatus?.consultation_state === 'manual_review' ||
+                fiscalStatus?.automatic_state === 'manual_review'
+                ? 'ATENÇÃO: emissão fiscal requer revisão manual. Não repita a venda e não gere outra nota sem consultar o responsável.'
+                : fiscalStatus?.consultation_state === 'awaiting_consultation' ||
+                  fiscalStatus?.automatic_state === 'awaiting_sefaz' ||
+                  fiscalStatus?.status === 'submitted'
+                  ? 'NFC-e enviada. Aguardando consulta à SEFAZ; não reenviar a nota nem refazer a venda.'
+                  : fiscalStatus?.status === 'signed' || fiscalStatus?.status === 'reserved'
+                    ? 'NFC-e em preparação. Documento ainda não autorizado.'
+                    : fiscalStatus?.status === 'legacy_review'
+                      ? 'Venda histórica: situação fiscal requer revisão.'
+                      : 'NFC-e ainda não autorizada. Pendência fiscal permanece registrada, mesmo sem impressão.'}
+          </p>
+          {!fiscalStatus?.authorized && (
+            fiscalStatus?.status === 'authorized' ||
+            fiscalStatus?.consultation_state === 'manual_review' ||
+            fiscalStatus?.automatic_state === 'manual_review'
+          ) ? (
+            <p role="alert" className="mt-2 rounded border border-red-300 bg-red-50 p-2 text-xs font-semibold text-red-800">
+              Procure o responsável fiscal da loja para conferir a nota. Não tente enviar outra NFC-e para esta venda.
+            </p>
+          ) : null}
+          {!fiscalStatus?.authorized && typeof fiscalStatus?.consultation_attempts === 'number' ? (
+            <p className="mt-1 text-xs text-slate-600">
+              Consultas realizadas: {fiscalStatus.consultation_attempts} de 10.
+            </p>
+          ) : null}
+          {fiscalStatus?.authorized && fiscalStatus.access_key ? (
+            <div className="mt-2">
+              <p className="text-xs text-slate-700">
+                Chave de acesso da NFC-e autorizada: <span className="font-mono break-all">{fiscalStatus.access_key}</span>
+              </p>
+              <button type="button" className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(fiscalStatus.access_key ?? '').catch(() => {
+                    setFiscalStatusError('Não foi possível copiar a chave. Selecione o texto manualmente.')
+                  })
+                }}>
+                Copiar chave para entrega digital
+              </button>
+              <button type="button"
+                onClick={() => void downloadFiscalXML()}
+                className="ml-2 mt-1 rounded-md border border-slate-300 px-3 py-2 text-xs">
+                Baixar XML autorizado
+              </button>
+              <p className="mt-2 text-xs text-slate-600">
+                O XML autorizado fica disponível mesmo que o cliente não queira imprimir o DANFE.
+              </p>
+            </div>
+          ) : null}
+          {fiscalStatusError ? <p className="mt-2 text-red-700">{fiscalStatusError}</p> : null}
+          {printDecisionOpen ? (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <p className="font-semibold">O cliente deseja imprimir o DANFE NFC-e?</p>
+              <p className="mt-1 text-xs">
+                Escolher não imprimir não cancela a venda nem a obrigação fiscal.
+                Sem autorização da SEFAZ, nenhum documento fiscal será apresentado como emitido.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => setPrintDecisionOpen(false)}
+                  className="rounded-md border border-slate-400 bg-white px-3 py-2">
+                  Não imprimir
+                </button>
+                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printFiscalDANFE(true)}
+                  className="rounded-md border border-slate-500 bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50">
+                  Pré-visualizar DANFE
+                </button>
+                <button type="button" disabled={!fiscalStatus?.printable || printerSaving || printerLoading || !!printerError}
+                  onClick={() => void printFiscalDANFE()}
+                  className="rounded-md bg-slate-900 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50">
+                  Sim, abrir para imprimir
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => void refreshFiscalStatus(saleId)}
+              className="rounded-md border border-slate-300 px-3 py-2 text-xs">
+              Atualizar situação fiscal
+            </button>
+            {fiscalStatus?.printable && !printDecisionOpen ? (
+              <button type="button" onClick={() => setPrintDecisionOpen(true)}
+                className="rounded-md border border-slate-300 px-3 py-2 text-xs">
+                Imprimir depois
+              </button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
       {legacyQueueCount > 0 ? (
         <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">
           <h3 className="text-sm font-semibold text-amber-900">Fila offline legada detectada</h3>
@@ -580,7 +1745,6 @@ export default function PDVPage() {
           </div>
         </div>
       ) : null}
-
       {queueItems.some((item) => item.state === 'attention') ? (
         <div className="mt-4 rounded-md border p-3">
           <h3 className="text-sm font-semibold">Reconciliação offline</h3>
@@ -591,7 +1755,7 @@ export default function PDVPage() {
                 <div key={item.id} className="rounded-md border p-2 text-xs">
                   <div className="font-mono">{item.id}</div>
                   <div className="mt-1 text-gray-700">
-                    Motivo: {item.attentionReason ?? 'revisao'} •{' '}
+                    Motivo: {item.attentionReason === 'expired' ? 'Prazo de sincronização excedido' : item.attentionReason === 'request_rejected' ? 'Servidor pediu revisão' : item.attentionReason === 'legacy_migration' ? 'Venda de versão anterior' : 'Conferência necessária'} •{' '}
                     {item.lastError ?? 'sem detalhe'}
                   </div>
                   <div className="mt-2 flex gap-2">
@@ -624,139 +1788,79 @@ export default function PDVPage() {
           </div>
         </div>
       ) : null}
-
-      <div className="mt-4 rounded-md border p-3">
-        <h3 className="text-sm font-semibold">Itens</h3>
-        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-6">
-          <label className="block md:col-span-4">
-            <span className="text-xs text-gray-600">Produto</span>
-            <select
-              value={itemProductId}
-              onChange={(e) => setItemProductId(e.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-            >
-              <option value="">Selecione…</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.sku} — {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block md:col-span-1">
-            <span className="text-xs text-gray-600">Qtd</span>
-            <input
-              value={String(itemQty)}
-              onChange={(e) => setItemQty(Number(e.target.value))}
-              type="number"
-              step="0.01"
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-            />
-          </label>
-          <div className="md:col-span-1">
-            <button
-              type="button"
-              onClick={addItem}
-              className="mt-5 w-full rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-            >
-              Adicionar
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-3 overflow-auto rounded-md border">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-600">
-              <tr>
-                <th className="px-3 py-2">Produto</th>
-                <th className="px-3 py-2">Qtd</th>
-                <th className="px-3 py-2">Preço</th>
-                <th className="px-3 py-2">Total</th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {items.map((it, idx) => {
-                const p = productById.get(it.product_id)
-                const name = p ? `${p.sku} — ${p.name}` : it.product_id
-                return (
-                  <tr key={idx}>
-                    <td className="px-3 py-2">{name}</td>
-                    <td className="px-3 py-2">{it.qty.toFixed(2)}</td>
-                    <td className="px-3 py-2">{it.unit_price.toFixed(2)}</td>
-                    <td className="px-3 py-2">
-                      {(it.unit_price * it.qty - it.discount_value).toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => removeItem(idx)}
-                        className="text-xs text-red-700 hover:underline"
-                      >
-                        Remover
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-              {items.length === 0 ? (
-                <tr>
-                  <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={5}>
-                    Nenhum item.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div className="text-sm">
-            <div className="text-xs text-gray-600">Total</div>
-            <div className="text-lg font-semibold">R$ {computedTotal.toFixed(2)}</div>
-          </div>
-
-          <div className="flex items-end gap-2">
-            <label className="block">
-              <span className="text-xs text-gray-600">Pagamento</span>
-              <select
-                value={payMethod}
-                onChange={(e) => setPayMethod(e.target.value)}
-                className="mt-1 rounded-md border px-3 py-2 text-sm"
-              >
-                <option value="cash">Dinheiro</option>
-                <option value="pix">Pix</option>
-                <option value="debit">Débito</option>
-                <option value="credit">Crédito</option>
-                <option value="transfer">Transferência</option>
-                <option value="voucher">Voucher</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => void finalizeSale()}
-              disabled={!canFinalize || finalizing}
-              className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-            >
-              {finalizing ? 'Finalizando…' : 'Finalizar'}
-            </button>
-          </div>
-        </div>
-
-        {saleId ? (
-          <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-2 text-sm text-green-700">
-            {saleId.startsWith('offline:') ? (
-              <>
-                Venda registrada offline (pendente sync): <span className="font-mono text-xs">{saleId.replace('offline:', '')}</span> • Total R$ {saleTotal.toFixed(2)}
-              </>
-            ) : (
-              <>
-                Venda finalizada: <span className="font-mono text-xs">{saleId}</span> • Total R$ {saleTotal.toFixed(2)}
-              </>
-            )}
-          </div>
-        ) : null}
+        </aside>
       </div>
+
+      {cashSessionId ? (
+        <section aria-labelledby="pdv-close-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-3">
+              <h3 id="pdv-close-title" className="text-base font-bold text-slate-900">Encerrar turno</h3>
+            </div>
+            <p className="mt-2 text-sm text-slate-600">
+              Ao terminar o expediente, confira os valores recebidos antes de fechar o caixa.
+              Vendas offline pendentes precisam ser resolvidas primeiro.
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+            <h4 className="text-sm font-bold text-slate-900">Conferência dos recebimentos</h4>
+            <p className="mt-1 mb-4 text-xs leading-relaxed text-slate-600">
+              Conte o dinheiro físico. Para Pix, cartão e outras formas, informe o total registrado nos respectivos comprovantes.
+              A conferência aqui não verifica o banco automaticamente.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <label className="block text-sm font-medium text-slate-700">
+                <span>Dinheiro declarado</span>
+              <input type="number" min="0" step="0.01" value={String(closingAmount)}
+                onChange={(e) => setClosingAmount(Number(e.target.value))}
+                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" />
+            </label>
+            {CLOSE_METHODS.map(([method, label]) => (
+              <label key={method} className="block text-sm font-medium text-slate-700">
+                <span>{label} líquido declarado</span>
+                <input
+                  value={String(closingByMethod[method] ?? 0)}
+                  onChange={(e) => setClosingByMethod((prev) => ({
+                    ...prev,
+                    [method]: Number(e.target.value) || 0,
+                  }))}
+                  type="number" min="0" step="0.01"
+                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
+                />
+              </label>
+            ))}
+            </div>
+          </div>
+          <div className="mt-5 flex justify-end border-t border-slate-100 pt-5">
+            <button type="button" onClick={() => void closeCash()}
+              className="rounded-lg border border-slate-400 bg-white px-5 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-100">
+              Fechar caixa
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {cashCloseSummary ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm">
+          <div className="font-semibold">Conciliação do último fechamento</div>
+          <div className="mt-1 text-xs text-gray-700">
+            Dinheiro — esperado R$ {cashCloseSummary.expected_cash.toFixed(2)} • declarado R$
+            {cashCloseSummary.closing_amount.toFixed(2)} • diferença R$
+            {cashCloseSummary.closing_difference.toFixed(2)}
+          </div>
+          <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-gray-700 md:grid-cols-2">
+            {CLOSE_METHODS.map(([method, label]) => (
+              <div key={method}>
+                {label}: esperado R$ {(cashCloseSummary.expected_by_method[method] ?? 0).toFixed(2)}
+                {' • '}declarado R$
+                {(cashCloseSummary.declared_by_method[method] ?? 0).toFixed(2)}
+                {' • '}diferença R$
+                {(cashCloseSummary.difference_by_method[method] ?? 0).toFixed(2)}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

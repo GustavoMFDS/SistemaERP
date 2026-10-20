@@ -1,10 +1,68 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLoadFromEnvReadsProtectedDatabaseAndRedisFiles(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("REDIS_URL", "")
+	t.Setenv("JWT_SECRET", "safe-local-integration-secret-of-ample-length")
+	t.Setenv("FISCAL_PROVIDER", "disabled")
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "database-url.secret")
+	redisPath := filepath.Join(dir, "redis-url.secret")
+	wantDB := "postgres://app:integration-db-password@localhost:5432/esterium?sslmode=disable"
+	wantRedis := "redis://:integration-redis-password@localhost:6379/0"
+	if err := os.WriteFile(dbPath, []byte(wantDB+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(redisPath, []byte(wantRedis+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DATABASE_URL_FILE", dbPath)
+	t.Setenv("REDIS_URL_FILE", redisPath)
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("read protected local URLs: %v", err)
+	}
+	if cfg.DatabaseURL != wantDB || cfg.RedisURL != wantRedis {
+		t.Fatalf("connection URLs were not read from protected files")
+	}
+}
+
+func TestLoadFromEnvReadsMetricsBearerTokenFile(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("METRICS_BEARER_TOKEN", "")
+	file := filepath.Join(t.TempDir(), "metrics-token.secret")
+	const token = "not-an-actual-operational-token"
+	if err := os.WriteFile(file, []byte(token+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("METRICS_BEARER_TOKEN_FILE", file)
+	// This focused test validates the secret-file reader directly, without
+	// implying an entire database/Redis stack is provisioned.
+	got, err := getEnvOrFile("METRICS_BEARER_TOKEN", "METRICS_BEARER_TOKEN_FILE")
+	if err != nil || got != token {
+		t.Fatalf("metrics token file not loaded: got expected=%v err=%v", got == token, err)
+	}
+}
+
+func TestLoadFromEnvRejectsMissingProtectedURLFile(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DATABASE_URL_FILE", filepath.Join(t.TempDir(), "missing.secret"))
+	t.Setenv("JWT_SECRET", "safe-local-integration-secret-of-ample-length")
+	_, err := LoadFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL_FILE") {
+		t.Fatalf("missing database file was not rejected: %v", err)
+	}
+}
 
 func TestValidateRejectsWildcardCORS(t *testing.T) {
 	cfg := validProdConfig()
@@ -106,6 +164,48 @@ func TestValidateRejectsMVPFiscalProviderInProd(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "not SEFAZ-ready") {
 		t.Fatalf("expected production fiscal provider validation error, got %v", err)
+	}
+}
+
+func TestValidateRequiresExplicitProductionSEFAZGate(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.FiscalProvider = "sefaz"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "explicit SEFAZ transmission environment flag") {
+		t.Fatalf("expected explicit production SEFAZ gate error, got %v", err)
+	}
+}
+
+func TestValidateAcceptsExplicitProductionSEFAZConfiguration(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.FiscalProvider = "sefaz"
+	cfg.NFCeSEFAZProductionEnabled = true
+	cfg.NFCeCertificateSecretDir = "/run/secrets/nfce"
+	cfg.NFCeSchemaDir = "/opt/nfce/schema"
+	cfg.NFCeSchemaEntrypoint = "leiauteNFe_v4.00.xsd"
+	cfg.NFCeEventSchemaEntrypoint = "envEventoCancNFe_v1.00.xsd"
+	cfg.NFCeInutilizationSchemaEntrypoint = "inutNFe_v4.00.xsd"
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected explicit production SEFAZ config to validate: %v", err)
+	}
+}
+
+func TestValidateRejectsProductionSEFAZGateOutsideProd(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.Env = "staging"
+	cfg.FiscalProvider = "sefaz"
+	cfg.NFCeSEFAZProductionEnabled = true
+	cfg.NFCeCertificateSecretDir = "/run/secrets/nfce"
+	cfg.NFCeSchemaDir = "/opt/nfce/schema"
+	cfg.NFCeSchemaEntrypoint = "leiauteNFe_v4.00.xsd"
+	cfg.NFCeEventSchemaEntrypoint = "envEventoCancNFe_v1.00.xsd"
+	cfg.NFCeInutilizationSchemaEntrypoint = "inutNFe_v4.00.xsd"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "only allowed in production") {
+		t.Fatalf("expected production SEFAZ environment validation error, got %v", err)
 	}
 }
 

@@ -20,7 +20,7 @@ export function errorMessage(error: unknown): string {
 }
 
 function baseUrl(): string {
-  return (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(
+  return (import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')).replace(
     /\/$/,
     '',
   )
@@ -163,3 +163,58 @@ async function apiDownloadInternal(
     URL.revokeObjectURL(url)
   }
 }
+
+export async function apiOpenPrintable(path: string, autoPrint = false): Promise<void> {
+  const popup = window.open('about:blank', '_blank')
+  if (!popup) throw new Error('O navegador bloqueou a nova aba de impressão.')
+  popup.opener = null
+  try {
+    await apiOpenPrintableInternal(path, popup, true, autoPrint)
+  } catch (error) {
+    popup.close()
+    throw error
+  }
+}
+
+async function apiOpenPrintableInternal(
+  path: string,
+  popup: Window,
+  allowRefresh: boolean,
+  autoPrint: boolean,
+): Promise<void> {
+  const token = getToken()
+  const headers = new Headers({ Accept: 'text/html' })
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(buildUrl(path), { headers, credentials: 'include' })
+  if (!res.ok) {
+    if (res.status === 401 && allowRefresh) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) return apiOpenPrintableInternal(path, popup, false, autoPrint)
+    }
+    const text = await res.text().catch(() => '')
+    let message = `HTTP ${res.status}`
+    try {
+      const parsed = JSON.parse(text) as { message?: string }
+      if (parsed.message) message = parsed.message
+    } catch {
+      // keep fallback
+    }
+    throw new APIError(res.status, message, text)
+  }
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(new Blob([blob], { type: 'text/html' }))
+  if (autoPrint) {
+    // A single user click opens the popup. When the authorized DANFE HTML
+    // loads, show the OS printing dialog, never silently print on a device.
+    popup.onload = () => {
+      popup.onload = null
+      popup.focus()
+      popup.print()
+    }
+  }
+  popup.location.replace(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+

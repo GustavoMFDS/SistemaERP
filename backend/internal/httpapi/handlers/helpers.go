@@ -110,6 +110,10 @@ func friendlyErrorMessage(err error) string {
 		return "conflito com o estado atual do recurso"
 	case errors.Is(err, common.ErrNotFound):
 		return "recurso nao encontrado"
+	case errors.Is(err, common.ErrFiscalNotReady):
+		return "dados fiscais ainda nao estao prontos para homologacao"
+	case errors.Is(err, common.ErrFiscalSequenceExhausted):
+		return "sequencia fiscal NFC-e esgotada"
 	default:
 		return "nao foi possivel processar a solicitacao"
 	}

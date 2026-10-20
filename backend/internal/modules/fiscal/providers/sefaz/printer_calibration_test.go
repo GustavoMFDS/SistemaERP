@@ -1,0 +1,78 @@
+package sefaz
+
+import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	htmlstd "html"
+	"image/png"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+func TestRenderPrinterCalibrationIsNonFiscalAndSized(t *testing.T) {
+	for _, width := range []int{58, 80} {
+		t.Run(strconv.Itoa(width)+"mm", func(t *testing.T) {
+			rendered, err := RenderPrinterCalibration(width)
+			if err != nil {
+				t.Fatal(err)
+			}
+			html := string(rendered)
+			if dir := os.Getenv("PRINTER_CALIBRATION_BROWSER_DIR"); dir != "" {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir,
+					fmt.Sprintf("printer-test-%d.html", width)), rendered, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, text := range []string{
+				"TESTE DE IMPRESSÃO", "NÃO É DOCUMENTO FISCAL",
+				"TESTE — SEM VENDA — SEM NFC-e",
+				"receipt-test-" + strconv.Itoa(width),
+				"max-width: " + strconv.Itoa(width) + "mm",
+				"width: 40mm;", "width: 32mm;",
+				"Teste de texto: ção, café, maçã",
+				"Descrição comprida",
+				"data:image/png;base64,",
+			} {
+				if !strings.Contains(html, text) {
+					t.Fatalf("calibration missing %q", text)
+				}
+			}
+			for _, prohibited := range []string{
+				"Protocolo de Autorização", "Chave de acesso",
+				"Documento Auxiliar", "<infNFe", "<script",
+			} {
+				if strings.Contains(html, prohibited) {
+					t.Fatalf("test receipt resembles an authorized fiscal document: %q", prohibited)
+				}
+			}
+			if strings.Contains(html, "max-width: "+strconv.Itoa(138-width)+"mm") {
+				t.Fatal("unexpected other-roll width in HTML")
+			}
+			encoded := regexp.MustCompile(`data:image/png;base64,([^"]+)`).FindStringSubmatch(html)
+			if len(encoded) != 2 {
+				t.Fatal("no QR encoded as PNG data URL")
+			}
+			data, err := base64.StdEncoding.DecodeString(htmlstd.UnescapeString(encoded[1]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := png.DecodeConfig(bytes.NewReader(data))
+			if err != nil || info.Width != 256 || info.Height != 256 {
+				t.Fatalf("not a 256x256 generated QR PNG: %+v %v", info, err)
+			}
+		})
+	}
+	for _, width := range []int{0, 48, 60, 100, -58} {
+		if _, err := RenderPrinterCalibration(width); err == nil {
+			t.Fatalf("invalid roll width %d accepted", width)
+		}
+	}
+}

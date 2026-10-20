@@ -3,39 +3,48 @@ package application
 import (
 	"context"
 	"log/slog"
+	"strings"
+	"unicode/utf8"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 )
 
 type ProductsService struct {
 	uow      db.UnitOfWork
 	repo     ProductsRepository
+	audit    *audit.Service
 	validate *validator.Validate
 	logger   *slog.Logger
 }
 
 type ProductCreateRequest struct {
-	CategoryID  *string           `json:"category_id"`
-	SKU         string            `json:"sku" validate:"required,min=1,max=64"`
-	Barcode     *string           `json:"barcode" validate:"omitempty,min=8,max=32"`
-	Name        string            `json:"name" validate:"required,min=2,max=200"`
-	Description *string           `json:"description"`
-	Unit        string            `json:"unit" validate:"required,min=1,max=8"`
-	CostPrice   platform.Money    `json:"cost_price" validate:"min=0"`
-	PriceCash   platform.Money    `json:"price_cash" validate:"required,gt=0"`
-	PromoPrice  *platform.Money   `json:"promo_price" validate:"omitempty,gt=0"`
-	MinStock    platform.Quantity `json:"min_stock" validate:"min=0"`
-	Active      bool              `json:"active"`
+	CategoryID   *string           `json:"category_id"`
+	SKU          string            `json:"sku" validate:"required,min=1,max=64"`
+	Barcode      *string           `json:"barcode" validate:"omitempty,min=8,max=32"`
+	NCM          *string           `json:"ncm" validate:"omitempty,numeric,len=8"`
+	CEST         *string           `json:"cest" validate:"omitempty,numeric,len=7"`
+	Name         string            `json:"name" validate:"required,min=2,max=200"`
+	Description  *string           `json:"description"`
+	Unit         string            `json:"unit" validate:"required,min=1,max=8"`
+	CostPrice    platform.Money    `json:"cost_price" validate:"min=0"`
+	PriceCash    platform.Money    `json:"price_cash" validate:"required,gt=0"`
+	PromoPrice   *platform.Money   `json:"promo_price" validate:"omitempty,gt=0"`
+	MinStock     platform.Quantity `json:"min_stock" validate:"min=0"`
+	Active       bool              `json:"active"`
+	ReturnPolicy *string           `json:"return_policy,omitempty"`
+	ReturnDays   *int              `json:"return_days,omitempty"`
 }
 
 type ProductUpdateRequest = ProductCreateRequest
 
-func NewProductsService(uow db.UnitOfWork, r ProductsRepository, v *validator.Validate, logger *slog.Logger) *ProductsService {
-	return &ProductsService{uow: uow, repo: r, validate: v, logger: logger}
+func NewProductsService(uow db.UnitOfWork, r ProductsRepository, auditSvc *audit.Service, v *validator.Validate, logger *slog.Logger) *ProductsService {
+	return &ProductsService{uow: uow, repo: r, audit: auditSvc, validate: v, logger: logger}
 }
 
 func (s *ProductsService) List(ctx context.Context, tenantID string, query string, limit, offset int) ([]inv.Product, int, error) {
@@ -46,9 +55,104 @@ func (s *ProductsService) Get(ctx context.Context, tenantID string, id string) (
 	return s.repo.Get(ctx, tenantID, id)
 }
 
-func (s *ProductsService) Create(ctx context.Context, tenantID string, req ProductCreateRequest) (string, error) {
+func (s *ProductsService) GetByBarcode(ctx context.Context, tenantID string, barcode string) (inv.Product, error) {
+	barcode = strings.TrimSpace(barcode)
+	if err := s.validate.Var(barcode, "required,min=8,max=32"); err != nil {
+		return inv.Product{}, common.ErrValidation
+	}
+	return s.repo.GetByBarcode(ctx, tenantID, barcode)
+}
+
+func normalizeOptionalProductString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	normalized := strings.TrimSpace(*value)
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
+}
+
+func normalizeBarcode(value *string) *string {
+	return normalizeOptionalProductString(value)
+}
+
+func normalizeProductRequest(req ProductCreateRequest) ProductCreateRequest {
+	req.SKU = strings.TrimSpace(req.SKU)
+	req.Name = strings.TrimSpace(req.Name)
+	req.Unit = strings.TrimSpace(req.Unit)
+	req.Barcode = normalizeBarcode(req.Barcode)
+	req.NCM = normalizeOptionalProductString(req.NCM)
+	req.CEST = normalizeOptionalProductString(req.CEST)
+	if req.Description != nil {
+		description := strings.TrimSpace(*req.Description)
+		if description == "" {
+			req.Description = nil
+		} else {
+			req.Description = &description
+		}
+	}
+	return req
+}
+
+// ReturnPolicy is optional on older API clients: updates then preserve the
+// existing policy, and new products default to allowed (previous behaviour).
+func validateVoluntaryReturnPolicy(req ProductCreateRequest) error {
+	if req.ReturnPolicy == nil {
+		if req.ReturnDays != nil {
+			return common.ErrValidation
+		}
+		return nil
+	}
+	switch *req.ReturnPolicy {
+	case "allowed", "denied":
+		if req.ReturnDays != nil {
+			return common.ErrValidation
+		}
+	case "within_days":
+		if req.ReturnDays == nil || *req.ReturnDays < 1 || *req.ReturnDays > 3650 {
+			return common.ErrValidation
+		}
+	default:
+		return common.ErrValidation
+	}
+	return nil
+}
+
+func validateProductPricing(req ProductCreateRequest) error {
+	if req.PromoPrice != nil && *req.PromoPrice > req.PriceCash {
+		return common.ErrValidation
+	}
+	return nil
+}
+
+func (s *ProductsService) Create(ctx context.Context, tenantID, actorUserID string, req ProductCreateRequest) (string, error) {
+	return s.create(ctx, tenantID, actorUserID, "", "", req)
+}
+
+// CreateVariation is atomic: a failed link cannot leave an ungrouped product.
+// The new SKU starts at zero and uses the existing stock/sales/return pipeline.
+func (s *ProductsService) CreateVariation(ctx context.Context, tenantID, actorUserID, parentID, label string, req ProductCreateRequest) (string, error) {
+	label = strings.TrimSpace(label)
+	parent, err := uuid.Parse(parentID)
+	if err != nil || parent == uuid.Nil || !utf8.ValidString(label) ||
+		utf8.RuneCountInString(label) == 0 || utf8.RuneCountInString(label) > 40 {
+		return "", common.ErrValidation
+	}
+	return s.create(ctx, tenantID, actorUserID, parent.String(), label, req)
+}
+
+func (s *ProductsService) create(ctx context.Context, tenantID, actorUserID, parentID, label string, req ProductCreateRequest) (string, error) {
+	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
+	}
+	if err := validateProductPricing(req); err != nil {
+		return "", err
+	}
+	if err := validateVoluntaryReturnPolicy(req); err != nil {
+		return "", err
 	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
@@ -59,6 +163,8 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
 		Barcode:     req.Barcode,
+		NCM:         req.NCM,
+		CEST:        req.CEST,
 		Name:        req.Name,
 		Description: req.Description,
 		Unit:        req.Unit,
@@ -67,9 +173,40 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 		PromoPrice:  req.PromoPrice,
 		MinStock:    req.MinStock,
 		Active:      req.Active,
+		ReturnDays:  req.ReturnDays,
 	}
-	id, err := s.repo.Create(ctx, tx, tenantID, p)
+	if req.ReturnPolicy == nil {
+		p.ReturnPolicy = "allowed"
+	} else {
+		p.ReturnPolicy = *req.ReturnPolicy
+	}
+	var id string
+	if parentID != "" {
+		repo, ok := s.repo.(interface {
+			CreateVariation(context.Context, db.DBTX, string, string, string, inv.Product) (string, error)
+		})
+		if !ok {
+			return "", common.ErrValidation
+		}
+		id, err = repo.CreateVariation(ctx, tx, tenantID, parentID, label, p)
+	} else {
+		id, err = s.repo.Create(ctx, tx, tenantID, p)
+	}
 	if err != nil {
+		return "", err
+	}
+	action := "product.create"
+	meta := map[string]any{"sku": p.SKU, "price_cash": p.PriceCash.String()}
+	if parentID != "" {
+		action = "product.variation.create"
+		meta["parent_product_id"] = parentID
+		meta["option_label"] = label
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: action,
+		ResourceType: "product", ResourceID: id, Outcome: "success",
+		Metadata: meta,
+	}); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -80,15 +217,23 @@ func (s *ProductsService) Create(ctx context.Context, tenantID string, req Produ
 		InvalidateProduct(context.Context, string, string) error
 		BumpProductsListVersion(context.Context, string) error
 	}); ok {
-		_ = inv.InvalidateProduct(ctx, tenantID, id)
-		_ = inv.BumpProductsListVersion(ctx, tenantID)
+		cacheCtx := context.WithoutCancel(ctx)
+		_ = inv.InvalidateProduct(cacheCtx, tenantID, id)
+		_ = inv.BumpProductsListVersion(cacheCtx, tenantID)
 	}
 	return id, nil
 }
 
-func (s *ProductsService) Update(ctx context.Context, tenantID string, id string, req ProductUpdateRequest) error {
+func (s *ProductsService) Update(ctx context.Context, tenantID, actorUserID, id string, preserveCost bool, req ProductUpdateRequest) error {
+	req = normalizeProductRequest(req)
 	if err := s.validate.Struct(req); err != nil {
 		return common.ErrValidation
+	}
+	if err := validateProductPricing(req); err != nil {
+		return err
+	}
+	if err := validateVoluntaryReturnPolicy(req); err != nil {
+		return err
 	}
 	tx, err := s.uow.Begin(ctx)
 	if err != nil {
@@ -99,6 +244,8 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 		CategoryID:  req.CategoryID,
 		SKU:         req.SKU,
 		Barcode:     req.Barcode,
+		NCM:         req.NCM,
+		CEST:        req.CEST,
 		Name:        req.Name,
 		Description: req.Description,
 		Unit:        req.Unit,
@@ -107,8 +254,22 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 		PromoPrice:  req.PromoPrice,
 		MinStock:    req.MinStock,
 		Active:      req.Active,
+		ReturnDays:  req.ReturnDays,
 	}
-	if err := s.repo.Update(ctx, tx, tenantID, id, p); err != nil {
+	if req.ReturnPolicy != nil {
+		p.ReturnPolicy = *req.ReturnPolicy
+	}
+	if err := s.repo.Update(ctx, tx, tenantID, id, p, preserveCost); err != nil {
+		return err
+	}
+	if err := s.audit.RecordTx(ctx, tx, audit.Event{
+		TenantID: tenantID, ActorUserID: actorUserID, Action: "product.update",
+		ResourceType: "product", ResourceID: id, Outcome: "success",
+		Metadata: map[string]any{
+			"sku":        p.SKU,
+			"price_cash": p.PriceCash.String(),
+		},
+	}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -119,8 +280,9 @@ func (s *ProductsService) Update(ctx context.Context, tenantID string, id string
 		InvalidateProduct(context.Context, string, string) error
 		BumpProductsListVersion(context.Context, string) error
 	}); ok {
-		_ = inv.InvalidateProduct(ctx, tenantID, id)
-		_ = inv.BumpProductsListVersion(ctx, tenantID)
+		cacheCtx := context.WithoutCancel(ctx)
+		_ = inv.InvalidateProduct(cacheCtx, tenantID, id)
+		_ = inv.BumpProductsListVersion(cacheCtx, tenantID)
 	}
 	return nil
 }

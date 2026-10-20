@@ -1,12 +1,16 @@
 package domain
 
-import "github.com/example/sistemaemgo/internal/platform"
+import (
+	"github.com/example/sistemaemgo/internal/platform"
+	"time"
+)
 
 type Sale struct {
 	ID              string         `json:"id"`
 	CashSessionID   string         `json:"cash_session_id"`
 	CustomerID      *string        `json:"customer_id"`
 	Status          string         `json:"status"`
+	FinalizedAt     time.Time      `json:"finalized_at"`
 	Subtotal        platform.Money `json:"subtotal"`
 	DiscountValue   platform.Money `json:"discount_value"`
 	Total           platform.Money `json:"total"`
@@ -43,18 +47,40 @@ func (s *Sale) CalcularTotal(items []SaleItem) ([]SaleItem, error) {
 		if err != nil {
 			return nil, err
 		}
-		subtotal += lineGross
-		itemsDiscount += it.DiscountValue
-		profitEstimated += it.ProfitEstimado()
+		subtotal, err = subtotal.AddChecked(lineGross)
+		if err != nil {
+			return nil, ErrInvalidMoney
+		}
+		itemsDiscount, err = itemsDiscount.AddChecked(it.DiscountValue)
+		if err != nil {
+			return nil, ErrInvalidMoney
+		}
+		itemProfit, err := it.ProfitEstimado()
+		if err != nil {
+			return nil, err
+		}
+		profitEstimated, err = profitEstimated.AddChecked(itemProfit)
+		if err != nil {
+			return nil, ErrInvalidMoney
+		}
 
 		it.Subtotal = lineNet
 		computed = append(computed, it)
 	}
 
-	totalDiscount := itemsDiscount + s.DiscountValue
-	total := subtotal - totalDiscount
-	profitEstimated -= s.DiscountValue
-	if total < 0 {
+	totalDiscount, err := itemsDiscount.AddChecked(s.DiscountValue)
+	if err != nil {
+		return nil, ErrInvalidMoney
+	}
+	total, err := subtotal.SubChecked(totalDiscount)
+	if err != nil {
+		return nil, ErrInvalidMoney
+	}
+	profitEstimated, err = profitEstimated.SubChecked(s.DiscountValue)
+	if err != nil {
+		return nil, ErrInvalidMoney
+	}
+	if total <= 0 {
 		return nil, ErrInvalidMoney
 	}
 
@@ -74,7 +100,11 @@ func (s Sale) ValidarPagamentos(pays []Payment) error {
 		if p.Amount <= 0 {
 			return ErrInvalidMoney
 		}
-		paid += p.Amount
+		var err error
+		paid, err = paid.AddChecked(p.Amount)
+		if err != nil {
+			return ErrInvalidMoney
+		}
 	}
 	if paid != s.Total {
 		return ErrPaymentsMismatch
@@ -93,37 +123,56 @@ func (s Sale) PodeCancelar() error {
 }
 
 type SaleItem struct {
-	ID            string            `json:"id"`
-	SaleID        string            `json:"sale_id"`
-	ProductID     string            `json:"product_id"`
-	Qty           platform.Quantity `json:"qty"`
-	UnitPrice     platform.Money    `json:"unit_price"`
-	DiscountValue platform.Money    `json:"discount_value"`
-	Subtotal      platform.Money    `json:"subtotal"`
-	CostUnit      platform.Money    `json:"cost_unit"`
+	ID                   string            `json:"id"`
+	SaleID               string            `json:"sale_id"`
+	ProductID            string            `json:"product_id"`
+	Qty                  platform.Quantity `json:"qty"`
+	UnitPrice            platform.Money    `json:"unit_price"`
+	DiscountValue        platform.Money    `json:"discount_value"`
+	Subtotal             platform.Money    `json:"subtotal"`
+	CostUnit             platform.Money    `json:"cost_unit"`
+	ReturnPolicySnapshot *string           `json:"return_policy_snapshot"`
+	ReturnDaysSnapshot   *int              `json:"return_days_snapshot"`
 }
 
 func (it SaleItem) CalcularSubtotal() (lineGross platform.Money, lineNet platform.Money, err error) {
 	if it.Qty <= 0 || it.UnitPrice <= 0 || it.DiscountValue < 0 {
 		return 0, 0, ErrInvalidItem
 	}
-	lineGross = it.UnitPrice.MulQty(it.Qty)
-	lineNet = lineGross - it.DiscountValue
-	if lineNet < 0 {
+	var calcErr error
+	lineGross, calcErr = it.UnitPrice.MulQtyChecked(it.Qty)
+	if calcErr != nil {
+		return 0, 0, ErrInvalidMoney
+	}
+	lineNet, calcErr = lineGross.SubChecked(it.DiscountValue)
+	if calcErr != nil || lineNet < 0 {
 		return 0, 0, ErrInvalidMoney
 	}
 	return lineGross, lineNet, nil
 }
 
-func (it SaleItem) ProfitEstimado() platform.Money {
-	return (it.UnitPrice - it.CostUnit).MulQty(it.Qty) - it.DiscountValue
+func (it SaleItem) ProfitEstimado() (platform.Money, error) {
+	grossProfit, err := (it.UnitPrice - it.CostUnit).MulQtyChecked(it.Qty)
+	if err != nil {
+		return 0, ErrInvalidMoney
+	}
+	profit, err := grossProfit.SubChecked(it.DiscountValue)
+	if err != nil {
+		return 0, ErrInvalidMoney
+	}
+	return profit, nil
 }
 
 type Payment struct {
-	ID     string         `json:"id"`
-	SaleID string         `json:"sale_id"`
-	Method string         `json:"method"`
-	Amount platform.Money `json:"amount"`
+	ID                   string         `json:"id"`
+	SaleID               string         `json:"sale_id"`
+	Method               string         `json:"method"`
+	Amount               platform.Money `json:"amount"`
+	Provider             *string        `json:"provider,omitempty"`
+	TransactionRef       *string        `json:"transaction_ref,omitempty"`
+	AuthorizationCode    *string        `json:"authorization_code,omitempty"`
+	Installments         int            `json:"installments"`
+	ReconciliationStatus string         `json:"reconciliation_status"`
 }
 
 type CashSession struct {

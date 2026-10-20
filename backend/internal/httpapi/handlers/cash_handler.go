@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
-	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	salesapp "github.com/example/sistemaemgo/internal/modules/sales/application"
 	"github.com/go-chi/chi/v5"
@@ -14,12 +13,35 @@ import (
 
 type CashHandler struct {
 	svc    *salesapp.CashService
-	audit  *audit.Service
 	logger *slog.Logger
 }
 
-func NewCashHandler(svc *salesapp.CashService, auditSvc *audit.Service, logger *slog.Logger) *CashHandler {
-	return &CashHandler{svc: svc, audit: auditSvc, logger: logger}
+func NewCashHandler(svc *salesapp.CashService, logger *slog.Logger) *CashHandler {
+	return &CashHandler{svc: svc, logger: logger}
+}
+
+func (h *CashHandler) CurrentSession(w http.ResponseWriter, r *http.Request) {
+	au, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
+		return
+	}
+	session, err := h.svc.CurrentSession(r.Context(), au.TenantID)
+	if err != nil {
+		if errors.Is(err, common.ErrNotFound) {
+			writeError(w, r, http.StatusNotFound, "not_found", "nenhuma sessao de caixa aberta", nil)
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "erro ao consultar sessao de caixa", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":                session.ID,
+		"cash_register_id":  session.RegisterID,
+		"opened_by_user_id": session.OpenedByUserID,
+		"status":            session.Status,
+		"opening_amount":    session.OpeningAmount,
+	})
 }
 
 func (h *CashHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
@@ -60,19 +82,30 @@ func (h *CashHandler) RecordMovement(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	id, err := h.svc.RecordMovement(r.Context(), au.TenantID, au.UserID, sessionID, req)
+	id, created, err := h.svc.RecordMovement(
+		r.Context(),
+		au.TenantID,
+		au.UserID,
+		sessionID,
+		r.Header.Get("Idempotency-Key"),
+		req,
+	)
 	if err != nil {
-		status := http.StatusBadRequest
+		status := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, common.ErrValidation):
 			status = http.StatusUnprocessableEntity
-		case errors.Is(err, common.ErrCashSessionClosed), errors.Is(err, common.ErrInsufficientCash):
+		case errors.Is(err, common.ErrCashSessionClosed), errors.Is(err, common.ErrInsufficientCash), errors.Is(err, common.ErrConflict):
 			status = http.StatusConflict
 		}
 		writeError(w, r, status, errorCodeForStatus(status), friendlyErrorMessage(err), nil)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "recorded"})
+	status := http.StatusCreated
+	if !created {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, map[string]any{"id": id, "status": "recorded", "replayed": !created})
 }
 
 func (h *CashHandler) CloseSession(w http.ResponseWriter, r *http.Request) {

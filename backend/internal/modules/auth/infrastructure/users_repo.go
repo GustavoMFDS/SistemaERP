@@ -22,15 +22,15 @@ func NewUsersRepo(db *pgxpool.Pool, allowTenantFallback bool) *UsersRepo {
 
 func (r *UsersRepo) GetByEmail(ctx context.Context, email string) (authdomain.User, error) {
 	var u authdomain.User
-	err := r.db.QueryRow(ctx, `SELECT id::text, email::text, name, password_hash, active FROM users WHERE email=$1`, email).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active)
+	err := r.db.QueryRow(ctx, `SELECT id::text, COALESCE(email::text,''), name, password_hash, active, auth_version FROM users WHERE email=$1 OR username=$1`, email).
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active, &u.AuthVersion)
 	return u, err
 }
 
 func (r *UsersRepo) GetByID(ctx context.Context, id string) (authdomain.User, error) {
 	var u authdomain.User
-	err := r.db.QueryRow(ctx, `SELECT id::text, email::text, name, password_hash, active FROM users WHERE id=$1`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active)
+	err := r.db.QueryRow(ctx, `SELECT id::text, COALESCE(email::text,''), name, password_hash, active, auth_version FROM users WHERE id=$1`, id).
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Active, &u.AuthVersion)
 	return u, err
 }
 
@@ -44,7 +44,7 @@ func (r *UsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (stri
 	err := r.db.QueryRow(ctx, `
 		SELECT tenant_id::text
 		FROM user_tenants
-		WHERE user_id=$1
+		WHERE user_id=$1 AND active=true
 		ORDER BY created_at
 		LIMIT 1
 	`, userID).Scan(&tenantID)
@@ -55,7 +55,19 @@ func (r *UsersRepo) GetDefaultTenantID(ctx context.Context, userID string) (stri
 		if !r.allowTenantFallback {
 			return "", common.ErrForbidden
 		}
-		// Legacy development/test fallback for pre-user_tenants local databases only.
+		// Never return the store fallback for a user who already has a
+		// membership, even when ALL memberships are suspended. That would
+		// reauthorize a deactivated employee in dev/demo mode.
+		var alreadyLinked bool
+		if checkErr := r.db.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1)`,
+			userID).Scan(&alreadyLinked); checkErr != nil {
+			return "", checkErr
+		}
+		if alreadyLinked {
+			return "", common.ErrForbidden
+		}
+		// Legacy fallback is solely for identities predating user_tenants.
 		return r.fallbackCompanyTenantID(ctx)
 	}
 	var pgErr *pgconn.PgError
@@ -80,7 +92,7 @@ func (r *UsersRepo) UserHasTenant(ctx context.Context, userID string, tenantID s
 	var hasAnyTenant bool
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1 AND tenant_id=$2),
+			EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1 AND tenant_id=$2 AND active=true),
 			EXISTS(SELECT 1 FROM user_tenants WHERE user_id=$1)
 	`, userID, tenantID).Scan(&hasRequestedTenant, &hasAnyTenant)
 	if err == nil {
@@ -113,6 +125,7 @@ func (r *UsersRepo) ListUserRoles(ctx context.Context, userID string, tenantID s
 		SELECT r.name
 		FROM user_tenant_roles ur
 		JOIN roles r ON r.id = ur.role_id
+		JOIN user_tenants ut ON ut.user_id=ur.user_id AND ut.tenant_id=ur.tenant_id AND ut.active=true
 		WHERE ur.user_id=$1 AND ur.tenant_id=$2
 		ORDER BY r.name
 	`, userID, tenantID)
@@ -138,6 +151,7 @@ func (r *UsersRepo) ListUserPermissions(ctx context.Context, userID string, tena
 		FROM user_tenant_roles ur
 		JOIN role_permissions rp ON rp.role_id = ur.role_id
 		JOIN permissions p ON p.id = rp.permission_id
+		JOIN user_tenants ut ON ut.user_id=ur.user_id AND ut.tenant_id=ur.tenant_id AND ut.active=true
 		WHERE ur.user_id=$1 AND ur.tenant_id=$2
 		ORDER BY p.code
 	`, userID, tenantID)

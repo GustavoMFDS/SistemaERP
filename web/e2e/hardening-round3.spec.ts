@@ -1,11 +1,11 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill(email)
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 async function waitForCashClosed(page: import('@playwright/test').Page) {
@@ -116,7 +116,7 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
   await page.getByRole('button', { name: 'Importar para revisão' }).click()
 
   await expect(page.getByText('Reconciliação offline')).toBeVisible()
-  await expect(page.getByText(/legacy_migration/)).toBeVisible()
+  await expect(page.getByText(/Venda de versão anterior/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Abrir' }).click()
   let currentCash = ''
@@ -163,14 +163,14 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
 test('failed refresh immediately returns the UI to login', async ({ page }) => {
   await login(page, 'admin@sistema.local')
 
-  await page.route(/http:\/\/127\.0\.0\.1:8080\/api\/v1\/products\?probe=session-expired/, async (route) => {
+  await page.route(/\/api\/v1\/products\?probe=session-expired$/, async (route) => {
     await route.fulfill({
       status: 401,
       contentType: 'application/json',
       body: JSON.stringify({ message: 'expired' }),
     })
   })
-  await page.route('http://127.0.0.1:8080/api/v1/auth/refresh', async (route) => {
+  await page.route(/\/api\/v1\/auth\/refresh$/, async (route) => {
     await route.fulfill({
       status: 401,
       contentType: 'application/json',

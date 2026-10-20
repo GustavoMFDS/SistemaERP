@@ -17,7 +17,7 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 
   const cookies = await context.cookies()
   const refresh = cookies.find((cookie) => cookie.name === '__Host-refresh_token')
@@ -26,7 +26,11 @@ test('staging-like HTTPS proxy keeps refresh cookie secure and core POS flow wor
   expect(refresh?.httpOnly).toBe(true)
   expect(refresh?.sameSite).toBe('Strict')
 
-  await page.getByRole('link', { name: 'PDV' }).click()
+  const reminder = page.getByRole('dialog', { name: 'Sua configuração fiscal ainda não está concluída' })
+  await expect(reminder).toBeVisible()
+  await reminder.getByRole('button', { name: 'Agora não' }).click()
+
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'PDV', exact: true }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
 
   await expect

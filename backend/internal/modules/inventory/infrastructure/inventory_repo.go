@@ -7,6 +7,7 @@ import (
 	inv "github.com/example/sistemaemgo/internal/modules/inventory/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -16,6 +17,81 @@ type InventoryRepo struct {
 
 func NewInventoryRepo(dbpool *pgxpool.Pool) *InventoryRepo {
 	return &InventoryRepo{db: dbpool}
+}
+
+// Opening stock requires an immutable batch key. Advisory locks serialize
+// retries before reading the committed batch record.
+func (r *InventoryRepo) LockOpeningStockKey(
+	ctx context.Context, tx db.DBTX, tenantID, key string,
+) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+		tenantID+":opening-stock:"+key)
+	return err
+}
+
+func (r *InventoryRepo) GetOpeningStockBatch(
+	ctx context.Context, tx db.DBTX, tenantID, key string,
+) (batchID, requestHash string, itemCount int, found bool, err error) {
+	err = tx.QueryRow(ctx, `
+		SELECT id::text, request_hash, item_count
+		FROM opening_stock_batches
+		WHERE tenant_id=$1 AND idem_key=$2
+	`, tenantID, key).Scan(&batchID, &requestHash, &itemCount)
+	if err == pgx.ErrNoRows {
+		return "", "", 0, false, nil
+	}
+	if err != nil {
+		return "", "", 0, false, err
+	}
+	return batchID, requestHash, itemCount, true, nil
+}
+
+// Read-only reconciliation is scoped to the authenticated company's tenant ID.
+// It reveals no CSV row data or request digest.
+func (r *InventoryRepo) LookupOpeningStockBatch(
+	ctx context.Context, tenantID, key string,
+) (batchID string, itemCount int, found bool, err error) {
+	err = r.db.QueryRow(ctx, `
+		SELECT id::text, item_count
+		FROM opening_stock_batches
+		WHERE tenant_id=$1 AND idem_key=$2
+	`, tenantID, key).Scan(&batchID, &itemCount)
+	if err == pgx.ErrNoRows {
+		return "", 0, false, nil
+	}
+	if err != nil {
+		return "", 0, false, err
+	}
+	return batchID, itemCount, true, nil
+}
+
+func (r *InventoryRepo) CreateOpeningStockBatch(
+	ctx context.Context, tx db.DBTX, tenantID, actorID, key, requestHash string, itemCount int,
+) (string, error) {
+	var batchID string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO opening_stock_batches(
+			tenant_id, idem_key, request_hash, item_count, created_by_user_id
+		) VALUES ($1,$2,$3,$4,$5)
+		RETURNING id::text
+	`, tenantID, key, requestHash, itemCount, actorID).Scan(&batchID)
+	return batchID, err
+}
+
+// All balance rows must already be locked by the caller. A movement made by
+// another transaction cannot commit past those locks between this check and
+// the opening writes.
+func (r *InventoryRepo) HasAnyStockMovements(
+	ctx context.Context, tx db.DBTX, tenantID string, productIDs []string,
+) (bool, error) {
+	var found bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM inventory_movements
+			WHERE tenant_id=$1 AND product_id=ANY($2::uuid[])
+		)
+	`, tenantID, productIDs).Scan(&found)
+	return found, err
 }
 
 func (r *InventoryRepo) EnsureBalanceRow(ctx context.Context, tx db.DBTX, tenantID string, productID string) error {
@@ -100,6 +176,20 @@ func (r *InventoryRepo) InsertMovement(ctx context.Context, tx db.DBTX, tenantID
 	return err
 }
 
+// LowStockCount counts the full tenant catalog, independently of the paged UI list.
+func (r *InventoryRepo) LowStockCount(ctx context.Context, tenantID string) (int, error) {
+	var total int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM products p
+		LEFT JOIN inventory_balances b
+		  ON b.product_id=p.id AND b.tenant_id=p.tenant_id
+		WHERE p.tenant_id=$1 AND p.active=true
+		  AND COALESCE(b.qty_on_hand, 0) <= p.min_stock
+	`, tenantID).Scan(&total)
+	return total, err
+}
+
 func (r *InventoryRepo) LowStock(ctx context.Context, tenantID string, limit int) ([]inv.Product, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
@@ -148,15 +238,15 @@ func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, prod
 	if offset < 0 {
 		offset = 0
 	}
-	where := "WHERE tenant_id=$1"
+	where := "WHERE m.tenant_id=$1"
 	args := []any{tenantID}
 	if productID != "" {
-		where += " AND product_id=$2"
+		where += " AND m.product_id=$2"
 		args = append(args, productID)
 	}
 
 	var total int
-	if err := r.db.QueryRow(ctx, "SELECT count(*) FROM inventory_movements "+where, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, "SELECT count(*) FROM inventory_movements m "+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -165,11 +255,14 @@ func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, prod
 	args = append(args, limit, offset)
 
 	rows, err := r.db.Query(ctx, `
-		SELECT id::text, product_id::text, movement_type, delta::text, qty_before::text, qty_after::text,
-		       reason, reference_type, reference_id::text, actor_user_id::text, created_at::text
-		FROM inventory_movements
+		SELECT m.id::text, m.product_id::text, p.sku, p.name, m.movement_type,
+		       m.delta::text, m.qty_before::text, m.qty_after::text,
+		       m.reason, m.reference_type, m.reference_id::text,
+		       m.actor_user_id::text, m.created_at::text
+		FROM inventory_movements m
+		JOIN products p ON p.id=m.product_id AND p.tenant_id=m.tenant_id
 		`+where+`
-		ORDER BY created_at DESC
+		ORDER BY m.created_at DESC, m.id DESC
 		LIMIT $`+fmt.Sprint(limitArg)+` OFFSET $`+fmt.Sprint(offsetArg)+`
 	`, args...)
 	if err != nil {
@@ -183,7 +276,7 @@ func (r *InventoryRepo) ListMovements(ctx context.Context, tenantID string, prod
 		var refID *string
 		var actor *string
 		var delta, qtyBefore, qtyAfter string
-		if err := rows.Scan(&m.ID, &m.ProductID, &m.MovementType, &delta, &qtyBefore, &qtyAfter, &m.Reason, &m.ReferenceType, &refID, &actor, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ProductID, &m.ProductSKU, &m.ProductName, &m.MovementType, &delta, &qtyBefore, &qtyAfter, &m.Reason, &m.ReferenceType, &refID, &actor, &m.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		var err error

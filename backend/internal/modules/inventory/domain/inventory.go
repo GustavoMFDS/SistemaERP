@@ -36,7 +36,10 @@ func (b InventoryBalance) AplicarDelta(delta platform.Quantity, allowNegative bo
 	if delta == 0 {
 		return InventoryBalance{}, ErrInvalidDelta
 	}
-	newQty := b.QtyOnHand + delta
+	newQty, err := b.QtyOnHand.AddChecked(delta)
+	if err != nil {
+		return InventoryBalance{}, ErrInvalidQuantity
+	}
 	if !allowNegative && newQty < 0 {
 		return InventoryBalance{}, ErrInsufficientStock
 	}
@@ -69,6 +72,8 @@ func (t MovementType) NormalizeDelta(delta platform.Quantity) (platform.Quantity
 type InventoryMovement struct {
 	ID            string            `json:"id"`
 	ProductID     string            `json:"product_id"`
+	ProductSKU    string            `json:"product_sku,omitempty"`
+	ProductName   string            `json:"product_name,omitempty"`
 	MovementType  string            `json:"movement_type"`
 	Delta         platform.Quantity `json:"delta"`
 	QtyBefore     platform.Quantity `json:"qty_before"`

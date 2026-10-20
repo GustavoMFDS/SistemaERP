@@ -3,13 +3,17 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/example/sistemaemgo/internal/config"
 	"github.com/example/sistemaemgo/internal/httpapi"
 	"github.com/example/sistemaemgo/internal/modules"
+	fiscapp "github.com/example/sistemaemgo/internal/modules/fiscal/application"
 	"github.com/example/sistemaemgo/internal/platform/observability"
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -57,6 +61,27 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return nil, err
 	}
 
+	migrationDir := strings.TrimSpace(os.Getenv("ESTERIUM_MIGRATIONS_DIR"))
+	if cfg.IsProdLike() && strings.TrimSpace(os.Getenv("ESTERIUM_WEB_DIR")) != "" && migrationDir == "" {
+		pool.Close()
+		_ = telemetryShutdown(ctx)
+		return nil, errors.New("local SPA production startup requires ESTERIUM_MIGRATIONS_DIR")
+	}
+	if migrationDir != "" {
+		var version int
+		var dirty bool
+		if err := pool.QueryRow(ctx, "SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+			pool.Close()
+			_ = telemetryShutdown(ctx)
+			return nil, fmt.Errorf("cannot verify installed PostgreSQL schema version: %w", err)
+		}
+		if err := verifyLocalSchemaVersion(version, dirty, migrationDir); err != nil {
+			pool.Close()
+			_ = telemetryShutdown(ctx)
+			return nil, err
+		}
+	}
+
 	var rdb *redis.Client
 	if !cfg.DisableRedis {
 		var opts *redis.Options
@@ -91,6 +116,14 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 			_ = telemetryShutdown(ctx)
 			return nil, err
 		}
+		if cfg.IsProdLike() {
+			if securityErr := verifyRedisSecurityPrimitives(ctx, rdb); securityErr != nil {
+				pool.Close()
+				_ = rdb.Close()
+				_ = telemetryShutdown(ctx)
+				return nil, fmt.Errorf("redis security contract failed, refusing to start: %w", securityErr)
+			}
+		}
 	} else if cfg.IsProdLike() {
 		pool.Close()
 		_ = telemetryShutdown(ctx)
@@ -100,8 +133,29 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	}
 
 	startIdempotencyMaintenance(ctx, pool, logger)
+	// Only reconciles local fiscal dispatch diagnostics. Never reserves or transmits.
+	fiscapp.StartFiscalDispatchReconciliation(ctx, pool, logger)
+	// Local inspections use expiring database leases; no SEFAZ traffic.
+	fiscapp.StartFiscalPreflightDiagnostics(ctx, pool, logger)
+	// Submitted NFC-e gets a durable *consultation-only* recovery plan.
+	// This loop never contacts SEFAZ, resends XML or marks fiscal outcomes.
+	fiscapp.StartNFCeConsultationPlanner(ctx, pool, logger)
 
 	mods := modules.New(cfg, pool, rdb, logger)
+	// Explicit opt-in for homologation only. No certificate, schema bundle
+	// or deployment enablement means no worker and zero SEFAZ traffic.
+	if cfg.NFCeAutoHomologationEnabled {
+		if !mods.Fiscal.NFCeHomologationAutomationReady() {
+			pool.Close()
+			if rdb != nil {
+				_ = rdb.Close()
+			}
+			_ = telemetryShutdown(ctx)
+			return nil, errors.New("NFC-e auto homologation requires working signing, XSD, SEFAZ and processed XML adapters")
+		}
+		fiscapp.StartAutomaticNFCeHomologation(ctx, pool, mods.Fiscal, logger)
+		fiscapp.StartAutomaticNFCeConsultation(ctx, pool, mods.Fiscal, logger)
+	}
 	router := httpapi.NewRouter(cfg, mods, logger)
 
 	return &App{DB: pool, Redis: rdb, Router: router, telemetryShutdown: telemetryShutdown, logger: logger}, nil
@@ -126,31 +180,54 @@ const (
 	idempotencyBatchSize = 2000
 )
 
+var idempotencyRetentionTables = []string{
+	"idempotency_keys",
+	"procurement_idempotency_keys",
+	"return_idempotency_keys",
+	"finance_idempotency_keys",
+}
+
 func startIdempotencyMaintenance(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
 	run := func() {
 		maintenanceCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 
-		for batch := 0; batch < 5; batch++ {
-			tag, err := pool.Exec(maintenanceCtx, `
+		for _, table := range idempotencyRetentionTables {
+			query := fmt.Sprintf(`
 				WITH doomed AS (
 					SELECT id
-					FROM idempotency_keys
+					FROM %s
 					WHERE created_at < now() - ($1::bigint * interval '1 second')
 					ORDER BY created_at
 					LIMIT $2
 				)
-				DELETE FROM idempotency_keys k
+				DELETE FROM %s k
 				USING doomed
 				WHERE k.id=doomed.id
-			`, int64(idempotencyRetention/time.Second), idempotencyBatchSize)
-			if err != nil {
-				if maintenanceCtx.Err() == nil {
-					logger.Warn("idempotency_retention_cleanup_failed", slog.Any("err", err))
+			`, table, table)
+
+			for batch := 0; batch < 5; batch++ {
+				tag, err := pool.Exec(
+					maintenanceCtx,
+					query,
+					int64(idempotencyRetention/time.Second),
+					idempotencyBatchSize,
+				)
+				if err != nil {
+					if maintenanceCtx.Err() == nil {
+						logger.Warn(
+							"idempotency_retention_cleanup_failed",
+							slog.String("table", table),
+							slog.Any("err", err),
+						)
+					}
+					break
 				}
-				return
+				if tag.RowsAffected() < idempotencyBatchSize {
+					break
+				}
 			}
-			if tag.RowsAffected() < idempotencyBatchSize {
+			if maintenanceCtx.Err() != nil {
 				return
 			}
 		}

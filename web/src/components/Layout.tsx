@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { apiJson, errorMessage } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
-import { clearOfflineQueue, getQueueCount } from '../lib/offlineQueue'
+import { getLegacyQueueCount, getQueueCount } from '../lib/offlineQueue'
+import { useInstallApp } from '../lib/installApp'
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 
@@ -11,6 +12,7 @@ type MeResponse = {
   email: string
   name: string
   roles: string[]
+  permissions: string[]
 }
 
 function classNames(...xs: Array<string | false | undefined>): string {
@@ -19,6 +21,9 @@ function classNames(...xs: Array<string | false | undefined>): string {
 
 export default function Layout() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const isPDV = location.pathname === '/pdv'
+  const appInstall = useInstallApp()
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meError, setMeError] = useState<string>('')
   const [logoutError, setLogoutError] = useState('')
@@ -38,28 +43,46 @@ export default function Layout() {
     }
   }, [])
 
-  const nav = useMemo(
-    () =>
-      [
-        { to: '/products', label: 'Produtos' },
-        { to: '/inventory', label: 'Estoque' },
-        { to: '/pdv', label: 'PDV' },
-        { to: '/finance', label: 'Financeiro' },
-        { to: '/fiscal', label: 'Fiscal (XML)' },
-      ] as const,
-    [],
-  )
+  const permissionSet = new Set(me?.permissions ?? [])
+  const nav = [
+    { to: '/home', label: 'Início', section: 'Principal', permission: null },
+    { to: '/pdv', label: 'PDV', section: 'Vendas e clientes', permission: 'sale:write' },
+    { to: '/customers', label: 'Clientes', section: 'Vendas e clientes', permission: 'customer:read' },
+    { to: '/returns', label: 'Devoluções/Trocas', section: 'Vendas e clientes', permission: 'sale:return' },
+    { to: '/products', label: 'Produtos', section: 'Produtos e estoque', permission: 'product:read' },
+    { to: '/inventory', label: 'Estoque', section: 'Produtos e estoque', permission: 'inventory:read' },
+    { to: '/stock-movements', label: 'Movimentações', section: 'Produtos e estoque', permission: 'inventory:read' },
+    { to: '/imports', label: 'Histórico de importações', section: 'Produtos e estoque', permission: 'imports:history' },
+    { to: '/purchases', label: 'Compras', section: 'Produtos e estoque', permission: 'procurement:read' },
+    { to: '/finance', label: 'Financeiro', section: 'Administração', permission: 'finance:read' },
+    { to: '/reports', label: 'Relatórios', section: 'Administração', permission: 'finance:read' },
+    { to: '/staff', label: 'Funcionários', section: 'Administração', permission: 'team:manage' },
+    { to: '/fiscal', label: 'Fiscal', section: 'Administração', permission: 'invoice:read' },
+    { to: '/setup', label: 'Configurar loja', section: 'Administração', permission: null },
+  ].filter((item) => item.permission === null ||
+    (item.permission === 'imports:history'
+      ? permissionSet.has('product:write') || permissionSet.has('inventory:adjust')
+      : permissionSet.has(item.permission)))
+  const mainPaths = new Set(['/home', '/pdv', '/products', '/inventory'])
+  const mainLinks = nav.filter((item) => mainPaths.has(item.to))
+  const extraLinks = nav.filter((item) => !mainPaths.has(item.to))
 
   async function logout() {
     if (loggingOut) return
 
-    const pending = getQueueCount()
-    if (
-      pending > 0 &&
-      !window.confirm(
-        `Existem ${pending} venda(s) offline pendente(s). Sair agora vai limpar essa fila local. Deseja continuar?`,
+    const legacyPending = getLegacyQueueCount()
+    if (legacyPending > 0) {
+      setLogoutError(
+        `Não é possível sair enquanto existirem ${legacyPending} item(ns) na fila offline legada ainda não revisada. Abra o PDV e importe a fila para atenção ou descarte-a explicitamente antes de encerrar a sessão.`,
       )
-    ) {
+      return
+    }
+
+    const pending = getQueueCount()
+    if (pending > 0) {
+      setLogoutError(
+        `Não é possível sair enquanto existirem ${pending} venda(s) offline preservada(s). Sincronize, reconcilie ou descarte cada item explicitamente no PDV antes de encerrar a sessão.`,
+      )
       return
     }
 
@@ -74,7 +97,6 @@ export default function Layout() {
       // Clear scoped state while the current access token still identifies
       // the tenant/user namespace.
       clearCashSessionId()
-      clearOfflineQueue()
       clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
       clearToken()
       navigate('/login', { replace: true })
@@ -90,16 +112,33 @@ export default function Layout() {
   return (
     <div className="min-h-full">
       <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link to="/products" className="text-sm font-semibold">
-            SistemaEmGo
+        <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
+          <Link to="/home" className="text-sm font-semibold">
+            <span aria-hidden="true" className="mr-1.5 text-blue-600">✦</span>
+            Esterium ERP
           </Link>
-          <div className="flex items-center gap-3">
-            <div className="text-xs text-gray-600">
-              {me?.email ? (
-                <span>
-                  {me.name} - {me.email}
-                </span>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            {appInstall.available ? (
+              <button type="button" onClick={() => void appInstall.install()}
+                className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50">
+                Instalar aplicativo
+              </button>
+            ) : null}
+            <details className="relative text-xs">
+              <summary className="cursor-pointer rounded-md border px-2 py-1 hover:bg-gray-50">
+                Usar como app
+              </summary>
+              <div className="absolute right-0 z-20 mt-2 w-64 rounded-md border bg-white p-3 text-gray-700 shadow-lg">
+                <p className="font-semibold">Instalar no seu dispositivo</p>
+                <p className="mt-1">Android/Chrome: menu ⋮ → Instalar aplicativo ou Adicionar à tela inicial.</p>
+                <p className="mt-1">iPhone/Safari: Compartilhar → Adicionar à Tela de Início.</p>
+                <p className="mt-1">Computador: ícone de instalação na barra do navegador, quando disponível.</p>
+                <p className="mt-2 text-amber-800">Para usar a loja, o servidor precisa estar configurado e acessível. Não desinstale ou limpe dados com vendas offline pendentes.</p>
+              </div>
+            </details>
+            <div className="hidden text-xs text-gray-600 sm:block">
+              {me ? (
+                <span>{me.name}{me.email ? ' · ' + me.email : ''}</span>
               ) : meError ? (
                 <span className="text-red-600">Falha ao carregar usuario</span>
               ) : (
@@ -123,27 +162,49 @@ export default function Layout() {
         </div>
       ) : null}
 
-      <div className="mx-auto grid max-w-6xl grid-cols-12 gap-4 px-4 py-4">
-        <aside className="col-span-12 md:col-span-3">
-          <nav className="rounded-lg border bg-white p-2">
-            {nav.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  classNames(
-                    'block rounded-md px-3 py-2 text-sm',
-                    isActive ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50',
-                  )
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
+      <div className={classNames(
+        'mx-auto grid max-w-[1680px] grid-cols-1 items-start gap-5 px-4 py-5 lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-6 lg:px-6',
+      )}>
+        <aside className="min-w-0 lg:sticky lg:top-5">
+          <nav aria-label="Navegação principal" className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <p className="px-2 pb-2 text-xs font-bold text-slate-500">Acessos principais</p>
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-1">
+              {mainLinks.map((item) => (
+                <NavLink key={item.to} to={item.to}
+                  className={({ isActive }) => classNames(
+                    'block rounded-lg px-3 py-2.5 text-center text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 lg:text-left',
+                    isActive ? 'bg-slate-900 font-semibold text-white' : 'text-slate-700 hover:bg-slate-100',
+                  )}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+            {extraLinks.length > 0 ? (
+              <details key={location.pathname} open={extraLinks.some((item) => item.to === location.pathname)} className="mt-3 border-t border-slate-200 pt-3">
+                <summary className="cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-700">
+                  Mais áreas do sistema
+                </summary>
+                <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
+                  {extraLinks.map((item) => (
+                    <NavLink key={item.to} to={item.to}
+                      className={({ isActive }) => classNames(
+                        'block rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700',
+                        isActive ? 'bg-slate-900 font-semibold text-white' : 'text-slate-700 hover:bg-slate-100',
+                      )}
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </nav>
         </aside>
-        <main className="col-span-12 md:col-span-9">
-          <div className="rounded-lg border bg-white p-4">
+        <main className="min-w-0">
+          <div className={isPDV
+            ? 'min-w-0'
+            : 'min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6'}>
             <Outlet />
           </div>
         </main>

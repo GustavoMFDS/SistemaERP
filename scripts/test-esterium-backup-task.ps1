@@ -1,0 +1,158 @@
+#requires -Version 5.1
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:OS -ne 'Windows_NT') {
+    throw 'Synthetic backup scheduler test requires a disposable hosted Windows runner.'
+}
+$root = Join-Path $env:RUNNER_TEMP ('esterium-task-' + [Guid]::NewGuid().ToString('N'))
+$configPath = Join-Path $root 'backup-config.json'
+$passPath = Join-Path $root 'pgpass.secret'
+$cert = Join-Path $root 'ca.crt'
+$bin = Join-Path $root 'pgtools'
+$local = Join-Path $root 'archives'
+$runner = Join-Path $PSScriptRoot 'run-esterium-scheduled-backup.ps1'
+$registration = Join-Path $PSScriptRoot 'register-esterium-backup-task.ps1'
+try {
+    [IO.Directory]::CreateDirectory($bin) | Out-Null
+    [IO.Directory]::CreateDirectory($local) | Out-Null
+    foreach ($name in @('pg_dump.exe', 'pg_restore.exe', 'psql.exe')) {
+        [IO.File]::WriteAllText((Join-Path $bin $name), 'synthetic-not-executable')
+    }
+    [IO.File]::WriteAllText($passPath, 'fake:credential:test:data:synthetic')
+    [IO.File]::WriteAllText($cert, 'fake-test-CA')
+    $config = @{
+        PGHOST='127.0.0.1'; PGPORT='5432'; PGUSER='esterium_backup'
+        PGDATABASE='esterium'; PGPASSFILE=$passPath; PGSSLROOTCERT=$cert
+        BackupDir=$local; ExternalBackupDir='\\other-computer\protected-backups'
+        PostgresBin=$bin; RetentionDays=14
+    }
+    function Write-Config {
+        [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Compress))
+    }
+    Write-Config
+    foreach ($file in @($configPath, $passPath, $cert)) {
+        $result = & icacls.exe $file '/inheritance:r' '/grant:r' '*S-1-5-20:R' '*S-1-5-18:F' '*S-1-5-32-544:F' 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Synthetic ACL setup failed: $result" }
+    }
+    $accepted = @(& $runner -ConfigFile $configPath -CheckOnly) -join ' '
+    if ($accepted -notmatch 'PASS: protected backup task configuration validated') {
+        throw 'Valid protected backup config was rejected.'
+    }
+    $plan = @(& $registration -ConfigFile $configPath -DailyAt '02:00') -join ' '
+    if ($plan -notmatch 'no task, data folder, network connection' -or
+        @(Get-ScheduledTask -TaskName 'EsteriumERP-Backup' -ErrorAction SilentlyContinue).Count -ne 0) {
+        throw 'Backup plan mode unexpectedly installed or enabled a scheduled task.'
+    }
+    # Neither a missing approval nor a forged digest/thumbprint may
+    # register a scheduled privileged entry point, even if left disabled.
+    $missingApprovalRejected = $false
+    try { & $registration -ConfigFile $configPath -DailyAt '02:00' -Apply | Out-Null }
+    catch { $missingApprovalRejected = $_.Exception.Message -match 'requires independent release SHA-256' }
+    if (-not $missingApprovalRejected) {
+        throw 'Backup task registration allowed Apply without independent release approval.'
+    }
+    $fakePublisherRejected = $false
+    try {
+        & $registration -ConfigFile $configPath -DailyAt '02:00' -Apply `
+            -ApprovedManifestSHA256 ('A' * 64) -TrustedPublisherThumbprint ('B' * 40) | Out-Null
+    } catch {
+        $fakePublisherRejected = $_.Exception.Message -match 'requires signed scripts'
+    }
+    if (-not $fakePublisherRejected) {
+        throw 'Backup task registration trusted an unsigned launcher with forged approval values.'
+    }
+    if (@(Get-ScheduledTask -TaskName 'EsteriumERP-Backup' -ErrorAction SilentlyContinue).Count -ne 0) {
+        throw 'Denied backup registration unexpectedly created a task.'
+    }
+    # Spoofing the CI-only fixture flag without the dedicated disposable
+    # SCM job marker must also refuse registration before checking any data.
+    $previousFixtureMarker = $env:ESTERIUM_SCM_DISPOSABLE_CI
+    try {
+        $env:ESTERIUM_SCM_DISPOSABLE_CI = '0'
+        $fixtureRejected = $false
+        try {
+            & $registration -ConfigFile $configPath -Apply -UnsignedDisposableCIFixture | Out-Null
+        } catch {
+            $fixtureRejected = $_.Exception.Message -match 'requires disposable hosted Windows SCM CI'
+        }
+        if (-not $fixtureRejected) {
+            throw 'Backup task registration permitted CI-only bypass without disposable marker.'
+        }
+    } finally {
+        if ($null -eq $previousFixtureMarker) {
+            Remove-Item Env:ESTERIUM_SCM_DISPOSABLE_CI -ErrorAction SilentlyContinue
+        } else {
+            $env:ESTERIUM_SCM_DISPOSABLE_CI = $previousFixtureMarker
+        }
+    }
+    function Assert-Reject([string]$reason) {
+        $rejected = $false
+        try { & $runner -ConfigFile $configPath -CheckOnly | Out-Null }
+        catch { $rejected = $true }
+        if (-not $rejected) { throw "Backup preflight accepted $reason" }
+    }
+    $config['PGPASSWORD'] = 'this-is-not-a-real-secret'
+    Write-Config
+    Assert-Reject 'an inline password property'
+    $config.Remove('PGPASSWORD')
+    $config.ExternalBackupDir = $local
+    Write-Config
+    Assert-Reject 'a local-only destination'
+    $config.ExternalBackupDir = '\\localhost\protected-backups'
+    Write-Config
+    Assert-Reject 'an SMB share on the same machine'
+    $config.ExternalBackupDir = '\\other-computer\protected-backups'
+    $config.PGHOST = '192.168.0.5'
+    Write-Config
+    Assert-Reject 'a remote database server'
+    $config.PGHOST = '127.0.0.1'
+    $config.BackupDir = Join-Path $env:ProgramFiles 'EsteriumERP-UnsafeTest'
+    Write-Config
+    Assert-Reject 'backups inside Program Files'
+    $config.BackupDir = $local
+    Write-Config
+    $aclOutput = & icacls.exe $passPath '/grant' '*S-1-5-32-545:R' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic insecure ACL setup failed: $aclOutput" }
+    Assert-Reject 'PostgreSQL password file readable by Users'
+    $aclOutput = & icacls.exe $passPath '/remove:g' '*S-1-5-32-545' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "ACL cleanup failed: $aclOutput" }
+    # A different OS identity is not a public group, but must still not be
+    # allowed to read the backup service's protected files.
+    $aclOutput = & icacls.exe $passPath '/grant' '*S-1-5-19:R' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic LocalService ACL setup failed: $aclOutput" }
+    Assert-Reject 'PostgreSQL password file readable by an unapproved Windows service account'
+    $aclOutput = & icacls.exe $passPath '/remove:g' '*S-1-5-19' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic LocalService ACL cleanup failed: $aclOutput" }
+    # The task account needs only ReadData; Modify lets a compromised
+    # backup process replace its own credentials/remote destination.
+    foreach ($protectedPath in @($passPath, $configPath)) {
+        $aclOutput = & icacls.exe $protectedPath '/grant:r' '*S-1-5-20:M' 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Synthetic NetworkService Modify ACL failed: $aclOutput" }
+        Assert-Reject 'NetworkService modifying its own protected backup input'
+        $aclOutput = & icacls.exe $protectedPath '/grant:r' '*S-1-5-20:R' 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Synthetic read-only ACL recovery failed: $aclOutput" }
+        $restored = @(& $runner -ConfigFile $configPath -CheckOnly) -join ' '
+        if ($restored -notmatch 'PASS: protected backup task configuration validated') {
+            throw 'Restored read-only NetworkService permission is still rejected.'
+        }
+    }
+    # The public TLS root may be readable, but never replaceable by ordinary
+    # Windows users or unrelated service accounts.
+    $aclOutput = & icacls.exe $cert '/grant' '*S-1-5-32-545:W' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic public CA write ACL failed: $aclOutput" }
+    Assert-Reject 'a writable PostgreSQL root CA'
+    $aclOutput = & icacls.exe $cert '/remove:g' '*S-1-5-32-545' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic TLS root ACL cleanup failed: $aclOutput" }
+    $certCheck = @(& $runner -ConfigFile $configPath -CheckOnly) -join ' '
+    if ($certCheck -notmatch 'PASS: protected backup task configuration validated') {
+        throw 'PostgreSQL root CA with secure ACL was unexpectedly rejected.'
+    }
+    $badTime = $false
+    try { & $registration -ConfigFile $configPath -DailyAt '25:90' | Out-Null }
+    catch { $badTime = $true }
+    if (-not $badTime) { throw 'Invalid scheduling time was accepted.' }
+    Write-Output 'PASS: backup scheduler plan is read-only and rejects insecure credentials, disk and configuration.'
+} finally {
+    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+}

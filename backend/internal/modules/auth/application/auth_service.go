@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"time"
 
@@ -14,6 +13,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// Use the same bcrypt cost when a login identifier has no user. A cheap
+// string comparison leaks account existence through response timing.
+var unknownUserPasswordHash = func() []byte {
+	hash, err := bcrypt.GenerateFromPassword([]byte("timing-guard-not-a-user"), bcrypt.DefaultCost)
+	if err != nil {
+		panic("could not initialize login timing guard")
+	}
+	return hash
+}()
 
 type AuthService struct {
 	cfg     config.Config
@@ -29,15 +38,15 @@ func NewAuthService(cfg config.Config, users UsersRepository, refresh RefreshTok
 func (s *AuthService) Login(ctx context.Context, email, password string) (TokenResponse, AuthUserInfo, error) {
 	u, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
-		// mitigate timing
-		slowEqual(password, "")
+		// Consume comparable bcrypt work for an unknown identifier.
+		_ = bcrypt.CompareHashAndPassword(unknownUserPasswordHash, []byte(password))
+		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 	if !u.Active {
 		return TokenResponse{}, AuthUserInfo{}, common.ErrInactiveUser
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
-		return TokenResponse{}, AuthUserInfo{}, common.ErrInvalidCredentials
 	}
 	_ = s.users.UpdateLastLogin(ctx, u.ID)
 
@@ -50,11 +59,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 	}
 
 	roles, _ := s.users.ListUserRoles(ctx, u.ID, tenantID)
-	accessTok, accessExp, err := s.issueAccessToken(u.ID, tenantID)
+	accessTok, accessExp, err := s.issueAccessToken(u.ID, tenantID, u.AuthVersion)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
-	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, u.ID, tenantID)
+	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, u.ID, tenantID, u.AuthVersion)
 	if err != nil {
 		return TokenResponse{}, AuthUserInfo{}, err
 	}
@@ -69,7 +78,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (TokenR
 		}, nil
 }
 
-func (s *AuthService) issueAccessToken(userID, tenantID string) (string, time.Time, error) {
+func (s *AuthService) issueAccessToken(userID, tenantID string, version int64) (string, time.Time, error) {
 	now := time.Now()
 	exp := now.Add(s.cfg.AccessTokenTTL)
 	claims := Claims{RegisteredClaims: jwt.RegisteredClaims{
@@ -77,13 +86,13 @@ func (s *AuthService) issueAccessToken(userID, tenantID string) (string, time.Ti
 		Subject:   userID,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(exp),
-	}, Type: "access", TenantID: tenantID}
+	}, Type: "access", TenantID: tenantID, AuthVersion: version}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := t.SignedString([]byte(s.cfg.JWTSecret))
 	return signed, exp, err
 }
 
-func (s *AuthService) issueRefreshToken(ctx context.Context, userID, tenantID string) (string, time.Time, error) {
+func (s *AuthService) issueRefreshToken(ctx context.Context, userID, tenantID string, version int64) (string, time.Time, error) {
 	if s.refresh == nil {
 		return "", time.Time{}, common.ErrInvalidCredentials
 	}
@@ -101,7 +110,7 @@ func (s *AuthService) issueRefreshToken(ctx context.Context, userID, tenantID st
 		ID:        jti,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(exp),
-	}, Type: "refresh", TenantID: tenantID}
+	}, Type: "refresh", TenantID: tenantID, AuthVersion: version}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := t.SignedString([]byte(s.cfg.JWTSecret))
 	if err != nil {
@@ -133,18 +142,13 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenStr string) (userI
 	if claims.Subject == "" || claims.TenantID == "" {
 		return "", "", common.ErrInvalidCredentials
 	}
-	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+	if err := s.ensureTokenVersion(ctx, claims.Subject, claims.AuthVersion); err != nil {
 		return "", "", err
 	}
 	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
 		return "", "", err
 	}
 	return claims.Subject, claims.TenantID, nil
-}
-
-func (s *AuthService) Refresh(ctx context.Context, tokenStr string) (TokenResponse, error) {
-	resp, _, _, err := s.RefreshWithSubject(ctx, tokenStr)
-	return resp, err
 }
 
 func (s *AuthService) RefreshWithSubject(ctx context.Context, tokenStr string) (TokenResponse, string, string, error) {
@@ -162,17 +166,17 @@ func (s *AuthService) RefreshWithSubject(ctx context.Context, tokenStr string) (
 	if !ok {
 		return TokenResponse{}, "", "", common.ErrInvalidCredentials
 	}
-	if err := s.ensureUserActive(ctx, claims.Subject); err != nil {
+	if err := s.ensureTokenVersion(ctx, claims.Subject, claims.AuthVersion); err != nil {
 		return TokenResponse{}, "", "", err
 	}
 	if err := s.ensureUserTenantAccess(ctx, claims.Subject, claims.TenantID); err != nil {
 		return TokenResponse{}, "", "", err
 	}
-	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID)
+	accessTok, accessExp, err := s.issueAccessToken(claims.Subject, claims.TenantID, claims.AuthVersion)
 	if err != nil {
 		return TokenResponse{}, "", "", err
 	}
-	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, claims.Subject, claims.TenantID)
+	refreshTok, refreshExp, err := s.issueRefreshToken(ctx, claims.Subject, claims.TenantID, claims.AuthVersion)
 	if err != nil {
 		return TokenResponse{}, "", "", err
 	}
@@ -239,12 +243,7 @@ func (s *AuthService) GetUserPermissions(ctx context.Context, userID string, ten
 	return out, nil
 }
 
-func (s *AuthService) InvalidateUserPermissions(userID string) {
-	// Permissions are read from the tenant-scoped repository on every request.
-	// Kept for compatibility with callers that may explicitly invalidate.
-}
-
-func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserInfo, error) {
+func (s *AuthService) GetUserInfo(ctx context.Context, userID string, tenantID string) (AuthUserInfo, error) {
 	u, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return AuthUserInfo{}, common.ErrNotFound
@@ -252,21 +251,33 @@ func (s *AuthService) GetUserInfo(ctx context.Context, userID string) (AuthUserI
 	if !u.Active {
 		return AuthUserInfo{}, common.ErrInactiveUser
 	}
-	tenantID, err := s.users.GetDefaultTenantID(ctx, u.ID)
+	if err := s.ensureUserTenantAccess(ctx, userID, tenantID); err != nil {
+		return AuthUserInfo{}, err
+	}
+	roles, err := s.users.ListUserRoles(ctx, userID, tenantID)
 	if err != nil {
 		return AuthUserInfo{}, err
 	}
-	roles, _ := s.users.ListUserRoles(ctx, userID, tenantID)
-	return AuthUserInfo{ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID, Roles: roles}, nil
+	permissions, err := s.users.ListUserPermissions(ctx, userID, tenantID)
+	if err != nil {
+		return AuthUserInfo{}, err
+	}
+	return AuthUserInfo{
+		ID: u.ID, Email: u.Email, Name: u.Name, TenantID: tenantID,
+		Roles: roles, Permissions: permissions,
+	}, nil
 }
 
-func (s *AuthService) ensureUserActive(ctx context.Context, userID string) error {
+func (s *AuthService) ensureTokenVersion(ctx context.Context, userID string, version int64) error {
 	u, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return common.ErrInvalidCredentials
 	}
 	if !u.Active {
 		return common.ErrInactiveUser
+	}
+	if u.AuthVersion != version {
+		return common.ErrInvalidCredentials
 	}
 	return nil
 }
@@ -280,8 +291,4 @@ func (s *AuthService) ensureUserTenantAccess(ctx context.Context, userID string,
 		return common.ErrForbidden
 	}
 	return nil
-}
-
-func slowEqual(a, b string) {
-	_ = subtle.ConstantTimeCompare([]byte(a), []byte(b))
 }

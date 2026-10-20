@@ -124,7 +124,7 @@ type Bus struct {
 	handlers map[string][]Handler
 	logger   *slog.Logger
 	// handlerTimeout limits how long a handler may run.
-	// Default: 10s. Override with WithHandlerTimeout.
+	// Default: 10s. An explicit BusOption can change this during construction.
 	handlerTimeout time.Duration
 }
 
@@ -143,11 +143,6 @@ func NewBus(logger *slog.Logger, opts ...BusOption) *Bus {
 
 // BusOption configures the Bus.
 type BusOption func(*Bus)
-
-// WithHandlerTimeout overrides the per-handler deadline.
-func WithHandlerTimeout(d time.Duration) BusOption {
-	return func(b *Bus) { b.handlerTimeout = d }
-}
 
 // Subscribe registers handler h for every event whose name equals eventName.
 // Call Subscribe during application startup (not concurrently with Publish).

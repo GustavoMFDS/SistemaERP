@@ -58,3 +58,73 @@ func TestQuantityRejectsInvalidInputs(t *testing.T) {
 		}
 	}
 }
+
+func TestScaledTypesRejectDatabaseRangeOverflow(t *testing.T) {
+	if _, err := platform.ParseMoney("10000000000.00"); err == nil {
+		t.Fatal("expected numeric(12,2) money overflow to be rejected")
+	}
+	if _, err := platform.ParseMoney("-10000000000.00"); err == nil {
+		t.Fatal("expected negative numeric(12,2) money overflow to be rejected")
+	}
+	if _, err := platform.ParseQuantity("100000000000.000"); err == nil {
+		t.Fatal("expected numeric(14,3) quantity overflow to be rejected")
+	}
+}
+
+func TestCheckedMoneyArithmeticRejectsOverflow(t *testing.T) {
+	maxMoney, err := platform.ParseMoney("9999999999.99")
+	if err != nil {
+		t.Fatalf("parse max money: %v", err)
+	}
+	cent, err := platform.ParseMoney("0.01")
+	if err != nil {
+		t.Fatalf("parse cent: %v", err)
+	}
+	if _, err := maxMoney.AddChecked(cent); err == nil {
+		t.Fatal("expected checked addition beyond numeric(12,2) to fail")
+	}
+
+	largeQty, err := platform.ParseQuantity("99999999999.999")
+	if err != nil {
+		t.Fatalf("parse max quantity: %v", err)
+	}
+	if _, err := maxMoney.MulQtyChecked(largeQty); err == nil {
+		t.Fatal("expected checked money*quantity overflow to fail")
+	}
+}
+
+func TestMulDivRoundUsesSafeIntermediate(t *testing.T) {
+	got, err := platform.MulDivRound(9_000_000_000_000_000_000, 2, 3)
+	if err != nil {
+		t.Fatalf("MulDivRound: %v", err)
+	}
+	if got != 6_000_000_000_000_000_000 {
+		t.Fatalf("unexpected rounded value: %d", got)
+	}
+
+	negative, err := platform.MulDivRound(-5, 1, 2)
+	if err != nil {
+		t.Fatalf("MulDivRound negative: %v", err)
+	}
+	if negative != -3 {
+		t.Fatalf("expected halves away from zero, got %d", negative)
+	}
+}
+
+func TestCheckedQuantityArithmeticRejectsOverflow(t *testing.T) {
+	maxQty, err := platform.ParseQuantity("99999999999.999")
+	if err != nil {
+		t.Fatalf("parse max quantity: %v", err)
+	}
+	if _, err := maxQty.AddChecked(platform.NewQuantityMilli(1)); err == nil {
+		t.Fatal("expected checked quantity addition beyond numeric(14,3) to fail")
+	}
+
+	minQty, err := platform.ParseQuantity("-99999999999.999")
+	if err != nil {
+		t.Fatalf("parse min quantity: %v", err)
+	}
+	if _, err := minQty.SubChecked(platform.NewQuantityMilli(1)); err == nil {
+		t.Fatal("expected checked quantity subtraction beyond numeric(14,3) to fail")
+	}
+}

@@ -5,7 +5,255 @@ on:
   push:
     branches: [main, master]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  local-windows-service-tests:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - name: Verify native SCM stop/shutdown cancellation
+        working-directory: backend
+        run: go test -v -count=1 -timeout=2m ./cmd/api
+
+  local-built-spa-origin-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Start disposable PostgreSQL, Redis and migrations
+        run: docker compose up -d db redis migrate
+      - name: Build final Vite assets for same-origin Go serving
+        env:
+          VITE_API_BASE_URL: ''
+        run: |
+          npm install --global npm@11.6.1
+          npm ci --prefix web
+          npm run build --prefix web
+      - name: Install Chromium for compiled-SPA UI verification
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Launch compiled Go server and verify real static/UI/API traffic
+        run: bash scripts/ci-local-production-bundle-smoke.sh
+
+  local-windows-config-preflight:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - name: Validate production configuration without opening external services
+        shell: pwsh
+        run: ./scripts/test-local-config-preflight-ci.ps1
+
+  local-windows-secret-provision:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test protected credential generation and service ACLs
+        shell: pwsh
+        run: ./scripts/test-provision-esterium-app-secrets.ps1
+
+  local-windows-real-scm-smoke:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Register, inspect and remove test-only Windows SCM service
+        shell: pwsh
+        env:
+          ESTERIUM_SCM_DISPOSABLE_CI: "1"
+        run: ./scripts/test-register-esterium-real-scm-ci.ps1
+
+  local-windows-installer-plan:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate non-destructive service installer plan
+        shell: pwsh
+        run: ./scripts/test-register-esterium-windows-service.ps1
+      - name: Check synthetic CMS tamper and strict rejection of untrusted signing
+        shell: pwsh
+        timeout-minutes: 15
+        run: ./scripts/test-esterium-signed-release-positive-ci.ps1
+
+  local-backup-integrity-gate:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify freshness and integrity of synthetic local and external backups
+        shell: pwsh
+        run: ./scripts/test-esterium-backup-integrity.ps1
+      - name: Verify loopback-only installed dependency inventory using Windows synthetic data
+        shell: pwsh
+        run: ./scripts/test-esterium-local-dependencies.ps1
+      - name: Verify independently approved offline database and cache installer packages (synthetic)
+        shell: pwsh
+        run: ./scripts/test-esterium-offline-dependency-packages.ps1
+      - name: Create synthetic protected Windows Garnet ACL/TLS/Lua configuration
+        shell: pwsh
+        run: ./scripts/test-esterium-garnet-config.ps1
+      - name: Create synthetic protected PostgreSQL offline unattended installer options
+        shell: pwsh
+        run: ./scripts/test-esterium-postgres-optionfile.ps1
+      - name: Prepare combined PostgreSQL and Garnet new-install configuration in disposable Windows CI
+        shell: pwsh
+        run: ./scripts/test-esterium-local-dependency-configs.ps1
+      - name: Validate static local-only TLS/SCRAM PostgreSQL config using fake Windows files
+        shell: pwsh
+        run: ./scripts/test-esterium-postgres-tls-policy.ps1
+      - name: Validate immutable migration chain and verified backup before Windows upgrade
+        shell: pwsh
+        run: ./scripts/test-esterium-upgrade-plan.ps1
+      - name: Validate protected daily backup scheduling without touching production
+        shell: pwsh
+        run: ./scripts/test-esterium-backup-task.ps1
+
+  local-external-backup-tests:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify external backup copies, checksum and overwrite protection
+        shell: pwsh
+        run: |
+          ./scripts/test-verified-external-backup.ps1
+
+  local-windows-migrator-cli-smoke:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - name: Execute the pinned Windows PostgreSQL migrator without a database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $originalGOBIN = $env:GOBIN
+          $out = Join-Path $env:RUNNER_TEMP ('esterium-migrator-cli-' + [Guid]::NewGuid().ToString('N'))
+          try {
+            [IO.Directory]::CreateDirectory($out) | Out-Null
+            $env:GOBIN = $out
+            go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+            if ($LASTEXITCODE -ne 0) { throw 'Go failed to build the Windows migrator.' }
+            $binary = Join-Path $out 'migrate.exe'
+            if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Windows migration tool missing.' }
+            $helpText = (& $binary -help 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0 -or $helpText -notmatch '-database' -or $helpText -notmatch 'Commands') {
+              throw 'Pinned Windows migrator did not execute or expose expected CLI commands.'
+            }
+            Write-Output 'PASS: pinned Windows migrator executes without any database connection.'
+          } finally {
+            $env:GOBIN = $originalGOBIN
+            if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
+          }
+
+  local-windows-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm install --global npm@11.6.1
+      - name: Build frontend for same-origin distribution
+        env:
+          VITE_API_BASE_URL: ''
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
+      - name: Cross-compile and assemble Windows x64 test bundle
+        run: |
+          set -euo pipefail
+          mkdir -p dist/esterium-local-win-x64
+          (
+            cd backend
+            GOOS=windows GOARCH=amd64 go build -trimpath \
+              -o ../dist/esterium-local-win-x64/esterium-server.exe ./cmd/api
+          )
+          cp -R web/dist dist/esterium-local-win-x64/web
+          test -s dist/esterium-local-win-x64/esterium-server.exe
+          test -s dist/esterium-local-win-x64/web/index.html
+      - name: Build pinned PostgreSQL migration tool (Windows x64)
+        run: |
+          set -euo pipefail
+          build_dir="$(mktemp -d)"
+          # Go module cache source files are intentionally read-only; do not
+          # create/tear down that cache inside the temporary cross-build path.
+          shared_module_cache="$(go env GOMODCACHE)"
+          trap 'chmod -R u+w "$build_dir" 2>/dev/null || true; rm -rf "$build_dir"' EXIT
+          # Go refuses cross-compilation with GOBIN; use an isolated GOPATH and
+          # the official bin/windows_amd64 output layout instead.
+          (cd backend && GOOS=windows GOARCH=amd64 GOPATH="$build_dir" GOMODCACHE="$shared_module_cache" GOBIN= go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1)
+          test -s "$build_dir/bin/windows_amd64/migrate.exe"
+          mkdir -p dist/esterium-local-win-x64/tools
+          cp "$build_dir/bin/windows_amd64/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
+      - name: Add curated Windows setup and backup tools
+        run: |
+          set -euo pipefail
+          mkdir -p dist/esterium-local-win-x64/tools
+          cp scripts/register-esterium-windows-service.ps1 \
+            scripts/provision-esterium-app-secrets.ps1 \
+            scripts/verify-esterium-bundle.ps1 \
+            scripts/postgres-daily-backup.ps1 \
+            scripts/copy-verified-external-backup.ps1 \
+            scripts/check-esterium-backup-integrity.ps1 \
+            scripts/run-esterium-scheduled-backup.ps1 \
+            scripts/register-esterium-backup-task.ps1 \
+            scripts/check-esterium-windows-host.ps1 \
+            scripts/unregister-esterium-windows-service.ps1 \
+            scripts/check-esterium-local-dependencies.ps1 \
+            scripts/plan-esterium-windows-upgrade.ps1 \
+            scripts/plan-esterium-local-setup.ps1 \
+            scripts/install-esterium-local.ps1 \
+            scripts/apply-esterium-app-update.ps1 \
+            scripts/check-esterium-signed-release.ps1 \
+            scripts/check-esterium-offline-dependency-packages.ps1 \
+            scripts/provision-esterium-garnet-config.ps1 \
+            scripts/provision-esterium-postgres-optionfile.ps1 \
+            scripts/prepare-esterium-local-dependency-configs.ps1 \
+            scripts/check-esterium-postgres-tls-policy.ps1 \
+            dist/esterium-local-win-x64/tools/
+          cp docs/esterium-local-service-registration.md \
+            dist/esterium-local-win-x64/README_LOCAL.md
+          cp -R backend/migrations dist/esterium-local-win-x64/migrations
+          test "$(find dist/esterium-local-win-x64/migrations -name '*.up.sql' | wc -l)" -ge 51
+      - name: Generate and verify bundle SHA-256 manifest
+        shell: pwsh
+        run: |
+          ./scripts/write-esterium-bundle-manifest.ps1 -BundleDir 'dist/esterium-local-win-x64'
+          ./scripts/verify-esterium-bundle.ps1 -BundleDir 'dist/esterium-local-win-x64'
+      - name: Attach unsigned technical Windows bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: esterium-local-l0-win-x64
+          path: dist/esterium-local-win-x64/
+          if-no-files-found: error
+          retention-days: 7
+
   backend:
     runs-on: ubuntu-latest
     defaults:
@@ -15,12 +263,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.9'
           cache-dependency-path: backend/go.sum
       - name: Verify Go module files
         run: |
           go mod tidy
-          git diff --quiet -- go.mod go.sum
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo "go mod tidy changed module files:"
+            git --no-pager diff -- go.mod go.sum
+            exit 1
+          fi
       - name: gofmt check
         run: |
           files="$(gofmt -l .)"
@@ -29,6 +281,38 @@ jobs:
             gofmt -d .
             exit 1
           fi
+      - name: Validate operations scripts
+        run: |
+          bash -n ../scripts/pilot-readiness.sh
+          grep -q 'require_env PILOT_TENANT_ID' ../scripts/pilot-readiness.sh
+          grep -q "p.code='sale:write'" ../scripts/pilot-readiness.sh
+          grep -q "p.code IN ('finance:read','audit:read')" ../scripts/pilot-readiness.sh
+          grep -q 'rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls' ../scripts/pilot-readiness.sh
+          grep -q "has_schema_privilege(current_user, 'public', 'CREATE')" ../scripts/pilot-readiness.sh
+
+          bash -n ../scripts/postgres-backup-drill.sh
+          grep -q 'require_env SOURCE_DATABASE_URL' ../scripts/postgres-backup-drill.sh
+          grep -q 'require_env RESTORE_DATABASE_URL' ../scripts/postgres-backup-drill.sh
+          grep -q 'ALLOW_RESTORE_RESET' ../scripts/postgres-backup-drill.sh
+          grep -q 'source and restore connections resolve to the same database' ../scripts/postgres-backup-drill.sh
+
+          bash -n ../scripts/dependency-failure-drill.sh
+          grep -q 'ALLOW_DEPENDENCY_FAILURE_DRILL' ../scripts/dependency-failure-drill.sh
+          grep -q 'ALLOW_REMOTE_DOCKER_CONTEXT' ../scripts/dependency-failure-drill.sh
+
+      - name: Validate observability configuration
+        run: |
+          docker compose -f ../docker-compose.observability.yml config >/dev/null
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            -v "$GITHUB_WORKSPACE/ops/monitoring:/etc/prometheus:ro" \
+            prom/prometheus:v3.5.0 \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            -v "$GITHUB_WORKSPACE/ops/monitoring:/etc/prometheus:ro" \
+            prom/prometheus:v3.5.0 \
+            check rules /etc/prometheus/alerts.yml
       - run: go test ./...
       - run: go vet ./...
 
@@ -55,15 +339,24 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.9'
           cache-dependency-path: backend/go.sum
       - name: Start dependencies and run clean migrations
         run: docker compose up -d db redis migrate
+      - name: Verify production Redis security primitives
+        working-directory: backend
+        env:
+          TEST_REDIS_ADDR: localhost:6379
+        run: go test -v -count=1 -run '^TestRedisSecurityProbe' ./internal/app
       - name: Verify migration container
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
-      - name: Verify v12 to v16 migration upgrade and rollback
+      - name: Prove complete PostgreSQL restore in a second disposable CI database
+        run: bash scripts/ci-postgres-disposable-restore.sh
+      - name: Prove archive restores on a separate isolated PostgreSQL server
+        run: bash scripts/ci-postgres-cross-instance-restore.sh
+      - name: Verify v12 to v32 migration upgrade and rollback
         run: |
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_upgrade WITH (FORCE);" \
@@ -100,34 +393,44 @@ jobs:
           # Prove that a legacy duplicate-open state is rejected instead of
           # being silently mutated by migration 0013.
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO cash_registers(tenant_id, name, active)
-          SELECT c.id, 'Caixa Upgrade CI', true
-          FROM companies c
-          ORDER BY c.created_at
-          LIMIT 1
-          ON CONFLICT (tenant_id, name) DO NOTHING;
+          DO $do$
+          DECLARE
+            v_tenant uuid;
+            v_user uuid;
+            v_register uuid;
+          BEGIN
+            SELECT ut.tenant_id, ut.user_id
+              INTO v_tenant, v_user
+            FROM user_tenants ut
+            ORDER BY ut.created_at, ut.user_id
+            LIMIT 1;
 
-          INSERT INTO cash_sessions(
-            tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
-          )
-          SELECT cr.tenant_id, cr.id, u.id, 0, 'open'
-          FROM cash_registers cr
-          JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
-          JOIN users u ON u.id=ut.user_id
-          WHERE cr.name='Caixa Upgrade CI'
-          ORDER BY cr.created_at, u.created_at
-          LIMIT 1;
+            IF v_tenant IS NULL OR v_user IS NULL THEN
+              RAISE EXCEPTION 'seed must provide a tenant/user relation for migration 0013 test';
+            END IF;
 
-          INSERT INTO cash_sessions(
-            tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
-          )
-          SELECT cr.tenant_id, cr.id, u.id, 0, 'open'
-          FROM cash_registers cr
-          JOIN user_tenants ut ON ut.tenant_id=cr.tenant_id
-          JOIN users u ON u.id=ut.user_id
-          WHERE cr.name='Caixa Upgrade CI'
-          ORDER BY cr.created_at, u.created_at
-          LIMIT 1;
+            INSERT INTO cash_registers(tenant_id, name, active)
+            VALUES (v_tenant, 'Caixa Upgrade CI ' || gen_random_uuid()::text, true)
+            RETURNING id INTO v_register;
+
+            INSERT INTO cash_sessions(
+              tenant_id, cash_register_id, opened_by_user_id, opening_amount, status
+            )
+            VALUES
+              (v_tenant, v_register, v_user, 0, 'open'),
+              (v_tenant, v_register, v_user, 0, 'open');
+
+            IF (
+              SELECT count(*)
+              FROM cash_sessions
+              WHERE tenant_id=v_tenant
+                AND cash_register_id=v_register
+                AND status='open'
+            ) <> 2 THEN
+              RAISE EXCEPTION 'failed to create deterministic duplicate-open fixture for migration 0013';
+            END IF;
+          END
+          $do$;
           SQL
 
           if docker run --rm --network host \
@@ -233,12 +536,1243 @@ jobs:
             -path=/migrations \
             -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
             up 1
+
+          # Upgrade 0016 -> 0017, verify tenant-scoped barcode uniqueness,
+          # then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='products_tenant_barcode_unique';"
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          WITH new_tenant AS (
+            INSERT INTO companies(legal_name, trade_name, cnpj)
+            VALUES ('Barcode CI Tenant', 'Barcode CI Tenant', '99999999999990')
+            RETURNING id
+          )
+          INSERT INTO products(tenant_id, sku, barcode, name, unit, price_cash)
+          SELECT id, 'CI-CROSS-TENANT-BARCODE', '7890000000000', 'Cross tenant barcode product', 'UN', 1
+          FROM new_tenant;
+          SQL
+
+          if docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO products(tenant_id, sku, barcode, name, unit, price_cash) SELECT tenant_id, 'CI-DUPLICATE-BARCODE', barcode, 'Duplicate barcode product', 'UN', 1 FROM products WHERE barcode='7890000000000' ORDER BY created_at LIMIT 1;"; then
+            echo "migration 0017 unexpectedly accepted a duplicate barcode inside one tenant"
+            exit 1
+          fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DELETE FROM products WHERE sku='CI-CROSS-TENANT-BARCODE';" \
+            -c "DELETE FROM companies WHERE cnpj='99999999999990';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.products_tenant_barcode_unique') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0017 left tenant barcode index behind';
+            END IF;
+            IF to_regclass('public.products_barcode_unique') IS NULL THEN
+              RAISE EXCEPTION 'rollback 0017 did not restore global barcode uniqueness';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0017 -> 0018, verify procurement schema and immutable
+          # idempotency records, then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('suppliers','purchases','purchase_items','purchase_receipts','purchase_receipt_items','procurement_idempotency_keys') ORDER BY table_name;" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='accounts_payable' AND column_name IN ('supplier_id','purchase_id') ORDER BY column_name;" \
+            -c "SELECT code FROM permissions WHERE code IN ('procurement:read','procurement:write','procurement:receive') ORDER BY code;" \
+            -c "SELECT r.name, p.code FROM roles r JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id WHERE r.name IN ('admin','manager') AND p.code IN ('procurement:read','procurement:write','procurement:receive') ORDER BY r.name,p.code;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('purchases_supplier_tenant_fk','purchase_items_purchase_tenant_fk','purchase_items_product_tenant_fk','purchase_receipts_purchase_tenant_fk','purchase_receipt_items_receipt_tenant_fk','purchase_receipt_items_purchase_item_tenant_fk','purchase_receipt_items_product_tenant_fk','accounts_payable_supplier_tenant_fk','accounts_payable_purchase_tenant_fk') ORDER BY conname;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='procurement_idempotency_created_at_idx';" \
+            -c "SELECT tgname FROM pg_trigger WHERE tgrelid='procurement_idempotency_keys'::regclass AND tgname='procurement_idempotency_keys_immutable';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          PROCUREMENT_PERMISSION_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM permissions WHERE code IN ('procurement:read','procurement:write','procurement:receive');" | tr -d '[:space:]')"
+          if [ "$PROCUREMENT_PERMISSION_COUNT" != "0" ]; then
+            echo "rollback 0018 left procurement permissions behind"
+            exit 1
+          fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.suppliers') IS NOT NULL
+               OR to_regclass('public.purchases') IS NOT NULL
+               OR to_regclass('public.procurement_idempotency_keys') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0018 left procurement tables behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_name='accounts_payable'
+                AND column_name IN ('supplier_id','purchase_id')
+            ) THEN
+              RAISE EXCEPTION 'rollback 0018 left procurement payable columns behind';
+            END IF;
+            IF to_regclass('public.products_tenant_id_id_unique') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0018 left products composite support index behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0018 -> 0019, verify returns schema, dedicated permission,
+          # immutable idempotency and rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('sale_returns','sale_return_items','return_idempotency_keys') ORDER BY table_name;" \
+            -c "SELECT code FROM permissions WHERE code='sale:return';" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('sale_returns_sale_tenant_fk','sale_return_items_return_tenant_fk','sale_return_items_sale_item_tenant_fk','sale_return_items_product_tenant_fk','return_idempotency_return_tenant_fk') ORDER BY conname;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='return_idempotency_created_at_idx';" \
+            -c "SELECT tgname FROM pg_trigger WHERE tgrelid='return_idempotency_keys'::regclass AND tgname='return_idempotency_keys_immutable';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM permissions WHERE code='sale:return') THEN
+              RAISE EXCEPTION 'rollback 0019 left sale:return permission behind';
+            END IF;
+            IF to_regclass('public.sale_returns') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0019 left sale_returns behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0019 -> 0020, verify payment reconciliation/refund schema
+          # and the dedicated finance permission, then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('payment_reconciliations','return_refunds','finance_idempotency_keys') ORDER BY table_name;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='payment_reconciliations_tenant_payment_unique';" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='finance_idempotency_keys' AND column_name='result_amount';" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='payments' AND column_name IN ('provider','transaction_ref','authorization_code','installments','reconciliation_status','reconciled_amount','reconciled_fee','reconciled_at') ORDER BY column_name;" \
+            -c "SELECT code FROM permissions WHERE code='finance:reconcile';" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('payment_reconciliation_payment_tenant_fk','return_refunds_return_tenant_fk','return_refunds_sale_tenant_fk','return_refunds_cash_session_tenant_fk') ORDER BY conname;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='finance_idempotency_created_at_idx';" \
+            -c "SELECT tgname FROM pg_trigger WHERE tgrelid='finance_idempotency_keys'::regclass AND tgname='finance_idempotency_keys_immutable';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM permissions WHERE code='finance:reconcile') THEN
+              RAISE EXCEPTION 'rollback 0020 left finance:reconcile permission behind';
+            END IF;
+            IF to_regclass('public.payment_reconciliations') IS NOT NULL
+               OR to_regclass('public.return_refunds') IS NOT NULL
+               OR to_regclass('public.finance_idempotency_keys') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0020 left finance reconciliation tables behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_name='payments'
+                AND column_name IN (
+                  'provider','transaction_ref','authorization_code','installments',
+                  'reconciliation_status','reconciled_amount','reconciled_fee',
+                  'reconciled_at','reconciled_by_user_id','reconciliation_notes'
+                )
+            ) THEN
+              RAISE EXCEPTION 'rollback 0020 left payment reconciliation columns behind';
+            END IF;
+            IF to_regclass('public.payments_tenant_id_id_unique') IS NOT NULL
+               OR to_regclass('public.cash_sessions_tenant_id_id_unique') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0020 left composite support indexes behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0020 -> 0021, verify discount permission, then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT code FROM permissions WHERE code='sale:discount';" \
+            -c "SELECT r.name FROM roles r JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id WHERE p.code='sale:discount' AND r.name IN ('admin','manager') ORDER BY r.name;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          DISCOUNT_PERMISSION_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM permissions WHERE code='sale:discount';" | tr -d '[:space:]')"
+          if [ "$DISCOUNT_PERMISSION_COUNT" != "0" ]; then
+            echo "rollback 0021 left sale:discount permission behind"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0021 -> 0022, verify reconciliation-adjustment history,
+          # then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='payment_reconciliation_adjustments';" \
+            -c "SELECT conname FROM pg_constraint WHERE conname='payment_reconciliation_adjustment_payment_tenant_fk';" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname='payment_reconciliation_adjustments_tenant_payment_created_idx';" \
+            -c "SELECT tgname FROM pg_trigger WHERE tgname IN ('payment_reconciliations_immutable','payment_reconciliation_adjustments_immutable') AND NOT tgisinternal ORDER BY tgname;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          ADJUSTMENT_TABLE="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT to_regclass('public.payment_reconciliation_adjustments') IS NOT NULL;" | tr -d '[:space:]')"
+          if [ "$ADJUSTMENT_TABLE" != "f" ]; then
+            echo "rollback 0022 left payment_reconciliation_adjustments behind"
+            exit 1
+          fi
+          HISTORY_TRIGGER_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname IN ('payment_reconciliations_immutable','payment_reconciliation_adjustments_immutable') AND NOT tgisinternal;" | tr -d '[:space:]')"
+          if [ "$HISTORY_TRIGGER_COUNT" != "0" ]; then
+            echo "rollback 0022 left reconciliation history triggers behind"
+            exit 1
+          fi
+          HISTORY_FUNCTION="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT to_regprocedure('prevent_payment_reconciliation_history_mutation()') IS NOT NULL;" | tr -d '[:space:]')"
+          if [ "$HISTORY_FUNCTION" != "f" ]; then
+            echo "rollback 0022 left reconciliation history function behind"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+          # Upgrade 0022 -> 0023, verify the tenant-scoped NFC-e model 65
+          # foundation, then rollback/reapply.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('nfce_configs','fiscal_document_sequences') ORDER BY table_name;" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name IN ('ncm','cest') ORDER BY column_name;" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='companies' AND column_name='address_city_code';" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('model','series','document_number','environment','access_key','emission_type','numeric_code','access_key_check_digit','issued_at','authorization_protocol','authorized_at','rejection_code','rejection_message','updated_at') ORDER BY column_name;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('invoices_tenant_id_id_unique','invoices_tenant_model_series_number_unique','invoices_access_key_unique') ORDER BY indexname;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('nfce_configs_updated_by_tenant_fk','invoices_tenant_sale_fk','invoices_company_matches_tenant_check','invoice_xml_files_tenant_invoice_fk','invoices_access_key_metadata_check','invoices_status_check','invoices_response_fields_check','invoices_real_document_fields_check') ORDER BY conname;"
+
+          ACCESS_KEY_CONSTRAINT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='invoices_access_key_check';" | tr -d '\r')"
+          if ! printf '%s\n' "$ACCESS_KEY_CONSTRAINT" | grep -Fq '[A-Z0-9]{12}'; then
+            echo "migration 0023 access-key constraint is not compatible with alphanumeric CNPJ"
+            printf '%s\n' "$ACCESS_KEY_CONSTRAINT"
+            exit 1
+          fi
+          SEQUENCE_CONSTRAINT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='fiscal_document_sequences_number_check';" | tr -d '\r')"
+          if ! printf '%s\n' "$SEQUENCE_CONSTRAINT" | grep -Fq '1000000000'; then
+            echo "migration 0023 sequence constraint does not preserve the exhaustion sentinel"
+            printf '%s\n' "$SEQUENCE_CONSTRAINT"
+            exit 1
+          fi
+
+          if docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO nfce_configs(tenant_id, enabled, environment, series) SELECT id, true, 'homologation', 1 FROM companies ORDER BY created_at LIMIT 1;"; then
+            echo "migration 0023 unexpectedly allowed enabled NFC-e without a certificate reference"
+            exit 1
+          fi
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO nfce_configs(tenant_id, enabled, environment, series, certificate_secret_ref) SELECT id, true, 'homologation', 1, 'ci://certificate-ref' FROM companies ORDER BY created_at LIMIT 1;"
+
+          NFCe_CSC_COUNT="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM nfce_configs WHERE enabled=true AND csc_id IS NULL AND csc_secret_ref IS NULL AND NULLIF(btrim(certificate_secret_ref),'') IS NOT NULL;" | tr -d '[:space:]')"
+          if [ "$NFCe_CSC_COUNT" != "1" ]; then
+            echo "migration 0023 did not accept certificate-only NFC-e configuration for QR Code v3"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.nfce_configs') IS NOT NULL
+               OR to_regclass('public.fiscal_document_sequences') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0023 left NFC-e foundation tables behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname IN (
+                'invoices_tenant_sale_fk',
+                'invoices_company_matches_tenant_check',
+                'invoice_xml_files_tenant_invoice_fk',
+                'invoices_access_key_metadata_check',
+                'invoices_response_fields_check',
+                'invoices_real_document_fields_check'
+              )
+            ) OR EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE indexname='invoices_tenant_id_id_unique'
+            ) THEN
+              RAISE EXCEPTION 'rollback 0023 left tenant-safe fiscal constraints behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name='products' AND column_name IN ('ncm','cest')
+            ) THEN
+              RAISE EXCEPTION 'rollback 0023 left product fiscal columns behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name='companies' AND column_name='address_city_code'
+            ) THEN
+              RAISE EXCEPTION 'rollback 0023 left issuer municipality code behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name='invoices'
+                AND column_name IN (
+                  'model','series','document_number','environment','access_key',
+                  'emission_type','numeric_code','access_key_check_digit','issued_at',
+                  'authorization_protocol','authorized_at','rejection_code','rejection_message','updated_at'
+                )
+            ) THEN
+              RAISE EXCEPTION 'rollback 0023 left invoice authorization metadata behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0023 -> 0024 and verify fiscal classification snapshots.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('product_fiscal_profiles','sale_item_fiscal_snapshots') ORDER BY table_name;" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('products_tenant_id_id_unique','sale_items_tenant_id_id_unique','sale_item_fiscal_snapshots_tenant_sale_idx') ORDER BY indexname;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('product_fiscal_profiles_ibs_cbs_check','product_fiscal_profiles_icms_code_check','sale_item_fiscal_snapshots_ibs_cbs_check','sale_item_fiscal_snapshots_sha256_check') ORDER BY conname;"
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          WITH tenant AS (
+            SELECT id FROM companies ORDER BY created_at LIMIT 1
+          )
+          INSERT INTO products(
+            tenant_id, sku, name, unit, cost_price, price_cash, min_stock, active, ncm
+          )
+          SELECT id, 'CI-NFCE-TAX-PROFILE', 'CI NFC-e tax profile', 'UN', 1, 2, 0, true, '00000000'
+          FROM tenant
+          ON CONFLICT (tenant_id, sku) DO NOTHING;
+
+          INSERT INTO product_fiscal_profiles(
+            tenant_id, product_id, cfop, icms_origin, icms_regime, icms_code,
+            pis_cst, cofins_cst, ibs_cbs_cst, ibs_cbs_classification, reference_version
+          )
+          SELECT tenant_id, id, '5102', '0', 'csosn', '102',
+                 '49', '49', '000', '000001', 'ci-reference'
+          FROM products
+          WHERE sku='CI-NFCE-TAX-PROFILE'
+          ON CONFLICT (tenant_id, product_id) DO UPDATE
+          SET ibs_cbs_cst=EXCLUDED.ibs_cbs_cst,
+              ibs_cbs_classification=EXCLUDED.ibs_cbs_classification,
+              updated_at=now();
+          SQL
+
+          if docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          UPDATE product_fiscal_profiles
+          SET ibs_cbs_cst='000', ibs_cbs_classification='200001'
+          WHERE product_id=(SELECT id FROM products WHERE sku='CI-NFCE-TAX-PROFILE' LIMIT 1);
+          SQL
+          then
+            echo "migration 0024 unexpectedly allowed cClassTrib incompatible with CST-IBS/CBS"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.product_fiscal_profiles') IS NOT NULL
+               OR to_regclass('public.sale_item_fiscal_snapshots') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0024 left fiscal profile/snapshot tables behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0024 -> 0025 and verify immutable per-invoice tax calculations.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='invoice_item_tax_calculations';" \
+            -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('invoices_tenant_id_id_sale_id_unique','sale_item_fiscal_snapshots_tenant_item_sale_unique','invoice_item_tax_calculations_tenant_sale_idx') ORDER BY indexname;" \
+            -c "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgname='invoice_item_tax_calculations_immutable';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.invoice_item_tax_calculations') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0025 left invoice_item_tax_calculations behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_trigger
+              WHERE tgname='invoice_item_tax_calculations_immutable'
+                AND NOT tgisinternal
+            ) THEN
+              RAISE EXCEPTION 'rollback 0025 left immutability trigger behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+          # Upgrade 0025 -> 0026 and verify immutable product identity snapshots.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='sale_item_fiscal_snapshots' AND column_name IN ('product_code','product_description','unit') ORDER BY column_name;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('sale_item_fiscal_snapshots_product_code_check','sale_item_fiscal_snapshots_product_description_check','sale_item_fiscal_snapshots_unit_check') ORDER BY conname;" \
+            -c "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgname='sale_item_fiscal_snapshots_immutable';"
+
+          SNAPSHOT_TRIGGER_OK="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='sale_item_fiscal_snapshots_immutable' AND NOT tgisinternal AND (tgtype::int & 2) <> 0 AND (tgtype::int & 8) <> 0 AND (tgtype::int & 16) <> 0;")"
+          if [ "$SNAPSHOT_TRIGGER_OK" != "1" ]; then
+            echo "migration 0026 snapshot trigger does not block both UPDATE and DELETE"
+            exit 1
+          fi
+
+          TAX_CALC_TRIGGER_OK="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='invoice_item_tax_calculations_immutable' AND NOT tgisinternal AND (tgtype::int & 2) <> 0 AND (tgtype::int & 8) <> 0 AND (tgtype::int & 16) <> 0;")"
+          if [ "$TAX_CALC_TRIGGER_OK" != "1" ]; then
+            echo "migration 0026 weakened invoice tax calculation immutability"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_name='sale_item_fiscal_snapshots'
+                AND column_name IN ('product_code','product_description','unit')
+            ) THEN
+              RAISE EXCEPTION 'rollback 0026 left product identity snapshot columns behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_trigger
+              WHERE tgname='sale_item_fiscal_snapshots_immutable'
+                AND NOT tgisinternal
+            ) THEN
+              RAISE EXCEPTION 'rollback 0026 left snapshot immutability trigger behind';
+            END IF;
+          END $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0026 -> 0027 and verify cancellation-event persistence.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='invoice_fiscal_events';" \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('cancellation_protocol','cancelled_at','cancellation_reason') ORDER BY column_name;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('invoices_cancellation_fields_check','invoice_fiscal_events_tenant_event_unique','invoice_fiscal_events_invoice_type_sequence_unique') ORDER BY conname;"
+
+          EVENT_DELETE_TRIGGER_OK="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='invoice_fiscal_events_no_delete' AND NOT tgisinternal AND (tgtype::int & 2) <> 0 AND (tgtype::int & 8) <> 0;")"
+          if [ "$EVENT_DELETE_TRIGGER_OK" != "1" ]; then
+            echo "migration 0027 does not protect fiscal events from DELETE"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.invoice_fiscal_events') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0027 left invoice_fiscal_events behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_name='invoices'
+                AND column_name IN ('cancellation_protocol','cancelled_at','cancellation_reason')
+            ) THEN
+              RAISE EXCEPTION 'rollback 0027 left cancellation metadata behind';
+            END IF;
+          END
+          $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0027 -> 0028 and verify immutable NFC-e number inutilization persistence.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='nfce_number_inutilizations';" \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('nfce_number_inutilizations_range_check','nfce_number_inutilizations_tenant_request_unique','nfce_number_inutilizations_registered_check') ORDER BY conname;"
+
+          INUT_DELETE_TRIGGER_OK="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='nfce_number_inutilizations_no_delete' AND NOT tgisinternal AND (tgtype::int & 2) <> 0 AND (tgtype::int & 8) <> 0;")"
+          if [ "$INUT_DELETE_TRIGGER_OK" != "1" ]; then
+            echo "migration 0028 does not protect NFC-e inutilization records from DELETE"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.nfce_number_inutilizations') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0028 left nfce_number_inutilizations behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_proc
+              WHERE proname='prevent_nfce_number_inutilization_delete'
+            ) THEN
+              RAISE EXCEPTION 'rollback 0028 left inutilization delete guard behind';
+            END IF;
+          END
+          $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          # Upgrade 0028 -> 0029 and verify offline-contingency metadata.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT column_name FROM information_schema.columns WHERE table_name='invoices' AND column_name IN ('contingency_started_at','contingency_reason') ORDER BY column_name;" \
+            -c "SELECT conname FROM pg_constraint WHERE conname='invoices_contingency_metadata_check';"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name='invoices'
+                AND column_name IN ('contingency_started_at','contingency_reason')
+            ) THEN
+              RAISE EXCEPTION 'rollback 0029 left contingency columns behind';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='invoices_contingency_metadata_check'
+            ) THEN
+              RAISE EXCEPTION 'rollback 0029 left contingency constraint behind';
+            END IF;
+          END
+          $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify opening-stock v30 upgrade and rollback
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT id, item_count FROM opening_stock_batches LIMIT 1;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.opening_stock_batches') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0030 left opening-stock batch table behind';
+            END IF;
+          END
+          $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify tenant setup reviews v31 upgrade and rollback
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT conname FROM pg_constraint WHERE conname='setup_step_reviews_actor_tenant_fk';" \
+            -c "SELECT step FROM setup_step_reviews LIMIT 1;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.setup_step_reviews') IS NOT NULL THEN RAISE EXCEPTION 'rollback 0031 failed'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify product import batches v32 upgrade and rollback
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "SELECT conname FROM pg_constraint WHERE conname IN ('product_import_batches_actor_tenant_fk','product_import_batches_tenant_key_unique');" \
+            -c "SELECT item_count FROM product_import_batches LIMIT 1;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.product_import_batches') IS NOT NULL THEN RAISE EXCEPTION 'rollback 0032 failed'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify staff invitations v33 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.staff_invitations') IS NULL THEN RAISE EXCEPTION 'staff invitations missing'; END IF; IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='user_tenants' AND column_name='active') THEN RAISE EXCEPTION 'membership status missing'; END IF; IF NOT EXISTS(SELECT 1 FROM permissions p JOIN role_permissions rp ON rp.permission_id=p.id JOIN roles r ON r.id=rp.role_id WHERE p.code='team:manage' AND r.name='admin') THEN RAISE EXCEPTION 'team admin permission missing'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.staff_invitations') IS NOT NULL THEN RAISE EXCEPTION 'rollback staff invitations failed'; END IF; IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='user_tenants' AND column_name='active') THEN RAISE EXCEPTION 'rollback staff active failed'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify customer directory v34 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.customers_tenant_created_id_idx') IS NULL THEN RAISE EXCEPTION 'customer directory index missing'; END IF; IF NOT EXISTS(SELECT 1 FROM permissions WHERE code='customer:write') THEN RAISE EXCEPTION 'customer RBAC permission missing'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.customers_tenant_created_id_idx') IS NOT NULL THEN RAISE EXCEPTION 'customer index rollback failed'; END IF; IF EXISTS(SELECT 1 FROM permissions WHERE code='customer:write') THEN RAISE EXCEPTION 'customer role rollback failed'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify product photos migration v36 upgrade, rollback and reapply
+        run: |
+          # The dedicated upgrade database is at v34 here.
+          # Apply account migration 0035, then the new photo migration 0036.
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 2
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF to_regclass('public.product_images') IS NULL THEN
+              RAISE EXCEPTION 'photos table missing after v36';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='product_images_product_tenant_fk'
+            ) THEN
+              RAISE EXCEPTION 'tenant-scoped composite FK missing after v36';
+            END IF;
+          END
+          $do$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF to_regclass('public.product_images') IS NOT NULL THEN RAISE EXCEPTION 'rollback v36 left product_images'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify captions migration v37 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption missing'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='product_images' AND column_name='caption') THEN RAISE EXCEPTION 'v37 caption rollback failed'; END IF; END \$\$;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify variants migration v38 upgrade, rollback and reapply
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+          VARIANT_TABLE="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT to_regclass('public.product_variations')")"
+          if [ "$VARIANT_TABLE" != "product_variations" ]; then
+            echo "migration 0038 did not create product_variations"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            down 1
+
+          VARIANT_TABLE="$(docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_upgrade -Atc "SELECT to_regclass('public.product_variations')")"
+          if [ -n "$VARIANT_TABLE" ]; then
+            echo "migration 0038 rollback left product_variations behind"
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_upgrade?sslmode=disable" \
+            up 1
+
+      - name: Verify product gallery tenant isolation at DB level
+        run: |
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo -v ON_ERROR_STOP=1 \
+            < backend/tests/integration/product_images_isolation.sql
+
+      - name: Verify return-policy v49 migration, constraints and rollback
+        run: |
+          set -euo pipefail
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_policy WITH (FORCE);" \
+            -c "CREATE DATABASE sistemaemgo_policy OWNER sistemaemgo;"
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_policy?sslmode=disable" \
+            goto 49
+
+          # Fresh migration runs before the role seed. The admin role and
+          # its complete grants are provisioned by the trusted installer.
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_policy \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_policy -v ON_ERROR_STOP=1 <<'SQL'
+          DO $check$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='products' AND column_name='return_policy')
+              OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                             WHERE table_name='sale_items' AND column_name='return_policy_snapshot')
+              OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                             WHERE table_name='sale_returns' AND column_name='return_basis') THEN
+              RAISE EXCEPTION 'migration 0049 missing policy/snapshot/basis columns';
+            END IF;
+            IF (SELECT count(*) FROM pg_constraint
+                WHERE conname IN ('products_return_policy_check','sale_items_return_policy_snapshot_check','sale_returns_basis_check')) <> 3 THEN
+              RAISE EXCEPTION 'migration 0049 missing policy constraints';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM roles r JOIN role_permissions rp ON rp.role_id=r.id
+              JOIN permissions p ON p.id=rp.permission_id
+              WHERE r.name='admin' AND p.code='sale:return:override'
+            ) THEN
+              RAISE EXCEPTION 'migration 0049 missing admin override permission';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM roles r JOIN role_permissions rp ON rp.role_id=r.id
+              JOIN permissions p ON p.id=rp.permission_id
+              WHERE r.name IN ('cashier','manager') AND p.code='sale:return:override'
+            ) THEN
+              RAISE EXCEPTION 'migration 0049 granted override to unauthorized roles';
+            END IF;
+          END $check$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_policy?sslmode=disable" \
+            down 1
+
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_policy -v ON_ERROR_STOP=1 <<'SQL'
+          DO $check$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='products' AND column_name='return_policy')
+              OR EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_name='sale_items' AND column_name='return_policy_snapshot')
+              OR EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_name='sale_returns' AND column_name='return_basis')
+              OR EXISTS (SELECT 1 FROM permissions WHERE code='sale:return:override') THEN
+              RAISE EXCEPTION 'rollback 0049 left policy data definitions behind';
+            END IF;
+          END $check$;
+          SQL
+
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_policy?sslmode=disable" \
+            up 1
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_policy WITH (FORCE);"
+
+      - name: Verify username login v50 migration and reversible schema
+        run: |
+          set -euo pipefail
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_username WITH (FORCE);" \
+            -c "CREATE DATABASE sistemaemgo_username OWNER sistemaemgo;"
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_username?sslmode=disable" \
+            goto 50
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_username \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_username -v ON_ERROR_STOP=1 <<'SQL'
+          DO $guard$
+          DECLARE conflict_seen bool := false;
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='users' AND column_name='username')
+              OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                             WHERE table_name='staff_invitations' AND column_name='username')
+              OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                             WHERE table_name='users' AND column_name='email' AND is_nullable='YES')
+              OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                             WHERE table_name='staff_invitations' AND column_name='email' AND is_nullable='YES') THEN
+              RAISE EXCEPTION 'migration 0050 missing optional-email/username schema';
+            END IF;
+            INSERT INTO users(username,email,name,password_hash,active)
+            VALUES('caixa_global1',NULL,'E2E username',crypt('Senha-Individual-2026!',gen_salt('bf',10)),true);
+            BEGIN
+              INSERT INTO users(username,email,name,password_hash,active)
+              VALUES('caixa_global1','other@example.test','Duplicate username',crypt('Senha-Individual-2026!',gen_salt('bf',10)),true);
+            EXCEPTION WHEN unique_violation THEN
+              conflict_seen := true;
+            END;
+            IF NOT conflict_seen THEN
+              RAISE EXCEPTION 'migration 0050 allowed colliding global usernames';
+            END IF;
+          END $guard$;
+          DELETE FROM users WHERE username='caixa_global1';
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_username?sslmode=disable" \
+            down 1
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_username -v ON_ERROR_STOP=1 <<'SQL'
+          DO $guard$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name IN ('users','staff_invitations') AND column_name='username')
+              OR EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_name='users' AND column_name='email' AND is_nullable='YES') THEN
+              RAISE EXCEPTION 'rollback 0050 left username schema behind';
+            END IF;
+          END $guard$;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_username?sslmode=disable" \
+            up 1
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_username WITH (FORCE);"
+
+      - name: Verify password recovery v51 schema and safe rollback
+        run: |
+          set -euo pipefail
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_pwdreset WITH (FORCE);" \
+            -c "CREATE DATABASE sistemaemgo_pwdreset OWNER sistemaemgo;"
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_pwdreset?sslmode=disable" \
+            goto 51
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_pwdreset -v ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='users' AND column_name='auth_version')
+              OR to_regclass('public.staff_password_resets') IS NULL
+              OR NOT EXISTS (SELECT 1 FROM pg_indexes
+                             WHERE indexname='staff_password_reset_one_pending_per_user') THEN
+              RAISE EXCEPTION 'migration 0051 recovery schema incomplete';
+            END IF;
+          END $verify$;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_pwdreset?sslmode=disable" \
+            down 1
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_pwdreset -v ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='users' AND column_name='auth_version')
+              OR to_regclass('public.staff_password_resets') IS NOT NULL THEN
+              RAISE EXCEPTION 'rollback 0051 did not revert the recovery schema';
+            END IF;
+          END $verify$;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_pwdreset?sslmode=disable" \
+            up 1
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_pwdreset WITH (FORCE);"
+
       - name: Run tagged integration tests
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
           TEST_REDIS_ADDR: localhost:6379
         run: go test -tags=integration ./tests/integration/...
+      - name: Verify supplier integration test can run twice in the same disposable DB
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
+        run: |
+          set -euo pipefail
+          go test -v -tags=integration -count=2 -p 1 -parallel 1 \
+            -run '^TestProcurementRepo_TenantIsolation$' \
+            ./tests/integration/... | tee /tmp/esterium-supplier-rerun.log
+          passed="$(grep -Fc -- '--- PASS: TestProcurementRepo_TenantIsolation ' /tmp/esterium-supplier-rerun.log || true)"
+          test "$passed" -eq 2
+      - name: Exercise NFC-e reservation and isolation on a disposable database
+        env:
+          TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo_fiscal_disposable_ci?sslmode=disable
+          TEST_FISCAL_DISPOSABLE_DB: "1"
+        run: |
+          set -euo pipefail
+          # This database is created exclusively for this CI step.
+          # Never alter or delete fiscal sequences in the normal test DB.
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='sistemaemgo_fiscal_disposable_ci'")" != "0" ]; then
+            echo "Refusing to reuse a pre-existing fiscal database"
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE sistemaemgo_fiscal_disposable_ci OWNER sistemaemgo;"
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_fiscal_disposable_ci;"' EXIT
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="$TEST_DATABASE_URL" up
+          docker compose run --rm -v "$PWD/backend/seed:/seed:ro" db \
+            psql "postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo_fiscal_disposable_ci?sslmode=disable" \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
+          (
+            cd backend
+            go test -v -tags=integration -count=1 -p 1 -parallel 1 \
+              -run '^(TestNFCeFoundation_TenantIsolationAndConstraints|TestNFCeReservation_IsAtomicAndIdempotentPerSale)$' \
+              ./tests/integration/... | tee /tmp/esterium-fiscal-sequence-tests.log
+          )
+          # Prevent a false green if either guarded test unexpectedly skips.
+          grep -Fq -- '--- PASS: TestNFCeFoundation_TenantIsolationAndConstraints ' /tmp/esterium-fiscal-sequence-tests.log
+          grep -Fq -- '--- PASS: TestNFCeReservation_IsAtomicAndIdempotentPerSale ' /tmp/esterium-fiscal-sequence-tests.log
       - name: Start API and verify readiness
         working-directory: backend
         env:
@@ -267,7 +1801,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.9'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -331,7 +1865,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.9'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -369,7 +1903,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.9'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -403,11 +1937,13 @@ jobs:
           sudo cp /tmp/tls/ca.crt /usr/local/share/ca-certificates/sistemaemgo-ci-ca.crt
           sudo update-ca-certificates
 
+          docker rm -f pg-staging redis-staging caddy-staging >/dev/null 2>&1 || true
+
           docker run -d --name pg-staging \
             -e POSTGRES_DB=sistemaemgo \
             -e POSTGRES_USER=sistemaemgo \
             -e POSTGRES_PASSWORD=ci-staging-db-password \
-            -p 55432:5432 \
+            -p 127.0.0.1::5432 \
             -v /tmp/tls:/tls:ro \
             postgres:16 \
             -c ssl=on \
@@ -415,7 +1951,7 @@ jobs:
             -c ssl_key_file=/tls/server.key
 
           docker run -d --name redis-staging \
-            -p 56379:6379 \
+            -p 127.0.0.1::6379 \
             -v /tmp/tls:/tls:ro \
             redis:7.4-alpine \
             redis-server \
@@ -435,6 +1971,13 @@ jobs:
           done
           docker exec pg-staging pg_isready -U sistemaemgo -d sistemaemgo
           docker exec redis-staging redis-cli --tls --cacert /tls/ca.crt -a ci-staging-redis-password ping
+
+          PG_STAGING_PORT="$(docker port pg-staging 5432/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)"
+          REDIS_STAGING_PORT="$(docker port redis-staging 6379/tcp | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)"
+          test -n "$PG_STAGING_PORT"
+          test -n "$REDIS_STAGING_PORT"
+          echo "PG_STAGING_PORT=$PG_STAGING_PORT" >> "$GITHUB_ENV"
+          echo "REDIS_STAGING_PORT=$REDIS_STAGING_PORT" >> "$GITHUB_ENV"
       - name: Migrate and seed over PostgreSQL TLS
         run: |
           docker run --rm --network host \
@@ -442,14 +1985,14 @@ jobs:
             -v /tmp/tls:/tls:ro \
             migrate/migrate:v4.17.1 \
             -path=/migrations \
-            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
+            -database="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
             up
 
           docker run --rm --network host \
             -v "$PWD/backend/seed:/seed:ro" \
             -v /tmp/tls:/tls:ro \
             postgres:16 \
-            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
+            psql "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tls/ca.crt" \
             -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
       - name: Configure staging hostname
         run: echo "127.0.0.1 staging.example.test" | sudo tee -a /etc/hosts
@@ -459,8 +2002,7 @@ jobs:
         env:
           APP_ENV: staging
           FISCAL_PROVIDER: disabled
-          DATABASE_URL: "postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:55432/sistemaemgo?sslmode=verify-full&sslrootcert=/tmp/tls/ca.crt"
-          REDIS_URL: "rediss://:ci-staging-redis-password@127.0.0.1:56379/0"
+          ESTERIUM_MIGRATIONS_DIR: migrations
           JWT_SECRET: ci-staging-jwt-secret-longer-than-32-characters
           HTTP_ADDR: :18081
           OTEL_ENABLED: "false"
@@ -475,7 +2017,14 @@ jobs:
           RATE_LIMIT_SALES_PER_MINUTE: "1000"
           RATE_LIMIT_FISCAL_PER_MINUTE: "1000"
         run: |
+          export DATABASE_URL="postgres://sistemaemgo:ci-staging-db-password@127.0.0.1:${PG_STAGING_PORT}/sistemaemgo?sslmode=verify-full&sslrootcert=/tmp/tls/ca.crt"
+          export REDIS_URL="rediss://:ci-staging-redis-password@127.0.0.1:${REDIS_STAGING_PORT}/0"
           go build -o /tmp/sistemaemgo-staging-api ./cmd/api
+          /tmp/sistemaemgo-staging-api --check-dependencies > /tmp/staging-dependency-preflight.log 2>&1 || {
+            cat /tmp/staging-dependency-preflight.log
+            exit 1
+          }
+          grep -Fq 'PostgreSQL schema and Redis atomic security checks passed' /tmp/staging-dependency-preflight.log
           /tmp/sistemaemgo-staging-api > /tmp/staging-api.log 2>&1 &
           for i in {1..30}; do
             if curl --fail --silent http://127.0.0.1:18081/health/ready; then

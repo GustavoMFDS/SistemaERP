@@ -21,8 +21,8 @@ BEGIN;
 -- We use psql variables via \gset so the rest of the file can reference :'tenant_id'.
 WITH ins AS (
   INSERT INTO companies (legal_name, trade_name, cnpj, ie, crt, created_at)
-  SELECT 'Empresa Exemplo LTDA', 'Loja Exemplo', '00000000000000', 'ISENTO', '1', now()
-  WHERE NOT EXISTS (SELECT 1 FROM companies WHERE cnpj='00000000000000')
+  SELECT 'Empresa Exemplo LTDA', 'Loja Exemplo', '12345678000195', 'ISENTO', '1', now()
+  WHERE NOT EXISTS (SELECT 1 FROM companies WHERE cnpj='12345678000195')
   RETURNING id, created_at
 )
 SELECT id AS tenant_id, created_at AS tenant_created_at
@@ -30,7 +30,7 @@ FROM ins
 UNION ALL
 SELECT id AS tenant_id, created_at AS tenant_created_at
 FROM companies
-WHERE cnpj='00000000000000'
+WHERE cnpj='12345678000195'
 ORDER BY tenant_created_at
 LIMIT 1
 \gset
@@ -47,13 +47,19 @@ INSERT INTO permissions (id, code, description) VALUES
   (gen_random_uuid(), 'product:write', 'Criar/editar produtos'),
   (gen_random_uuid(), 'inventory:read', 'Consultar estoque e movimentações'),
   (gen_random_uuid(), 'inventory:adjust', 'Ajuste manual de estoque'),
+  (gen_random_uuid(), 'procurement:read', 'Consultar fornecedores e compras'),
+  (gen_random_uuid(), 'procurement:write', 'Criar e alterar fornecedores e compras'),
+  (gen_random_uuid(), 'procurement:receive', 'Receber compras e atualizar estoque'),
   (gen_random_uuid(), 'cash:open', 'Abrir caixa'),
   (gen_random_uuid(), 'cash:move', 'Registrar sangria e suprimento de caixa'),
   (gen_random_uuid(), 'cash:close', 'Fechar caixa'),
   (gen_random_uuid(), 'sale:read', 'Consultar vendas'),
   (gen_random_uuid(), 'sale:write', 'Criar/finalizar venda'),
   (gen_random_uuid(), 'sale:cancel', 'Cancelar venda'),
+  (gen_random_uuid(), 'sale:return', 'Registrar devolucoes e trocas'),
+  (gen_random_uuid(), 'sale:discount', 'Aplicar desconto no PDV'),
   (gen_random_uuid(), 'finance:read', 'Consultar financeiro'),
+  (gen_random_uuid(), 'finance:reconcile', 'Conciliar pagamentos e liquidar reembolsos'),
   (gen_random_uuid(), 'invoice:generate', 'Gerar XML NF-e'),
   (gen_random_uuid(), 'invoice:read', 'Consultar XML NF-e'),
   (gen_random_uuid(), 'privacy:read', 'Consultar requisicoes LGPD e consentimentos'),
@@ -76,8 +82,10 @@ SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.code IN (
   'product:read','product:write','inventory:read','inventory:adjust',
-  'cash:open','cash:move','cash:close','sale:read','sale:write','sale:cancel',
-  'finance:read','invoice:generate','invoice:read'
+  'procurement:read','procurement:write','procurement:receive',
+  'cash:open','cash:move','cash:close','sale:read','sale:write','sale:cancel','sale:return','sale:discount',
+  'finance:read','finance:reconcile','invoice:generate','invoice:read',
+  'customer:read','customer:write'
 )
 WHERE r.name='manager'
 ON CONFLICT DO NOTHING;
@@ -144,6 +152,23 @@ SELECT gen_random_uuid(), :'tenant_id'::uuid, c.id, 'SKU-COCA-2L', '789000000000
 FROM categories c
 WHERE c.tenant_id = :'tenant_id'::uuid AND c.name='Bebidas'
 ON CONFLICT (tenant_id, sku) DO NOTHING;
+
+-- Migration 0023 adds fiscal classification. Keep this seed compatible with
+-- historical migration-upgrade tests (e.g. v12) and enrich only when available.
+SELECT EXISTS (
+  SELECT 1
+  FROM information_schema.columns
+  WHERE table_schema='public' AND table_name='products' AND column_name='ncm'
+) AS has_product_ncm
+\gset
+
+\if :has_product_ncm
+UPDATE products
+SET ncm='22021000'
+WHERE tenant_id=:'tenant_id'::uuid
+  AND sku='SKU-COCA-2L'
+  AND ncm IS NULL;
+\endif
 
 -- initial stock balance + movement
 INSERT INTO inventory_balances (product_id, tenant_id, qty_on_hand, updated_at)

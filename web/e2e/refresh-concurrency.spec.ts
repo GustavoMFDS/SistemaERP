@@ -21,7 +21,7 @@ test('concurrent 401 responses share one refresh request', async ({ page }) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'user-1', email: 'admin@sistema.local', name: 'Admin', roles: ['admin'] }),
+      body: JSON.stringify({ id: 'user-1', email: 'admin@sistema.local', name: 'Admin', roles: ['admin'], permissions: ['product:read'] }),
     })
   })
 
@@ -62,7 +62,8 @@ test('concurrent 401 responses share one refresh request', async ({ page }) => {
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
 
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Produtos', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos' })).toBeVisible()
 
   challengeMode = true

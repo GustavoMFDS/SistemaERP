@@ -1,21 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { refreshAccessToken } from '../lib/api'
-import { getToken, subscribeToken } from '../lib/auth'
+import { getToken, hasUsableAccessToken, subscribeToken } from '../lib/auth'
 
 export default function ProtectedRoute() {
-  const [checking, setChecking] = useState(!getToken())
-  const [token, setTokenState] = useState(getToken())
+  const [checking, setChecking] = useState(!hasUsableAccessToken())
+  const [token, setTokenState] = useState(hasUsableAccessToken() ? getToken() : '')
 
   useEffect(() => {
     return subscribeToken((nextToken) => {
-      setTokenState(nextToken)
+      setTokenState(hasUsableAccessToken() ? nextToken : '')
       setChecking(false)
     })
   }, [])
 
   useEffect(() => {
-    if (getToken()) {
+    if (hasUsableAccessToken()) {
+      setTokenState(getToken())
       setChecking(false)
       return
     }

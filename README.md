@@ -1,62 +1,95 @@
-# SistemaEmGo
+# Esterium ERP — PDV e gestão de empresas independentes
 
-SistemaEmGo is a multi-tenant ERP/POS and backoffice system for sales, inventory, finance, fiscal operations, auditability, and privacy/LGPD technical workflows.
+> **Marca adotada:** Esterium ERP (15/10/2026). **Repositório no GitHub:** SistemaERP. **Identificadores internos ainda existentes:** SistemaEmGo. A alteração de marca não renomeia chaves de armazenamento, emissor JWT, módulo Go nem identificadores do banco, por razões de compatibilidade. **A disponibilidade ou exclusividade do nome no INPI ainda não foi confirmada.** A adoção visual do nome não equivale ao registro da marca.
 
-The project is currently a pre-production / staging candidate. It implements technical controls that support LGPD compliance, but final legal, accounting, DPO, infrastructure, and operational validation is required before real production use.
+Sistema web de gestão comercial com PDV, produtos, estoque, compras, devoluções, clientes, financeiro e preparação fiscal para empresas brasileiras. Cada loja/CNPJ é uma **empresa independente**, com dados, permissões e parametrização fiscal próprios — não uma filial automática das demais lojas da família.
 
-## Features
+**Situação:** desenvolvimento/piloto, **não liberado para operação fiscal real**. Há implementações em branches e PRs ainda não integrados à `main`. A presença de um módulo no código **não comprova** build, testes E2E, homologação SEFAZ nem aptidão para produção. Consulte o [catálogo geral de 16/10/2026](docs/catalogo-geral-esterium-2026-10-16.md) e os PRs abertos antes de decidir um deploy.
 
-- Multi-tenant POS/backoffice with tenant-scoped RBAC.
-- Sales creation, server-side price calculation, idempotent offline retry support, and sale cancellation.
-- Inventory balances, movements, low-stock checks, and stock validation.
-- Finance ledger and dashboard endpoints.
-- Fiscal XML/NFe preparation and access flows. The bundled provider is an MVP test provider and is blocked in staging/production.
-- Offline POS queue with TTL, idempotency keys, and minimal browser storage.
-- JWT access tokens plus HttpOnly refresh-token cookies with rotation.
-- Standardized JSON API errors with request IDs.
-- Audit logging with sanitized metadata.
-- Privacy/LGPD technical workflows for data subject requests, exports, anonymization/blocking, and consent records.
-- Observability with health checks, structured logs, tracing hooks, and protected Prometheus metrics.
+**Inventário histórico (16/10/2026):** o [catálogo geral do Esterium ERP](docs/catalogo-geral-esterium-2026-10-16.md) contabilizava 15 telas React, 121 registros de rotas HTTP, 13 módulos Go e 48 migrações SQL. As contagens desse documento pertencem à data da auditoria; a cadeia local atual inclui **51 pares de migrações SQL** no código, ainda sem integração automática à `main`. O [catálogo funcional histórico](docs/catalogo-funcional-sistema.md) permanece disponível, mas algumas contagens e pendências estão desatualizadas. A emissão NFC-e em produção não está homologada.
 
-## Tech Stack
+**Refinamento operacional de 16/10/2026:** o [plano de refinamento](docs/refinamento-final-esterium-2026-10-16.md) documenta backup PostgreSQL verificado em Linux/Windows (agendamento ainda a configurar), Central de Atenção, conferência fiscal diária e relatórios operacionais por período. Recuperação ensaiada apenas com banco fictício; isso não comprova backup externo, homologação SEF/MG nem prontidão operacional.
 
-- Go `1.25.0` for the backend.
-- React 19, TypeScript, and Vite for the frontend.
-- PostgreSQL for persistent data.
-- Redis for refresh-token rotation, rate limiting, and optional caches.
-- Docker Compose for local dependencies, migrations, and development seed.
-- GitHub Actions CI for backend and frontend validation.
+## Funcionalidades existentes no código de integração
 
-## Repository Structure
+- Vendas/PDV, controle de caixa, leitura de código de barras, carrinhos suspensos e prevenção de duplicidade por chave de idempotência.
+- Produtos, fotos e miniaturas, cadastro/importação CSV, movimentações de estoque e alertas de estoque mínimo.
+- Compras e fornecedores, devoluções/reembolsos, clientes, contas financeiras e conciliação.
+- Contas de acesso, funcionários, convites e permissões isoladas por empresa.
+- PWA instalável e fila local de intenções de venda com sincronização assistida. **Venda preservada offline não é nota autorizada.**
+- Fiscal: pendências por venda, preparação de emitente, perfis tributários, documentos e mecanismos técnicos de NFC-e, incluindo componentes de comunicação SEFAZ em **homologação controlada**. **Não é emissão automática de produção**, nem substitui validação tributária real.
+- Auditoria, controles técnicos de privacidade/LGPD, métricas, logs e testes automatizados.
 
-- `backend/`: Go API, modules, migrations, seed files, and backend tests.
-- `web/`: React/Vite frontend.
-- `docs/`: API, security, privacy, deployment, and smoke-test documentation.
-- `.github/workflows/ci.yml`: CI validation using `go test`, `go vet`, `gofmt`, `npm ci`, lint, and build.
+O que funciona e o que ainda está pendente consta em [docs/catalogo-funcional-sistema.md](docs/catalogo-funcional-sistema.md), [docs/fiscal-mg-automacao-homologacao-2026.md](docs/fiscal-mg-automacao-homologacao-2026.md) e [docs/pdv-impressao-fiscal-semi-automatica.md](docs/pdv-impressao-fiscal-semi-automatica.md).
 
-## Prerequisites
+## Tecnologias e estrutura
 
-- Go `1.25.x`.
-- Node.js `22.x`.
-- Docker and Docker Compose.
-- PostgreSQL and Redis if running without Docker Compose.
+| Área | Tecnologia / local |
+| --- | --- |
+| Backend | Go 1.26.9, API HTTP em `backend/cmd/api`, módulos em `backend/internal` |
+| Frontend | React 19, TypeScript, Vite, Tailwind, em `web/` |
+| Persistência | PostgreSQL 16, migrações incrementais em `backend/migrations/` |
+| Sessões e cache | Redis |
+| Infra local | `docker-compose.yml`; observabilidade complementar em `docker-compose.observability.yml` |
+| Testes | Go (unitários e integração), ESLint, TypeScript, Vite e Playwright em `web/e2e` |
+| Documentação | `docs/` (API, implantação, segurança, fiscal, operação e relatórios de validação) |
 
-## Quick Start For Development
+**Para desenvolvimento e compilação:** Go **1.26.9**, Node.js **22.x**, npm compatível e Docker com Compose, ou PostgreSQL e Redis configurados separadamente. **O pacote técnico Windows** já compila Go e React e não exige Go/Node/Docker para abrir a interface na loja, mas PostgreSQL/Redis ainda exigem provisionamento seguro separado.
+
+## Esterium Local para Windows (estágio técnico, sem instalação comercial)
+
+A arquitetura principal aprovada prevê **um computador servidor na loja** e terminais pela rede interna. A [cadeia de PRs técnicas](https://github.com/GustavoMFDS/SistemaERP/pulls) (a partir da #84, com reconciliações até #128) prepara o pacote Windows x64, com backend Go compilado, interface React estática, migrações SQL versionadas e ferramentas de manutenção protegidas. Essa cadeia **permanece em PRs draft**, sem liberação automática na `main`. Aprovado no CI **não significa** homologação presencial ou fiscal.
+
+O pacote é produzido na máquina de build, não no computador da loja, por `scripts/build-esterium-local-windows.ps1`. O ZIP técnico tem manifesto SHA-256 que pode ser conferido antes e depois da instalação, mas **ainda não tem assinatura digital de distribuição**.
+
+Há também uma verificação de instalação nova em um único comando técnico, `tools/plan-esterium-local-setup.ps1`, **somente leitura**: ela não instala PostgreSQL/Redis ou os serviços do Esterium. O procedimento técnico, em ordem, está descrito em [registro do serviço Windows](docs/esterium-local-service-registration.md), [backup externo](docs/esterium-local-backup-externo.md) e [checklist de aceite físico](docs/esterium-local-pilot-checklist.md). As ferramentas locais incluem checagem não destrutiva do PC e do pacote, inventário somente leitura de serviços PostgreSQL/Redis compatíveis já instalados, provisão limitada de segredos próprios do ERP, registro/reversão conservadores de serviço `LocalService`, backup externo protegido e tarefa diária **desabilitada até aceite**. Há também um **plano de atualização sem escrita** que verifica cópia externa recente e impede alterações retroativas em migrações SQL, mas **não instala, migra ou atualiza** o sistema. Não há migração automática nem apagamento de dados da loja.
+
+**Avanço técnico do provisionamento (PRs #106, #107 e #109):** o pacote agora tem geradores separados e um comando conjunto `tools/prepare-esterium-local-dependency-configs.ps1` para preparar **arquivos novos e restritos** de instalação PostgreSQL 16 e configuração Garnet com TLS/ACL/Lua. O padrão é somente leitura; `-Apply` exige requisitos e assinatura/autorização, exceto em Windows descartável de CI. **Nenhum desses comandos instala os executáveis de terceiros, cria serviços ou inicia banco e cache.**
+
+**Proteções adicionais verificadas em CI:** as PRs #111–#121 acrescentaram verificações de assinaturas sintéticas (sem simular um editor comercial confiável), proteção contra arquivos sensíveis e formatos inesperados no pacote, validação da atualização após a cópia e melhorias na linguagem das telas. A PR #124 verifica a assinatura de todos os scripts auxiliares antes de execuções administrativas; a #126 reforça as permissões dos arquivos do backup, e a #125 simplifica a digitação de dinheiro no PDV. A ordem e os limites de cada mudança estão no [registro de integração e aceite](docs/esterium-local-integration-2026-10-18.md). **Todos esses avanços ainda estão em PRs de revisão, não publicados na `main`.**
+
+**Ainda pendente antes de um piloto real:** provisionamento integrado de PostgreSQL/Redis com TLS e usuários restritos; instalação/atualização e assinatura de release; HTTPS confiável para dois terminais na LAN; testes com leitores, impressoras e caixas físicos; backup/restauração em computador independente; gestão de falhas/atualizações; emissão e XML fiscal genuinamente autorizados pela SEFAZ. O modo de testes deve usar somente banco descartável e nunca ativar transmissão fiscal de produção.
+
+## Distribuição Windows — verificação obrigatória de release
+
+O bundle do CI continua **técnico e não assinado**, destinado apenas a testes descartáveis. Uma versão oficial exige assinatura Authenticode válida de **todo executável e de cada script PowerShell privilegiado**, além de um SHA-256 do manifesto recebido por canal independente e do certificado do editor previamente aprovado. O gate `tools/check-esterium-signed-release.ps1` exige esses elementos e **reprova os arquivos técnicos atuais**. O teste automatizado confirma que um pacote sem assinatura ou com digest divergente nunca passa como release. A verificação criptográfica com certificado **fictício** de CI não comprova a confiança em um editor Authenticode de distribuição real.
+
+Esse controle não cria nem substitui assinaturas, certificados, instalador completo ou os componentes PostgreSQL/Garnet; tampouco permite uso comercial, alteração fiscal ou integração automática dos PRs. Somente depois da homologação física e da conclusão dos itens não fiscais a cadeia de PRs deverá ser revisada e incorporada em ordem à `main`.
+
+## Execução local para desenvolvimento
+
+Na **raiz do repositório**, crie seu arquivo privado de configuração:
 
 ```bash
 cp .env.example .env
 docker compose up -d db redis migrate
-docker compose up seed
+docker compose run --rm seed
 ```
 
-Run the backend:
+No Windows, copie `.env.example` para `.env` pelo Explorer ou PowerShell com `Copy-Item .env.example .env`.
+
+**Atenção:** `.env` é usado automaticamente pelo **Docker Compose** para interpolação. O binário **Go não lê arquivos `.env`**: ele recebe apenas variáveis do ambiente do processo (ver `backend/internal/config/config.go`). Antes de iniciar a API, carregue essas variáveis no terminal. No Linux/macOS, a partir da raiz:
 
 ```bash
+set -a
+source .env
+set +a
 cd backend
 go run ./cmd/api
 ```
 
-Run the frontend:
+No PowerShell, a partir da raiz (para o arquivo de exemplo sem valores multiline):
+
+```powershell
+Get-Content .env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
+  $nome, $valor = $_ -split '=', 2
+  [Environment]::SetEnvironmentVariable($nome, $valor, 'Process')
+}
+Set-Location backend
+go run ./cmd/api
+```
+
+Em outro terminal, na raiz do repositório:
 
 ```bash
 cd web
@@ -64,55 +97,25 @@ npm ci
 npm run dev
 ```
 
-The development seed is guarded by `ALLOW_DEMO_SEED=1` inside the Docker Compose seed service. Do not run the demo seed in staging or production.
+Frontend: `http://localhost:5173` | API: `http://localhost:8080`.
 
-## Environment Variables
+**Banco e senhas locais:** `.env.example` fornece `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` e `DATABASE_URL` compatíveis entre si. A senha é **apenas de desenvolvimento**: substitua por segredo próprio fora do ambiente de teste. Se já existir um volume PostgreSQL inicializado com outra senha, alterar `.env` **não altera** automaticamente o usuário do banco; ajuste as credenciais ou recrie **somente um volume de teste descartável**. Nunca use `docker compose down -v` em dados reais.
 
-`.env` is local-only. It is ignored by Git and Docker packaging rules and must never be committed, shipped in source archives, attached to tickets, or copied into logs. Keep only safe examples in source control: `.env.example`, `.env.dev.example`, and `.env.prod.example`.
+**Seed:** `backend/seed/seed.sql` é **somente para demo/desenvolvimento**, não execute em homologação ou produção. O serviço `seed` no Compose é explicitamente destinado a esse uso. `backend/seed/seed.prod.sql` não cria administrador com senha padrão.
 
-Use `.env.example` for local development and `.env.prod.example` for staging/production. Replace every production placeholder with a real secret or environment-specific value before startup.
+## Configuração importante
 
-Important variables:
+- `APP_ENV`: `dev`, `test`, `staging` ou `prod`.
+- `DATABASE_URL`: conexão PostgreSQL; produção/staging requer TLS validado conforme `docs/security.md`.
+- `REDIS_ADDR` para desenvolvimento; `REDIS_URL` com `rediss://` em produção/staging.
+- `JWT_SECRET`: segredo aleatório forte; gere em `backend/` com `go run ./cmd/gensecret -format base64url -bytes 32`.
+- `CORS_ALLOWED_ORIGINS`, `TRUSTED_PROXY_CIDRS`, `METRICS_BEARER_TOKEN` e `PRIVACY_CONTACT_EMAIL`: configurar conforme ambiente.
+- `VITE_API_BASE_URL`: URL da API usada pelo frontend; padrão local `http://localhost:8080`.
+- `FISCAL_PROVIDER` e `NFCE_*`: integração fiscal e caminhos para certificados/esquemas devem ser explicitamente configurados. **Flags desligadas por padrão não autorizam transmissão.**
 
-- `APP_ENV`: `dev`, `test`, `staging`, or `prod`.
-- `DATABASE_URL`: PostgreSQL connection string; staging/production require `sslmode=verify-full`.
-- `REDIS_URL`: required `rediss://` connection string for staging/production.
-- `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`: split Redis configuration for development/legacy deployments only.
-- `JWT_SECRET`: strong signing secret, at least 32 characters.
-- `ACCESS_TOKEN_TTL_MINUTES`, `REFRESH_TOKEN_TTL_MINUTES`: token lifetimes.
-- `CORS_ALLOWED_ORIGINS`: explicit origins in staging/production.
-- `TRUSTED_PROXY_CIDRS`: reverse-proxy networks allowed to supply forwarded client IP headers; leave empty for direct exposure.
-- `METRICS_BEARER_TOKEN` or `METRICS_BASIC_USER` / `METRICS_BASIC_PASS`: required for metrics in staging/production.
-- `RATE_LIMIT_*`: sensitive endpoint rate limits.
-- `FISCAL_PROVIDER`: `mvp` only for dev/test; use `disabled` in staging/production until a SEFAZ-ready provider exists.
-- `PRIVACY_CONTACT_EMAIL`, `APP_PUBLIC_URL`: privacy/DPO contact and public URL.
+**Nunca** comite `.env`, certificados PFX/PEM, senhas, token CSC ou dados reais de clientes. Para habilitar qualquer tentativa real de homologação NFC-e em MG, consulte [o guia fiscal](docs/fiscal-mg-guia-operador-2026.md), [a preparação de MG](docs/fiscal-mg-configuracao-sem-legado-2026.md) e [a automação de homologação](docs/fiscal-mg-automacao-homologacao-2026.md). NF-e modelo 55 não deve ser tratada como emissor de produção pronto.
 
-See [docs/security.md](docs/security.md), [.env.example](.env.example), and [.env.prod.example](.env.prod.example) for configuration details.
-
-## Database Migrations
-
-Apply migrations locally:
-
-```bash
-docker compose up -d db redis migrate
-```
-
-Validate migrations on a clean local database:
-
-```bash
-docker compose down -v
-docker compose up -d db redis migrate
-```
-
-Production seed safety:
-
-- `backend/seed/seed.prod.sql` contains production-safe reference data only.
-- `backend/seed/seed.sql` is development/demo seed and requires explicit `ALLOW_DEMO_SEED=1`.
-- Production bootstrap must create the first admin through a controlled operational procedure, not default credentials.
-
-See [docs/deployment.md](docs/deployment.md) for clean migration validation, backup, restore, and rollback procedures.
-
-## Running Tests And Validation
+## Validação antes de integrar ou implantar
 
 Backend:
 
@@ -132,81 +135,43 @@ npm run lint
 npm run build
 ```
 
-For the current production-readiness pass, the frontend production build was already validated with `cd web && npm run build`. Re-run the frontend commands when frontend files change.
+### Integração com banco de teste
 
-Smoke testing:
+Prepare **PostgreSQL e Redis descartáveis, com banco exclusivo**, aplique as migrações e carregue o seed demonstrativo apenas nesse banco. Configure `TEST_DATABASE_URL` (DSN do banco de teste) e `TEST_REDIS_ADDR` (Redis do teste). Use `TEST_FISCAL_DISPOSABLE_DB=1` **exclusivamente nesse ambiente isolado**, pois libera cenários que alteram dados fiscais de teste.
 
 ```bash
-# Follow the checklist in docs/smoke-test.md after deploying to staging.
+cd backend
+go test -tags=integration -count=1 -p 1 -parallel 1 -timeout 12m ./tests/integration/...
 ```
 
-## Security Overview
+**Nunca** use uma base da loja ou de homologação com dados reais nesses testes. Algumas migrações têm rollback **fail-closed** quando há registros fiscais/auditoria e podem deixar a versão em `dirty=true` ao recusar a exclusão; não force a versão nem apague histórico operacional para contornar o bloqueio.
 
-- Access tokens are short-lived JWTs.
-- Protected requests recheck current user status and tenant membership, so deactivated or de-scoped users are rejected before token expiration.
-- Refresh tokens are stored only in an HttpOnly, `SameSite=Strict` cookie and rotated on refresh; logout is considered complete only after the server confirms revocation/cookie clearing.
-- Refresh/logout endpoints validate trusted `Origin` or `Referer` headers.
-- Login is rate-limited by IP, by hashed normalized identifier, and by IP plus identifier.
-- RBAC is tenant-scoped through `user_tenant_roles`; a role in tenant A does not grant tenant B permissions.
-- Tenant fallback to the first company is disabled in staging/production.
-- `/metrics` requires bearer token or basic auth in staging/production.
-- Audit metadata is recursively sanitized and size-limited before storage and API output.
-- API errors are standardized JSON and avoid leaking stack traces, SQL details, secrets, or tokens.
+### E2E do navegador
 
-See [docs/security.md](docs/security.md) for the detailed security model.
+Inicie a API com o banco **de teste**, a UI Vite apontando para a API de teste (`VITE_API_BASE_URL`) e execute em outro terminal:
 
-## Privacy / LGPD Technical Controls
+```bash
+cd web
+npm run test:e2e -- --project=chromium --workers=1
+```
 
-The system provides technical controls for:
+Configure `E2E_BASE_URL` quando a UI não estiver em `http://127.0.0.1:5173`. Os cenários misturam API real e respostas simuladas. Os testes que abrem caixa, finalizam venda ou usam contas demo exigem isolamento/limpeza de estado entre execuções. Muitos logins automatizados podem acionar o rate limiter: ajuste limites **somente no processo descartável de teste**, jamais no ambiente real. Chromium, Firefox e WebKit precisam dos respectivos navegadores instalados. O resultado completo deve ser confirmado nos jobs do GitHub Actions **para o SHA da branch escolhida**; aprovações de outros PRs não validam a branch atual. A [auditoria de 15/10/2026](docs/auditoria-codigo-20261015.md) é histórica, não o placar de CI de todas as branches atuais.
 
-- Data subject request creation, listing, viewing, and status transitions.
-- Personal data export for supported `customer` and `user` subjects.
-- Anonymization/blocking where legally applicable.
-- Consent recording, listing, and revocation.
-- Audit logging for privacy operations.
-- Retention and disposal documentation.
+Outras referências: `.github/workflows/ci.yml` e `docs/smoke-test.md`. **Não confundir comandos recomendados com resultados realmente executados.**
 
-Terminal privacy request statuses (`completed`, `rejected`, `cancelled`) are immutable through the status endpoint. Fiscal/accounting records are not hard-deleted by privacy endpoints when legal retention applies.
+## Segurança e operação fiscal
 
-See [docs/privacy/data-inventory.md](docs/privacy/data-inventory.md), [docs/privacy/retention-policy.md](docs/privacy/retention-policy.md), and [docs/privacy/ropa.md](docs/privacy/ropa.md).
+O servidor isola operações por empresa/tenant e aplica RBAC; continua necessária revisão de segurança, integrações externas, regras tributárias, backup/restore, implantação e procedimentos operacionais. O sistema mantém fila de obrigações fiscais por venda, mas **obrigação registrada ≠ documento autorizado pela SEFAZ**. A opção do cliente de não imprimir não cancela a obrigação fiscal. DANFE em papel depende de documento realmente autorizado e não substitui a emissão.
 
-## Observability
+A **produção** depende de credenciamento, dados reais por CNPJ, certificado adequado, esquema oficial, tributação validada com contador, execução de homologação e evidências de ponta a ponta. Consulte também:
 
-- `/health/live` checks process liveness; `/health/ready` verifies PostgreSQL and Redis readiness.
-- Prometheus metrics are exposed through `/metrics` and protected outside development.
-- Structured logs include request IDs.
-- Audit logs support incident investigation without storing secrets or excessive personal data.
+- [Arquitetura](docs/architecture.md), [API](docs/api.md), [regras de negócio](docs/business-rules.md).
+- [Implantação](docs/deployment.md), [segurança](docs/security.md), [smoke tests](docs/smoke-test.md).
+- [PDV offline](docs/offline-pdv.md), [privacidade/LGPD](docs/privacy/data-inventory.md).
+- [Auditoria de manutenção e código morto](docs/auditoria-codigo-20261015.md).
 
-## Deployment
+**Segurança do runtime (outubro/2026):** o CI usa Go **1.26.9** e dependências `golang.org/x/*` atualizadas devido a correções de segurança. Não execute a API com Go 1.25.x nem com versões 1.26 anteriores à 1.26.9. O scanner `govulncheck` continua obrigatório.
 
-Use [docs/deployment.md](docs/deployment.md) for:
+## Licença e contribuição
 
-- Migration validation.
-- Production configuration checklist.
-- Backup and restore commands.
-- Redis recovery considerations.
-- Application and migration rollback strategy.
-- Staging restore drill.
-
-Use [docs/smoke-test.md](docs/smoke-test.md) for critical functional validation before promoting a release.
-
-## Production Readiness Checklist
-
-- CI is green for backend and frontend.
-- Frontend production build has been validated with `npm run build`; run `npm ci`, lint, and build again after frontend dependency or source changes.
-- Backend `gofmt`, tests, and vet pass with Go `1.25.x`.
-- Clean database migrations have been validated.
-- Production secrets are strong and not placeholders.
-- CORS origins are explicit.
-- Metrics are protected.
-- Demo seed is disabled.
-- Tenant memberships and tenant-scoped roles are configured.
-- Backup/restore has been tested in staging.
-- Smoke test checklist has passed.
-- Legal/accounting/DPO review has approved retention and privacy procedures.
-
-## License / Status
-
-License: define before public distribution.
-
-Status: pre-production / staging candidate.
+Ainda não há licença definida no repositório. Isso **não** significa permissão automática para redistribuição. Mudanças significativas devem seguir por branch e PR com validação no HEAD final, sem merge com testes pendentes.

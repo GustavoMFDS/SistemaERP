@@ -1,6 +1,12 @@
 -- Additional deterministic tenant used only by browser/integration E2E.
 BEGIN;
 
+-- Browser E2E exercises fiscal readiness. Replace only the demo placeholder
+-- identity in this E2E database with a mathematically valid CNPJ.
+UPDATE companies
+SET cnpj='12345678000195'
+WHERE cnpj='00000000000000';
+
 WITH ins AS (
   INSERT INTO companies (legal_name, trade_name, cnpj, ie, crt, created_at)
   SELECT 'Empresa E2E Tenant B LTDA', 'Loja E2E B', '11111111111111', 'ISENTO', '1', now()

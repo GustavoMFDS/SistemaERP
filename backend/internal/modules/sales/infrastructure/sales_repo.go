@@ -2,14 +2,27 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 
 	"github.com/example/sistemaemgo/internal/modules/common"
 	sales "github.com/example/sistemaemgo/internal/modules/sales/domain"
 	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/example/sistemaemgo/internal/platform/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func mapSalesWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return common.ErrConflict
+	}
+	return err
+}
 
 type SalesRepo struct {
 	db *pgxpool.Pool
@@ -31,25 +44,46 @@ func (r *SalesRepo) InsertSale(ctx context.Context, tx db.DBTX, tenantID string,
 
 func (r *SalesRepo) InsertItem(ctx context.Context, tx db.DBTX, tenantID string, it sales.SaleItem) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO sale_items(tenant_id, sale_id, product_id, qty, unit_price, discount_value, subtotal, cost_unit)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-	`, tenantID, it.SaleID, it.ProductID, it.Qty.DBString(), it.UnitPrice.DBString(), it.DiscountValue.DBString(), it.Subtotal.DBString(), it.CostUnit.DBString())
+		INSERT INTO sale_items(tenant_id, sale_id, product_id, qty, unit_price, discount_value, subtotal, cost_unit,
+		                     return_policy_snapshot, return_days_snapshot)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+	`, tenantID, it.SaleID, it.ProductID, it.Qty.DBString(), it.UnitPrice.DBString(), it.DiscountValue.DBString(), it.Subtotal.DBString(), it.CostUnit.DBString(), it.ReturnPolicySnapshot, it.ReturnDaysSnapshot)
 	return err
 }
 
 func (r *SalesRepo) InsertPayment(ctx context.Context, tx db.DBTX, tenantID string, p sales.Payment) error {
-	_, err := tx.Exec(ctx, `INSERT INTO payments(tenant_id, sale_id, method, amount) VALUES ($1,$2,$3,$4)`, tenantID, p.SaleID, p.Method, p.Amount.DBString())
-	return err
+	installments := p.Installments
+	if installments <= 0 {
+		installments = 1
+	}
+	status := p.ReconciliationStatus
+	if status == "" {
+		status = "pending"
+		if p.Method == "cash" {
+			status = "not_applicable"
+		}
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO payments(
+			tenant_id, sale_id, method, amount, provider, transaction_ref,
+			authorization_code, installments, reconciliation_status
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+	`, tenantID, p.SaleID, p.Method, p.Amount.DBString(), p.Provider, p.TransactionRef, p.AuthorizationCode, installments, status)
+	return mapSalesWriteError(err)
 }
 
 func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
 	var s sales.Sale
 	var subtotal, discount, total, profit string
 	err := r.db.QueryRow(ctx, `
-		SELECT id::text, cash_session_id::text, customer_id::text, status, subtotal::text, discount_value::text, total::text, profit_estimated::text, created_by_user_id::text, cancel_reason
+		SELECT id::text, cash_session_id::text, customer_id::text, status, subtotal::text, discount_value::text, total::text, profit_estimated::text, created_by_user_id::text, cancel_reason, finalized_at
 		FROM sales WHERE tenant_id=$1 AND id=$2
-	`, tenantID, id).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason)
+	`, tenantID, id).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason, &s.FinalizedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sales.Sale{}, nil, nil, common.ErrNotFound
+		}
 		return sales.Sale{}, nil, nil, err
 	}
 	if err := assignSaleMoney(&s, subtotal, discount, total, profit); err != nil {
@@ -57,7 +91,7 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 	}
 
 	itemsRows, err := r.db.Query(ctx, `
-		SELECT id::text, sale_id::text, product_id::text, qty::text, unit_price::text, discount_value::text, subtotal::text, cost_unit::text
+		SELECT id::text, sale_id::text, product_id::text, qty::text, unit_price::text, discount_value::text, subtotal::text, cost_unit::text, return_policy_snapshot, return_days_snapshot
 		FROM sale_items WHERE tenant_id=$1 AND sale_id=$2 ORDER BY created_at
 	`, tenantID, id)
 	if err != nil {
@@ -68,7 +102,7 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 	for itemsRows.Next() {
 		var it sales.SaleItem
 		var qty, unitPrice, discountValue, itemSubtotal, costUnit string
-		if err := itemsRows.Scan(&it.ID, &it.SaleID, &it.ProductID, &qty, &unitPrice, &discountValue, &itemSubtotal, &costUnit); err != nil {
+		if err := itemsRows.Scan(&it.ID, &it.SaleID, &it.ProductID, &qty, &unitPrice, &discountValue, &itemSubtotal, &costUnit, &it.ReturnPolicySnapshot, &it.ReturnDaysSnapshot); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		if err := assignSaleItemNumbers(&it, qty, unitPrice, discountValue, itemSubtotal, costUnit); err != nil {
@@ -80,7 +114,13 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 		return sales.Sale{}, nil, nil, err
 	}
 
-	payRows, err := r.db.Query(ctx, `SELECT id::text, sale_id::text, method, amount::text FROM payments WHERE tenant_id=$1 AND sale_id=$2 ORDER BY created_at`, tenantID, id)
+	payRows, err := r.db.Query(ctx, `
+		SELECT id::text, sale_id::text, method, amount::text, provider, transaction_ref,
+		       authorization_code, installments, reconciliation_status
+		FROM payments
+		WHERE tenant_id=$1 AND sale_id=$2
+		ORDER BY created_at
+	`, tenantID, id)
 	if err != nil {
 		return sales.Sale{}, nil, nil, err
 	}
@@ -89,7 +129,10 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 	for payRows.Next() {
 		var p sales.Payment
 		var amount string
-		if err := payRows.Scan(&p.ID, &p.SaleID, &p.Method, &amount); err != nil {
+		if err := payRows.Scan(
+			&p.ID, &p.SaleID, &p.Method, &amount, &p.Provider, &p.TransactionRef,
+			&p.AuthorizationCode, &p.Installments, &p.ReconciliationStatus,
+		); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		if p.Amount, err = platform.ParseMoney(amount); err != nil {
@@ -114,7 +157,7 @@ func (r *SalesRepo) ListSales(ctx context.Context, tenantID string, limit, offse
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT id::text, cash_session_id::text, customer_id::text, status, subtotal::text, discount_value::text, total::text, profit_estimated::text, created_by_user_id::text, cancel_reason
+		SELECT id::text, cash_session_id::text, customer_id::text, status, subtotal::text, discount_value::text, total::text, profit_estimated::text, created_by_user_id::text, cancel_reason, finalized_at
 		FROM sales
 		WHERE tenant_id=$1
 		ORDER BY created_at DESC
@@ -129,7 +172,7 @@ func (r *SalesRepo) ListSales(ctx context.Context, tenantID string, limit, offse
 	for rows.Next() {
 		var s sales.Sale
 		var subtotal, discount, total, profit string
-		if err := rows.Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason); err != nil {
+		if err := rows.Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason, &s.FinalizedAt); err != nil {
 			return nil, 0, err
 		}
 		if err := assignSaleMoney(&s, subtotal, discount, total, profit); err != nil {
@@ -150,6 +193,16 @@ func (r *SalesRepo) HasInvoiceForSale(ctx context.Context, tx db.DBTX, tenantID 
 	return exists, err
 }
 
+func (r *SalesRepo) HasReturnsForSale(ctx context.Context, tx db.DBTX, tenantID string, id string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM sale_returns WHERE tenant_id=$1 AND sale_id=$2
+		)
+	`, tenantID, id).Scan(&exists)
+	return exists, err
+}
+
 func (r *SalesRepo) CancelSale(ctx context.Context, tx db.DBTX, tenantID string, id string, reason string) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE sales
@@ -163,10 +216,13 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 	var s sales.Sale
 	var subtotal, discount, total, profit string
 	err := tx.QueryRow(ctx, `
-		SELECT id::text, cash_session_id::text, customer_id::text, status, subtotal::text, discount_value::text, total::text, profit_estimated::text, created_by_user_id::text, cancel_reason
+		SELECT id::text, cash_session_id::text, customer_id::text, status, subtotal::text, discount_value::text, total::text, profit_estimated::text, created_by_user_id::text, cancel_reason, finalized_at
 		FROM sales WHERE tenant_id=$1 AND id=$2 FOR UPDATE
-	`, tenantID, id).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason)
+	`, tenantID, id).Scan(&s.ID, &s.CashSessionID, &s.CustomerID, &s.Status, &subtotal, &discount, &total, &profit, &s.CreatedByUserID, &s.CancelReason, &s.FinalizedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sales.Sale{}, nil, nil, common.ErrNotFound
+		}
 		return sales.Sale{}, nil, nil, err
 	}
 	if err := assignSaleMoney(&s, subtotal, discount, total, profit); err != nil {
@@ -174,7 +230,7 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 	}
 
 	itemsRows, err := tx.Query(ctx, `
-		SELECT id::text, sale_id::text, product_id::text, qty::text, unit_price::text, discount_value::text, subtotal::text, cost_unit::text
+		SELECT id::text, sale_id::text, product_id::text, qty::text, unit_price::text, discount_value::text, subtotal::text, cost_unit::text, return_policy_snapshot, return_days_snapshot
 		FROM sale_items WHERE tenant_id=$1 AND sale_id=$2 ORDER BY created_at
 	`, tenantID, id)
 	if err != nil {
@@ -185,7 +241,7 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 	for itemsRows.Next() {
 		var it sales.SaleItem
 		var qty, unitPrice, discountValue, itemSubtotal, costUnit string
-		if err := itemsRows.Scan(&it.ID, &it.SaleID, &it.ProductID, &qty, &unitPrice, &discountValue, &itemSubtotal, &costUnit); err != nil {
+		if err := itemsRows.Scan(&it.ID, &it.SaleID, &it.ProductID, &qty, &unitPrice, &discountValue, &itemSubtotal, &costUnit, &it.ReturnPolicySnapshot, &it.ReturnDaysSnapshot); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		if err := assignSaleItemNumbers(&it, qty, unitPrice, discountValue, itemSubtotal, costUnit); err != nil {
@@ -197,7 +253,13 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 		return sales.Sale{}, nil, nil, err
 	}
 
-	payRows, err := tx.Query(ctx, `SELECT id::text, sale_id::text, method, amount::text FROM payments WHERE tenant_id=$1 AND sale_id=$2 ORDER BY created_at`, tenantID, id)
+	payRows, err := tx.Query(ctx, `
+		SELECT id::text, sale_id::text, method, amount::text, provider, transaction_ref,
+		       authorization_code, installments, reconciliation_status
+		FROM payments
+		WHERE tenant_id=$1 AND sale_id=$2
+		ORDER BY created_at
+	`, tenantID, id)
 	if err != nil {
 		return sales.Sale{}, nil, nil, err
 	}
@@ -206,7 +268,10 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 	for payRows.Next() {
 		var p sales.Payment
 		var amount string
-		if err := payRows.Scan(&p.ID, &p.SaleID, &p.Method, &amount); err != nil {
+		if err := payRows.Scan(
+			&p.ID, &p.SaleID, &p.Method, &amount, &p.Provider, &p.TransactionRef,
+			&p.AuthorizationCode, &p.Installments, &p.ReconciliationStatus,
+		); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		if p.Amount, err = platform.ParseMoney(amount); err != nil {

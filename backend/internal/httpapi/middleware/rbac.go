@@ -34,6 +34,27 @@ func LoadPermissions(auth *authapp.AuthService, logger *slog.Logger) func(http.H
 	}
 }
 
+func HasPermission(ctx context.Context, perm string) bool {
+	perms, _ := ctx.Value(permsKey).(map[string]bool)
+	return perms != nil && perms[perm]
+}
+
+// RequireAnyPermission authorizes an overview for either administrative role.
+// The handler must still pass the individual checked scopes to the query.
+func RequireAnyPermission(codes ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, code := range codes {
+				if HasPermission(r.Context(), code) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			writeMiddlewareError(w, r, http.StatusForbidden, "authorization_error", "permissao insuficiente")
+		})
+	}
+}
+
 func RequirePermission(perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {

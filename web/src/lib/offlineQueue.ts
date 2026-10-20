@@ -1,7 +1,7 @@
 import { APIError, apiJson, errorMessage } from './api'
 import { scopedStorageKey } from './auth'
 
-export type QueueState = 'pending' | 'attention'
+type QueueState = 'pending' | 'attention'
 export type AttentionReason = 'expired' | 'request_rejected' | 'legacy_migration'
 
 export type QueuedRequest = {
@@ -102,6 +102,22 @@ export function getQueueItems(): QueuedRequest[] {
 
 export function getQueueSummary(): QueueSummary {
   const queue = loadQueue()
+  const pending = queue.filter((item) => item.state !== 'attention').length
+  const attention = queue.filter((item) => item.state === 'attention').length
+  return { pending, attention, total: queue.length }
+}
+
+export function getQueueSummaryForCashSession(cashSessionId: string): QueueSummary {
+  const normalized = cashSessionId.trim()
+  if (!normalized) return { pending: 0, attention: 0, total: 0 }
+
+  const queue = loadQueue().filter((item) => {
+    if (!item.path.includes('/api/v1/sales') || !item.body || typeof item.body !== 'object') {
+      return false
+    }
+    const body = item.body as { cash_session_id?: unknown }
+    return body.cash_session_id === normalized
+  })
   const pending = queue.filter((item) => item.state !== 'attention').length
   const attention = queue.filter((item) => item.state === 'attention').length
   return { pending, attention, total: queue.length }
@@ -240,11 +256,6 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
   delete item.lastError
   saveQueue(queue)
   return true
-}
-
-export function clearOfflineQueue(): void {
-  const key = queueKey()
-  if (key) localStorage.removeItem(key)
 }
 
 function sanitizeQueuedHeaders(headers?: Record<string, string>): Record<string, string> {

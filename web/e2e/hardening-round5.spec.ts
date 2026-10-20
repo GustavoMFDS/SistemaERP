@@ -1,11 +1,11 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 async function login(page: import('@playwright/test').Page) {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/products$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 async function waitForCashClosed(page: import('@playwright/test').Page) {
@@ -25,8 +25,8 @@ test('write-ahead storage failure prevents any sale request from leaving the bro
   await login(page)
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
-  await page.getByLabel('Produto').selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Adicionar' }).click()
+  await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
   let salePosts = 0
   await page.route('http://127.0.0.1:8080/api/v1/sales', async (route) => {
@@ -45,8 +45,9 @@ test('write-ahead storage failure prevents any sale request from leaving the bro
     }
   })
 
-  await page.getByRole('button', { name: 'Finalizar' }).click()
-  await expect(page.getByText(/Nenhuma venda foi enviada/)).toBeVisible()
+  await page.getByRole('checkbox', { name: 'Confirmei que o Pix foi recebido.' }).check()
+  await page.getByRole('button', { name: 'Finalizar venda' }).click()
+  await expect(page.getByText(/Nenhuma solicitação de venda foi enviada ao servidor/)).toBeVisible()
   expect(salePosts).toBe(0)
 
   await page.evaluate(() => {

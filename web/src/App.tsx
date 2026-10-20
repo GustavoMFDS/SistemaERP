@@ -2,24 +2,46 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import FinancePage from './pages/FinancePage'
+import ReportsPage from './pages/ReportsPage'
+import HomePage from './pages/HomePage'
 import FiscalPage from './pages/FiscalPage'
 import InventoryPage from './pages/InventoryPage'
+import StockMovementsPage from './pages/StockMovementsPage'
+import UnifiedImportHistoryPage from './pages/UnifiedImportHistoryPage'
 import LoginPage from './pages/LoginPage'
+import StaffPage from './pages/StaffPage'
+import CustomersPage from './pages/CustomersPage'
+import AcceptStaffInvitePage from './pages/AcceptStaffInvitePage'
+import ResetStaffPasswordPage from './pages/ResetStaffPasswordPage'
 import PDVPage from './pages/PDVPage'
 import ProductsPage from './pages/ProductsPage'
+import PurchasesPage from './pages/PurchasesPage'
+import ReturnsPage from './pages/ReturnsPage'
+import SetupPage from './pages/SetupPage'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/accept-invite" element={<AcceptStaffInvitePage />} />
+      <Route path="/reset-password" element={<ResetStaffPasswordPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route index element={<Navigate to="/products" replace />} />
+          <Route index element={<Navigate to="/home" replace />} />
+          <Route path="/home" element={<HomePage />} />
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="/staff" element={<StaffPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
+          <Route path="/stock-movements" element={<StockMovementsPage />} />
+          <Route path="/imports" element={<UnifiedImportHistoryPage />} />
+          <Route path="/purchases" element={<PurchasesPage />} />
+          <Route path="/customers" element={<CustomersPage />} />
+          <Route path="/returns" element={<ReturnsPage />} />
           <Route path="/pdv" element={<PDVPage />} />
           <Route path="/finance" element={<FinancePage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/fiscal" element={<FiscalPage />} />
         </Route>
       </Route>
