@@ -409,7 +409,10 @@ export default function InventoryPage() {
           {pendingOpening ? (
             <div className="mt-3 space-y-2 rounded-md border border-amber-300 p-3 text-sm" role="region" aria-label="Importação pendente de confirmação">
               <p className="font-semibold">Existe uma tentativa de estoque inicial para conferir.</p>
-              <p className="text-xs text-gray-700">Referência: <code>{pendingOpening.key}</code></p>
+              <details className="text-xs text-slate-600">
+                <summary className="cursor-pointer font-medium">Ver código da tentativa</summary>
+                <p className="mt-1">Referência para suporte: <code>{pendingOpening.key}</code></p>
+              </details>
               <p className="text-xs text-gray-600">
                 A planilha não fica salva neste dispositivo. Consulte o servidor primeiro;
                 se a importação não for confirmada, escolha novamente o mesmo arquivo CSV para
