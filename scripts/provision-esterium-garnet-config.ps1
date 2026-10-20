@@ -125,7 +125,7 @@ if (@(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyC
     throw 'The selected Garnet port is occupied.'
 }
 if (-not $Apply) {
-    Write-Output 'PLAN: new protected Garnet JSON with loopback-only TLS, ACL and Lua transactions.'
+    Write-Output 'PLAN: new Garnet JSON with loopback TLS, ACL, Lua, AOF synchronous commit and fail-closed recovery.'
     Write-Output 'PLAN: cert password will exist only in an ACL-protected config, never in a process argument or ZIP.'
     Write-Output 'PLAN: NETWORK SERVICE read-only; SYSTEM and Administrators full control. No changes made.'
     return
@@ -157,12 +157,25 @@ try {
     [IO.Directory]::CreateDirectory($stage) | Out-Null
     & $icacls $stage '/inheritance:r' '/grant:r' '*S-1-5-20:(OI)(CI)RX' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict Garnet config folder ACL.' }
+    # The read-only configuration has separate mutable persistence storage.
+    # The service is NOT started here. Recover=true intentionally prevents
+    # ordinary first-run startup until disposable recovery tests are approved.
+    $state=Join-Path $stage 'state'
+    [IO.Directory]::CreateDirectory($state) | Out-Null
+    & $icacls $state '/inheritance:r' '/grant:r' '*S-1-5-20:(OI)(CI)M' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict Garnet persistence directory ACL.' }
+    [IO.Directory]::CreateDirectory((Join-Path $state 'logs')) | Out-Null
+    [IO.Directory]::CreateDirectory((Join-Path $state 'checkpoints')) | Out-Null
     $config = [ordered]@{
         Address='127.0.0.1'; Port=$Port; EnableCluster=$false
         AuthenticationMode='ACL'; AclFile=$paths['ACL']
         EnableTLS=$true; CertFileName=$paths['PFX']; CertPassword=$password
         EnableLua=$true; LuaTransactionMode=$true
         LuaMemoryManagementMode='Tracked'; LuaScriptMemoryLimit='8m'; LuaScriptTimeoutMs=5000
+        EnableAOF=$true; WaitForCommit=$true; CommitFrequencyMs=0
+        Recover=$true; FailOnRecoveryError=$true; UseAofNullDevice=$false
+        LogDir=(Join-Path $target 'state\logs')
+        CheckpointDir=(Join-Path $target 'state\checkpoints')
     }
     $out = Join-Path $stage 'garnet.conf'
     $bytes = [Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json $config -Depth 3) + [Environment]::NewLine)
@@ -174,7 +187,7 @@ try {
     if (Test-Path -LiteralPath $target) { throw 'Another process created the target.' }
     Move-Item -LiteralPath $stage -Destination $target -ErrorAction Stop
     $committed = $true
-    Write-Output 'PASS: new protected Garnet configuration created; no service or database changed.'
+    Write-Output 'PASS: new protected Garnet configuration and separate AOF data folders created; no service or database changed.'
     Write-Output 'NEXT: install an independently approved Garnet service and verify real TLS/ACL/Lua compatibility before use.'
 } finally {
     $password = $null
