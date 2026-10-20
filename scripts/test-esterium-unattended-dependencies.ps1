@@ -10,7 +10,12 @@ $tool=Join-Path $PSScriptRoot 'install-esterium-local-dependencies.ps1'
 $tokens=$null
 $parseErrors=$null
 [Management.Automation.Language.Parser]::ParseFile($tool,[ref]$tokens,[ref]$parseErrors) | Out-Null
-if (@($parseErrors).Count -gt 0) { throw 'Unattended install script PowerShell parser failed.' }
+if (@($parseErrors).Count -gt 0) {
+    $details=(@($parseErrors) | ForEach-Object {
+        'line '+$_.Extent.StartLineNumber+': '+$_.Message
+    }) -join '; '
+    throw ('Unattended install script PowerShell parser failed: '+$details)
+}
 $testId=[Guid]::NewGuid().ToString('N').Substring(0,10)
 $root=Join-Path $env:RUNNER_TEMP ('esterium-install-'+$testId)
 $pg=Join-Path $root 'postgresql-16.exe'
