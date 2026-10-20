@@ -21,6 +21,6 @@ test('compras mostram totais em reais com vírgula e separador de milhar', async
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await page.goto('/purchases')
-  await expect(page.getByRole('heading', { name: 'Compras' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Compras', exact: true })).toBeVisible()
   await expect(page.getByRole('cell', { name: /1\.234,50/ })).toBeVisible()
 })
