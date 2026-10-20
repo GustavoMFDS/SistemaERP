@@ -10,7 +10,8 @@ param(
     [string]$DailyAt = '02:00',
     [switch]$Apply,
     [string]$ApprovedManifestSHA256 = '',
-    [string]$TrustedPublisherThumbprint = ''
+    [string]$TrustedPublisherThumbprint = '',
+    [switch]$UnsignedDisposableCIFixture
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -22,12 +23,18 @@ if (-not [IO.Path]::IsPathRooted($ConfigFile) -or
     -not (Test-Path -LiteralPath $ConfigFile -PathType Leaf)) {
     throw 'Backup configuration must be an existing absolute file.'
 }
+if ($UnsignedDisposableCIFixture -and (
+    $env:GITHUB_ACTIONS -ne 'true' -or
+    $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:ESTERIUM_SCM_DISPOSABLE_CI -ne '1')) {
+    throw 'Unsigned task-registration fixture requires disposable hosted Windows SCM CI.'
+}
 $configPath = [IO.Path]::GetFullPath($ConfigFile)
 $installPath = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\', '/')
 # Registering even a DISABLED task creates a privileged future entry point.
 # Demand an independently approved, fully signed installed bundle before
 # invoking any helper in this elevated registration flow.
-if ($Apply) {
+if ($Apply -and -not $UnsignedDisposableCIFixture) {
     if ($ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
         $TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
         throw 'Backup registration requires independent release SHA-256 and approved publisher thumbprint.'
@@ -78,7 +85,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 if (-not (Test-Path -LiteralPath $installPath -PathType Container)) {
     throw 'Esterium installation is missing.'
 }
-# Validate the whole installed bundle, including the protected task scripts.
+# Production uses the independently approved publisher above. The only
+# unsigned path is a synthetic GitHub-hosted disposable SCM/Task Scheduler
+# fixture with no PostgreSQL backup, SMB connection or production data.
+# Always verify the staged test bundle SHA-256 before creating a task.
 & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $installPath | Out-Null
 $installedRunner = Join-Path $installPath 'tools\run-esterium-scheduled-backup.ps1'
 if (-not (Test-Path -LiteralPath $installedRunner -PathType Leaf)) {
