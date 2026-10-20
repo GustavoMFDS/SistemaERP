@@ -190,8 +190,9 @@ try {
         ExternalBackupDir=$external; TechnicalUnsignedPlan=$true; SyntheticCIFixture=$true
     }
     $result = @(& $plan @planParameters 3>$null) -join ' '
-    if ($result -notmatch 'PASS: read-only technical upgrade gate') {
-        throw 'Valid upgrade plan was rejected.'
+    if ($result -notmatch 'PASS: read-only technical upgrade gate' -or
+        $result -notmatch 'DATABASE MIGRATION REQUIRED: 1 new version') {
+        throw 'Valid upgrade plan did not distinguish a new database migration from an app-only update.'
     }
     if (-not (Test-Path -LiteralPath (Join-Path $installed 'esterium-server.exe'))) {
         throw 'Upgrade plan modified the installed binary.'
@@ -229,8 +230,9 @@ try {
     Remove-Item -LiteralPath (Join-Path $candidate 'bundle-manifest.json') -Force
     & $manifestWriter -BundleDir $candidate | Out-Null
     $uiOnly = @(& $plan @planParameters 3>$null) -join ' '
-    if ($uiOnly -notmatch 'PASS: read-only technical upgrade gate') {
-        throw 'Upgrade plan rejected a valid UI-only release.'
+    if ($uiOnly -notmatch 'PASS: read-only technical upgrade gate' -or
+        $uiOnly -notmatch 'no new SQL migration files') {
+        throw 'Upgrade plan misidentified a valid UI-only release as a schema migration.'
     }
     # Identical verified packages are a no-op and must not be presented as an upgrade.
     [IO.File]::WriteAllText((Join-Path $candidate 'web\index.html'), 'synthetic UI, not executable')
