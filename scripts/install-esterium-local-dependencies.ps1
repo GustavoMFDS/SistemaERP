@@ -214,46 +214,50 @@ if ((Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash -cne
     throw 'Wrapper de serviço foi alterado antes da instalação.'
 }
 Write-Output '1/3: instalando PostgreSQL 16 sem interface...'
+$proc=$null
 try {
-    # Passwords stay inside the protected option file; never pass in argv.
-    $proc=Start-Process -FilePath $pg -ArgumentList @('--mode','unattended','--unattendedmodeui','none','--optionfile',('"' + $options + '"')) -Wait -PassThru
+    # Passwords stay in the restricted EDB option file, not shell arguments.
+    $proc=Start-Process -FilePath $pg -ArgumentList @('--mode','unattended','--unattendedmodeui','none','--optionfile',('"' + $options + '"')) -Wait -PassThru -ErrorAction Stop
 } finally {
-    # EDB reads plaintext bootstrap passwords. Do not retain another copy.
-    if (Test-Path -LiteralPath $options) {
-        Remove-Item -LiteralPath $options -Force -ErrorAction Stop
+    # Even a partially failed EDB installer may have registered an *automatic*
+    # database service. Disable/stop this newly selected service before any
+    # filesystem/version checks, including when Start-Process itself throws.
+    try {
+        if (Test-Path -LiteralPath $options) {
+            Remove-Item -LiteralPath $options -Force -ErrorAction Stop
+        }
+    } finally {
+        $newService=Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue
+        if ($null -ne $newService) {
+            try {
+                Set-Service -Name $PostgresServiceName -StartupType Manual -ErrorAction Stop
+                if ($newService.Status -ne 'Stopped') {
+                    Stop-Service -Name $PostgresServiceName -ErrorAction Stop
+                    (Get-Service -Name $PostgresServiceName -ErrorAction Stop).WaitForStatus(
+                        [ServiceProcess.ServiceControllerStatus]::Stopped,
+                        [TimeSpan]::FromSeconds(45))
+                }
+            } catch {
+                throw 'Falha ao proteger PostgreSQL parcial: verifique serviço e rede antes de prosseguir.'
+            }
+        }
     }
 }
-if ($proc.ExitCode -ne 0) {
-    throw ('EDB retornou '+$proc.ExitCode+'. Possível instalação parcial; preservar dados e investigar.')
+if ($null -eq $proc -or $proc.ExitCode -ne 0) {
+    throw 'Instalador EDB não concluiu: conferir serviço/dados parciais; não reinstalar automaticamente.'
 }
 if (-not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_isready.exe')) -or
     -not (Test-Path -LiteralPath (Join-Path $pgData 'PG_VERSION')) -or
-    ([IO.File]::ReadAllText((Join-Path $pgData 'PG_VERSION')).Trim() -cne '16') -or
+    ([IO.File]::ReadAllText((Join-Path $pgData 'PG_VERSION')).Trim() -cne '16' -or
     $null -eq (Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue)) {
-    throw 'PostgreSQL não confirmou serviço, binários e cluster versão 16.'
+    throw 'PostgreSQL não confirmou serviço, binários e cluster versão 16. Serviço permanece parado.'
 }
-$nonLocalListener=$false
-$foundPgListener=$false
-foreach ($listener in @(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue)) {
-    $foundPgListener=$true
-    if ([string]$listener.LocalAddress -notin @('127.0.0.1','::1')) {
-        $nonLocalListener=$true
-    }
+# A listener should not survive shutdown; reject a port still occupied
+# instead of inferring that the new service is ready for production.
+if (@(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
+    throw 'A porta PostgreSQL ainda está ocupada após o desligamento: revisar identidade do processo.'
 }
-# EDB can register a service as Automatic. Do not leave an un-hardened
-# bootstrap cluster running or ready to start at the next reboot.
-try {
-    Set-Service -Name $PostgresServiceName -StartupType Manual -ErrorAction Stop
-    if ((Get-Service -Name $PostgresServiceName).Status -ne 'Stopped') {
-        Stop-Service -Name $PostgresServiceName -ErrorAction Stop
-    }
-} catch {
-    Stop-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue
-    throw 'Não foi possível deixar o PostgreSQL parado e com início manual; revisar serviço antes de usar.'
-}
-if ($nonLocalListener -or -not $foundPgListener) {
-    throw 'PostgreSQL não abriu exclusivamente a porta local esperada durante bootstrap; serviço parado e bloqueado.'
-}
+Write-Output 'PASS 1/3: PostgreSQL 16 instalado, serviço manual e parado para configuração de TLS/SCRAM.'
 Write-Output '2/3: instalando binários e serviço Garnet...'
 $stage=$garnetDir+'.staging-'+[Guid]::NewGuid().ToString('N')
 $published=$false
