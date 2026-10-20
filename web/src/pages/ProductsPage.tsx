@@ -80,6 +80,9 @@ export default function ProductsPage() {
   const [importDigest, setImportDigest] = useState('')
   const [importScope, setImportScope] = useState('')
   const [pendingImport, setPendingImport] = useState<PendingProductImport | null>(null)
+  // A catalog refresh can clear generic page errors. Keep reconciliation
+  // feedback tied to this exact pending receipt until the operator acts.
+  const [pendingLookupStatus, setPendingLookupStatus] = useState<{ key: string; message: string } | null>(null)
   const [historyRefresh, setHistoryRefresh] = useState(0)
 
   const [sku, setSku] = useState('')
@@ -435,11 +438,13 @@ export default function ProductsPage() {
     const pending = readPendingProductImport()
     if (!pending) {
       setPendingImport(null)
+      setPendingLookupStatus(null)
       setError('Nenhuma referência de importação válida foi encontrada nesta conta e loja.')
       return
     }
     const scope = getSessionScope()
     setImporting(true)
+    setPendingLookupStatus(null)
     setError('')
     setImportResult('')
     try {
@@ -458,9 +463,12 @@ export default function ProductsPage() {
       await load()
     } catch (e: unknown) {
       if (scope !== getSessionScope()) return
-      setError(e instanceof APIError && e.status === 404
-        ? 'Este lote ainda não aparece como confirmado no servidor. Uma requisição anterior pode estar em andamento. Selecione o mesmo CSV para reutilizar a chave e tentar novamente.'
-        : `Falha ao consultar o lote: ${errorMessage(e)}. Preserve a referência até esclarecer a situação.`)
+      setPendingLookupStatus({
+        key: pending.key,
+        message: e instanceof APIError && e.status === 404
+          ? 'Este lote ainda não aparece como confirmado no servidor. Uma requisição anterior pode estar em andamento. Selecione o mesmo CSV para reutilizar a chave e tentar novamente.'
+          : `Falha ao consultar o lote: ${errorMessage(e)}. Preserve a referência até esclarecer a situação.`,
+      })
     } finally {
       setImporting(false)
     }
@@ -711,6 +719,11 @@ export default function ProductsPage() {
                 A planilha não fica salva aqui. Consulte o servidor. Caso não tenha sido confirmada,
                 escolha novamente o mesmo arquivo para reutilizar a chave original.
               </p>
+              {pendingLookupStatus?.key === pendingImport.key ? (
+                <p role="status" className="mt-2 rounded-md bg-amber-50 p-2 text-sm text-amber-900">
+                  {pendingLookupStatus.message}
+                </p>
+              ) : null}
               <div className="mt-2 flex flex-wrap gap-2">
                 <button type="button" disabled={importing} onClick={() => void checkPendingProductImport()}
                   className="rounded-md border border-blue-300 px-3 py-2 text-sm disabled:opacity-50">
