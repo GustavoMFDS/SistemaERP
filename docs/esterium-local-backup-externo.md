@@ -50,7 +50,11 @@ grupo autorizado é rejeitado, inclusive Users/Everyone/Authenticated Users.
 
 O executor recusa banco fora de loopback, exige TLS PostgreSQL com
 PGSSLMODE=verify-full, ferramentas PostgreSQL existentes, arquivo de senha
-protegido, e destino externo SMB em outra máquina. A execução faz backup,
+protegido, e destino externo SMB em outra máquina. O certificado
+`PGSSLROOTCERT` também deve ser um arquivo físico, sem link simbólico nem
+permissão de escrita/exclusão/alteração de acesso para contas que não sejam
+SYSTEM ou Administradores. Como a CA não contém segredo, somente a **leitura**
+por outros usuários pode ser permitida; a capacidade de substituir a CA não. A execução faz backup,
 cópia remota obrigatória e verificação SHA-256/frescor. Configurações inválidas
 falham sem fazer dump; falhas do backup não são convertidas em sucesso.
 
