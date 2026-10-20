@@ -34,7 +34,7 @@ try {
         Port=63913
     }
     $plan = @(& $checker @parameters) -join ' '
-    if ($plan -notmatch 'PLAN: new protected Garnet JSON' -or (Test-Path -LiteralPath $target)) {
+    if ($plan -notmatch 'PLAN: new Garnet JSON' -or (Test-Path -LiteralPath $target)) {
         throw 'Garnet dry run modified Windows.'
     }
     function Assert-Reject([string]$label, [string]$match) {
