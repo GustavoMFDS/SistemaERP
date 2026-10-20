@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { apiJson } from '../lib/api'
 import { buildSetupSteps, nextSetupAttention, summarizeSetupSteps, type FiscalReadinessData, type SetupStepKey, type SetupSnapshot, type SetupStatus } from '../lib/setupProgress'
 
 type Me = { id: string; tenant_id: string; name: string; email: string; roles: string[]; permissions: string[] }
@@ -126,30 +126,30 @@ export default function SetupPage() {
       if (permissions.has('product:read')) {
         jobs.push(apiJson<{ total: number }>('/api/v1/products?limit=1&offset=0')
           .then((response) => { if (isCurrent()) setProductsTotal(response.total) })
-          .catch((err: unknown) => { problems.push('Produtos: ' + errorMessage(err)) }))
+          .catch(() => { problems.push('Produtos: não foi possível conferir os cadastros.') }))
       }
       if (permissions.has('inventory:read')) {
         jobs.push(apiJson<{ total: number }>('/api/v1/inventory/movements?limit=1&offset=0')
           .then((response) => { if (isCurrent()) setStockMovementsTotal(response.total) })
-          .catch((err: unknown) => { problems.push('Estoque: ' + errorMessage(err)) }))
+          .catch(() => { problems.push('Estoque: não foi possível conferir as movimentações.') }))
       }
       if (permissions.has('invoice:generate')) {
         jobs.push(apiJson<ReviewResponse>('/api/v1/setup/reviews')
           .then((response) => { if (isCurrent()) setReviews(reviewDates(response)) })
-          .catch((err: unknown) => { problems.push('Revisões do assistente: ' + errorMessage(err)) }))
+          .catch(() => { problems.push('Revisões da loja: não foi possível conferir as etapas revisadas.') }))
       }
       if (permissions.has('invoice:read')) {
         jobs.push(apiJson<FiscalReadinessData>('/api/v1/fiscal/nfce/readiness')
           .then((response) => { if (isCurrent()) setReadiness(response) })
-          .catch((err: unknown) => { problems.push('Nota ao consumidor: ' + errorMessage(err)) }))
+          .catch(() => { problems.push('Nota ao consumidor: não foi possível conferir os dados de preparação.') }))
         jobs.push(apiJson<Issuer>('/api/v1/fiscal/nfce/issuer')
           .then((response) => { if (isCurrent()) { setIssuer(response); setFields(issuerFields(response)) } })
-          .catch((err: unknown) => { problems.push('Dados da empresa: ' + errorMessage(err)) }))
+          .catch(() => { problems.push('Dados da empresa: não foi possível consultar o cadastro.') }))
       }
       await Promise.all(jobs)
       if (isCurrent()) setWarnings(problems)
-    } catch (err: unknown) {
-      if (isCurrent()) setError('Não foi possível identificar a loja e suas permissões: ' + errorMessage(err))
+    } catch {
+      if (isCurrent()) setError('Não foi possível verificar seus acessos nesta loja. Confira sua conexão e tente novamente.')
     } finally {
       if (isCurrent()) setLoading(false)
     }
@@ -186,8 +186,8 @@ export default function SetupPage() {
       })
       await refresh()
       setMessage('Dados fiscais salvos para a loja atual. Confira as próximas etapas.')
-    } catch (err: unknown) {
-      setError('Não foi possível salvar os dados da loja: ' + errorMessage(err))
+    } catch {
+      setError('Não foi possível salvar os dados da loja. Confira as informações com o responsável e tente novamente.')
     } finally {
       setSaving(false)
     }
@@ -208,8 +208,8 @@ export default function SetupPage() {
       })
       setReviews(reviewDates(response))
       setMessage(reviewed ? 'Revisão registrada no servidor para esta empresa.' : 'Revisão reaberta para esta empresa.')
-    } catch (err: unknown) {
-      setError('Não foi possível atualizar a revisão: ' + errorMessage(err))
+    } catch {
+      setError('Não foi possível guardar essa revisão. Confira sua conexão e tente novamente.')
     } finally {
       setSaving(false)
     }
@@ -255,7 +255,7 @@ export default function SetupPage() {
       {message ? <p role="status" className="mt-3 rounded-md border border-green-200 p-3 text-sm text-green-700">{message}</p> : null}
       {warnings.length > 0 ? (
         <div role="alert" className="mt-3 rounded-md border border-amber-200 p-3 text-sm">
-          <p className="font-medium">Algumas verificações não puderam ser concluídas:</p>
+          <p className="font-medium">Não conseguimos conferir todas as informações. Você pode tentar novamente:</p>
           <ul className="mt-1 list-disc pl-5">{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
         </div>
       ) : null}
@@ -414,7 +414,7 @@ export default function SetupPage() {
                       <div>
                         <p className="font-medium">Pendências informadas pelo servidor:</p>
                         <ul className="mt-1 list-disc pl-5">
-                          {readiness.blocking_reasons.map((code) => <li key={code}>{blockers[code] ?? 'Verificação fiscal: ' + code}</li>)}
+                          {readiness.blocking_reasons.map((code) => <li key={code}>{blockers[code] ?? 'Existe uma verificação fiscal que precisa de orientação do responsável.'}</li>)}
                         </ul>
                       </div>
                     ) : <p className="text-amber-800">Não há bloqueios de dados relatados. Isso não confirma homologação nem autorização de emissão.</p>}
