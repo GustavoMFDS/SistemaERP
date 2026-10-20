@@ -11,11 +11,35 @@ param(
     [Parameter(Mandatory=$true)][string]$CertificatePasswordFile,
     [string]$DestinationDir = (Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
     [ValidateRange(1,65535)][int]$Port = 6379,
-    [switch]$Apply
+    [switch]$Apply,
+    [string]$TrustedPublisherThumbprint = '',
+    [switch]$UnsignedDisposableCIFixture
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'Garnet config tool requires Windows.' }
+# A direct -Apply bypasses the signed orchestration script. Each helper
+# therefore authenticates its own publisher before reading private inputs
+# or creating new credential/configuration files.
+if ($UnsignedDisposableCIFixture -and (
+    $env:GITHUB_ACTIONS -ne 'true' -or
+    $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:ESTERIUM_DEPENDENCY_CONFIG_DISPOSABLE_CI -ne '1')) {
+    throw 'Unsigned configuration fixture requires isolated GitHub-hosted Windows CI.'
+}
+if ($Apply -and -not $UnsignedDisposableCIFixture) {
+    if ($TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
+        throw 'Garnet configuration requires an independently approved publisher identity.'
+    }
+    $signature = Get-AuthenticodeSignature -LiteralPath $PSCommandPath
+    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+        $null -eq $signature.SignerCertificate -or
+        $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
+            $TrustedPublisherThumbprint.ToUpperInvariant()) {
+        throw 'Garnet configuration requires the original helper signed by the approved publisher.'
+    }
+}
+
 $base = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')
 $target = [IO.Path]::GetFullPath($DestinationDir).TrimEnd('\')
 if (-not [IO.Path]::IsPathRooted($DestinationDir) -or
