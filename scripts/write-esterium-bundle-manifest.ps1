@@ -43,6 +43,7 @@ $requiredTools = @(
     'tools/prepare-esterium-local-dependency-configs.ps1',
     'tools/install-esterium-local-dependencies.ps1',
     'tools/provision-esterium-dependency-bootstrap.ps1',
+    'tools/setup-esterium-local-dependencies.ps1',
     'tools/check-esterium-postgres-tls-policy.ps1',
     'tools/esterium-migrate.exe',
     'README_LOCAL.md'
