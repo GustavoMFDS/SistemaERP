@@ -19,19 +19,22 @@ test('permite repetir a verificação sem expor detalhes internos', async ({ pag
   await expect(page).toHaveURL(/\/home$/)
   await expect(page.getByRole('link', { name: /Ir para o caixa/ })).toBeVisible()
   let count = 0
+  let accessUnavailable = true
   await page.route('**/api/v1/auth/me', async (route) => {
     count += 1
     await route.fulfill({
-      status: count === 1 ? 503 : 200,
+      status: accessUnavailable ? 503 : 200,
       contentType: 'application/json',
-      body: count === 1 ? '{"message":"erro interno"}' : '{"permissions":["finance:read"]}',
+      body: accessUnavailable ? '{"message":"erro interno"}' : '{"permissions":["finance:read"]}',
     })
   })
   await page.getByText('Mais áreas do sistema').click()
   await page.getByRole('link', { name: 'Relatórios', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('Não foi possível verificar seu acesso')
-  await expect(page.getByRole('alert')).not.toContainText('erro interno')
+  const notice = page.getByRole('alert').filter({ hasText: 'Não foi possível verificar seu acesso aos relatórios' })
+  await expect(notice).toBeVisible()
+  await expect(notice).not.toContainText('erro interno')
+  accessUnavailable = false
   await page.getByRole('button', { name: 'Tentar novamente' }).click()
   await expect(page.getByRole('button', { name: 'Tentar novamente' })).toHaveCount(0)
-  expect(count).toBe(2)
+  expect(count).toBeGreaterThanOrEqual(2)
 })

@@ -250,7 +250,7 @@ test('logout is blocked while offline finalized sales are preserved', async ({ p
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/home$/)
   await expect(
-    page.getByText(/Não é possível sair enquanto existirem 1 venda\(s\) offline preservada\(s\)/),
+    page.getByText(/Há 1 venda\(s\) guardada\(s\) neste dispositivo/),
   ).toBeVisible()
   expect(logoutCalls).toBe(0)
 
@@ -305,7 +305,7 @@ test('legacy offline queue blocks cash close until explicitly reviewed', async (
   }, cashSessionId)
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
-  await expect(page.getByText(/fila offline legada ainda não revisada/)).toBeVisible()
+  await expect(page.getByText(/registro\(s\) antigo\(s\) neste dispositivo/)).toBeVisible()
 
   const stillOpen = await page.evaluate(async () => {
     const { getCashSessionId } = await import('/src/lib/auth.ts')
@@ -356,7 +356,7 @@ test('logout is blocked while legacy offline work is unresolved', async ({ page 
 
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page).toHaveURL(/\/home$/)
-  await expect(page.getByText(/fila offline legada ainda não revisada/)).toBeVisible()
+  await expect(page.getByText(/registro\(s\) antigo\(s\) neste dispositivo/)).toBeVisible()
   expect(logoutCalls).toBe(0)
 
   await page.evaluate(async () => {
