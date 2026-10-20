@@ -8,7 +8,9 @@ param(
     [Parameter(Mandatory = $true)][string]$ConfigFile,
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'EsteriumERP'),
     [string]$DailyAt = '02:00',
-    [switch]$Apply
+    [switch]$Apply,
+    [string]$ApprovedManifestSHA256 = '',
+    [string]$TrustedPublisherThumbprint = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -21,9 +23,36 @@ if (-not [IO.Path]::IsPathRooted($ConfigFile) -or
     throw 'Backup configuration must be an existing absolute file.'
 }
 $configPath = [IO.Path]::GetFullPath($ConfigFile)
+$installPath = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\', '/')
+# Registering even a DISABLED task creates a privileged future entry point.
+# Demand an independently approved, fully signed installed bundle before
+# invoking any helper in this elevated registration flow.
+if ($Apply) {
+    if ($ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
+        $TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
+        throw 'Backup registration requires independent release SHA-256 and approved publisher thumbprint.'
+    }
+    $gateScript = Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'
+    $approvalScripts = @(
+        $PSCommandPath,
+        $gateScript,
+        (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1'),
+        (Join-Path $PSScriptRoot 'run-esterium-scheduled-backup.ps1')
+    )
+    foreach ($scriptPath in $approvalScripts) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $scriptPath
+        if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+            $null -eq $signature.SignerCertificate -or
+            $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
+                $TrustedPublisherThumbprint.ToUpperInvariant()) {
+            throw 'Backup registration requires signed scripts from the independently approved publisher.'
+        }
+    }
+    & $gateScript -BundleDir $installPath -ExpectedManifestSHA256 $ApprovedManifestSHA256 `
+        -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
+}
 $runnerForCheck = Join-Path $PSScriptRoot 'run-esterium-scheduled-backup.ps1'
 & $runnerForCheck -ConfigFile $configPath -CheckOnly | Out-Null
-$installPath = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\', '/')
 $programFilesRoot = [IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\', '/')
 if (-not $installPath.StartsWith($programFilesRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'InstallDir must be a dedicated subdirectory of Program Files.'
