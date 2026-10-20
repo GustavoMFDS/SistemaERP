@@ -317,7 +317,7 @@ try {
         $newService=Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue
         if ($null -ne $newService) {
             try {
-                Set-Service -Name $PostgresServiceName -StartupType Manual -ErrorAction Stop
+                Set-Service -Name $PostgresServiceName -StartupType Disabled -ErrorAction Stop
                 if ($newService.Status -ne 'Stopped') {
                     Stop-Service -Name $PostgresServiceName -ErrorAction Stop
                     (Get-Service -Name $PostgresServiceName -ErrorAction Stop).WaitForStatus(
@@ -344,7 +344,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_isready.exe')) -or
 if (@(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'A porta PostgreSQL ainda está ocupada após o desligamento: revisar identidade do processo.'
 }
-Write-Output 'PASS 1/3: PostgreSQL 16 instalado, serviço manual e parado para configuração de TLS/SCRAM.'
+Write-Output 'PASS 1/3: PostgreSQL 16 instalado, serviço desabilitado e parado para configuração de TLS/SCRAM.'
 Write-Output '2/3: instalando binários e serviço Garnet...'
 $stage=$garnetDir+'.staging-'+[Guid]::NewGuid().ToString('N')
 $published=$false
@@ -388,7 +388,7 @@ try {
     $created=$true
     foreach ($command in @(
         @('set',$GarnetServiceName,'ObjectName','NT AUTHORITY\NetworkService'),
-        @('set',$GarnetServiceName,'Start','SERVICE_DEMAND_START'),
+        @('set',$GarnetServiceName,'Start','SERVICE_DISABLED'),
         @('set',$GarnetServiceName,'AppDirectory',(Split-Path -Parent $garnetExe)),
         @('set',$GarnetServiceName,'AppExit','Default','Restart'),
         @('set',$GarnetServiceName,'AppRestartDelay','5000')
@@ -400,7 +400,7 @@ try {
     if ($null -eq $service -or $service.StartName -notin @('NT AUTHORITY\NetworkService','NT AUTHORITY\NETWORK SERVICE')) {
         throw 'Garnet não está sob conta NETWORK SERVICE.'
     }
-    Write-Output 'PASS 3/3: PostgreSQL instalado e Garnet registrado parado, sem ativar banco ou PDV.'
+    Write-Output 'PASS 3/3: PostgreSQL instalado e Garnet registrado desabilitado e parado, sem ativar banco ou PDV.'
     Write-Output 'GATE: ainda são necessários TLS/SCRAM/HBA PostgreSQL, usuários SQL, migrações e testes reais de ACL/Lua.'
 } catch {
     if ($created) {
