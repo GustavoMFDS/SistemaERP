@@ -206,6 +206,13 @@ if (-not $Apply) {
     Write-Output 'NEXT: -Apply instalará EDB silenciosamente e registrará Garnet parado (ainda sem banco/schema TLS comercial).'
     return
 }
+# Revalidate trusted third-party artifacts immediately before execution.
+# A previous PLAN approval cannot authorize a different EXE at Apply time.
+& $checker @packageArgs | Out-Null
+if ((Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash -cne
+    $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
+    throw 'Wrapper de serviço foi alterado antes da instalação.'
+}
 Write-Output '1/3: instalando PostgreSQL 16 sem interface...'
 try {
     # Passwords stay inside the protected option file; never pass in argv.
@@ -226,7 +233,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_isready.exe')) -or
     throw 'PostgreSQL não confirmou serviço, binários e cluster versão 16.'
 }
 $nonLocalListener=$false
+$foundPgListener=$false
 foreach ($listener in @(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue)) {
+    $foundPgListener=$true
     if ([string]$listener.LocalAddress -notin @('127.0.0.1','::1')) {
         $nonLocalListener=$true
     }
@@ -242,8 +251,8 @@ try {
     Stop-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue
     throw 'Não foi possível deixar o PostgreSQL parado e com início manual; revisar serviço antes de usar.'
 }
-if ($nonLocalListener) {
-    throw 'PostgreSQL abriu porta fora do computador durante bootstrap; serviço parado e bloqueado para ajuste de rede.'
+if ($nonLocalListener -or -not $foundPgListener) {
+    throw 'PostgreSQL não abriu exclusivamente a porta local esperada durante bootstrap; serviço parado e bloqueado.'
 }
 Write-Output '2/3: instalando binários e serviço Garnet...'
 $stage=$garnetDir+'.staging-'+[Guid]::NewGuid().ToString('N')
