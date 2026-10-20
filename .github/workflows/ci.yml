@@ -115,6 +115,9 @@ jobs:
       - name: Prepare combined PostgreSQL and Garnet new-install configuration in disposable Windows CI
         shell: pwsh
         run: ./scripts/test-esterium-local-dependency-configs.ps1
+      - name: Audit dry-run of offline PostgreSQL and Garnet installation (never run third-party binaries)
+        shell: pwsh
+        run: ./scripts/test-esterium-unattended-dependencies.ps1
       - name: Validate static local-only TLS/SCRAM PostgreSQL config using fake Windows files
         shell: pwsh
         run: ./scripts/test-esterium-postgres-tls-policy.ps1
