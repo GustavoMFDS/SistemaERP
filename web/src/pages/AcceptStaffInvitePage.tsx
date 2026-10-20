@@ -89,7 +89,7 @@ export default function AcceptStaffInvitePage() {
             <form onSubmit={(event) => void submit(event)} className="mt-4 space-y-3">
               <PasswordField
                 id="invite-password"
-                label="Criar senha"
+                label="Criar senha (12 a 72 caracteres)"
                 value={password}
                 onChange={(value) => { setPassword(value); setError('') }}
                 autoComplete="new-password"
