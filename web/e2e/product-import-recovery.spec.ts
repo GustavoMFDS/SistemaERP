@@ -90,7 +90,7 @@ test('lote mantém idempotency key entre recarga, bloqueia CSV alterado e não d
   )).toBe(1)
 
   await upload(page, changed)
-  await expect(page.getByText(/importação pendente/i).last()).toBeVisible()
+  await expect(section.getByRole('status')).toContainText('Há uma importação pendente')
   await expect(page.getByRole('button', { name: /Confirmar importação de 1 produto/ })).toHaveCount(0)
   await upload(page, sample)
   await page.getByRole('button', { name: /Confirmar importação de 1 produto/ }).click()
