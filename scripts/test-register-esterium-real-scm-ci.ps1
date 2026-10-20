@@ -122,6 +122,30 @@ try {
     $removeReader = & icacls.exe $weakSecret '/remove' ("*" + $currentSid) 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Could not remove synthetic extra credential reader: $removeReader" }
     Write-Output 'PASS: SCM refuses mutable secrets and direct read access by unrelated users before registration.'
+    # Late installed-file tampering must be detected BEFORE even creating
+    # the disposable SCM service, despite a verified staging manifest.
+    $tamperInstall = Join-Path $env:ProgramFiles "EsteriumERP-CI-tampered-$guid"
+    $tamperArgs = $arguments.Clone()
+    $tamperArgs.InstallDir = $tamperInstall
+    $tamperDenied = $false
+    $env:ESTERIUM_TEST_TAMPER_INSTALLED_BUNDLE = '1'
+    try {
+        try { & $registrar @tamperArgs | Out-Null }
+        catch { $tamperDenied = $_.Exception.Message -match 'Bundle file SHA-256 mismatch' }
+    } finally {
+        Remove-Item Env:ESTERIUM_TEST_TAMPER_INSTALLED_BUNDLE -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $tamperInstall) {
+            Remove-Item -LiteralPath $tamperInstall -Recurse -Force
+        }
+    }
+    if (-not $tamperDenied) { throw 'SCM registrar accepted tampering after moving the staged installation.' }
+    $scQueryAfterTamper = & $sc query EsteriumERP 2>$null
+    $noServiceAfterTamper = ($LASTEXITCODE -eq 1060)
+    $global:LASTEXITCODE = 0
+    if (-not $noServiceAfterTamper) {
+        throw 'SCM service was created before the final installation passed integrity verification.'
+    }
+    Write-Output 'PASS: corrupted final install refused before the Windows service was created.'
     # Exercise an actual SCM create followed by an injected failure.
     # The service must be removed automatically; package/data stay untouched.
     $faultInstall = Join-Path $env:ProgramFiles "EsteriumERP-CI-failed-$guid"
