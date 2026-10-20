@@ -93,6 +93,17 @@ jobs:
         timeout-minutes: 15
         run: ./scripts/test-esterium-signed-release-positive-ci.ps1
 
+  local-garnet-real-aof-smoke:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify pinned official Garnet Windows TLS ACL and AOF recovery after crash
+        shell: pwsh
+        run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
+
   local-backup-integrity-gate:
     runs-on: windows-2025
     steps:
