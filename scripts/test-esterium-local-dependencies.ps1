@@ -105,7 +105,7 @@ try {
     Assert-Reject 'Garnet child in an unrelated OS identity' 'NETWORK SERVICE'
     $global:ESTERIUM_TEST_GARNET_WRONG_OWNER = $false
     $global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $true
-    Assert-Reject 'Garnet child outside the service ancestry' 'not descended from its Windows service'
+    Assert-Reject 'Garnet child outside the service ancestry' 'Unexpected Garnet process'
     $global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $false
     $global:ESTERIUM_TEST_GARNET_WRAPPED = $false
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $true
