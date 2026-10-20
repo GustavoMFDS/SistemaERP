@@ -31,8 +31,9 @@ export default function ResetStaffPasswordPage() {
       : 'Use pelo menos 12 caracteres e evite reutilizar senhas de outros serviços.'
 
   useEffect(() => {
+    const previousTitle = document.title
     document.title = 'Recuperar acesso — Esterium ERP'
-    return () => { initialSecret = '' }
+    return () => { initialSecret = ''; document.title = previousTitle }
   }, [])
 
   async function submit(event: FormEvent) {
@@ -106,7 +107,7 @@ export default function ResetStaffPasswordPage() {
                 <p role="alert" className="text-xs text-red-700">As senhas não são iguais. Confira a confirmação.</p>
               ) : null}
               {error ? (
-                <p role="alert" className="text-sm text-red-700">Não foi possível alterar a senha: {error}.</p>
+                <p role="alert" className="text-sm text-red-700">{error}</p>
               ) : null}
               <button disabled={busy || !password || password !== confirm || !validStaffPassword(password)}
                 className="w-full rounded-md bg-gray-900 px-4 py-2.5 text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
