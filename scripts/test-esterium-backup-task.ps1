@@ -31,7 +31,7 @@ try {
         [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Compress))
     }
     Write-Config
-    foreach ($file in @($configPath, $passPath)) {
+    foreach ($file in @($configPath, $passPath, $cert)) {
         $result = & icacls.exe $file '/inheritance:r' '/grant:r' '*S-1-5-20:R' '*S-1-5-18:F' '*S-1-5-32-544:F' 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Synthetic ACL setup failed: $result" }
     }
@@ -136,6 +136,17 @@ try {
         if ($restored -notmatch 'PASS: protected backup task configuration validated') {
             throw 'Restored read-only NetworkService permission is still rejected.'
         }
+    }
+    # The public TLS root may be readable, but never replaceable by ordinary
+    # Windows users or unrelated service accounts.
+    $aclOutput = & icacls.exe $cert '/grant' '*S-1-5-32-545:W' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic public CA write ACL failed: $aclOutput" }
+    Assert-Reject 'a writable PostgreSQL root CA'
+    $aclOutput = & icacls.exe $cert '/remove:g' '*S-1-5-32-545' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic TLS root ACL cleanup failed: $aclOutput" }
+    $certCheck = @(& $runner -ConfigFile $configPath -CheckOnly) -join ' '
+    if ($certCheck -notmatch 'PASS: protected backup task configuration validated') {
+        throw 'PostgreSQL root CA with secure ACL was unexpectedly rejected.'
     }
     $badTime = $false
     try { & $registration -ConfigFile $configPath -DailyAt '25:90' | Out-Null }
