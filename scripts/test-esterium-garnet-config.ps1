@@ -75,8 +75,27 @@ try {
     if ($config.Address -ne '127.0.0.1' -or $config.AuthenticationMode -ne 'ACL' -or
         -not $config.EnableTLS -or -not $config.EnableLua -or
         -not $config.LuaTransactionMode -or $config.Port -ne 63913 -or
-        $config.CertPassword -ne $fixturePassword) {
+        $config.CertPassword -ne $fixturePassword -or
+        -not $config.EnableAOF -or -not $config.WaitForCommit -or
+        $config.CommitFrequencyMs -ne 0 -or -not $config.Recover -or
+        -not $config.FailOnRecoveryError -or $config.UseAofNullDevice) {
         throw 'Generated Garnet config has unsafe or incomplete settings.'
+    }
+    $state=Join-Path $target 'state'
+    if ($config.LogDir -ne (Join-Path $state 'logs') -or
+        $config.CheckpointDir -ne (Join-Path $state 'checkpoints')) {
+        throw 'AOF data paths do not stay inside the separate protected state tree.'
+    }
+    foreach ($folder in @($state,(Join-Path $state 'logs'),(Join-Path $state 'checkpoints'))) {
+        if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
+            throw 'Missing protected Garnet AOF or checkpoint directory.'
+        }
+        $serviceWrite=@((Get-Acl -LiteralPath $folder).Access | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and
+            $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-20' -and
+            ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::WriteData) -ne 0
+        })
+        if ($serviceWrite.Count -eq 0) { throw 'Garnet cannot persist its security state.' }
     }
     $perms = Get-Acl -LiteralPath $configPath
     $unexpected = @($perms.Access | Where-Object {
