@@ -226,7 +226,7 @@ export default function StaffPage() {
 
   return (
     <div>
-      <h2 className="text-lg font-semibold">Funcionários da loja</h2>
+      <h2 className="text-lg font-semibold">Funcionários e permissões</h2>
       <p className="mt-1 text-sm text-gray-600">
         Veja quem pode usar o sistema e altere o perfil de cada pessoa nesta loja.
         Em um único computador, cada funcionário ainda precisa entrar com seu acesso.
