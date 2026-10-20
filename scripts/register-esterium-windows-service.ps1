@@ -15,12 +15,21 @@ param(
     [string]$TLSCertFile = '',
     [string]$TLSKeyFile = '',
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'EsteriumERP'),
-    [switch]$PlanOnly
+    [switch]$PlanOnly,
+    [string]$ApprovedManifestSHA256 = '',
+    [string]$TrustedPublisherThumbprint = '',
+    [switch]$UnsignedDisposableCIFixture
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 if ($env:OS -ne 'Windows_NT') { throw 'Esterium Windows service installation requires Windows.' }
+if ($UnsignedDisposableCIFixture -and (
+    $env:GITHUB_ACTIONS -ne 'true' -or
+    $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:ESTERIUM_SCM_DISPOSABLE_CI -ne '1')) {
+    throw 'Unsigned service registration fixture requires disposable hosted Windows SCM CI.'
+}
 $serviceName = 'EsteriumERP'
 $origin = $null
 if (-not [Uri]::TryCreate($AllowedOrigin, [UriKind]::Absolute, [ref]$origin) -or
@@ -59,6 +68,28 @@ if (-not $isLoopback -and -not $hasTLSCert) {
     throw 'Non-loopback LAN listeners require an external TLS certificate and private key.'
 }
 $source = (Resolve-Path -LiteralPath $BundleDir -ErrorAction Stop).Path
+# This registrar may be called directly, outside the signed installer.
+# Authenticate it and the approved source BEFORE any delegated script runs
+# in a privileged PowerShell process. Source approval comes from elsewhere.
+if (-not $PlanOnly -and -not $UnsignedDisposableCIFixture) {
+    if ($ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
+        $TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
+        throw 'Service registration requires independently approved release digest and publisher identity.'
+    }
+    $gateScript = Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'
+    foreach ($scriptPath in @($PSCommandPath, $gateScript,
+        (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1'))) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $scriptPath
+        if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+            $null -eq $signature.SignerCertificate -or
+            $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
+                $TrustedPublisherThumbprint.ToUpperInvariant()) {
+            throw 'Service registration requires signed scripts from the independently approved publisher.'
+        }
+    }
+    & $gateScript -BundleDir $source -ExpectedManifestSHA256 $ApprovedManifestSHA256 `
+        -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
+}
 & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $source | Out-Null
 $binarySource = Join-Path $source 'esterium-server.exe'
 $webSource = Join-Path $source 'web'
@@ -193,6 +224,13 @@ try {
     # Do not register any Windows service until every staged file matches the
     # original manifest; a partial/altered copy must be rejected.
     & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $staging | Out-Null
+    # A candidate can change after initial approval but before staging.
+    # Revalidate the exact staged bytes and the approved publisher before
+    # any Windows service is created.
+    if (-not $UnsignedDisposableCIFixture) {
+        & $gateScript -BundleDir $staging -ExpectedManifestSHA256 $ApprovedManifestSHA256 `
+            -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
+    }
     Move-Item -LiteralPath $staging -Destination $installPath -ErrorAction Stop
     $binary = Join-Path $installPath 'esterium-server.exe'
     $out = & $sc create $serviceName 'binPath=' ('"' + $binary + '"') 'start=' 'demand' 'obj=' 'NT AUTHORITY\LocalService' 'DisplayName=' 'Esterium ERP' 2>&1
