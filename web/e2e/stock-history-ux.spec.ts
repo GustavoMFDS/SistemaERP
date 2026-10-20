@@ -1,11 +1,17 @@
 import { expect, test } from './fixtures'
 
 test('histórico do estoque diferencia falha e ausência de movimentos por produto', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('E-mail ou nome de usuário').fill('gerente@sistema.local')
+  await page.getByLabel('Senha').fill('admin123')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/home$/)
   let calls = 0
+  let unavailable = true
   await page.route('**/api/v1/inventory/movements?*', async (route) => {
     calls += 1
     const url = new URL(route.request().url())
-    if (calls === 1) {
+    if (unavailable) {
       await route.fulfill({
         status: 503,
         contentType: 'application/json',
@@ -29,11 +35,6 @@ test('histórico do estoque diferencia falha e ausência de movimentos por produ
     })
   })
 
-  await page.goto('/login')
-  await page.getByLabel('E-mail ou nome de usuário').fill('gerente@sistema.local')
-  await page.getByLabel('Senha').fill('admin123')
-  await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/home$/)
   await page.goto('/stock-movements')
 
   const error = page.getByRole('alert')
@@ -41,6 +42,7 @@ test('histórico do estoque diferencia falha e ausência de movimentos por produ
   await expect(error).not.toContainText('erro técnico')
   await expect(page.getByText(/Página 1 — 0 movimentações/)).toHaveCount(0)
 
+  unavailable = false
   await page.getByRole('button', { name: 'Tentar novamente' }).click()
   await expect(page.getByRole('button', { name: 'Arroz 5kg' })).toBeVisible()
   await page.getByRole('button', { name: 'Arroz 5kg' }).click()
