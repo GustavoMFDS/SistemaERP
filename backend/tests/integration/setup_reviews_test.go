@@ -40,7 +40,7 @@ func TestSetupReviewsStayInTheirCompanyAndHaveTransactionalAudit(t *testing.T) {
 	tenants := make([]string, 0, 2)
 	now := time.Now().UnixNano()
 	for i := 0; i < 2; i++ {
-		cnpj := fmt.Sprintf("%014d", (now + int64(i)) % 100000000000000)
+		cnpj := fmt.Sprintf("%014d", (now+int64(i))%100000000000000)
 		var tenant string
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO companies(legal_name, cnpj) VALUES('Setup Review Fixture', $1)
