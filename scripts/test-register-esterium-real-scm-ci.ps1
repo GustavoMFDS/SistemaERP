@@ -235,7 +235,7 @@ try {
         ExternalBackupDir='\\other-ci-host\backups'; RetentionDays=14
     }
     [IO.File]::WriteAllText($configFile, ($backupConfig | ConvertTo-Json -Compress))
-    foreach ($file in @($backupPasswordFile, $configFile)) {
+    foreach ($file in @($backupPasswordFile, $configFile, $backupCA)) {
         $aclResult = & icacls.exe $file '/inheritance:r' '/grant:r' '*S-1-5-20:R' '*S-1-5-18:F' '*S-1-5-32-544:F' 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Synthetic backup task ACL failed: $aclResult" }
     }
