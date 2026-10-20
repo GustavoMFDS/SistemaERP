@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { APIError, apiJson } from '../lib/api'
+import PasswordField from '../components/PasswordField'
 import { validStaffPassword } from '../lib/staffPassword'
 
 // The secret is never stored in the address bar, cookies, or localStorage.
@@ -21,6 +22,13 @@ export default function ResetStaffPasswordPage() {
   const [busy, setBusy] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [error, setError] = useState('')
+  const passwordTooShort = password.length > 0 && Array.from(password).length < 12
+  const passwordTooLong = password.length > 0 && !passwordTooShort && !validStaffPassword(password)
+  const passwordHelp = passwordTooShort
+    ? 'Use pelo menos 12 caracteres para sua senha.'
+    : passwordTooLong
+      ? 'Sua senha está longa demais. Escolha uma um pouco mais curta.'
+      : 'Use pelo menos 12 caracteres e evite reutilizar senhas de outros serviços.'
 
   useEffect(() => {
     document.title = 'Recuperar acesso — Esterium ERP'
@@ -40,7 +48,13 @@ export default function ResetStaffPasswordPage() {
       setPassword('')
       setConfirm('')
     } catch (cause: unknown) {
-      setError(errorMessage(cause))
+      if (cause instanceof APIError && cause.status === 429) {
+        setError('Muitas tentativas. Aguarde um pouco antes de tentar novamente.')
+      } else if (cause instanceof APIError && [400, 401, 403, 404, 409, 410].includes(cause.status)) {
+        setError('Não foi possível confirmar este link. Peça outro ao responsável pela loja.')
+      } else {
+        setError('Não foi possível alterar a senha agora. Confira sua conexão e tente novamente.')
+      }
     } finally {
       setBusy(false)
     }
@@ -66,27 +80,36 @@ export default function ResetStaffPasswordPage() {
             </p>
           ) : (
             <form onSubmit={(event) => void submit(event)} className="mt-4 space-y-3">
-              <label className="block text-sm">Nova senha (12 a 72 caracteres)
-                <input type="password" required minLength={12} maxLength={72}
-                  autoComplete="new-password" value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="mt-1 block w-full rounded-md border px-3 py-2" />
-              </label>
-              <p className="text-xs text-slate-600">Use ao menos 12 caracteres. O limite técnico é de 72 bytes UTF-8; acentos e emojis podem ocupar mais de um byte.</p>
-              <label className="block text-sm">Confirmar nova senha
-                <input type="password" required minLength={12} maxLength={72}
-                  autoComplete="new-password" value={confirm}
-                  onChange={(event) => setConfirm(event.target.value)}
-                  className="mt-1 block w-full rounded-md border px-3 py-2" />
-              </label>
+              <PasswordField
+                id="reset-password"
+                label="Nova senha"
+                value={password}
+                onChange={(value) => { setPassword(value); setError('') }}
+                autoComplete="new-password"
+                minLength={12}
+                maxLength={72}
+                disabled={busy}
+                describedBy="reset-password-help"
+              />
+              <p id="reset-password-help" aria-live="polite" className="text-xs text-slate-600">{passwordHelp}</p>
+              <PasswordField
+                id="reset-confirm-password"
+                label="Confirmar nova senha"
+                value={confirm}
+                onChange={(value) => { setConfirm(value); setError('') }}
+                autoComplete="new-password"
+                minLength={12}
+                maxLength={72}
+                disabled={busy}
+              />
               {password && confirm && password !== confirm ? (
-                <p role="alert" className="text-xs text-red-700">As senhas devem ser iguais.</p>
+                <p role="alert" className="text-xs text-red-700">As senhas não são iguais. Confira a confirmação.</p>
               ) : null}
               {error ? (
                 <p role="alert" className="text-sm text-red-700">Não foi possível alterar a senha: {error}.</p>
               ) : null}
               <button disabled={busy || !password || password !== confirm || !validStaffPassword(password)}
-                className="w-full rounded-md bg-gray-900 px-4 py-2 text-white disabled:opacity-50">
+                className="w-full rounded-md bg-gray-900 px-4 py-2.5 text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
                 {busy ? 'Alterando…' : 'Alterar minha senha'}
               </button>
             </form>
