@@ -88,6 +88,17 @@ try {
         MetricsBearerTokenFile = $secretFiles.metrics
         AllowedOrigin = 'https://esterium.ci.invalid'
         InstallDir = $install
+        UnsignedDisposableCIFixture = $true
+    }
+    # The same direct registrar must fail closed in production mode
+    # without independently approved publisher/hash, even with valid paths.
+    $realArguments = $arguments.Clone()
+    $realArguments.Remove('UnsignedDisposableCIFixture')
+    $unapprovedRejected = $false
+    try { & (Join-Path $tools 'register-esterium-windows-service.ps1') @realArguments | Out-Null }
+    catch { $unapprovedRejected = $_.Exception.Message -match 'requires independently approved release digest' }
+    if (-not $unapprovedRejected) {
+        throw 'The direct SCM registrar accepted an unsigned release without approval.'
     }
     # Fail closed before creating a service when LocalService could edit a
     # password file or another account has direct read access.
