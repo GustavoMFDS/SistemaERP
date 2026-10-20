@@ -16,7 +16,7 @@ test('permite repetir a verificação sem expor detalhes internos', async ({ pag
   await page.getByLabel('E-mail ou nome de usuário').fill('admin@sistema.local')
   await page.getByLabel('Senha').fill('admin123')
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\\/home$/)
+  await expect(page).toHaveURL(/\/home$/)
   await expect(page.getByRole('link', { name: /Ir para o caixa/ })).toBeVisible()
   let count = 0
   await page.route('**/api/v1/auth/me', async (route) => {
