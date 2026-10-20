@@ -109,7 +109,7 @@ try {
     $global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $false
     $global:ESTERIUM_TEST_GARNET_WRAPPED = $false
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $true
-    Assert-Reject 'a different executable listening on the Redis port' 'does not belong to its declared Windows service'
+    Assert-Reject 'a different executable listening on the Redis port' 'Garnet listener process is missing'
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $false
     $global:ESTERIUM_TEST_PG_PID_MISSING = $true
     Assert-Reject 'a service without a live owning process' 'does not expose a running process'
