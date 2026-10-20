@@ -57,6 +57,10 @@ type DraftLine = {
   unit_cost: number
 }
 
+const money = (value: number) => new Intl.NumberFormat('pt-BR', {
+  style: 'currency', currency: 'BRL',
+}).format(value)
+
 const statusLabel: Record<Purchase['status'], string> = {
   ordered: 'Aguardando recebimento',
   partially_received: 'Recebida parcialmente',
@@ -356,7 +360,7 @@ export default function PurchasesPage() {
       </div>
 
       {error ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
@@ -619,8 +623,8 @@ export default function PurchasesPage() {
                       <tr key={line.product_id}>
                         <td className="px-3 py-2">{product?.name ?? line.product_id}</td>
                         <td className="px-3 py-2">{line.qty.toFixed(3)}</td>
-                        <td className="px-3 py-2">R$ {line.unit_cost.toFixed(2)}</td>
-                        <td className="px-3 py-2">R$ {(line.qty * line.unit_cost).toFixed(2)}</td>
+                        <td className="px-3 py-2">{money(line.unit_cost)}</td>
+                        <td className="px-3 py-2">{money(line.qty * line.unit_cost)}</td>
                         <td className="px-3 py-2">
                           <button
                             type="button"
@@ -652,7 +656,7 @@ export default function PurchasesPage() {
           </label>
 
           <div className="mt-3 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">Total: R$ {purchaseTotal.toFixed(2)}</div>
+            <div className="text-sm font-semibold">Total: {money(purchaseTotal)}</div>
             <button
               disabled={!supplierId || lines.length === 0}
               className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
@@ -682,7 +686,7 @@ export default function PurchasesPage() {
                   <td className="px-3 py-2">{purchase.supplier_name}</td>
                   <td className="px-3 py-2">{statusLabel[purchase.status]}</td>
                   <td className="px-3 py-2">{purchase.invoice_number || '—'}</td>
-                  <td className="px-3 py-2">R$ {purchase.total.toFixed(2)}</td>
+                  <td className="px-3 py-2">{money(purchase.total)}</td>
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
                       <button
