@@ -41,7 +41,7 @@ test('navegação avisa quando acessos e saída não podem ser confirmados', asy
   await expect(page.locator('#conteudo-principal')).toBeFocused()
 
   await page.getByRole('button', { name: 'Sair' }).click()
-  const exitWarning = page.getByRole('alert').filter({ hasText: 'Não foi possível confirmar a saída' })
+  const exitWarning = page.getByRole('alert').filter({ hasText: 'Não foi possível encerrar a sessão no servidor' })
   await expect(exitWarning).toBeVisible()
   await expect(exitWarning).not.toContainText('detalhe interno')
   await expect(page).toHaveURL(/\/home$/)
