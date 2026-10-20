@@ -70,7 +70,7 @@ for (const scenario of [
     await expect(page.getByText('Use pelo menos 12 caracteres para sua senha.')).toBeVisible()
     await confirmation.fill('diferente')
     await expect(submit).toBeDisabled()
-    await expect(page.getByRole('alert', { name: '' })).toContainText('As senhas não são iguais')
+    await expect(page.getByRole('alert')).toContainText('As senhas não são iguais')
 
     await password.fill('senhaMuitoForte123')
     await confirmation.fill('senhaMuitoForte123')
