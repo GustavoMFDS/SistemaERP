@@ -358,7 +358,7 @@ export default function ProductsPage() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'modelo-produtos-sistemaemgo.csv'
+    link.download = 'modelo-produtos-esterium.csv'
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -703,7 +703,10 @@ export default function ProductsPage() {
           {pendingImport ? (
             <div role="region" aria-label="Importação de produtos pendente" className="mt-3 rounded-md border border-amber-300 p-3 text-sm">
               <p className="font-semibold">Uma tentativa anterior precisa ser conferida.</p>
-              <p className="mt-1 text-xs">Referência: <code>{pendingImport.key}</code></p>
+              <details className="mt-2 text-xs text-slate-600">
+                <summary className="cursor-pointer font-medium">Ver código da tentativa</summary>
+                <p className="mt-1">Referência para suporte: <code>{pendingImport.key}</code></p>
+              </details>
               <p className="mt-1 text-xs text-gray-600">
                 A planilha não fica salva aqui. Consulte o servidor. Caso não tenha sido confirmada,
                 escolha novamente o mesmo arquivo para reutilizar a chave original.
