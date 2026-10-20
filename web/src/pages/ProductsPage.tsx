@@ -342,9 +342,13 @@ export default function ProductsPage() {
       const pending = readPendingProductImport()
       if (pending && pending.digest !== digest) {
         setPendingImport(pending)
-        setError('Há uma importação pendente. Consulte o lote no servidor ou escolha o mesmo CSV para continuar com a chave original.')
+        setPendingLookupStatus({
+          key: pending.key,
+          message: 'Há uma importação pendente. Consulte o lote no servidor ou escolha o mesmo CSV para continuar com a chave original.',
+        })
         return
       }
+      setPendingLookupStatus(null)
       setImportPreview(preview)
       setImportKey(pending?.key ?? crypto.randomUUID())
       setImportDigest(digest)
