@@ -8,6 +8,17 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = (Resolve-Path -LiteralPath $BundleDir).Path.TrimEnd('\','/')
 $manifest = Join-Path $root 'bundle-manifest.json'
+# Verify all directories before hashing a single payload. Get-ChildItem -File
+# alone can miss directory junctions, and a link under web/ might point to
+# material outside the signed build staging directory.
+if (((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'Bundle root must not be a symbolic link or junction.'
+}
+foreach ($entry in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
+    if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Bundle may not contain symbolic links or junctions.'
+    }
+}
 if (Test-Path -LiteralPath $manifest) { throw 'Bundle manifest already exists; refusing to overwrite.' }
 $requiredTools = @(
     'tools/register-esterium-windows-service.ps1',
