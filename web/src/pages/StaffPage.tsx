@@ -40,6 +40,7 @@ export default function StaffPage() {
   const [resetLink, setResetLink] = useState('')
   const [resetLinkId, setResetLinkId] = useState('')
   const [loading, setLoading] = useState(false)
+  const [teamError, setTeamError] = useState('')
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -64,9 +65,9 @@ export default function StaffPage() {
         if (!active || seqID !== seq.current || currentScope !== getSessionScope()) return
         setPermissions(data.permissions)
         setCurrentUser(data.id)
-      }).catch((cause: unknown) => {
+      }).catch(() => {
         if (!active || seqID !== seq.current || currentScope !== getSessionScope()) return
-        setError(errorMessage(cause))
+        setError('Não foi possível verificar seu acesso à equipe. Atualize a página e tente novamente.')
       })
     return () => { active = false }
   }, [scope])
@@ -75,6 +76,7 @@ export default function StaffPage() {
     if (!canManage || !scope) return
     setLoading(true)
     setError('')
+    setTeamError('')
     const session = getSessionScope()
     try {
       const data = await apiJson<TeamResponse>('/api/v1/staff')
@@ -82,12 +84,13 @@ export default function StaffPage() {
       setMembers(data.members ?? [])
       setInvitations(data.invitations ?? [])
       setPendingResets(data.password_resets ?? [])
-    } catch (cause: unknown) {
+      setTeamError('')
+    } catch {
       if (session !== getSessionScope()) return
       setMembers([])
       setInvitations([])
       setPendingResets([])
-      setError(errorMessage(cause))
+      setTeamError('Não foi possível consultar a equipe agora. Confira sua conexão e tente novamente.')
     } finally {
       if (session === getSessionScope()) setLoading(false)
     }
@@ -223,7 +226,7 @@ export default function StaffPage() {
 
   return (
     <div>
-      <h2 className="text-lg font-semibold">Funcionários e permissões</h2>
+      <h2 className="text-lg font-semibold">Funcionários da loja</h2>
       <p className="mt-1 text-sm text-gray-600">
         Veja quem pode usar o sistema e altere o perfil de cada pessoa nesta loja.
         Em um único computador, cada funcionário ainda precisa entrar com seu acesso.
@@ -243,7 +246,17 @@ export default function StaffPage() {
                 {loading ? 'Atualizando…' : 'Atualizar'}
               </button>
             </div>
-            <div className="mt-3 overflow-x-auto">
+            {loading ? <p role="status" className="mt-3 text-sm text-slate-600">Consultando a equipe…</p> : null}
+            {teamError ? (
+              <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                <p>{teamError}</p>
+                <button type="button" disabled={loading} onClick={() => void reload()}
+                  className="mt-2 rounded-md border border-red-300 bg-white px-3 py-2 font-medium hover:bg-red-50 disabled:opacity-50">
+                  Tentar novamente
+                </button>
+              </div>
+            ) : null}
+            {!teamError ? <div className="mt-3 overflow-x-auto">
               <table className="min-w-full text-left text-xs">
                 <thead><tr>
                   <th className="px-2 py-2">Nome</th><th className="px-2 py-2">Nome de usuário</th><th className="px-2 py-2">E-mail</th>
@@ -283,8 +296,8 @@ export default function StaffPage() {
                   ))}
                 </tbody>
               </table>
-              {!loading && members.length === 0 ? <p className="py-3 text-xs">Nenhum membro listado.</p> : null}
-            </div>
+              {!loading && members.length === 0 ? <p role="status" className="py-3 text-sm text-slate-600">Ainda não há funcionários cadastrados nesta loja.</p> : null}
+            </div> : null}
           </section>
           {resetLink ? (
             <section className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label="Link de recuperação">
