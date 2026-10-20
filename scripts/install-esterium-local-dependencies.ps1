@@ -298,7 +298,7 @@ if ($null -eq $proc -or $proc.ExitCode -ne 0) {
 }
 if (-not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_isready.exe')) -or
     -not (Test-Path -LiteralPath (Join-Path $pgData 'PG_VERSION')) -or
-    ([IO.File]::ReadAllText((Join-Path $pgData 'PG_VERSION')).Trim() -cne '16' -or
+    ([IO.File]::ReadAllText((Join-Path $pgData 'PG_VERSION'))).Trim() -cne '16' -or
     $null -eq (Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue)) {
     throw 'PostgreSQL não confirmou serviço, binários e cluster versão 16. Serviço permanece parado.'
 }
