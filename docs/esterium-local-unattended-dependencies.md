@@ -2,6 +2,28 @@
 
 **Status: em revisão, não liberada para loja.** O comando tools/install-esterium-local-dependencies.ps1 executa o instalador EDB PostgreSQL 16 em modo silencioso e extrai/registra Garnet como serviço Windows, a partir de arquivos obtidos e aprovados previamente. Ainda não é um Setup.exe único nem prepara banco comercial automaticamente.
 
+## Instalação em um comando técnico
+
+Agora o pacote contém também tools/setup-esterium-local-dependencies.ps1. Por padrão apenas valida pacotes offline, hashes aprovados, conflitos de serviços e portas e pastas de destino. No modo -Apply, exige administrador, assinatura Authenticode do launcher e auxiliares, além de manifesto de release aprovado independentemente. Em sequência, cria senhas/ACL/PFX protegidos, gera os arquivos de configuração e executa os binários offline de PostgreSQL e Garnet.
+
+Exemplo de plano somente leitura, usando placeholders que devem ser substituídos por aprovações externas:
+
+~~~powershell
+$payload = @{
+  PostgresInstaller = 'D:\PacotesAprovados\postgresql-16-windows-x64.exe'
+  ExpectedPostgresSHA256 = '<SHA256-64-aprovado-externamente>'
+  ExpectedPostgresPublisherThumbprint = '<THUMBPRINT-40-EDB>'
+  GarnetPackage = 'D:\PacotesAprovados\garnet-windows-x64.zip'
+  ExpectedGarnetSHA256 = '<SHA256-64-aprovado-externamente>'
+  ServiceWrapperExe = 'D:\PacotesAprovados\nssm.exe'
+  ExpectedServiceWrapperSHA256 = '<SHA256-64-aprovado-externamente>'
+}
+.\tools\setup-esterium-local-dependencies.ps1 @payload
+# -Apply exige também ApprovedManifestSHA256 e TrustedPublisherThumbprint.
+~~~
+
+**Ainda não é instalador de loja:** o comando instala serviços em estado manual/parado, mas não instala confiança TLS, não cria banco SQL/usuários comerciais, não executa migrações e não inicia o ERP. Em falha parcial, mantém dados e pastas para inspeção; repetir cegamente a instalação é bloqueado.
+
 ## Fluxo para laboratório Windows x64 descartável
 
 1. Aprovar independentemente SHA-256 do EDB PostgreSQL 16 (EXE), Garnet (ZIP) e NSSM (EXE). Verificar Authenticode EDB e a procedência do ZIP Garnet fora dos próprios pacotes. Nunca aceitar hashes enviados pelo pacote a instalar.
