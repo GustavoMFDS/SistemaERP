@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - name: Verify native SCM stop/shutdown cancellation
         working-directory: backend
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - name: Validate production configuration without opening external services
         shell: pwsh
@@ -110,7 +110,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
       - name: Build local offline TLS generator for isolated PostgreSQL Windows smoke
         shell: pwsh
         run: |
@@ -129,7 +129,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
       - name: Compile offline PostgreSQL TLS certificate utility for disposable Windows fixture
         shell: pwsh
         run: |
@@ -190,7 +190,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - name: Execute the pinned Windows PostgreSQL migrator without a database
         shell: pwsh
@@ -221,7 +221,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -319,7 +319,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - name: Verify Go module files
         run: |
@@ -395,7 +395,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - name: Start dependencies and run clean migrations
         run: docker compose up -d db redis migrate
@@ -1857,7 +1857,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -1921,7 +1921,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -1959,7 +1959,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.9'
+          go-version: '1.26.10'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
