@@ -53,6 +53,8 @@ $requiredTools = @(
     'tools/esterium-pg-tls-certgen.exe',
     'README_LOCAL.md'
 )
+# A rollback helper is optional so older approved bundles remain verifiable.
+$optionalTools = @('tools/restore-esterium-app-version.ps1')
 $items = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)
 $records = @()
 foreach ($file in $items) {
@@ -66,7 +68,8 @@ foreach ($file in $items) {
     }
     if ($relative -ne 'esterium-server.exe' -and -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
         -not $relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
-        -not ($requiredTools -contains $relative)) {
+        -not ($requiredTools -contains $relative) -and
+        -not ($optionalTools -contains $relative)) {
         throw "Unexpected bundle file: $relative"
     }
     # Even web/ is an allowed output subtree: never publish private keys,

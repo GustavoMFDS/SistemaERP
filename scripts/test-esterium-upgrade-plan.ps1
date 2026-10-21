@@ -17,6 +17,7 @@ $global:ESTERIUM_UPGRADE_CI_SERVICE_STATE = 'Stopped'
 $global:ESTERIUM_UPGRADE_CI_TASK_STATE = 'Disabled'
 $global:ESTERIUM_UPGRADE_CI_EXE = Join-Path $installed 'esterium-server.exe'
 $rollbackFixture = ''
+$rollbackAfterRestore = ''
 function Get-CimInstance {
     [CmdletBinding()]
     param([string]$ClassName, [string]$Filter)
@@ -57,6 +58,7 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         'plan-esterium-local-setup.ps1',
         'install-esterium-local.ps1',
         'apply-esterium-app-update.ps1',
+        'restore-esterium-app-version.ps1',
         'check-esterium-signed-release.ps1',
         'check-esterium-offline-dependency-packages.ps1',
         'provision-esterium-garnet-config.ps1',
@@ -312,6 +314,62 @@ try {
             throw 'Application rollback copy no longer matches the old program.'
         }
         Write-Output 'PASS: synthetic application-only update preserved the old bundle and never changed SQL or database.'
+        # Rollback is a DIFFERENT, explicit operator action after a completed update.
+        # This is NOT a database migration down: all SQL files must match.
+        $rollbackTool = Join-Path $PSScriptRoot 'restore-esterium-app-version.ps1'
+        $restoreArgs = @{
+            InstalledDir=$installed; PreviousVersionDir=$rollbackFixture
+            BackupDir=$backupDir; ExternalBackupDir=$external
+            UnsignedDisposableCIFixture=$true
+            ApprovedManifestSHA256=(Get-FileHash -LiteralPath (Join-Path $rollbackFixture 'bundle-manifest.json') -Algorithm SHA256).Hash
+        }
+        $dryRestore = @(& $rollbackTool @restoreArgs 3>$null) -join ' '
+        if ($dryRestore -notmatch 'no files or services changed' -or
+            (Get-Content -LiteralPath (Join-Path $installed 'esterium-server.exe') -Raw) -ne 'synthetic-new-server') {
+            throw 'Rollback planning must be read-only and retain the installed version.'
+        }
+        $missingConfirmation = $false
+        try { & $rollbackTool @restoreArgs -Apply 3>$null | Out-Null }
+        catch { $missingConfirmation = $_.Exception.Message -match 'ConfirmRollback' }
+        if (-not $missingConfirmation) { throw 'Rollback -Apply accepted without explicit confirmation.' }
+        $unrelated = $restoreArgs.Clone()
+        $unrelated.PreviousVersionDir = $candidate
+        $unrelatedRejected = $false
+        try { & $rollbackTool @unrelated 3>$null | Out-Null }
+        catch { $unrelatedRejected = $_.Exception.Message -match 'preserved rollback sibling' }
+        if (-not $unrelatedRejected) { throw 'Rollback accepted an unrelated candidate directory.' }
+        $wrongDigest = $restoreArgs.Clone()
+        $wrongDigest.ApprovedManifestSHA256 = '0' * 64
+        $wrongDigestRejected = $false
+        try { & $rollbackTool @wrongDigest -Apply -ConfirmRollback 3>$null | Out-Null }
+        catch { $wrongDigestRejected = $_.Exception.Message -match 'Staged application release differs' }
+        if (-not $wrongDigestRejected -or
+            (Get-Content -LiteralPath (Join-Path $installed 'esterium-server.exe') -Raw) -ne 'synthetic-new-server') {
+            throw 'Rollback accepted a wrong independently approved release digest.'
+        }
+        $unsignedRealRestore = $restoreArgs.Clone()
+        $unsignedRealRestore.Remove('UnsignedDisposableCIFixture')
+        $unsignedRealRestore.TrustedPublisherThumbprint = 'A' * 40
+        $unsignedRealRejected = $false
+        try { & $rollbackTool @unsignedRealRestore -Apply -ConfirmRollback 3>$null | Out-Null }
+        catch { $unsignedRealRejected = $_.Exception.Message -match 'Rollback launcher is not signed' }
+        if (-not $unsignedRealRejected) { throw 'Real rollback accepted an unsigned launcher.' }
+        $restored = @(& $rollbackTool @restoreArgs -Apply -ConfirmRollback 3>$null) -join [Environment]::NewLine
+        if ($restored -notmatch 'PASS: application-only rollback completed' -or
+            (Get-Content -LiteralPath (Join-Path $installed 'esterium-server.exe') -Raw) -ne 'old-synthetic-server') {
+            throw 'Approved synthetic rollback did not restore the previous application bytes.'
+        }
+        $rollbackAfterRestore = (($restored -split [Environment]::NewLine) |
+            Where-Object { $_ -like 'ROLLBACK FOLDER: *' } |
+            Select-Object -First 1).Substring('ROLLBACK FOLDER: '.Length)
+        if (-not (Test-Path -LiteralPath (Join-Path $rollbackAfterRestore 'esterium-server.exe')) -or
+            (Get-Content -LiteralPath (Join-Path $rollbackAfterRestore 'esterium-server.exe') -Raw) -ne 'synthetic-new-server' -or
+            -not (Test-Path -LiteralPath $rollbackFixture)) {
+            throw 'Rollback failed to preserve BOTH original rollback copy and displaced updated version.'
+        }
+        & (Join-Path $PSScriptRoot 'check-esterium-backup-integrity.ps1') -BackupDir $backupDir -ExternalBackupDir $external -SyntheticCIFixture | Out-Null
+        Write-Output 'PASS: synthetic app-only rollback restores bytes, rejects unsafe requests and preserves SQL, both versions and off-machine backup.'
+
     } finally {
         Remove-Item Env:ESTERIUM_SCM_DISPOSABLE_CI -ErrorAction SilentlyContinue
     }
@@ -320,6 +378,9 @@ try {
     if (Test-Path -LiteralPath $installed) { Remove-Item -LiteralPath $installed -Recurse -Force }
     if ($rollbackFixture -and (Test-Path -LiteralPath $rollbackFixture)) {
         Remove-Item -LiteralPath $rollbackFixture -Recurse -Force
+    }
+    if ($rollbackAfterRestore -and (Test-Path -LiteralPath $rollbackAfterRestore)) {
+        Remove-Item -LiteralPath $rollbackAfterRestore -Recurse -Force
     }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
     foreach ($name in @('ESTERIUM_UPGRADE_CI_SERVICE_STATE','ESTERIUM_UPGRADE_CI_TASK_STATE','ESTERIUM_UPGRADE_CI_EXE')) {

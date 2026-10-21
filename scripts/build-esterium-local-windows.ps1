@@ -120,6 +120,7 @@ foreach ($tool in @(
     'plan-esterium-local-setup.ps1',
     'install-esterium-local.ps1',
     'apply-esterium-app-update.ps1',
+    'restore-esterium-app-version.ps1',
     'check-esterium-signed-release.ps1',
     'check-esterium-offline-dependency-packages.ps1',
     'provision-esterium-garnet-config.ps1',
