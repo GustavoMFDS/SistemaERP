@@ -212,7 +212,8 @@ try {
     & $initializer @params | Out-Null
     $urlFile=Join-Path $dbInit 'database-url.secret'
     $url=[IO.File]::ReadAllText($urlFile).Trim()
-    if ($url -notmatch '^postgres://esterium_app:[A-Za-z0-9_-]{48,}@localhost:64339/esterium\?sslmode=verify-full&sslrootcert=') {
+    $expectedURLPattern='^postgres://esterium_app:[A-Za-z0-9_-]{48,}@localhost:'+([string]$port)+'/esterium\?sslmode=verify-full&sslrootcert='
+    if ($url -notmatch $expectedURLPattern) {
         throw 'Initializer produced insecure database URL.'
     }
     $who=$env:PGUSER
