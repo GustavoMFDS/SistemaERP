@@ -71,6 +71,7 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $path 'tools') -ErrorAction Stop
     }
     [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-migrate.exe'), 'synthetic migrate stub never executed')
+    [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-pg-tls-certgen.exe'), 'synthetic migrate stub never executed')
     for ($i = 1; $i -le $migrationCount; $i++) {
         $prefix = '{0:d4}_ci_fixture' -f $i
         foreach ($direction in @('up', 'down')) {
