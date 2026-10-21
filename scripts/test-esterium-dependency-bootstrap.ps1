@@ -37,14 +37,17 @@ try {
     if ($result -notmatch 'PASS: credenciais PostgreSQL e Garnet, incluindo URL TLS do ERP, geradas') {
         throw 'Synthetic bootstrap generation did not finish.'
     }
-    foreach ($name in @('pg-super.secret','pg-service.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','redis-url.secret')) {
+    foreach ($name in @('pg-super.secret','pg-service.secret','pg-app.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','redis-url.secret')) {
         if (-not (Test-Path -LiteralPath (Join-Path $target $name) -PathType Leaf)) {
             throw 'Synthetic bootstrap omitted a protected file.'
         }
     }
     $pgSuper=[IO.File]::ReadAllText((Join-Path $target 'pg-super.secret')).Trim()
     $pgService=[IO.File]::ReadAllText((Join-Path $target 'pg-service.secret')).Trim()
-    if ($pgSuper -ceq $pgService -or $pgSuper.Length -lt 48 -or $pgService.Length -lt 48) {
+    $pgApp=[IO.File]::ReadAllText((Join-Path $target 'pg-app.secret')).Trim()
+    if ($pgSuper -ceq $pgService -or $pgSuper -ceq $pgApp -or
+        $pgService -ceq $pgApp -or $pgSuper.Length -lt 48 -or
+        $pgService.Length -lt 48 -or $pgApp.Length -lt 48) {
         throw 'Database secret generation did not produce independent strong tokens.'
     }
     $acl=[IO.File]::ReadAllText((Join-Path $target 'garnet.acl'))
@@ -52,7 +55,7 @@ try {
         $acl -notmatch '(?m)^user esteriumcache on >[a-zA-Z0-9_-]{48,}') {
         throw 'Garnet ACL credentials are missing or unsafe.'
     }
-    foreach ($name in @('pg-super.secret','pg-service.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','redis-url.secret')) {
+    foreach ($name in @('pg-super.secret','pg-service.secret','pg-app.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','redis-url.secret')) {
         $allowNetwork=$name -notlike 'pg-*' -and $name -ne 'redis-url.secret'
         $allowLocal=$name -eq 'redis-url.secret'
         $hasNetwork=$false
