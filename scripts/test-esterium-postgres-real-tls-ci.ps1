@@ -273,7 +273,7 @@ try {
     Write-Host 'PostgreSQL CI: validating independent logical pg_dump/pg_restore after crash recovery.'
     $pgDump=Join-Path $bin 'pg_dump.exe'
     $pgRestore=Join-Path $bin 'pg_restore.exe'
-    $backup=Join-Path $root 'esterium-ci-logical.backup'
+    $backup=Join-Path $root 'esterium-ci-logical.dump'
     if (-not (Test-Path -LiteralPath $pgDump -PathType Leaf) -or
         -not (Test-Path -LiteralPath $pgRestore -PathType Leaf)) {
         throw 'Approved PostgreSQL Windows ZIP must include pg_dump and pg_restore.'
@@ -289,6 +289,17 @@ try {
     }
     $backupHash=(Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash
     if ($backupHash -notmatch '^[A-F0-9]{64}$') { throw 'Logical backup SHA-256 is invalid.' }
+    # Restore from the independently copied and SHA-256-verified archive,
+    # not from pg_dump's original local destination. A different local
+    # directory is a CI fixture, NOT a real network/off-host backup.
+    $recoveryCopyDir=Join-Path $root 'recovery-copy-fixture'
+    [IO.Directory]::CreateDirectory($recoveryCopyDir) | Out-Null
+    & (Join-Path $PSScriptRoot 'copy-verified-external-backup.ps1') -SourceDump $backup -DestinationDir $recoveryCopyDir | Out-Null
+    $restoreArchive=Join-Path $recoveryCopyDir ([IO.Path]::GetFileName($backup))
+    if ((Get-FileHash -LiteralPath $restoreArchive -Algorithm SHA256).Hash -cne $backupHash -or
+        -not (Test-Path -LiteralPath ($restoreArchive+'.sha256') -PathType Leaf)) {
+        throw 'Independent backup copy or checksum sidecar differs from pg_dump output.'
+    }
     $env:PGUSER='postgres'
     $env:PGDATABASE='postgres'
     $env:PGPASSWORD=$pass
@@ -299,7 +310,7 @@ try {
     if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash -cne $backupHash) {
         throw 'Logical backup content changed between export and recovery.'
     }
-    & $pgRestore '--host=localhost' ('--port='+$port) '--username=esterium_app' '--dbname=esterium_restore_ci' '--no-owner' '--no-acl' '--exit-on-error' '--single-transaction' $backup
+    & $pgRestore '--host=localhost' ('--port='+$port) '--username=esterium_app' '--dbname=esterium_restore_ci' '--no-owner' '--no-acl' '--exit-on-error' '--single-transaction' $restoreArchive
     if ($LASTEXITCODE -ne 0) {
         throw 'Independent PostgreSQL backup could not restore into a new database.'
     }
@@ -307,7 +318,7 @@ try {
         (Run-Psql 'SELECT count(*) FROM public.ci_durable WHERE id=17') -cne '1') {
         throw 'Independently restored PostgreSQL database lost the schema version or confirmed test row.'
     }
-    Write-Output 'PASS: independent PostgreSQL 16 custom-format pg_dump/pg_restore preserved 51 migrations and confirmed data in a second database.'
+    Write-Output 'PASS: PostgreSQL 16 custom pg_dump, verified separate archive copy and pg_restore preserved 51 migrations and data in a second database.'
     Write-Output 'PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial 51 migrations and crash recovery.'
 } finally {
     if ($started -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
