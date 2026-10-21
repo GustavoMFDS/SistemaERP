@@ -285,3 +285,30 @@ func TestBuildUnsignedNFCeOfflineContingencyCandidate(t *testing.T) {
 		}
 	}
 }
+
+// This is unsigned pre-homologation XML, not proof of SEFAZ authorization.
+func TestUnsignedNFCeCashTenderEmitsGrossPaymentAndChange(t *testing.T) {
+	input := unsignedLegacyFixture(t)
+	received := platform.NewMoneyCents(1000)
+	change := platform.NewMoneyCents(100)
+	input.Payments[0].CashReceived = &received
+	input.Payments[0].CashChange = &change
+	content, err := BuildUnsignedNFCeLegacyCandidate(input)
+	if err != nil {
+		t.Fatalf("build unsigned candidate: %v", err)
+	}
+	if !strings.Contains(string(content), "<vPag>10.00</vPag>") ||
+		!strings.Contains(string(content), "<vTroco>1.00</vTroco>") ||
+		!strings.Contains(string(content), "<vNF>9.00</vNF>") {
+		t.Fatalf("incorrect tender/change in unsigned XML: %s", content)
+	}
+	input.Payments[0].CashChange = nil
+	if _, err := BuildUnsignedNFCeLegacyCandidate(input); err == nil {
+		t.Fatal("missing cash change must fail")
+	}
+	input.Payments[0].CashChange = &change
+	input.Payments[0].Method = "pix"
+	if _, err := BuildUnsignedNFCeLegacyCandidate(input); err == nil {
+		t.Fatal("pix cannot carry cash tender fields")
+	}
+}
