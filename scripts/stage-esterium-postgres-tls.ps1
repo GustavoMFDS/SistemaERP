@@ -129,6 +129,17 @@ $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.Window
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Administrator required for PostgreSQL TLS first-install staging.'
 }
+$serviceSID=''
+if (-not $UnsignedDisposableCIFixture) {
+    $accounts=@(Get-CimInstance Win32_UserAccount -Filter "Name='$PostgresServiceAccount' AND LocalAccount=TRUE" -ErrorAction Stop)
+    if ($accounts.Count -ne 1 -or $accounts[0].Disabled) {
+        throw 'Dedicated PostgreSQL local Windows identity must exist and be enabled.'
+    }
+    $serviceSID=[string]$accounts[0].SID
+    if ($serviceSID -notmatch '^S-1-5-21-(\d+-){3}\d+$') {
+        throw 'Dedicated PostgreSQL service SID is invalid.'
+    }
+}
 if (-not $UnsignedDisposableCIFixture) {
     $services=@(Get-CimInstance Win32_Service -Filter "Name='$PostgresServiceName'" -ErrorAction Stop)
     if ($services.Count -ne 1 -or $services[0].State -cne 'Stopped' -or
@@ -152,6 +163,14 @@ try {
     # atomically, even if the computer crashes between the two config swaps.
     Copy-Item -LiteralPath $template -Destination $stagedConf -ErrorAction Stop
     Copy-Item -LiteralPath $templateHba -Destination $stagedHba -ErrorAction Stop
+    # The template files are Admin/SYSTEM-only. PostgreSQL must be able to
+    # read its own config after an atomic replacement without gaining WRITE.
+    if ($serviceSID) {
+        foreach ($file in @($stagedConf,$stagedHba)) {
+            & icacls.exe $file '/grant:r' ('*'+$serviceSID+':R') | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot grant read-only access to dedicated PostgreSQL service.' }
+        }
+    }
     & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf $stagedConf -PgHbaConf $stagedHba | Out-Null
     [IO.File]::Replace($stagedConf,$liveConfig,$originalConf)
     $changedConf=$true
