@@ -21,14 +21,14 @@ type NFCeDocumentItem struct {
 }
 
 type NFCeDocumentPayment struct {
-	Method            string         `json:"method"`
-	Amount            platform.Money `json:"amount"`
+	Method            string          `json:"method"`
+	Amount            platform.Money  `json:"amount"`
 	CashReceived      *platform.Money `json:"cash_received,omitempty"`
 	CashChange        *platform.Money `json:"cash_change,omitempty"`
-	Provider          *string        `json:"provider,omitempty"`
-	TransactionRef    *string        `json:"transaction_ref,omitempty"`
-	AuthorizationCode *string        `json:"authorization_code,omitempty"`
-	Installments      int            `json:"installments"`
+	Provider          *string         `json:"provider,omitempty"`
+	TransactionRef    *string         `json:"transaction_ref,omitempty"`
+	AuthorizationCode *string         `json:"authorization_code,omitempty"`
+	Installments      int             `json:"installments"`
 }
 
 type NFCeDocumentDraft struct {
