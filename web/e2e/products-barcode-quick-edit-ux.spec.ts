@@ -11,11 +11,13 @@ test('código de barras pode ser salvo sem abrir os campos fiscais', async ({ pa
     id: productID, sku: 'BAR-001', name: 'Produto com leitor',
     unit: 'un', price_cash: 12.5, cost_price: 8,
     min_stock: 2, qty_on_hand: 7, active: true,
-    barcode: null, return_policy: 'allowed',
+    barcode: null, ncm: '12345678', cest: '1234567', return_policy: 'allowed',
   }
   let savedBarcode = ''
   let savedPrice = 0
   let savedPolicy = ''
+  let savedNCM = ''
+  let savedCEST = ''
 
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -39,10 +41,12 @@ test('código de barras pode ser salvo sem abrir os campos fiscais', async ({ pa
     }
     if (path === '/api/v1/products/images/previews') return reply({ items: {} })
     if (path === '/api/v1/products/' + productID && method === 'PUT') {
-      const body = route.request().postDataJSON() as { barcode: string; price_cash: number; return_policy: string }
+      const body = route.request().postDataJSON() as { barcode: string; price_cash: number; return_policy: string; ncm: string; cest: string }
       savedBarcode = body.barcode
       savedPrice = body.price_cash
       savedPolicy = body.return_policy
+      savedNCM = body.ncm
+      savedCEST = body.cest
       return reply({ id: productID })
     }
     return reply({ message: 'endpoint de teste não disponível' }, 404)
@@ -62,10 +66,15 @@ test('código de barras pode ser salvo sem abrir os campos fiscais', async ({ pa
     throw error
   }
   await expect(page.getByRole('columnheader', { name: 'Classificação (NCM)' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Editar códigos fiscais' }).click()
+  await page.getByPlaceholder('8 dígitos').fill('87654321')
   await page.getByLabel('Código de barras de Produto com leitor').fill('7891234567895')
   await page.getByRole('button', { name: 'Salvar código de barras de Produto com leitor' }).click()
   await expect.poll(() => savedBarcode).toBe('7891234567895')
   expect(savedPrice).toBe(12.5)
   expect(savedPolicy).toBe('allowed')
+  expect(savedNCM).toBe('12345678')
+  expect(savedCEST).toBe('1234567')
+  await expect(page.getByPlaceholder('8 dígitos')).toHaveValue('87654321')
   await expect(page.getByLabel('Código de barras de Produto com leitor')).toHaveValue('7891234567895')
 })
