@@ -159,7 +159,7 @@ $packageArgs=@{
 if ($SyntheticUnsignedCIFixture) { $packageArgs.SyntheticUnsignedCIFixture=$true }
 & $checker @packageArgs | Out-Null
 $allowedKeys=@('mode','prefix','datadir','serverport','servicename','serviceaccount',
-    'superaccount','superpassword','servicepassword','enable-components','create_shortcuts','unattendedmodeui')
+    'superaccount','superpassword','servicepassword','enable-components','enable_acledit','create_shortcuts','unattendedmodeui')
 $lines=@([IO.File]::ReadAllLines($options))
 $seen=@{}
 foreach ($line in $lines) {
