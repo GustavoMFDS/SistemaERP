@@ -28,8 +28,10 @@ type UnsignedNFCeItem struct {
 }
 
 type UnsignedNFCePayment struct {
-	Method string
-	Amount platform.Money
+	Method       string
+	Amount       platform.Money
+	CashReceived *platform.Money
+	CashChange   *platform.Money
 }
 
 type UnsignedNFCeInput struct {
@@ -200,6 +202,7 @@ type transportXML struct {
 
 type paymentGroupXML struct {
 	Details []paymentDetailXML `xml:"detPag"`
+	Troco   string             `xml:"vTroco,omitempty"`
 }
 
 type paymentDetailXML struct {
@@ -328,7 +331,7 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 	}
 
 	payments := make([]paymentDetailXML, 0, len(input.Payments))
-	var paid platform.Money
+	var grossPaid, changeTotal platform.Money
 	for _, payment := range input.Payments {
 		code, ok := supportedPaymentCode(payment.Method)
 		if !ok {
@@ -337,20 +340,40 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 		if payment.Amount <= 0 {
 			return nil, fmt.Errorf("payment amount must be positive")
 		}
+		grossAmount := payment.Amount
+		if payment.CashReceived != nil || payment.CashChange != nil {
+			if payment.Method != "cash" || payment.CashReceived == nil || payment.CashChange == nil {
+				return nil, fmt.Errorf("cash tender and change must be provided together for cash only")
+			}
+			change, err := payment.CashReceived.SubChecked(payment.Amount)
+			if err != nil || *payment.CashReceived <= 0 || change < 0 || change != *payment.CashChange {
+				return nil, fmt.Errorf("cash tender and change do not match net payment")
+			}
+			grossAmount = *payment.CashReceived
+			changeTotal, err = changeTotal.AddChecked(change)
+			if err != nil {
+				return nil, err
+			}
+		}
 		var err error
-		paid, err = paid.AddChecked(payment.Amount)
+		grossPaid, err = grossPaid.AddChecked(grossAmount)
 		if err != nil {
 			return nil, err
 		}
-		payments = append(payments, paymentDetailXML{TPag: code, VPag: payment.Amount.DBString()})
+		payments = append(payments, paymentDetailXML{TPag: code, VPag: grossAmount.DBString()})
 	}
-	if paid != netTotal {
-		return nil, fmt.Errorf("payment total %s does not match NFC-e total %s", paid.DBString(), netTotal.DBString())
+	paidNet, err := grossPaid.SubChecked(changeTotal)
+	if err != nil || paidNet != netTotal {
+		return nil, fmt.Errorf("net payment total does not match NFC-e total")
 	}
 	if input.CommercialTotal != netTotal {
 		return nil, fmt.Errorf("commercial total %s does not match NFC-e total %s", input.CommercialTotal.DBString(), netTotal.DBString())
 	}
 
+	var trocoXML string
+	if changeTotal > 0 {
+		trocoXML = changeTotal.DBString()
+	}
 	doc := nfeDocumentXML{
 		Xmlns: NFeNamespace,
 		InfNFe: infNFeXML{
@@ -411,7 +434,7 @@ func BuildUnsignedNFCeLegacyCandidate(input UnsignedNFCeInput) ([]byte, error) {
 				IBSCBSTot: rtcTotals.XML(),
 			},
 			Transp: transportXML{ModFrete: 9},
-			Pag:    paymentGroupXML{Details: payments},
+			Pag:    paymentGroupXML{Details: payments, Troco: trocoXML},
 		},
 		InfNFeSupl: infNFeSuplXML{QRCode: qrCode, URLChave: consultationURL},
 	}
