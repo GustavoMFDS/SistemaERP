@@ -1,0 +1,268 @@
+#requires -Version 5.1
+<#
+  Signed opt-in probe of a fully installed but STOPPED Esterium Windows host.
+  It temporarily starts PostgreSQL and Garnet, runs esterium-server.exe
+  --check-dependencies, and always disables/stops both afterward.
+  Never enables ERP, runs migrations, touches fiscal provider or serves HTTP.
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory=$true)][string]$BundleDir,
+    [string]$PostgresBin=(Join-Path $env:ProgramFiles 'PostgreSQL\16\bin'),
+    [string]$PostgresDataDir=(Join-Path $env:ProgramData 'Esterium\PostgresData'),
+    [string]$PostgresTlsPolicyDir=(Join-Path $env:ProgramData 'Esterium\PostgresTlsPolicy'),
+    [string]$PostgresOptionsDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
+    [string]$GarnetConfigDir=(Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
+    [string]$PostgresServiceName='EsteriumPostgreSQL16',
+    [string]$PostgresServiceAccount='esterium_pgsvc',
+    [string]$GarnetServiceName='EsteriumGarnet',
+    [ValidateRange(1,65535)][int]$PostgresPort=5432,
+    [ValidateRange(1,65535)][int]$GarnetPort=6379,
+    [string]$ApprovedManifestSHA256='',
+    [string]$TrustedPublisherThumbprint='',
+    [switch]$Apply
+)
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+if ($env:OS -ne 'Windows_NT') { throw 'First-run readiness requires Windows.' }
+if ($PostgresPort -in @($GarnetPort,8080) -or $GarnetPort -eq 8080) {
+    throw 'Database and cache ports must be distinct from ERP.'
+}
+foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
+    if ($name -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{2,63}$' -or $name -eq 'EsteriumERP') {
+        throw 'Unexpected dependency service identity.'
+    }
+}
+if ($PostgresServiceName -eq $GarnetServiceName -or
+    $PostgresServiceAccount -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{2,30}$') {
+    throw 'Unsafe or overlapping Windows service accounts.'
+}
+if ($Apply) {
+    if ($ApprovedManifestSHA256 -cnotmatch '^[A-Fa-f0-9]{64}$' -or
+        $TrustedPublisherThumbprint -cnotmatch '^[A-Fa-f0-9]{40}$') {
+        throw 'First-run probe requires independently approved signature and release digest.'
+    }
+    $sig=Get-AuthenticodeSignature -LiteralPath $PSCommandPath
+    if ($sig.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+        $null -eq $sig.SignerCertificate -or
+        $sig.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
+          $TrustedPublisherThumbprint.ToUpperInvariant()) {
+        throw 'First-run probe executable is not signed by approved publisher.'
+    }
+}
+function Assert-Local([string]$path,[bool]$directory) {
+    if (-not [IO.Path]::IsPathRooted($path) -or $path.StartsWith('\\')) {
+        throw 'First-run probe accepts only local absolute paths.'
+    }
+    $full=[IO.Path]::GetFullPath($path)
+    $cursor=$full
+    while ($cursor) {
+        $item=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'First-run probe forbids junctions or symbolic links.'
+        }
+        $parent=Split-Path -Parent $cursor
+        if ($parent -eq $cursor) { break }
+        $cursor=$parent
+    }
+    if ((Get-Item -LiteralPath $full).PSIsContainer -ne $directory) {
+        throw 'First-run probe received a file of the wrong type.'
+    }
+    return $full
+}
+$bundle=Assert-Local $BundleDir $true
+$prefix=[IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\')+'\'
+if (-not $bundle.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Only ERP bundles already installed under Program Files can be probed.'
+}
+if ($Apply) {
+    if (-not [string]::Equals([IO.Path]::GetFullPath($PSScriptRoot),
+        (Join-Path $bundle 'tools'),[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Run only the approved installed script copy.'
+    }
+    & (Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1') -BundleDir $bundle -ExpectedManifestSHA256 $ApprovedManifestSHA256 -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
+} else {
+    & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
+}
+$bin=Assert-Local $PostgresBin $true
+$data=Assert-Local $PostgresDataDir $true
+$policy=Assert-Local $PostgresTlsPolicyDir $true
+$options=Assert-Local $PostgresOptionsDir $true
+$garnet=Assert-Local $GarnetConfigDir $true
+$base=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')+'\'
+foreach ($path in @($data,$policy,$options,$garnet)) {
+    if (-not $path.StartsWith($base,[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Database and cache material must be located under ProgramData\Esterium.'
+    }
+}
+if ([IO.File]::ReadAllText((Assert-Local (Join-Path $data 'PG_VERSION') $false)).Trim() -cne '16') {
+    throw 'First-run probe requires PostgreSQL 16.'
+}
+$receipt=Assert-Local (Join-Path $options ('PostgresTlsApplied-'+$PostgresServiceName+'.receipt')) $false
+$marker=Assert-Local (Join-Path $options ('PostgresFresh-'+$PostgresServiceName+'.marker')) $false
+$proof=[IO.File]::ReadAllText($marker).Trim() -split [char]10
+if ($proof.Count -ne 3 -or $proof[0].Trim() -cne 'ESTERIUM_FRESH_POSTGRES_16' -or
+    $proof[1].Trim() -cne $PostgresServiceName -or
+    -not [string]::Equals($proof[2].Trim(),$data,[StringComparison]::OrdinalIgnoreCase) -or
+    -not ([IO.File]::ReadAllText($receipt)).StartsWith('TLS_POLICY_STAGED_NEVER_STARTED')) {
+    throw 'Staged PostgreSQL TLS first-install proof is missing or inconsistent.'
+}
+foreach ($name in @('OriginalPostgresql-'+$PostgresServiceName+'.conf',
+                    'OriginalPgHba-'+$PostgresServiceName+'.conf')) {
+    $null=Assert-Local (Join-Path $options $name) $false
+}
+& (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf (Join-Path $data 'postgresql.conf') -PgHbaConf (Join-Path $data 'pg_hba.conf') | Out-Null
+$null=Assert-Local (Join-Path $policy 'certificates\root.crt') $false
+foreach ($name in @('postgres.exe','psql.exe','pg_dump.exe','pg_restore.exe')) {
+    $null=Assert-Local (Join-Path $bin $name) $false
+}
+$garnetConf=Assert-Local (Join-Path $garnet 'garnet.conf') $false
+$configuration=Get-Content -LiteralPath $garnetConf -Raw | ConvertFrom-Json -ErrorAction Stop
+if ($configuration.Recover -cne $true -or $configuration.FailOnRecoveryError -cne $true -or
+    $configuration.EnableAOF -cne $true -or $configuration.WaitForCommit -cne $true -or
+    $configuration.EnableTLS -cne $true -or $configuration.AuthenticationMode -cne 'ACL' -or
+    $configuration.Address -cne '127.0.0.1' -or [int]$configuration.Port -ne $GarnetPort) {
+    throw 'Durable Garnet local TLS configuration is not approved.'
+}
+$services=@{}
+foreach ($name in @($PostgresServiceName,$GarnetServiceName,'EsteriumERP')) {
+    $list=@(Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop)
+    if ($list.Count -ne 1 -or $list[0].State -cne 'Stopped' -or
+        [int]$list[0].ProcessId -ne 0) {
+        throw 'First-run probe requires all three Windows services stopped.'
+    }
+    $services[$name]=$list[0]
+}
+if ($services[$PostgresServiceName].StartMode -cne 'Disabled' -or
+    $services[$GarnetServiceName].StartMode -cne 'Disabled' -or
+    $services['EsteriumERP'].StartMode -cne 'Manual' -or
+    $services['EsteriumERP'].StartName -notin @('NT AUTHORITY\LocalService','NT AUTHORITY\LOCAL SERVICE') -or
+    $services[$GarnetServiceName].StartName -notin @('NT AUTHORITY\NetworkService','NT AUTHORITY\NETWORK SERVICE') -or
+    $services[$PostgresServiceName].StartName -notin @($PostgresServiceAccount,
+        ('.\'+$PostgresServiceAccount),($env:COMPUTERNAME+'\'+$PostgresServiceAccount))) {
+    throw 'Service identity and startup policy do not match approved local installation.'
+}
+foreach ($port in @($PostgresPort,$GarnetPort)) {
+    if (@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -gt 0) {
+        throw 'Dependency port is already in use before the probe.'
+    }
+}
+$registry='HKLM:\SYSTEM\CurrentControlSet\Services\EsteriumERP'
+$serviceEnv=@{}
+foreach ($entry in @((Get-ItemProperty -LiteralPath $registry -Name Environment -ErrorAction Stop).Environment)) {
+    $i=$entry.IndexOf('=')
+    if ($i -le 0) { throw 'Malformed service environment entry.' }
+    $key=$entry.Substring(0,$i)
+    if ($key -cnotmatch '^[A-Z][A-Z0-9_]{1,70}$' -or $serviceEnv.ContainsKey($key)) {
+        throw 'Duplicate or invalid service environment entry.'
+    }
+    $serviceEnv[$key]=$entry.Substring($i+1)
+}
+foreach ($key in @('APP_ENV','FISCAL_PROVIDER','NFCE_SEFAZ_PRODUCTION_ENABLED',
+    'NFCE_SEFAZ_HOMOLOGATION_ENABLED','DATABASE_URL_FILE','REDIS_URL_FILE',
+    'REDIS_CA_CERT_FILE','JWT_SECRET_FILE','METRICS_BEARER_TOKEN_FILE',
+    'ESTERIUM_MIGRATIONS_DIR','ESTERIUM_WEB_DIR','HTTP_ADDR','APP_PUBLIC_URL')) {
+    if ([string]::IsNullOrWhiteSpace($serviceEnv[$key])) { throw 'ERP runtime setting missing.' }
+}
+if ($serviceEnv['APP_ENV'] -cne 'prod' -or
+    $serviceEnv['FISCAL_PROVIDER'] -cne 'disabled' -or
+    $serviceEnv['NFCE_SEFAZ_PRODUCTION_ENABLED'] -cne 'false' -or
+    $serviceEnv['NFCE_SEFAZ_HOMOLOGATION_ENABLED'] -cne 'false' -or
+    $serviceEnv['HTTP_ADDR'] -cne '127.0.0.1:8080') {
+    throw 'ERP must remain loopback-only with fiscal transmission disabled.'
+}
+if (-not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_WEB_DIR']),
+    (Join-Path $bundle 'web'),[StringComparison]::OrdinalIgnoreCase) -or
+    -not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_MIGRATIONS_DIR']),
+    (Join-Path $bundle 'migrations'),[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'ERP must use frontend and migrations from installed approved release.'
+}
+foreach ($key in @('DATABASE_URL_FILE','REDIS_URL_FILE','REDIS_CA_CERT_FILE',
+    'JWT_SECRET_FILE','METRICS_BEARER_TOKEN_FILE')) {
+    $file=Assert-Local $serviceEnv[$key] $false
+    $hasLocalService=$false
+    foreach ($ace in (Get-Acl -LiteralPath $file).Access) {
+        if ($ace.AccessControlType -ne 'Allow' -or
+            ($ace.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -eq 0) {
+            continue
+        }
+        $sid=$ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if ($sid -notin @('S-1-5-18','S-1-5-32-544','S-1-5-19')) {
+            throw 'ERP credential has an unapproved Windows reader.'
+        }
+        if ($sid -eq 'S-1-5-19') { $hasLocalService=$true }
+    }
+    if (-not $hasLocalService) { throw 'ERP service must read its own protected file.' }
+}
+if (-not $Apply) {
+    Write-Output 'PLAN: installed TLS/SQL, Garnet AOF, SCM identities and protected ERP secret paths were checked.'
+    Write-Output 'PLAN: signed Apply will temporarily start PostgreSQL/Garnet and run --check-dependencies without serving HTTP.'
+    Write-Output 'PLAN: PostgreSQL and Garnet will be stopped/disabled after the probe, including on failure.'
+    Write-Output 'NOT ENABLED: no automatic startup, customer data or fiscal authorization.'
+    return
+}
+if (-not [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Elevated Windows administrator is required.'
+}
+$success=$false
+try {
+    foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
+        Set-Service -Name $name -StartupType Manual -ErrorAction Stop
+        Start-Service -Name $name -ErrorAction Stop
+        (Get-Service -Name $name).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
+    }
+    & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -RequireServiceOwnership | Out-Null
+    $process=[Diagnostics.ProcessStartInfo]::new()
+    $process.FileName=Assert-Local (Join-Path $bundle 'esterium-server.exe') $false
+    $process.Arguments='--check-dependencies'
+    $process.UseShellExecute=$false
+    $process.CreateNoWindow=$true
+    $process.RedirectStandardOutput=$true
+    $process.RedirectStandardError=$true
+    $process.EnvironmentVariables.Clear()
+    foreach ($name in @('SystemRoot','WINDIR','PATH','TEMP','TMP','USERPROFILE')) {
+        $value=[Environment]::GetEnvironmentVariable($name)
+        if ($value) { $process.EnvironmentVariables[$name]=$value }
+    }
+    foreach ($key in $serviceEnv.Keys) { $process.EnvironmentVariables[$key]=$serviceEnv[$key] }
+    $client=[Diagnostics.Process]::Start($process)
+    if ($null -eq $client) { throw 'ERP dependency preflight could not launch.' }
+    try {
+        $stdout=$client.StandardOutput.ReadToEndAsync()
+        $stderr=$client.StandardError.ReadToEndAsync()
+        if (-not $client.WaitForExit(60000)) {
+            Stop-Process -Id $client.Id -Force -ErrorAction SilentlyContinue
+            throw 'ERP dependency preflight exceeded one minute.'
+        }
+        $null=$stdout.GetAwaiter().GetResult()
+        $null=$stderr.GetAwaiter().GetResult()
+        if ($client.ExitCode -ne 0) {
+            throw 'ERP rejected PostgreSQL schema or Garnet TLS/atomic security requirements.'
+        }
+    } finally { $client.Dispose() }
+    $success=$true
+} finally {
+    # Fail closed even when a service, port ownership or SQL/TLS check fails.
+    foreach ($name in @($GarnetServiceName,$PostgresServiceName)) {
+        try {
+            if ((Get-Service -Name $name -ErrorAction Stop).Status -ne 'Stopped') {
+                Stop-Service -Name $name -Force -ErrorAction Stop
+                (Get-Service -Name $name).WaitForStatus(
+                    [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+            }
+        } finally {
+            Set-Service -Name $name -StartupType Disabled -ErrorAction Stop
+        }
+    }
+}
+if (-not $success) { throw 'Runtime probe did not pass.' }
+foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
+    $state=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
+    if ($state.StartMode -cne 'Disabled' -or $state.State -cne 'Stopped' -or [int]$state.ProcessId -ne 0) {
+        throw 'Runtime probe could not verify both dependencies stopped and disabled.'
+    }
+}
+Write-Output 'PASS: PostgreSQL schema and Garnet TLS/ACL/Lua verified by real ERP preflight.'
+Write-Output 'NOT ENABLED: both services stopped/disabled; backup restoration and release approval remain required.'
