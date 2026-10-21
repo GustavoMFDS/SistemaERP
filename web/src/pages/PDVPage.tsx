@@ -220,6 +220,8 @@ export default function PDVPage() {
   const [confirmedPaymentFingerprint, setConfirmedPaymentFingerprint] = useState('')
   const [saleId, setSaleId] = useState('')
   const [saleTotal, setSaleTotal] = useState<number>(0)
+  const [completedSaleDialog, setCompletedSaleDialog] = useState<{ id: string; total: number } | null>(null)
+  const completedSaleButtonRef = useRef<HTMLButtonElement>(null)
   const [fiscalStatus, setFiscalStatus] = useState<SaleFiscalStatus | null>(null)
   const [fiscalStatusError, setFiscalStatusError] = useState('')
   const [printDecisionOpen, setPrintDecisionOpen] = useState(false)
@@ -991,6 +993,7 @@ export default function PDVPage() {
     setError('')
     setSaleId('')
     setSaleTotal(0)
+    setCompletedSaleDialog(null)
     setFiscalStatus(null)
     setFiscalStatusError('')
     setPrintDecisionOpen(false)
@@ -1051,6 +1054,7 @@ export default function PDVPage() {
       refreshPending()
       setSaleId(res.id)
       setSaleTotal(res.total)
+      if (res.id) setCompletedSaleDialog({ id: res.id, total: res.total })
       fiscalSaleRef.current = res.id
       setPrintDecisionOpen(true)
       void refreshFiscalStatus(res.id)
@@ -1092,6 +1096,10 @@ export default function PDVPage() {
   }
 
   useEffect(() => {
+    if (completedSaleDialog) completedSaleButtonRef.current?.focus()
+  }, [completedSaleDialog])
+
+  useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
       if (event.key === 'F2') {
         event.preventDefault()
@@ -1110,6 +1118,37 @@ export default function PDVPage() {
 
   return (
     <div className="space-y-6">
+      {completedSaleDialog ? (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby="pdv-sale-completed-title"
+            className="pointer-events-auto w-full max-w-sm rounded-2xl border border-emerald-300 bg-white p-6 text-center shadow-2xl"
+          >
+            <h3 id="pdv-sale-completed-title" className="text-xl font-bold text-emerald-800">
+              Venda concluída
+            </h3>
+            <p className="mt-3 text-sm text-slate-700">
+              Pagamento registrado. Total: <strong>R$ {completedSaleDialog.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.
+            </p>
+            <p className="mt-2 text-xs text-slate-600">
+              A autorização da nota fiscal, quando necessária, é conferida separadamente.
+            </p>
+            <button
+              ref={completedSaleButtonRef}
+              type="button"
+              onClick={() => {
+                setCompletedSaleDialog(null)
+                barcodeInputRef.current?.focus()
+              }}
+              className="mt-5 min-h-11 w-full rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
+            >
+              Continuar no caixa
+            </button>
+          </div>
+        </div>
+      ) : null}
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Frente de caixa</p>
