@@ -62,7 +62,11 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         'provision-esterium-garnet-config.ps1',
         'provision-esterium-postgres-optionfile.ps1',
         'prepare-esterium-local-dependency-configs.ps1',
-        'check-esterium-postgres-tls-policy.ps1'
+        'install-esterium-local-dependencies.ps1',
+        'provision-esterium-dependency-bootstrap.ps1',
+    'setup-esterium-local-dependencies.ps1',
+        'check-esterium-postgres-tls-policy.ps1',
+        'provision-esterium-postgres-tls-policy.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $path 'tools') -ErrorAction Stop
     }
