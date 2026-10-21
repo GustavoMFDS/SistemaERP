@@ -300,12 +300,12 @@ type idemResult struct {
 }
 
 type fakeSalesRepo struct {
-	mu              sync.Mutex
-	insertedItems   []sales.SaleItem
+	mu               sync.Mutex
+	insertedItems    []sales.SaleItem
 	insertedPayments []sales.Payment
-	insertedSales   []sales.Sale
-	insertSaleCount int
-	results         map[string]idemResult
+	insertedSales    []sales.Sale
+	insertSaleCount  int
+	results          map[string]idemResult
 }
 
 func (r *fakeSalesRepo) InsertSale(_ context.Context, _ db.DBTX, _ string, sale sales.Sale) (string, error) {
@@ -438,8 +438,8 @@ func TestCreateAndFinalizeRecordsCashTenderAndChange(t *testing.T) {
 	received := platform.NewMoneyCents(2000)
 	req := SaleCreateRequest{
 		CashSessionID: "cash-1",
-		Items: []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(1_000)}},
-		Payments: []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(1000), CashReceived: &received}},
+		Items:         []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(1_000)}},
+		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(1000), CashReceived: &received}},
 	}
 	_, total, created, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "tender-key", req)
 	if err != nil || !created || total.Cents() != 1000 {
@@ -468,10 +468,10 @@ func TestCreateAndFinalizeRecordsCashTenderAndChange(t *testing.T) {
 func TestCashTenderValidation(t *testing.T) {
 	amount, less, zero := platform.NewMoneyCents(1000), platform.NewMoneyCents(999), platform.NewMoneyCents(0)
 	for _, tc := range []struct {
-		name string
-		method string
+		name     string
+		method   string
 		received *platform.Money
-		invalid bool
+		invalid  bool
 	}{
 		{"exact cash", "cash", &amount, false},
 		{"insufficient", "cash", &less, true},
