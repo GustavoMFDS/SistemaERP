@@ -22,6 +22,8 @@ $payload = @{
 # -Apply exige também ApprovedManifestSHA256 e TrustedPublisherThumbprint.
 ~~~
 
+O coordenador também gera, em pasta nova protegida, modelos `postgresql.conf` e `pg_hba.conf` que impõem somente escuta local, TLS mínimo 1.2 e autenticação SCRAM-SHA-256. Um verificador estático confere as regras criadas. **Esses modelos não são aplicados ao cluster automaticamente**: faltam a implantação do certificado e chave privada do PostgreSQL, a vinculação segura à conta Windows do serviço, a inspeção de configurações efetivas do servidor e as validações reais de conexões.
+
 **Ainda não é instalador de loja:** o comando instala serviços desabilitados e parados, mas não instala confiança TLS, não cria banco SQL/usuários comerciais, não executa migrações e não inicia o ERP. Em falha parcial, mantém dados e pastas para inspeção; repetir cegamente a instalação é bloqueado.
 
 ## Fluxo para laboratório Windows x64 descartável
