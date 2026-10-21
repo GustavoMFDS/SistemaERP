@@ -8,6 +8,7 @@
 [CmdletBinding()]
 param(
     [string]$DestinationDir=(Join-Path $env:ProgramData 'Esterium\DependencyBootstrap'),
+    [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [string]$TrustedPublisherThumbprint='',
     [switch]$Apply,
     [switch]$UnsignedDisposableCIFixture
@@ -57,7 +58,7 @@ while ($cursor) {
     $cursor=$next
 }
 if (-not $Apply) {
-    Write-Output 'PLAN: gerar duas senhas PostgreSQL independentes, uma conta Garnet com senha e certificado localhost TLS.'
+    Write-Output 'PLAN: gerar senhas PostgreSQL, uma URL rediss para a conta local do ERP e um certificado localhost TLS.'
     Write-Output 'PLAN: segredos protegidos, sem mostrar valores nem instalar confiança no certificado.'
     Write-Output 'PLAN: nenhuma escrita, serviço, conexão ou banco alterado.'
     return
@@ -72,9 +73,10 @@ foreach ($cmd in @('New-SelfSignedCertificate','Export-PfxCertificate')) {
     }
 }
 $icacls=Join-Path $env:SystemRoot 'System32\icacls.exe'
-function Protect-Item([string]$path,[bool]$forNetworkService) {
+function Protect-Item([string]$path,[bool]$forNetworkService,[bool]$forLocalService=$false) {
     $rules=@('/inheritance:r','/grant:r','*S-1-5-18:F','*S-1-5-32-544:F')
     if ($forNetworkService) { $rules+= '*S-1-5-20:R' }
+    if ($forLocalService) { $rules+= '*S-1-5-19:R' }
     & $icacls $path @rules | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao restringir ACL de segredos.' }
 }
@@ -86,14 +88,14 @@ function New-Secret {
     try { return [Convert]::ToBase64String($bytes).Replace('+','-').Replace('/','_').TrimEnd('=') }
     finally { [Array]::Clear($bytes,0,$bytes.Length) }
 }
-function Write-Secret([string]$path,[string]$value,[bool]$networkRead) {
+function Write-Secret([string]$path,[string]$value,[bool]$networkRead,[bool]$localRead=$false) {
     $bytes=[Text.UTF8Encoding]::new($false).GetBytes($value+[Environment]::NewLine)
     try {
         $stream=[IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
         try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) }
         finally { $stream.Dispose() }
     } finally { [Array]::Clear($bytes,0,$bytes.Length) }
-    Protect-Item $path $networkRead
+    Protect-Item $path $networkRead $localRead
 }
 [IO.Directory]::CreateDirectory($parent) | Out-Null
 $stage=Join-Path $parent ('.esterium-bootstrap-'+[Guid]::NewGuid().ToString('N'))
@@ -106,7 +108,7 @@ $aclSecret=$null
 $pfxSecret=$null
 try {
     [IO.Directory]::CreateDirectory($stage) | Out-Null
-    & $icacls $stage '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)RX' | Out-Null
+    & $icacls $stage '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:RX' '*S-1-5-19:RX' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao proteger pasta temporária de bootstrap.' }
     $pgSuper=New-Secret
     $pgService=New-Secret
@@ -118,6 +120,7 @@ try {
         'user esteriumcache on >'+$aclSecret+' ~* +@all')
     Write-Secret (Join-Path $stage 'garnet.acl') $aclText $true
     Write-Secret (Join-Path $stage 'garnet-pfx.secret') $pfxSecret $true
+    Write-Secret (Join-Path $stage 'redis-url.secret') ('rediss://esteriumcache:'+$aclSecret+'@localhost:'+$GarnetPort+'/0') $false $true
     # Only local loopback names. Do NOT place this cert into Trusted Root.
     $cert=New-SelfSignedCertificate -Type SSLServerAuthentication -Subject 'CN=localhost' -TextExtension @('2.5.29.17={text}DNS=localhost&IPAddress=127.0.0.1&IPAddress=::1') -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -CertStoreLocation 'Cert:\LocalMachine\My' -NotAfter (Get-Date).AddMonths(12) -ErrorAction Stop
     if ($null -eq $cert -or -not $cert.HasPrivateKey) {
@@ -134,7 +137,7 @@ try {
     if (Test-Path -LiteralPath $target) { throw 'Outro processo criou as credenciais; sem sobrescrever.' }
     Move-Item -LiteralPath $stage -Destination $target -ErrorAction Stop
     $published=$true
-    Write-Output 'PASS: credenciais PostgreSQL e Garnet geradas numa pasta nova com ACL restrita.'
+    Write-Output 'PASS: credenciais PostgreSQL e Garnet, incluindo URL TLS do ERP, geradas numa pasta nova com ACL restrita.'
     Write-Output 'NOT READY: certificado autofirmado não é confiável para o cliente; configurar confiança TLS corretamente antes de iniciar ERP.'
     Write-Output 'NEXT: gerar configurações protegidas com prepare-esterium-local-dependency-configs.ps1.'
 } finally {
