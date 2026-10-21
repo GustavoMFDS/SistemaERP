@@ -171,6 +171,7 @@ try {
     $query="SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"
     $preflight=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -c "'+$query+'"')
     $count=Run-Child $psql $preflight $true 'empty database preflight'
+    if ($UnsignedDisposableCIFixture) { Write-Host ('PostgreSQL CI: public table preflight count='+$count) }
     if ($count -cne '0') { throw 'Banco esterium nao esta vazio: migracao inicial proibida.' }
     $migrateArgs=('-path "'+$folder+'" -database "'+$safeUrl+'" up')
     $null=Run-Child $migrator $migrateArgs $false 'initial migration'
