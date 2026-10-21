@@ -542,18 +542,40 @@ export default function InventoryPage() {
             </select>
           </label>
 
-          <label className="block">
-            <span className="text-xs text-gray-600">Quanto adicionar ou retirar?</span>
-            <input
-              aria-label="Variação do estoque (positiva para adicionar, negativa para retirar)"
-              value={String(delta)}
-              onChange={(e) => setDelta(Number(e.target.value))}
-              type="number"
-              step="0.01"
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              required
-            />
-          </label>
+          <div className="block">
+            <label htmlFor="inventory-adjust-quantity" className="text-xs text-gray-600">
+              Quanto adicionar ou retirar?
+            </label>
+            <div className="mt-1 flex items-stretch gap-2">
+              <button
+                type="button"
+                aria-label="Retirar uma unidade do ajuste"
+                onClick={() => setDelta((value) => Number((value - 1).toFixed(2)))}
+                className="min-h-11 min-w-11 rounded-md border border-slate-300 bg-slate-50 text-lg font-semibold hover:bg-slate-100"
+              >
+                −
+              </button>
+              <input
+                id="inventory-adjust-quantity"
+                aria-label="Variação do estoque (positiva para adicionar, negativa para retirar)"
+                value={String(delta)}
+                onChange={(e) => setDelta(Number(e.target.value))}
+                type="number"
+                step="0.01"
+                className="min-w-0 w-full rounded-md border px-3 py-2 text-center text-sm"
+                required
+              />
+              <button
+                type="button"
+                aria-label="Adicionar uma unidade ao ajuste"
+                onClick={() => setDelta((value) => Number((value + 1).toFixed(2)))}
+                className="min-h-11 min-w-11 rounded-md border border-slate-300 bg-slate-50 text-lg font-semibold hover:bg-slate-100"
+              >
+                +
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-600">Use + para adicionar ou − para retirar. Você também pode digitar uma quantidade.</p>
+          </div>
 
           <label className="block md:col-span-4">
             <span className="text-xs text-gray-600">Motivo</span>
