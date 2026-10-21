@@ -171,14 +171,14 @@ function Run-Child([string]$exe,[string]$args,[bool]$returnOutput,[string]$phase
     } finally { $proc.Dispose() }
 }
 try {
-    $query="SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"
+    $query="COPY (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE') TO STDOUT;"
     $preflight=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f -')
     $count=Run-Child $psql $preflight $true 'empty database preflight' $query
     if ($UnsignedDisposableCIFixture) { Write-Host ('PostgreSQL CI: public table preflight count='+$count) }
     if ($count -cne '0') { throw 'Banco esterium nao esta vazio: migracao inicial proibida.' }
     $migrateArgs=('-path "'+$folder+'" -database "'+$safeUrl+'" up')
     $null=Run-Child $migrator $migrateArgs $false 'initial migration'
-    $verifySQL="SELECT version::text||':'||dirty::text FROM public.schema_migrations;"
+    $verifySQL="COPY (SELECT version::text||':'||dirty::text FROM public.schema_migrations) TO STDOUT;"
     $verifyArgs=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f -')
     $result=Run-Child $psql $verifyArgs $true 'schema version verification' $verifySQL
     if ($result -cne ($versions.Count.ToString()+':false')) {
