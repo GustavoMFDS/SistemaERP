@@ -30,6 +30,24 @@ $env:ESTERIUM_PG_POLICY_DISPOSABLE_CI='1'
 foreach ($key in @('PGPASSWORD','PGHOST','PGPORT','PGUSER','PGDATABASE','PGSSLROOTCERT','PGSSLMODE','PGHOSTADDR','PATH')) {
     $oldEnv[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
 }
+function Invoke-PgCtl([string[]]$argList,[string]$phase) {
+    # pg_ctl launches postgres.exe. Avoid PowerShell pipelines that can
+    # remain open if the service inherits their stdout or stderr handles.
+    $info=[Diagnostics.ProcessStartInfo]::new()
+    $info.FileName=$pgCtl
+    $info.UseShellExecute=$false
+    $info.CreateNoWindow=$true
+    foreach ($value in $argList) { [void]$info.ArgumentList.Add($value) }
+    $proc=[Diagnostics.Process]::Start($info)
+    if ($null -eq $proc) { throw "pg_ctl did not start during $phase." }
+    try {
+        if (-not $proc.WaitForExit(60000)) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            throw "pg_ctl timed out after one minute during $phase."
+        }
+        if ($proc.ExitCode -ne 0) { throw "pg_ctl failed during $phase (exit $($proc.ExitCode))." }
+    } finally { $proc.Dispose() }
+}
 function Run-Psql([string]$sql) {
     $out=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' $sql)
     if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL TLS smoke query failed.' }
@@ -62,6 +80,7 @@ try {
     $policyConfig=Join-Path $policy 'postgresql.conf'
     $policyHba=Join-Path $policy 'pg_hba.conf'
     & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf $policyConfig -PgHbaConf $policyHba | Out-Null
+    Write-Host 'PostgreSQL CI: downloading pinned EDB Windows ZIP and validating its SHA-256.'
     # Hash independently published by EnterpriseDB for the exact 16.15-1 ZIP.
     $url='https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip'
     Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
@@ -81,6 +100,7 @@ try {
         throw 'Approved PostgreSQL binary ZIP lacks pg_ctl or psql.'
     }
     $env:PATH=$bin+';'+$oldEnv['PATH']
+    Write-Host 'PostgreSQL CI: initializing new isolated database cluster.'
     & $initdb '-D' $data '--username=postgres' ('--pwfile='+$passwordFile) '--auth-host=scram-sha-256' '--auth-local=scram-sha-256' '--encoding=UTF8' '--no-instructions' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Real PostgreSQL initdb failed on isolated Windows host.' }
     Copy-Item -LiteralPath $policyConfig -Destination (Join-Path $data 'postgresql.conf') -Force
@@ -98,15 +118,18 @@ try {
         & icacls.exe (Join-Path $tlsDir $name) '/grant:r' ('*'+$runnerSID+':R') | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Unable to grant synthetic PostgreSQL service key read.' }
     }
-    & $pgCtl '-D' $data '-l' $log '-w' 'start' | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    Write-Host 'PostgreSQL CI: starting TLS scratch cluster.'
+    try {
+        Invoke-PgCtl -argList @('-D',$data,'-l',$log,'-w','start') -phase 'TLS startup'
+    } catch {
         if (Test-Path -LiteralPath $log) {
             Write-Host 'PostgreSQL CI startup log (last 35 lines, no credentials):'
             foreach ($line in @(Get-Content -LiteralPath $log -Tail 35)) { Write-Host $line }
         }
-        throw 'Real PostgreSQL refused prepared TLS/SCRAM config.'
+        throw
     }
     $started=$true
+    Write-Host 'PostgreSQL CI: checking verify-full TLS sessions and SCRAM.'
     $env:PGHOST='localhost'
     $env:PGPORT=[string]$port
     $env:PGUSER='postgres'
@@ -126,6 +149,7 @@ try {
     if ((Run-Psql 'SELECT count(*) FROM pg_hba_file_rules WHERE error IS NOT NULL') -cne '0') {
         throw 'PostgreSQL reported rejected or malformed HBA rules.'
     }
+    Write-Host 'PostgreSQL CI: testing reject paths for plaintext, CA, hostname and password.'
     $env:PGSSLMODE='disable'
     Must-Deny 'plaintext'
     $env:PGSSLMODE='verify-full'
@@ -143,13 +167,14 @@ try {
     $env:PGPASSWORD='synthetic-incorrect'
     Must-Deny 'incorrect SCRAM password'
     $env:PGPASSWORD=$pass
+    Write-Host 'PostgreSQL CI: testing confirmed transaction durability.'
     $null=Run-Psql 'CREATE TABLE ci_durable(id integer PRIMARY KEY)'
     $null=Run-Psql 'INSERT INTO ci_durable VALUES(17)'
-    & $pgCtl '-D' $data '-m' 'immediate' '-w' 'stop' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL test failed to force an immediate shutdown.' }
+    Write-Host 'PostgreSQL CI: initiating immediate shutdown for WAL recovery test.'
+    Invoke-PgCtl -argList @('-D',$data,'-m','immediate','-w','stop') -phase 'immediate stop'
     $started=$false
-    & $pgCtl '-D' $data '-l' $log '-w' 'start' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL TLS cluster did not recover after immediate shutdown.' }
+    Write-Host 'PostgreSQL CI: starting recovery from immediate shutdown.'
+    Invoke-PgCtl -argList @('-D',$data,'-l',$log,'-w','start') -phase 'crash recovery'
     $started=$true
     if ((Run-Psql 'SELECT count(*) FROM ci_durable WHERE id=17') -cne '1') {
         throw 'PostgreSQL did not recover acknowledged transaction after forced stop.'
@@ -157,7 +182,8 @@ try {
     Write-Output 'PASS: PostgreSQL 16 official Windows ZIP, strict TLS verify-full, SCRAM, HBA denials and crash recovery.'
 } finally {
     if ($started -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
-        & $pgCtl '-D' $data '-m' 'immediate' '-w' 'stop' | Out-Null
+        try { Invoke-PgCtl -argList @('-D',$data,'-m','immediate','-w','stop') -phase 'cleanup' }
+        catch { Write-Warning 'Disposable PostgreSQL server needs runner teardown.' }
     }
     foreach ($entry in $oldEnv.GetEnumerator()) {
         [Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')
