@@ -15,6 +15,9 @@ $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-postgres-real-'+$id)
 $policy=Join-Path $env:ProgramData ('Esterium\PgTlsRealCI-'+$id)
 $data=Join-Path $root 'data'
+$dbInit=Join-Path $env:ProgramData ('Esterium\PgAppCI-'+$id)
+$appPwdFile=Join-Path $root 'pg-app.secret'
+$appPassword='ci-local-erp-pg-app-'+$id
 $unpacked=Join-Path $root 'binaries'
 $zip=Join-Path $root 'vendor.zip'
 $wrongRoot=Join-Path $root 'wrong-cert'
@@ -167,6 +170,47 @@ try {
     $env:PGPASSWORD='synthetic-incorrect'
     Must-Deny 'incorrect SCRAM password'
     $env:PGPASSWORD=$pass
+    Write-Host 'PostgreSQL CI: bootstrapping nonprivileged ERP SQL role and protected DATABASE_URL_FILE.'
+    [IO.File]::WriteAllText($appPwdFile,$appPassword+[Environment]::NewLine)
+    & icacls.exe $appPwdFile '/inheritance:r' '/grant:r' ('*'+$runnerSID+':R') '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not secure synthetic PostgreSQL application password.' }
+    $initializer=Join-Path $PSScriptRoot 'initialize-esterium-postgres-app-db.ps1'
+    $env:ESTERIUM_DB_BOOTSTRAP_DISPOSABLE_CI='1'
+    $params=@{
+        PsqlExe=$psql
+        SuperPasswordFile=$passwordFile
+        AppPasswordFile=$appPwdFile
+        RootCertificateFile=(Join-Path $policy 'certificates\root.crt')
+        DestinationDir=$dbInit
+        PostgresPort=$port
+        UnsignedDisposableCIFixture=$true
+        Apply=$true
+    }
+    & $initializer @params | Out-Null
+    $urlFile=Join-Path $dbInit 'database-url.secret'
+    $url=[IO.File]::ReadAllText($urlFile).Trim()
+    if ($url -notmatch '^postgres://esterium_app:[A-Za-z0-9_-]{48,}@localhost:64339/esterium\?sslmode=verify-full&sslrootcert=') {
+        throw 'Initializer produced insecure database URL.'
+    }
+    $who=$env:PGUSER
+    $whichDB=$env:PGDATABASE
+    $env:PGUSER='esterium_app'
+    $env:PGDATABASE='esterium'
+    $env:PGPASSWORD=$appPassword
+    if ((Run-Psql 'SELECT current_user;') -cne 'esterium_app') {
+        throw 'New ERP application role does not authenticate through TLS.'
+    }
+    $permissions=Run-Psql 'SELECT rolsuper::int::text||rolcreatedb::int::text||rolcreaterole::int::text||rolreplication::int::text||rolbypassrls::int::text FROM pg_roles WHERE rolname=current_user;'
+    if ($permissions -cne '00000') { throw 'ERP SQL role has dangerous cluster privileges.' }
+    $env:PGUSER=$who
+    $env:PGDATABASE=$whichDB
+    $env:PGPASSWORD=$pass
+    $replayAllowed=$false
+    try { & $initializer @params | Out-Null; $replayAllowed=$true }
+    catch {
+        if ($_.Exception.Message -notmatch 'nao substituir credenciais') { throw }
+    }
+    if ($replayAllowed) { throw 'Database bootstrap unexpectedly allowed replay.' }
     Write-Host 'PostgreSQL CI: testing confirmed transaction durability.'
     $null=Run-Psql 'CREATE TABLE ci_durable(id integer PRIMARY KEY)'
     $null=Run-Psql 'INSERT INTO ci_durable VALUES(17)'
@@ -179,7 +223,7 @@ try {
     if ((Run-Psql 'SELECT count(*) FROM ci_durable WHERE id=17') -cne '1') {
         throw 'PostgreSQL did not recover acknowledged transaction after forced stop.'
     }
-    Write-Output 'PASS: PostgreSQL 16 official Windows ZIP, strict TLS verify-full, SCRAM, HBA denials and crash recovery.'
+    Write-Output 'PASS: PostgreSQL 16 TLS verify-full, SCRAM, HBA rejection, nonprivileged ERP role, protected URL and crash recovery.'
 } finally {
     if ($started -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
         try { Invoke-PgCtl -argList @('-D',$data,'-m','immediate','-w','stop') -phase 'cleanup' }
@@ -189,7 +233,8 @@ try {
         [Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')
     }
     Remove-Item Env:ESTERIUM_PG_POLICY_DISPOSABLE_CI -ErrorAction SilentlyContinue
-    foreach ($path in @($policy,$root)) {
+    Remove-Item Env:ESTERIUM_DB_BOOTSTRAP_DISPOSABLE_CI -ErrorAction SilentlyContinue
+    foreach ($path in @($policy,$dbInit,$root)) {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
         }
