@@ -28,7 +28,7 @@ $opts.TrustedPublisherThumbprint='0'*40
 $denied=''
 try { & $probe @opts | Out-Null }
 catch { $denied=$_.Exception.Message }
-if ($denied -notmatch 'not signed by approved publisher') {
+if ($denied -notmatch '(not signed by approved publisher|cannot be trusted)') {
     throw 'Unsigned first-run probe passed a fake approved digest and thumbprint.'
 }
 # Retain a static rule to catch accidental removal of the safety finalizer.
@@ -58,7 +58,7 @@ $denied=''
 try {
     & $sqlTool -BundleDir $env:RUNNER_TEMP -Apply -ApprovedManifestSHA256 ('0'*64) -TrustedPublisherThumbprint ('0'*40) | Out-Null
 } catch { $denied=$_.Exception.Message }
-if ($denied -notmatch 'not signed by approved publisher') {
+if ($denied -notmatch '(not signed by approved publisher|cannot be trusted)') {
     throw 'SQL installer accepted a fake signing identity.'
 }
 $sqlText=[IO.File]::ReadAllText($sqlTool)
