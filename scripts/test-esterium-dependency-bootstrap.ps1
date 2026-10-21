@@ -79,7 +79,7 @@ try {
     }
     $secret=ConvertTo-SecureString ([IO.File]::ReadAllText((Join-Path $target 'garnet-pfx.secret')).Trim()) -AsPlainText -Force
     $cert=Get-PfxCertificate -FilePath (Join-Path $target 'garnet.pfx') -Password $secret
-    $public=New-Object Security.Cryptography.X509Certificates.X509Certificate2((Join-Path $target 'garnet-server.cer'))
+    $public=[Security.Cryptography.X509Certificates.X509Certificate2]::new((Join-Path $target 'garnet-server.cer'))
     if ($null -eq $public -or $public.Thumbprint -cne $cert.Thumbprint -or $public.HasPrivateKey) {
         throw 'Garnet public trust certificate does not match its TLS service identity.'
     }
