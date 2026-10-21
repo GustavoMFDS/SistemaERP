@@ -119,6 +119,21 @@ jobs:
             go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
             if ($LASTEXITCODE -ne 0) { throw 'Could not compile offline PostgreSQL test certificate utility.' }
           } finally { Pop-Location }
+      - name: Build pinned golang-migrate CLI for Windows SQL schema smoke
+        shell: pwsh
+        run: |
+          $oldGobin=$env:GOBIN
+          $tempBin=Join-Path $env:RUNNER_TEMP 'esterium-migrate-go-bin'
+          [IO.Directory]::CreateDirectory($tempBin) | Out-Null
+          try {
+            $env:GOBIN=$tempBin
+            Push-Location backend
+            try {
+              go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+              if ($LASTEXITCODE -ne 0) { throw 'Failed building pinned migrations CLI.' }
+            } finally { Pop-Location }
+            Copy-Item -LiteralPath (Join-Path $tempBin 'migrate.exe') -Destination ./scripts/esterium-migrate.exe
+          } finally { $env:GOBIN=$oldGobin }
       - name: Verify pinned vendor PostgreSQL 16, localhost TLS SCRAM and crash recovery
         shell: pwsh
         run: ./scripts/test-esterium-postgres-real-tls-ci.ps1
