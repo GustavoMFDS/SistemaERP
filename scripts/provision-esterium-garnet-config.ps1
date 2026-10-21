@@ -158,8 +158,8 @@ try {
     & $icacls $stage '/inheritance:r' '/grant:r' '*S-1-5-20:(OI)(CI)RX' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict Garnet config folder ACL.' }
     # The read-only configuration has separate mutable persistence storage.
-    # The service is NOT started here. Recover=true intentionally prevents
-    # ordinary first-run startup until disposable recovery tests are approved.
+    # The service is NOT started here. Recover=true is kept for first and
+    # subsequent starts; disposable Windows CI checks both with the same config.
     $state=Join-Path $stage 'state'
     [IO.Directory]::CreateDirectory($state) | Out-Null
     & $icacls $state '/inheritance:r' '/grant:r' '*S-1-5-20:(OI)(CI)M' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
