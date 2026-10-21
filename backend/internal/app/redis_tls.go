@@ -12,7 +12,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/GustavoMFDS/SistemaERP/backend/internal/config"
+	"github.com/example/sistemaemgo/internal/config"
 )
 
 // configureRedisTLS trusts the explicitly configured, host-local certificate
