@@ -42,7 +42,7 @@ export default function ProductFamily({ productId }: { productId: string }) {
     <section aria-label="Cores e tamanhos do produto" className="rounded-xl bg-slate-50 p-4">
       <h3 className="font-semibold text-slate-800">Cores e tamanhos</h3>
       <p className="mt-1 text-xs text-slate-600">
-        Cada opção cadastrada com SKU próprio tem estoque separado. Fotos com nomes não dividem o saldo.
+        Cada opção com um código próprio tem seu estoque separado. As fotos ajudam a identificar o produto, mas não alteram o estoque.
       </p>
       {loading ? <p className="mt-3 text-sm">Carregando opções…</p> : null}
       {error ? <p role="alert" className="mt-3 text-sm text-red-700">{error}</p> : null}
@@ -53,7 +53,7 @@ export default function ProductFamily({ productId }: { productId: string }) {
           <table className="min-w-full text-left text-sm">
             <thead><tr>
               <th className="px-3 py-2">Opção</th>
-              <th className="px-3 py-2">Código SKU</th>
+              <th className="px-3 py-2">Código do produto</th>
               <th className="px-3 py-2">Em estoque</th>
               <th className="px-3 py-2">Preço</th>
               <th className="px-3 py-2">Situação</th>
