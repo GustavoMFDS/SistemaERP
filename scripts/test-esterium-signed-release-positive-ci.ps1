@@ -57,6 +57,7 @@ try {
         'check-esterium-postgres-tls-policy.ps1',
         'provision-esterium-postgres-tls-policy.ps1',
         'stage-esterium-postgres-tls.ps1',
+        'probe-esterium-local-first-run.ps1',
         'initialize-esterium-postgres-app-db.ps1',
         'apply-esterium-initial-schema.ps1'
     )
