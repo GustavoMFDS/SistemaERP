@@ -574,7 +574,7 @@ test('reconciles digital payments and settles return refunds without double-coun
   await paymentRow.getByRole('button', { name: 'Histórico' }).click()
   await expect(page.getByText('Histórico da conciliação')).toBeVisible()
   await expect(page.getByText(/Conciliação inicial .* divergent/)).toBeVisible()
-  await expect(page.getByText(/Recebido R\$ 19\.00 .* R\$ 20\.00/)).toBeVisible()
+  await expect(page.getByText(/Recebido R\$\s*19,00.*R\$\s*20,00/)).toBeVisible()
   await expect(page.getByText('corrigir divergencia E2E')).toBeVisible()
 })
 
