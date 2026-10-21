@@ -53,13 +53,13 @@ type SaleItemRequest struct {
 }
 
 type SalePaymentRequest struct {
-	Method            string         `json:"method" validate:"required,oneof=cash pix debit credit transfer voucher"`
+	Method            string          `json:"method" validate:"required,oneof=cash pix debit credit transfer voucher"`
 	Amount            platform.Money  `json:"amount" validate:"required,gt=0"`
 	CashReceived      *platform.Money `json:"cash_received,omitempty" validate:"omitempty,gt=0"`
-	Provider          *string        `json:"provider" validate:"omitempty,max=100"`
-	TransactionRef    *string        `json:"transaction_ref" validate:"omitempty,max=200"`
-	AuthorizationCode *string        `json:"authorization_code" validate:"omitempty,max=100"`
-	Installments      int            `json:"installments" validate:"omitempty,min=1,max=60"`
+	Provider          *string         `json:"provider" validate:"omitempty,max=100"`
+	TransactionRef    *string         `json:"transaction_ref" validate:"omitempty,max=200"`
+	AuthorizationCode *string         `json:"authorization_code" validate:"omitempty,max=100"`
+	Installments      int             `json:"installments" validate:"omitempty,min=1,max=60"`
 }
 
 type SaleCancelRequest struct {
@@ -413,13 +413,13 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 		DiscountValue platform.Money    `json:"discount_value"`
 	}
 	type payment struct {
-		Method            string         `json:"method"`
-		Amount            platform.Money `json:"amount"`
+		Method            string          `json:"method"`
+		Amount            platform.Money  `json:"amount"`
 		CashReceived      *platform.Money `json:"cash_received,omitempty"`
-		Provider          *string        `json:"provider"`
-		TransactionRef    *string        `json:"transaction_ref"`
-		AuthorizationCode *string        `json:"authorization_code"`
-		Installments      int            `json:"installments"`
+		Provider          *string         `json:"provider"`
+		TransactionRef    *string         `json:"transaction_ref"`
+		AuthorizationCode *string         `json:"authorization_code"`
+		Installments      int             `json:"installments"`
 	}
 	payload := struct {
 		CashSessionID string         `json:"cash_session_id"`
