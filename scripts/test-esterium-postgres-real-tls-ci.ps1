@@ -36,8 +36,17 @@ function Run-Psql([string]$sql) {
     return (@($out) -join '').Trim()
 }
 function Must-Deny([string]$description) {
-    $null=& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' 'SELECT 1' 2>&1
-    if ($LASTEXITCODE -eq 0) { throw "PostgreSQL accepted forbidden $description connection." }
+    $code=0
+    try {
+        & $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' 'SELECT 1' 2>$null | Out-Null
+        $code=$LASTEXITCODE
+    } catch {
+        # Some PowerShell versions surface expected psql authentication/TLS
+        # failures as terminating native-command errors.
+        if ($LASTEXITCODE -eq 0) { throw }
+        $code=$LASTEXITCODE
+    }
+    if ($code -eq 0) { throw "PostgreSQL accepted forbidden $description connection." }
 }
 try {
     [IO.Directory]::CreateDirectory($root) | Out-Null
