@@ -137,7 +137,6 @@ $registration=@{
     ApprovedManifestSHA256=$ApprovedManifestSHA256
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint
 }
-& (Join-Path $stageTool 'register-esterium-windows-service.ps1') @registration | Out-Null
 $probe=@{BundleDir=$InstallDir;PostgresBin=$PostgresBin;PostgresDataDir=$PostgresDataDir;
     PostgresOptionsDir=$PostgresOptionsDir;PostgresTlsPolicyDir=$PostgresTlsPolicyDir;
     GarnetConfigDir=$GarnetConfigDir;PostgresServiceName=$PostgresServiceName;
@@ -145,6 +144,26 @@ $probe=@{BundleDir=$InstallDir;PostgresBin=$PostgresBin;PostgresDataDir=$Postgre
     PostgresPort=$PostgresPort;GarnetPort=$GarnetPort;
     ApprovedManifestSHA256=$ApprovedManifestSHA256;
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint;Apply=$true}
-& (Join-Path $InstallDir 'tools\probe-esterium-local-first-run.ps1') @probe | Out-Null
+# No registered but unvalidated application service may remain startable
+# after a failed proof, including a failed final receipt write.
+try {
+    & (Join-Path $stageTool 'register-esterium-windows-service.ps1') @registration | Out-Null
+    & (Join-Path $InstallDir 'tools\probe-esterium-local-first-run.ps1') @probe | Out-Null
+} catch {
+    try {
+        $erp=Get-Service -Name 'EsteriumERP' -ErrorAction SilentlyContinue
+        if ($null -ne $erp) {
+            Set-Service -Name 'EsteriumERP' -StartupType Disabled -ErrorAction Stop
+            if ((Get-Service -Name 'EsteriumERP').Status -ne 'Stopped') {
+                Stop-Service -Name 'EsteriumERP' -Force -ErrorAction Stop
+                (Get-Service -Name 'EsteriumERP').WaitForStatus(
+                    [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+            }
+        }
+    } catch {
+        throw 'First install failed and could not disable the partial ERP Windows service; manual intervention required.'
+    }
+    throw
+}
 Write-Output 'PASS: signed release, initial SQL, protected app credentials and stopped ERP service installed; database/cache probe passed.'
 Write-Output 'NOT READY: ERP not started; external restore, Windows EXE EDB installation, HTTPS client and physical pilot gates remain.'
