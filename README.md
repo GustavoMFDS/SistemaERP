@@ -26,7 +26,7 @@ O que funciona e o que ainda está pendente consta em [docs/catalogo-funcional-s
 
 | Área | Tecnologia / local |
 | --- | --- |
-| Backend | Go 1.26.9, API HTTP em `backend/cmd/api`, módulos em `backend/internal` |
+| Backend | Go 1.26.10, API HTTP em `backend/cmd/api`, módulos em `backend/internal` |
 | Frontend | React 19, TypeScript, Vite, Tailwind, em `web/` |
 | Persistência | PostgreSQL 16, migrações incrementais em `backend/migrations/` |
 | Sessões e cache | Redis |
@@ -34,7 +34,7 @@ O que funciona e o que ainda está pendente consta em [docs/catalogo-funcional-s
 | Testes | Go (unitários e integração), ESLint, TypeScript, Vite e Playwright em `web/e2e` |
 | Documentação | `docs/` (API, implantação, segurança, fiscal, operação e relatórios de validação) |
 
-**Para desenvolvimento e compilação:** Go **1.26.9**, Node.js **22.x**, npm compatível e Docker com Compose, ou PostgreSQL e Redis configurados separadamente. **O pacote técnico Windows** já compila Go e React e não exige Go/Node/Docker para abrir a interface na loja, mas PostgreSQL/Redis ainda exigem provisionamento seguro separado.
+**Para desenvolvimento e compilação:** Go **1.26.10**, Node.js **22.x**, npm compatível e Docker com Compose, ou PostgreSQL e Redis configurados separadamente. **O pacote técnico Windows** já compila Go e React e não exige Go/Node/Docker para abrir a interface na loja, mas PostgreSQL/Redis ainda exigem provisionamento seguro separado.
 
 ## Esterium Local para Windows (estágio técnico, sem instalação comercial)
 
@@ -170,7 +170,7 @@ A **produção** depende de credenciamento, dados reais por CNPJ, certificado ad
 - [PDV offline](docs/offline-pdv.md), [privacidade/LGPD](docs/privacy/data-inventory.md).
 - [Auditoria de manutenção e código morto](docs/auditoria-codigo-20261015.md).
 
-**Segurança do runtime (outubro/2026):** o CI usa Go **1.26.9** e dependências `golang.org/x/*` atualizadas devido a correções de segurança. Não execute a API com Go 1.25.x nem com versões 1.26 anteriores à 1.26.9. O scanner `govulncheck` continua obrigatório.
+**Segurança do runtime (outubro/2026):** o CI usa Go **1.26.10** e dependências `golang.org/x/*` atualizadas devido a correções de segurança. Não execute a API com Go 1.25.x nem com versões 1.26 anteriores à 1.26.10. O scanner `govulncheck` continua obrigatório.
 
 ## Licença e contribuição
 
