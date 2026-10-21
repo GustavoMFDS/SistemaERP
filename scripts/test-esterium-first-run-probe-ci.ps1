@@ -90,5 +90,43 @@ if ($denied -notmatch 'not signed by approved publisher') {
     throw 'Release staging accepted an unapproved signer.'
 }
 Write-Output 'PASS: new release staging parser and approved-signature pre-write gate reject unknown publishers.'
+# Combined coordinator must be syntactically valid and must refuse unsigned
+# initial installation without writing any PostgreSQL/SCM/ERP state.
+$coordinator=Join-Path $PSScriptRoot 'finish-esterium-local-first-install.ps1'
+$parseErrors=$null
+[void][Management.Automation.Language.Parser]::ParseFile($coordinator,[ref]$tokens,[ref]$parseErrors)
+if (@($parseErrors).Count -gt 0) {
+    throw ('Combined first-install coordinator parser error: '+(@($parseErrors | Select-Object -ExpandProperty Message) -join '; '))
+}
+$denied=''
+try {
+    & $coordinator -SourceBundleDir $env:RUNNER_TEMP -AllowedOrigin 'https://ci.invalid' -Apply | Out-Null
+} catch { $denied=$_.Exception.Message }
+if ($denied -notmatch 'independently approved manifest SHA-256 and publisher') {
+    throw 'Combined installer allowed missing release publisher approval.'
+}
+$denied=''
+try {
+    & $coordinator -SourceBundleDir $env:RUNNER_TEMP -AllowedOrigin 'https://ci.invalid' -Apply -ApprovedManifestSHA256 ('0'*64) -TrustedPublisherThumbprint ('0'*40) | Out-Null
+} catch { $denied=$_.Exception.Message }
+if ($denied -notmatch '(not signed by approved publisher|not signed by independently approved publisher)') {
+    throw 'Combined installer allowed synthetic invalid code-signing certificate.'
+}
+$denied=''
+try {
+    & $coordinator -SourceBundleDir $env:RUNNER_TEMP -AllowedOrigin 'http://localhost:8080' | Out-Null
+} catch { $denied=$_.Exception.Message }
+if ($denied -notmatch 'valid HTTPS origin') {
+    throw 'Combined installer allowed insecure/origin-ambiguous local settings.'
+}
+$code=[IO.File]::ReadAllText($coordinator)
+foreach ($required in @('stage-esterium-approved-windows-release.ps1',
+    'bootstrap-esterium-local-schema.ps1','register-esterium-windows-service.ps1',
+    'probe-esterium-local-first-run.ps1','provision-esterium-app-secrets.ps1')) {
+    if (-not $code.Contains($required)) {
+        throw 'Combined installer lost an essential signed first-install step.'
+    }
+}
+Write-Output 'PASS: combined first-install coordinator parses, blocks bad publisher/origin and retains expected safe ordering.'
 Write-Output 'PASS: first-run runtime probe parses and refuses unsigned Apply before touching Windows services.'
 Write-Output 'NOT EXECUTED: genuine signed EDB/NSSM SCM startup remains a vendor pilot gate.'
