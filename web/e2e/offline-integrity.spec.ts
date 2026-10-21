@@ -239,7 +239,7 @@ test('offline catalog cache expires after the safe window', async ({ page }) => 
   })
 
   await page.reload()
-  await expect(page.getByText('Catálogo carregado do cache local. Saldos e preços podem estar desatualizados; as vendas serão revalidadas pelo servidor ao sincronizar.')).toBeVisible()
+  await expect(page.getByText('Lista de produtos carregada deste dispositivo. Preços e quantidades podem estar desatualizados; serão conferidos ao enviar a venda.')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().locator('option')).not.toHaveCount(1)
 
   await page.evaluate((key) => {
