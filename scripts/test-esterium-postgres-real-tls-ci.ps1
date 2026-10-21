@@ -290,6 +290,24 @@ try {
     if ($inspection -notmatch 'PASS: independently approved PostgreSQL 16 archive') {
         throw 'Real Windows PostgreSQL restore preflight did not inspect the archive.'
     }
+    # An archive with all CREATE TABLE statements but no TABLE DATA records
+    # must never be mistaken for a full, recoverable database backup.
+    $schemaOnlyArchive = Join-Path $root ('esterium-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-eeff0011.dump')
+    & $pgDump '--format=custom' '--schema-only' '--no-owner' '--no-privileges' ('--file='+$schemaOnlyArchive)
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $schemaOnlyArchive)) {
+        throw 'Cannot create synthetic schema-only negative recovery fixture.'
+    }
+    $schemaDigest = (Get-FileHash -LiteralPath $schemaOnlyArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText(($schemaOnlyArchive+'.sha256'),
+        ($schemaDigest+'  '+[IO.Path]::GetFileName($schemaOnlyArchive)+[Environment]::NewLine),
+        [Text.UTF8Encoding]::new($false))
+    $schemaArgs = $verifyArgs.Clone()
+    $schemaArgs.ArchivePath = $schemaOnlyArchive
+    $schemaArgs.ExpectedArchiveSHA256 = $schemaDigest
+    $schemaOnlyRejected = $false
+    try { & $preflight @schemaArgs | Out-Null }
+    catch { $schemaOnlyRejected = $_.Exception.Message -match 'schema-only archives are not complete backups' }
+    if (-not $schemaOnlyRejected) { throw 'Recovery preflight accepted a schema-only archive without table data.' }
     $badTool = $verifyArgs.Clone()
     $badTool.ExpectedPgRestoreSHA256 = '0' * 64
     $badToolRejected = $false
