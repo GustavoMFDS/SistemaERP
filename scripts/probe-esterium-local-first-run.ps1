@@ -215,6 +215,9 @@ if (-not [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsI
 }
 $success=$false
 try {
+    # Disallow an external SCM trigger from starting ERP while dependencies
+    # are temporarily alive. On a failed probe ERP remains Disabled.
+    Set-Service -Name 'EsteriumERP' -StartupType Disabled -ErrorAction Stop
     foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
         Set-Service -Name $name -StartupType Manual -ErrorAction Stop
         Start-Service -Name $name -ErrorAction Stop
@@ -328,5 +331,6 @@ try {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+Set-Service -Name 'EsteriumERP' -StartupType Manual -ErrorAction Stop
 Write-Output 'PASS: PostgreSQL schema and Garnet TLS/ACL/Lua verified by real ERP preflight.'
-Write-Output 'NOT ENABLED: both services stopped/disabled; backup restoration and release approval remain required.'
+Write-Output 'NOT ENABLED: dependencies stopped/disabled, ERP remains stopped/manual; backup restoration and release approval are still required.'
