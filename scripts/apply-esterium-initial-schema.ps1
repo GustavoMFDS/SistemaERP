@@ -131,12 +131,16 @@ function Run-Child([string]$exe,[string]$args,[bool]$returnOutput) {
     $proc=[Diagnostics.Process]::Start($info)
     if ($null -eq $proc) { throw 'Cliente de migracoes indisponivel.' }
     try {
+        # Drain child streams concurrently. A full migration prints more
+        # than a pipe buffer on Windows; waiting before reading can deadlock.
+        $outputTask=$proc.StandardOutput.ReadToEndAsync()
+        $errorTask=$proc.StandardError.ReadToEndAsync()
         if (-not $proc.WaitForExit(120000)) {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             throw 'Consulta/migracao SQL excedeu limite de tempo.'
         }
-        $out=$proc.StandardOutput.ReadToEnd().Trim()
-        $null=$proc.StandardError.ReadToEnd()
+        $out=$outputTask.GetAwaiter().GetResult().Trim()
+        $null=$errorTask.GetAwaiter().GetResult()
         if ($proc.ExitCode -ne 0) {
             throw 'Migracao SQL recusada: preservar schema e inspecionar estado dirty, sem tentar novamente.'
         }
