@@ -63,6 +63,24 @@ if (-not (Test-Path (Join-Path $WebOut 'index.html'))) {
 }
 $toolsDir = Join-Path $OutputDir 'tools'
 New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+# Compile local certificate generation with the standard library only; the
+# Windows store receives a signed executable, never a Go toolchain or CA key.
+$oldGOOS=$env:GOOS
+$oldGOARCH=$env:GOARCH
+try {
+    $env:GOOS='windows'
+    $env:GOARCH='amd64'
+    Push-Location (Join-Path $Root 'backend')
+    try {
+        & go build -trimpath -o (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe') ./cmd/pg-tls-certgen
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar gerador TLS PostgreSQL.' }
+    } finally {
+        Pop-Location
+    }
+} finally {
+    $env:GOOS=$oldGOOS
+    $env:GOARCH=$oldGOARCH
+}
 # The official golang-migrate CLI is build-time only and pinned to the same
 # release used by the existing disposable database migration CI container.
 # Never put databases, credentials or a Go toolchain in the retail bundle.
