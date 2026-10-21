@@ -57,6 +57,7 @@ test('somente administrador com preparação incompleta vê o lembrete uma vez p
   await login(page)
   const dialog = page.getByRole('dialog', { name: 'Sua configuração fiscal ainda não está concluída' })
   await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('não significa que a SEFAZ autorizou')
   await expect(page.getByRole('button', { name: 'Continuar configuração' })).toBeFocused()
   await dialog.getByRole('button', { name: 'Agora não' }).click()
   await expect(dialog).toHaveCount(0)
