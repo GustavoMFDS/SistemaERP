@@ -13,6 +13,7 @@ param(
     [string]$PostgresTlsPolicyDir=(Join-Path $env:ProgramData 'Esterium\PostgresTlsPolicy'),
     [string]$PostgresOptionsDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
     [string]$GarnetConfigDir=(Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
+    [string]$ReadinessReceiptDir=(Join-Path $env:ProgramData 'Esterium\FirstRunReadiness'),
     [string]$PostgresServiceName='EsteriumPostgreSQL16',
     [string]$PostgresServiceAccount='esterium_pgsvc',
     [string]$GarnetServiceName='EsteriumGarnet',
@@ -89,6 +90,13 @@ $data=Assert-Local $PostgresDataDir $true
 $policy=Assert-Local $PostgresTlsPolicyDir $true
 $options=Assert-Local $PostgresOptionsDir $true
 $garnet=Assert-Local $GarnetConfigDir $true
+$receiptTarget=[IO.Path]::GetFullPath($ReadinessReceiptDir).TrimEnd('\')
+if (-not [IO.Path]::IsPathRooted($ReadinessReceiptDir) -or
+    $ReadinessReceiptDir.StartsWith('\') -or
+    -not $receiptTarget.StartsWith([IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase) -or
+    (Test-Path -LiteralPath $receiptTarget)) {
+    throw 'First-run probe receipt destination must be new and protected under ProgramData.'
+}
 $base=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')+'\'
 foreach ($path in @($data,$policy,$options,$garnet)) {
     if (-not $path.StartsWith($base,[StringComparison]::OrdinalIgnoreCase)) {
@@ -275,6 +283,49 @@ foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
     $state=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
     if ($state.StartMode -cne 'Disabled' -or $state.State -cne 'Stopped' -or [int]$state.ProcessId -ne 0) {
         throw 'Runtime probe could not verify both dependencies stopped and disabled.'
+    }
+}
+# Only a completed, successful probe produces a one-time audit receipt.
+# It deliberately does NOT authorize automatic ERP startup or fiscal traffic.
+$receiptParent=Split-Path -Parent $receiptTarget
+[IO.Directory]::CreateDirectory($receiptParent) | Out-Null
+$staging=Join-Path $receiptParent ('.esterium-first-run-'+[Guid]::NewGuid().ToString('N'))
+$committed=$false
+try {
+    [IO.Directory]::CreateDirectory($staging) | Out-Null
+    & icacls.exe $staging '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'First-run verification receipt folder ACL rejected.' }
+    $meta=[ordered]@{
+        kind='ESTERIUM_LOCAL_DEPENDENCY_PROBE'
+        schemaVersion=1
+        stage='dependencies-validated-services-disabled'
+        checkedUtc=[DateTime]::UtcNow.ToString('o')
+        releaseManifestSHA256=(Get-FileHash -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Algorithm SHA256).Hash
+        postgresqlConfigSHA256=(Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash
+        garnetConfigSHA256=(Get-FileHash -LiteralPath $garnetConf -Algorithm SHA256).Hash
+        postgresService=$PostgresServiceName
+        garnetService=$GarnetServiceName
+        automaticStartupApproved=$false
+        backupRestoreApproved=$false
+        fiscalEmissionApproved=$false
+    }
+    $out=Join-Path $staging 'probe-result.json'
+    $bytes=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json $meta -Depth 3)+[Environment]::NewLine)
+    try {
+        $stream=[IO.File]::Open($out,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try { $stream.Write($bytes,0,$bytes.Length);$stream.Flush($true) }
+        finally { $stream.Dispose() }
+    } finally { [Array]::Clear($bytes,0,$bytes.Length) }
+    & icacls.exe $out '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'First-run verification receipt could not be protected.' }
+    if (Test-Path -LiteralPath $receiptTarget) {
+        throw 'Another attempt already created a first-run readiness receipt.'
+    }
+    Move-Item -LiteralPath $staging -Destination $receiptTarget -ErrorAction Stop
+    $committed=$true
+} finally {
+    if (-not $committed -and (Test-Path -LiteralPath $staging)) {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 Write-Output 'PASS: PostgreSQL schema and Garnet TLS/ACL/Lua verified by real ERP preflight.'
