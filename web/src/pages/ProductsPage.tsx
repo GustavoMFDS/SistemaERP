@@ -155,11 +155,11 @@ export default function ProductsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query])
 
-  async function saveCatalogFiscal(product: Product) {
+  async function saveCatalogFiscal(product: Product, barcodeOnly = false) {
     setError('')
     const nextBarcode = (barcodeDrafts[product.id] ?? product.barcode ?? '').trim()
-    const nextNCM = (ncmDrafts[product.id] ?? product.ncm ?? '').trim()
-    const nextCEST = (cestDrafts[product.id] ?? product.cest ?? '').trim()
+    const nextNCM = (barcodeOnly ? product.ncm ?? '' : ncmDrafts[product.id] ?? product.ncm ?? '').trim()
+    const nextCEST = (barcodeOnly ? product.cest ?? '' : cestDrafts[product.id] ?? product.cest ?? '').trim()
     try {
       const payload: ProductCreateRequest = {
         category_id: product.category_id ?? null,
@@ -187,16 +187,18 @@ export default function ProductsPage() {
         delete next[product.id]
         return next
       })
-      setNcmDrafts((prev) => {
-        const next = { ...prev }
-        delete next[product.id]
-        return next
-      })
-      setCestDrafts((prev) => {
-        const next = { ...prev }
-        delete next[product.id]
-        return next
-      })
+      if (!barcodeOnly) {
+        setNcmDrafts((prev) => {
+          const next = { ...prev }
+          delete next[product.id]
+          return next
+        })
+        setCestDrafts((prev) => {
+          const next = { ...prev }
+          delete next[product.id]
+          return next
+        })
+      }
       await load()
     } catch {
       setError('Não foi possível salvar o código de barras ou os dados fiscais. Confira as informações e tente novamente.')
@@ -613,7 +615,7 @@ export default function ProductsPage() {
                         <button
                           type="button"
                           aria-label={`Salvar código de barras de ${p.name}`}
-                          onClick={() => void saveCatalogFiscal(p)}
+                          onClick={() => void saveCatalogFiscal(p, true)}
                           className="rounded-md border border-slate-300 px-3 py-2 text-xs font-medium hover:bg-slate-50"
                         >
                           Salvar
