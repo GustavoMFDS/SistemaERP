@@ -46,6 +46,7 @@ export default function InventoryPage() {
   const [lowLimit, setLowLimit] = useState(50)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
+  const [stockError, setStockError] = useState('')
   const [error, setError] = useState('')
   const [canAdjustPermission, setCanAdjustPermission] = useState(false)
 
@@ -71,7 +72,7 @@ export default function InventoryPage() {
   )
 
   const load = useCallback(async () => {
-    setError('')
+    setStockError('')
     setLoading(true)
     try {
       const [lowRes, prodRes] = await Promise.all([
@@ -81,8 +82,12 @@ export default function InventoryPage() {
       setLow(lowRes.items ?? [])
       setLowTotal(lowRes.total)
       setProducts(prodRes.items ?? [])
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+      setStockError('')
+    } catch {
+      setLow([])
+      setLowTotal(0)
+      setProducts([])
+      setStockError('Não foi possível consultar o estoque. Confira sua conexão e tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -107,8 +112,8 @@ export default function InventoryPage() {
           `/api/v1/products?query=${encodeURIComponent(query)}&limit=80`,
         )
         if (active) setAdjustMatches(result.items ?? [])
-      } catch (error: unknown) {
-        if (active) setError('Não foi possível procurar o produto: ' + errorMessage(error))
+      } catch {
+        if (active) setError('Não foi possível procurar esse produto agora. Confira sua conexão e tente novamente.')
       } finally {
         if (active) setSearchingProduct(false)
       }
@@ -123,7 +128,7 @@ export default function InventoryPage() {
         setCanAdjustPermission(authorized)
         setPendingOpening(authorized ? readPendingOpeningStock() : null)
       })
-      .catch((e: unknown) => setError(errorMessage(e)))
+      .catch(() => setError('Não foi possível conferir seu acesso ao estoque. Atualize a página e tente novamente.'))
   }, [])
 
   async function onAdjust(e: FormEvent) {
@@ -344,15 +349,23 @@ export default function InventoryPage() {
       </div>
 
       {error ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
-      <section aria-label="Produtos que precisam de reposição" className="mt-6 rounded-2xl border border-slate-200 p-5">
+      {loading ? <p role="status" className="mt-3 text-sm text-slate-600">Conferindo quantidades do estoque…</p> : null}
+      {stockError ? (
+        <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <p>{stockError}</p>
+          <button type="button" onClick={() => void load()} disabled={loading}
+            className="mt-2 rounded-md border border-red-300 bg-white px-3 py-2 font-medium disabled:opacity-50">Tentar novamente</button>
+        </div>
+      ) : null}
+      {!stockError ? <section aria-label="Produtos que precisam de reposição" className="mt-6 rounded-2xl border border-slate-200 p-5">
         <h3 className="text-base font-bold text-slate-900">Precisa de reposição</h3>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-600">
-          <span><strong>{lowTotal}</strong> produto(s) precisam de atenção. Mostrando {low.length}.</span>
+          {!loading ? <span><strong>{lowTotal}</strong> produto(s) precisam de atenção. Mostrando {low.length}.</span> : null}
           {low.length < lowTotal && lowLimit < 500 ? (
             <button type="button" className="rounded-md border px-3 py-2 hover:bg-gray-50"
               onClick={() => setLowLimit(500)}>Mostrar até 500 produtos</button>
@@ -382,7 +395,7 @@ export default function InventoryPage() {
                   <td className="px-3 py-2">{p.min_stock.toFixed(2)}</td>
                 </tr>
               ))}
-              {low.length === 0 ? (
+              {!loading && low.length === 0 ? (
                 <tr>
                   <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={5}>
                     Nenhum item com baixo estoque.
@@ -392,7 +405,7 @@ export default function InventoryPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </section> : null}
 
       {canAdjustPermission ? (
         <details open={Boolean(pendingOpening || openingMessage)} className="mt-5 rounded-2xl border border-slate-200 p-5">
