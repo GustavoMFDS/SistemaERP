@@ -81,7 +81,8 @@ try {
         'install-esterium-local-dependencies.ps1',
         'provision-esterium-dependency-bootstrap.ps1',
     'setup-esterium-local-dependencies.ps1',
-    'check-esterium-postgres-tls-policy.ps1'
+    'check-esterium-postgres-tls-policy.ps1',
+        'provision-esterium-postgres-tls-policy.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $bundleTools $tool)
     }
