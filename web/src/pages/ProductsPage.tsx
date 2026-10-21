@@ -569,20 +569,20 @@ export default function ProductsPage() {
         <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
-              <th className="px-3 py-2">Foto</th>
-              <th className="px-3 py-2">Código do produto</th>
-              <th className="px-3 py-2">Código de barras</th>
+              <th scope="col" className="px-3 py-2">Foto</th>
+              <th scope="col" className="px-3 py-2">Código do produto</th>
+              <th scope="col" className="px-3 py-2">Código de barras</th>
               {showTechnical ? (<>
-              <th className="px-3 py-2">Classificação (NCM)</th>
-              <th className="px-3 py-2">Tributação (CEST)</th>
+              <th scope="col" className="px-3 py-2">Classificação (NCM)</th>
+              <th scope="col" className="px-3 py-2">Tributação (CEST)</th>
               </>) : null}
-              <th className="px-3 py-2">Nome</th>
-              <th className="px-3 py-2">Unidade</th>
-              <th className="px-3 py-2">Preço</th>
-              <th className="px-3 py-2">Em estoque</th>
-              <th className="px-3 py-2">Mínimo</th>
-              <th className="px-3 py-2">Ativo</th>
-              <th className="px-3 py-2">Devolução voluntária</th>
+              <th scope="col" className="px-3 py-2">Nome</th>
+              <th scope="col" className="px-3 py-2">Unidade</th>
+              <th scope="col" className="px-3 py-2">Preço</th>
+              <th scope="col" className="px-3 py-2">Em estoque</th>
+              <th scope="col" className="px-3 py-2">Mínimo</th>
+              <th scope="col" className="px-3 py-2">Ativo</th>
+              <th scope="col" className="px-3 py-2">Devolução voluntária</th>
             </tr>
           </thead>
           <tbody className="divide-y">
