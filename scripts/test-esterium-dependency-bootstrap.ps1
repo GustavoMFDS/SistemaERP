@@ -56,8 +56,8 @@ try {
         throw 'Garnet ACL credentials are missing or unsafe.'
     }
     foreach ($name in @('pg-super.secret','pg-service.secret','pg-app.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','garnet-server.cer','redis-url.secret')) {
-        $allowNetwork=$name -notlike 'pg-*' -and $name -ne 'redis-url.secret'
-        $allowLocal=$name -eq 'redis-url.secret'
+        $allowNetwork=$name -notlike 'pg-*' -and $name -notin @('redis-url.secret','garnet-server.cer')
+        $allowLocal=$name -in @('redis-url.secret','garnet-server.cer')
         $hasNetwork=$false
         $hasLocal=$false
         foreach ($ace in (Get-Acl -LiteralPath (Join-Path $target $name)).Access) {
