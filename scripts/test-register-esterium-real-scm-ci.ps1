@@ -41,6 +41,7 @@ try {
     $tools = Join-Path $bundle 'tools'
     New-Item -ItemType Directory -Path $tools | Out-Null
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-migrate.exe'), 'synthetic-CLI-never-executed')
+    [IO.File]::WriteAllText((Join-Path $tools 'esterium-pg-tls-certgen.exe'), 'synthetic-signer-never-executed')
     foreach ($name in @(
         'register-esterium-windows-service.ps1',
         'provision-esterium-app-secrets.ps1',
