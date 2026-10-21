@@ -164,7 +164,6 @@ try {
     [IO.Directory]::CreateDirectory($state) | Out-Null
     & $icacls $state '/inheritance:r' '/grant:r' '*S-1-5-20:(OI)(CI)M' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict Garnet persistence directory ACL.' }
-    [IO.Directory]::CreateDirectory((Join-Path $state 'logs')) | Out-Null
     [IO.Directory]::CreateDirectory((Join-Path $state 'checkpoints')) | Out-Null
     $config = [ordered]@{
         Address='127.0.0.1'; Port=$Port; EnableCluster=$false
@@ -174,7 +173,6 @@ try {
         LuaMemoryManagementMode='Tracked'; LuaScriptMemoryLimit='8m'; LuaScriptTimeoutMs=5000
         EnableAOF=$true; WaitForCommit=$true; CommitFrequencyMs=0
         Recover=$true; FailOnRecoveryError=$true; UseAofNullDevice=$false
-        LogDir=(Join-Path $target 'state\logs')
         CheckpointDir=(Join-Path $target 'state\checkpoints')
     }
     $out = Join-Path $stage 'garnet.conf'
