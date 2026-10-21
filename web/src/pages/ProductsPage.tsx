@@ -175,6 +175,8 @@ export default function ProductsPage() {
         promo_price: product.promo_price ?? null,
         min_stock: product.min_stock,
         active: product.active,
+        return_policy: product.return_policy ?? 'allowed',
+        return_days: product.return_days ?? null,
       }
       await apiJson<{ id: string }>(`/api/v1/products/${product.id}`, {
         method: 'PUT',
