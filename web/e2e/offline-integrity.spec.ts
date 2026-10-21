@@ -253,7 +253,7 @@ test('offline catalog cache expires after the safe window', async ({ page }) => 
 
   await page.reload()
   await expect(
-    page.getByText('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.'),
+    page.getByText('Os produtos salvos neste dispositivo estão indisponíveis ou desatualizados. Conecte-se à internet para continuar.'),
   ).toBeVisible()
   await expect(page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().locator('option')).toHaveCount(1)
 })
