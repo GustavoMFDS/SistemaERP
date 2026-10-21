@@ -134,11 +134,9 @@ try {
         -not $config.Recover -or -not $config.FailOnRecoveryError) {
         throw 'Generated Garnet durability configuration is incomplete.'
     }
-    # Fresh profile is a transient *CI-only* exception. The service config
-    # stays Recover=true; production first-run is never automatically enabled.
-    $config.Recover=$false
-    [IO.File]::WriteAllText($fresh,($config | ConvertTo-Json -Depth 5))
-    Protect-Fixture $fresh $false
+    # Exercise EXACTLY the permanent production config on the first boot.
+    # Recover=true with empty AOF state must start safely without a transient
+    # config rewrite. A failure here blocks first-run service activation.
     $url='https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
     Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
     if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne
@@ -146,7 +144,7 @@ try {
         throw 'Upstream official Garnet ZIP hash differs from independently pinned CI fixture.'
     }
     Expand-Archive -LiteralPath $zip -DestinationPath $bin -ErrorAction Stop
-    $server=Start-Garnet $fresh 'fresh'
+    $server=Start-Garnet $confPath 'fresh-with-recovery-enabled'
     $connection=Open-Redis
     try {
         Assert-RedisDenied $connection.ssl $connection.reader @('PING')
@@ -183,7 +181,7 @@ try {
     } finally {
         $connection.reader.Dispose();$connection.ssl.Dispose();$connection.tcp.Dispose()
     }
-    Write-Output 'PASS: pinned Garnet TLS, default user rejection, ACL, atomic Lua and AOF recovery survived hard Windows restart.'
+    Write-Output 'PASS: unchanged production Garnet config starts on fresh AOF state with Recover=true, TLS/ACL/Lua and crash recovery.'
 } finally {
     if ($null -ne $server) {
         $server.Refresh()
