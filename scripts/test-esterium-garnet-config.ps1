@@ -73,7 +73,7 @@ try {
     $configPath = Join-Path $target 'garnet.conf'
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     if ($config.Address -ne '127.0.0.1' -or $config.AuthenticationMode -ne 'ACL' -or
-        -not $config.EnableTLS -or -not $config.EnableLua -or
+        -not $config.EnableTLS -or $config.ClientCertificateRequired -cne $false -or -not $config.EnableLua -or
         -not $config.LuaTransactionMode -or $config.Port -ne 63913 -or
         $config.CertPassword -ne $fixturePassword -or
         -not $config.EnableAOF -or -not $config.WaitForCommit -or
