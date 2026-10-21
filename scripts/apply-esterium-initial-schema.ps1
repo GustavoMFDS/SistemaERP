@@ -124,6 +124,16 @@ function Run-Child([string]$exe,[string]$args,[bool]$returnOutput,[string]$phase
     $info.CreateNoWindow=$true
     $info.RedirectStandardOutput=$true
     $info.RedirectStandardError=$true
+    # Never inherit the administrator's PostgreSQL connection identity.
+    # A reused PGUSER/PGDATABASE/PGHOSTADDR could run migrations against
+    # a different database despite a validated passwordless URL.
+    foreach ($key in @('PGHOSTADDR','PGSERVICE','PGSERVICEFILE','PGPASSFILE','PGOPTIONS')) {
+        $info.EnvironmentVariables.Remove($key)
+    }
+    $info.EnvironmentVariables['PGUSER']='esterium_app'
+    $info.EnvironmentVariables['PGDATABASE']='esterium'
+    $info.EnvironmentVariables['PGHOST']='localhost'
+    $info.EnvironmentVariables['PGPORT']=[string]$port
     $info.EnvironmentVariables['PGPASSWORD']=$password
     $info.EnvironmentVariables['PGSSLMODE']='verify-full'
     $info.EnvironmentVariables['PGSSLROOTCERT']=$ca
