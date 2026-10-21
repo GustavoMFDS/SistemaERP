@@ -59,13 +59,8 @@ test('código de barras pode ser salvo sem abrir os campos fiscais', async ({ pa
   await expect(page).toHaveURL(/\/home$/)
   await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Produtos', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
-  try {
-    await expect(page.getByRole('columnheader', { name: 'Código de barras' })).toBeVisible()
-  } catch (error) {
-    console.error('ProductsPage debug:', (await page.locator('body').innerText()).slice(0, 2800))
-    throw error
-  }
-  await expect(page.getByRole('columnheader', { name: 'Classificação (NCM)' })).toHaveCount(0)
+  await expect(page.locator('thead th').filter({ hasText: 'Código de barras' })).toBeVisible()
+  await expect(page.locator('thead th').filter({ hasText: 'Classificação (NCM)' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Editar códigos fiscais' }).click()
   await page.getByPlaceholder('8 dígitos').fill('87654321')
   await page.getByLabel('Código de barras de Produto com leitor').fill('7891234567895')
