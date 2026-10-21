@@ -76,6 +76,7 @@ try {
     $content=[IO.File]::ReadAllText($out)
     if (-not $content.Contains('mode=unattended') -or
         -not $content.Contains('enable-components=server,commandlinetools') -or
+        -not $content.Contains('enable_acledit=1') -or
         -not $content.Contains('superpassword=' + $adminPassword) -or
         -not $content.Contains('servicepassword=' + $servicePassword) -or
         -not $content.Contains('datadir=' + $data)) {

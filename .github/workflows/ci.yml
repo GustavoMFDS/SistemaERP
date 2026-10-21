@@ -307,6 +307,7 @@ jobs:
             scripts/setup-esterium-local-dependencies.ps1 \
             scripts/check-esterium-postgres-tls-policy.ps1 \
             scripts/provision-esterium-postgres-tls-policy.ps1 \
+            scripts/stage-esterium-postgres-tls.ps1 \
             scripts/initialize-esterium-postgres-app-db.ps1 \
             scripts/apply-esterium-initial-schema.ps1 \
             dist/esterium-local-win-x64/tools/

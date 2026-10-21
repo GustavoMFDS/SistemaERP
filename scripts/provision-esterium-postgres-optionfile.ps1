@@ -167,6 +167,7 @@ try {
         ('superpassword=' + $passwords[0])
         ('servicepassword=' + $passwords[1])
         'enable-components=server,commandlinetools'
+        'enable_acledit=1'
         'create_shortcuts=0'
         'unattendedmodeui=minimal'
     ) -join [Environment]::NewLine

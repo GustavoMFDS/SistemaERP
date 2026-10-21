@@ -106,8 +106,19 @@ try {
     Write-Host 'PostgreSQL CI: initializing new isolated database cluster.'
     & $initdb '-D' $data '--username=postgres' ('--pwfile='+$passwordFile) '--auth-host=scram-sha-256' '--auth-local=scram-sha-256' '--encoding=UTF8' '--no-instructions' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Real PostgreSQL initdb failed on isolated Windows host.' }
-    Copy-Item -LiteralPath $policyConfig -Destination (Join-Path $data 'postgresql.conf') -Force
-    Copy-Item -LiteralPath $policyHba -Destination (Join-Path $data 'pg_hba.conf') -Force
+    # Exercise the exact first-install config installer, not a CI-only
+    # Copy-Item shortcut. The vendor cluster is fresh and service is never
+    # registered; only the hosted fixture bypasses SCM signature checks.
+    $proof=Join-Path $root 'PostgresFresh-EsteriumPostgreSQL16.marker'
+    [IO.File]::WriteAllText($proof,
+        'ESTERIUM_FRESH_POSTGRES_16'+[Environment]::NewLine+
+        'EsteriumPostgreSQL16'+[Environment]::NewLine+[IO.Path]::GetFullPath($data))
+    $env:ESTERIUM_PG_ACTIVATE_DISPOSABLE_CI='1'
+    & (Join-Path $PSScriptRoot 'stage-esterium-postgres-tls.ps1') -PostgresDataDir $data -TlsPolicyDir $policy -FreshClusterMarker $proof -PostgresPort $port -UnsignedDisposableCIFixture -Apply | Out-Null
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'OriginalPostgresql-EsteriumPostgreSQL16.conf') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $root 'OriginalPgHba-EsteriumPostgreSQL16.conf') -PathType Leaf)) {
+        throw 'Real PostgreSQL startup test must retain original initdb configuration.'
+    }
     & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf (Join-Path $data 'postgresql.conf') -PgHbaConf (Join-Path $data 'pg_hba.conf') | Out-Null
     # The disposable runner runs postgres under its current Windows SID,
     # whereas real installation grants the freshly created service-account SID.
@@ -265,6 +276,7 @@ try {
     foreach ($entry in $oldEnv.GetEnumerator()) {
         [Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')
     }
+    Remove-Item Env:ESTERIUM_PG_ACTIVATE_DISPOSABLE_CI -ErrorAction SilentlyContinue
     Remove-Item Env:ESTERIUM_PG_POLICY_DISPOSABLE_CI -ErrorAction SilentlyContinue
     Remove-Item Env:ESTERIUM_DB_BOOTSTRAP_DISPOSABLE_CI -ErrorAction SilentlyContinue
     Remove-Item Env:ESTERIUM_INITIAL_MIGRATIONS_DISPOSABLE_CI -ErrorAction SilentlyContinue

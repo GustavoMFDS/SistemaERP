@@ -70,6 +70,69 @@ try {
     if ($denied -notmatch 'must not be overwritten') {
         throw 'Policy generator overwrote an existing trusted destination.'
     }
+    # NEW cluster activation: only a synthetic disabled/stopped service fixture.
+    $newData=Join-Path $env:RUNNER_TEMP ('EsteriumFreshPg-'+[Guid]::NewGuid().ToString('N'))
+    $proofDir=Join-Path $env:RUNNER_TEMP ('EsteriumProofPg-'+[Guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($newData) | Out-Null
+    [IO.Directory]::CreateDirectory($proofDir) | Out-Null
+    try {
+        $marker=Join-Path $proofDir 'PostgresFresh-EsteriumPostgreSQL16.marker'
+        [IO.File]::WriteAllText((Join-Path $newData 'PG_VERSION'),"16"+[Environment]::NewLine)
+        $oldConf="# Vendor first-install config"+[Environment]::NewLine+"max_connections = 100"+[Environment]::NewLine
+        $oldHba="# Vendor first-install HBA"+[Environment]::NewLine+"host all all 127.0.0.1/32 scram-sha-256"+[Environment]::NewLine
+        [IO.File]::WriteAllText((Join-Path $newData 'postgresql.conf'),$oldConf)
+        [IO.File]::WriteAllText((Join-Path $newData 'pg_hba.conf'),$oldHba)
+        [IO.File]::WriteAllText($marker,
+            'ESTERIUM_FRESH_POSTGRES_16'+[Environment]::NewLine+
+            'EsteriumPostgreSQL16'+[Environment]::NewLine+[IO.Path]::GetFullPath($newData))
+        $stage=Join-Path $PSScriptRoot 'stage-esterium-postgres-tls.ps1'
+        $env:ESTERIUM_PG_ACTIVATE_DISPOSABLE_CI='1'
+        $stageArgs=@{
+            PostgresDataDir=$newData
+            TlsPolicyDir=$root
+            FreshClusterMarker=$marker
+            PostgresPort=64333
+            UnsignedDisposableCIFixture=$true
+        }
+        $plan=@(& $stage @stageArgs) -join ' '
+        if ($plan -notmatch 'PLAN: validate new disabled/stopped PostgreSQL' -or
+            [IO.File]::ReadAllText((Join-Path $newData 'postgresql.conf')) -cne $oldConf) {
+            throw 'PostgreSQL TLS staging PLAN touched the new database.'
+        }
+        $unsafe=$stageArgs.Clone()
+        $unsafe.PostgresPort=64334
+        $denied=''
+        try { & $stage @unsafe | Out-Null } catch { $denied=$_.Exception.Message }
+        if ($denied -notmatch 'port') { throw 'Wrong PostgreSQL TLS port was accepted.' }
+        $stageArgs.Apply=$true
+        $stageArgs.Remove('UnsignedDisposableCIFixture')
+        $denied=''
+        try { & $stage @stageArgs | Out-Null } catch { $denied=$_.Exception.Message }
+        if ($denied -notmatch 'Publisher certificate') {
+            throw 'Unsigned PostgreSQL config activation unexpectedly allowed outside disposable mode.'
+        }
+        $stageArgs.UnsignedDisposableCIFixture=$true
+        & $stage @stageArgs | Out-Null
+        $liveConfig=Join-Path $newData 'postgresql.conf'
+        $liveHba=Join-Path $newData 'pg_hba.conf'
+        & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf $liveConfig -PgHbaConf $liveHba | Out-Null
+        if ([IO.File]::ReadAllText((Join-Path $proofDir 'OriginalPostgresql-EsteriumPostgreSQL16.conf')) -cne $oldConf -or
+            [IO.File]::ReadAllText((Join-Path $proofDir 'OriginalPgHba-EsteriumPostgreSQL16.conf')) -cne $oldHba -or
+            -not (Test-Path -LiteralPath (Join-Path $proofDir 'PostgresTlsApplied-EsteriumPostgreSQL16.receipt'))) {
+            throw 'PostgreSQL TLS config activation lost the original vendor defaults or completion receipt.'
+        }
+        $denied=''
+        try { & $stage @stageArgs | Out-Null } catch { $denied=$_.Exception.Message }
+        if ($denied -notmatch 'already staged or an interrupted first install') {
+            throw 'A second PostgreSQL TLS activation replaced an existing config.'
+        }
+        Write-Output 'PASS: first-install TLS config staged atomically, original vendor config preserved, unsigned/port/replay refused.'
+    } finally {
+        Remove-Item Env:ESTERIUM_PG_ACTIVATE_DISPOSABLE_CI -ErrorAction SilentlyContinue
+        foreach ($dir in @($newData,$proofDir)) {
+            if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Force -Recurse }
+        }
+    }
     Write-Output 'PASS: local PostgreSQL TLS/SCRAM templates, newly minted root/server keys and ACL isolation deny overwrite.'
 } finally {
     Remove-Item Env:ESTERIUM_PG_POLICY_DISPOSABLE_CI -ErrorAction SilentlyContinue

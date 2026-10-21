@@ -141,6 +141,10 @@ try {
     [IO.Directory]::CreateDirectory($certDir) | Out-Null
     & $icacls $certDir '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Cannot protect new PostgreSQL certificate folder.' }
+    if ($serviceSID) {
+        & $icacls $certDir '/grant:r' ('*'+$serviceSID+':RX') | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Dedicated PostgreSQL service cannot traverse certificate folder.' }
+    }
     & $GeneratorExe '-out-dir' $certDir | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Offline PostgreSQL certificate generation was rejected.'
