@@ -54,6 +54,7 @@ try {
         'superpassword=synthetic-only-do-not-use'
         'servicepassword=synthetic-only-do-not-use-2'
         'enable-components=server,commandlinetools'
+        'enable_acledit=1'
         'create_shortcuts=0'
         'unattendedmodeui=minimal'
     ) -join [Environment]::NewLine
