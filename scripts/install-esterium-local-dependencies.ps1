@@ -296,6 +296,10 @@ if ($Apply) {
         if ($null -ne $certificate) { $certificate.Dispose() }
     }
 }
+$freshMarker=Join-Path ([IO.Path]::GetDirectoryName($options)) ('PostgresFresh-'+$PostgresServiceName+'.marker')
+if (Test-Path -LiteralPath $freshMarker) {
+    throw 'Existing PostgreSQL fresh-cluster attestation: never reinstall automatically.'
+}
 if (-not $Apply) {
     Write-Output 'PLAN: pacotes, fontes, portas e configurações validados sem alteração no PC.'
     Write-Output 'NEXT: -Apply instalará EDB silenciosamente e registrará Garnet parado (ainda sem banco/schema TLS comercial).'
@@ -362,6 +366,23 @@ if ($pgIdentity -notin $localAccounts) {
 if (@(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'A porta PostgreSQL ainda está ocupada após o desligamento: revisar identidade do processo.'
 }
+# Seal the new-cluster proof in the already protected install-options folder.
+# Never write a proof for existing services or before disabled/stopped SCM
+# identity, PG_VERSION and zero-listener guards have passed.
+$markerBody='ESTERIUM_FRESH_POSTGRES_16'+[Environment]::NewLine+
+    $PostgresServiceName+[Environment]::NewLine+
+    [IO.Path]::GetFullPath($pgData)
+$markerBytes=[Text.UTF8Encoding]::new($false).GetBytes($markerBody)
+try {
+    $markerStream=[IO.File]::Open($freshMarker,[IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,[IO.FileShare]::None)
+    try {
+        $markerStream.Write($markerBytes,0,$markerBytes.Length)
+        $markerStream.Flush($true)
+    } finally { $markerStream.Dispose() }
+} finally { [Array]::Clear($markerBytes,0,$markerBytes.Length) }
+& icacls.exe $freshMarker '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Fresh PostgreSQL attestation ACL could not be protected.' }
 Write-Output 'PASS 1/3: PostgreSQL 16 instalado, serviço desabilitado e parado para configuração de TLS/SCRAM.'
 Write-Output '2/3: instalando binários e serviço Garnet...'
 $stage=$garnetDir+'.staging-'+[Guid]::NewGuid().ToString('N')
