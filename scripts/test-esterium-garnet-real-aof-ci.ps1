@@ -31,7 +31,7 @@ function Read-Reply([IO.StreamReader]$reader) {
     $line=$reader.ReadLine()
     if ([string]::IsNullOrEmpty($line)) { throw 'Missing Redis response over TLS.' }
     if ($line.StartsWith('-')) { throw ('Redis command rejected: '+$line.Substring(1)) }
-    if ($line.StartsWith('+')) { return $line.Substring(1) }
+    if ($line.StartsWith('+') -or $line.StartsWith(':')) { return $line.Substring(1) }
     if (-not $line.StartsWith('$')) { throw 'Unexpected Redis reply format.' }
     $n=[int]::Parse($line.Substring(1))
     if ($n -lt 0) { return $null }
@@ -58,6 +58,17 @@ function Send-Redis([IO.Stream]$stream,[IO.StreamReader]$reader,[string[]]$items
     $stream.Write($bytes,0,$bytes.Length)
     $stream.Flush()
     return (Read-Reply $reader)
+}
+function Assert-RedisDenied([IO.Stream]$stream,[IO.StreamReader]$reader,[string[]]$command) {
+    $rejected=$false
+    try { Send-Redis $stream $reader $command | Out-Null }
+    catch {
+        if ($_.Exception.Message -match '^Redis command rejected:') { $rejected=$true }
+        else { throw }
+    }
+    if (-not $rejected) {
+        throw 'Garnet accepted a command without a valid authenticated user.'
+    }
 }
 function Open-Redis {
     $tcp=[Net.Sockets.TcpClient]::new()
@@ -138,11 +149,17 @@ try {
     $server=Start-Garnet $fresh 'fresh'
     $connection=Open-Redis
     try {
+        Assert-RedisDenied $connection.ssl $connection.reader @('PING')
+        Assert-RedisDenied $connection.ssl $connection.reader @('AUTH','esteriumcache','wrong-ci-password')
         if ((Send-Redis $connection.ssl $connection.reader @('AUTH','esteriumcache',$password)) -ne 'OK') {
             throw 'Garnet refused its authenticated user.'
         }
         if ((Send-Redis $connection.ssl $connection.reader @('SET',('esterium:smoke:'+$id),'committed-value')) -ne 'OK') {
             throw 'Durable test write was not acknowledged.'
+        }
+        $luaKey='esterium:lua:'+ $id
+        if ((Send-Redis $connection.ssl $connection.reader @('EVAL',"return redis.call('INCR', KEYS[1])",'1',$luaKey)) -ne '1') {
+            throw 'Garnet did not execute the required atomic Redis Lua counter.'
         }
     } finally {
         $connection.reader.Dispose();$connection.ssl.Dispose();$connection.tcp.Dispose()
@@ -160,10 +177,13 @@ try {
         if ($value -ne 'committed-value') {
             throw 'Garnet failed to recover an AOF-acknowledged write after a forced crash.'
         }
+        if ((Send-Redis $connection.ssl $connection.reader @('GET',('esterium:lua:'+$id))) -ne '1') {
+            throw 'Atomic Lua write disappeared after AOF recovery.'
+        }
     } finally {
         $connection.reader.Dispose();$connection.ssl.Dispose();$connection.tcp.Dispose()
     }
-    Write-Output 'PASS: pinned official Garnet TLS/ACL and AOF-acknowledged data survived hard Windows process restart.'
+    Write-Output 'PASS: pinned Garnet TLS, default user rejection, ACL, atomic Lua and AOF recovery survived hard Windows restart.'
 } finally {
     if ($null -ne $server) {
         $server.Refresh()
