@@ -292,6 +292,7 @@ jobs:
             scripts/setup-esterium-local-dependencies.ps1 \
             scripts/check-esterium-postgres-tls-policy.ps1 \
             scripts/provision-esterium-postgres-tls-policy.ps1 \
+            scripts/initialize-esterium-postgres-app-db.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
