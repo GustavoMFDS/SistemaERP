@@ -34,7 +34,8 @@ if ($denied -notmatch 'not signed by approved publisher') {
 # Retain a static rule to catch accidental removal of the safety finalizer.
 $text=[IO.File]::ReadAllText($probe)
 foreach ($required in @('finally {','-StartupType Disabled','--check-dependencies',
-    'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership')) {
+    'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership',
+    'backupRestoreApproved=$false','automaticStartupApproved=$false','probe-result.json')) {
     if (-not $text.Contains($required)) {
         throw 'First-run probe lost a required fail-closed security contract.'
     }
