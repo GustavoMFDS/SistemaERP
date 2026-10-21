@@ -104,6 +104,25 @@ jobs:
         shell: pwsh
         run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
 
+  local-postgres-real-tls-smoke:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+      - name: Build local offline TLS generator for isolated PostgreSQL Windows smoke
+        shell: pwsh
+        run: |
+          Push-Location backend
+          try {
+            go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
+            if ($LASTEXITCODE -ne 0) { throw 'Could not compile offline PostgreSQL test certificate utility.' }
+          } finally { Pop-Location }
+      - name: Verify pinned vendor PostgreSQL 16, localhost TLS SCRAM and crash recovery
+        shell: pwsh
+        run: ./scripts/test-esterium-postgres-real-tls-ci.ps1
+
   local-backup-integrity-gate:
     runs-on: windows-2025
     steps:
