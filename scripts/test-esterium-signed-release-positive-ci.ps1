@@ -28,6 +28,7 @@ try {
     & $csc '/nologo' '/target:exe' (('/out:' + $server)) $source | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Could not build synthetic Windows server fixture.' }
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-migrate.exe')
+    Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe')
     # Match the manifest's exhaustive curator, but never copy package secrets.
     $required=@(
         'register-esterium-windows-service.ps1',
