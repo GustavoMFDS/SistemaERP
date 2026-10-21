@@ -20,6 +20,7 @@ type Config struct {
 	HTTPAddr                          string
 	DatabaseURL                       string
 	RedisURL                          string
+	RedisCACertFile                   string
 	RedisAddr                         string
 	RedisPassword                     string
 	RedisDB                           int
@@ -102,6 +103,7 @@ func LoadFromEnv() (Config, error) {
 		HTTPAddr:                          getEnv("HTTP_ADDR", ":8080"),
 		DatabaseURL:                       dbURL,
 		RedisURL:                          redisURL,
+		RedisCACertFile:                   strings.TrimSpace(os.Getenv("REDIS_CA_CERT_FILE")),
 		RedisAddr:                         getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:                     redisPassword,
 		RedisDB:                           getEnvInt("REDIS_DB", 0),

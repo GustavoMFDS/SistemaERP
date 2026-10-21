@@ -37,14 +37,17 @@ try {
     if ($result -notmatch 'PASS: credenciais PostgreSQL e Garnet, incluindo URL TLS do ERP, geradas') {
         throw 'Synthetic bootstrap generation did not finish.'
     }
-    foreach ($name in @('pg-super.secret','pg-service.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','redis-url.secret')) {
+    foreach ($name in @('pg-super.secret','pg-service.secret','pg-app.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','garnet-server.cer','redis-url.secret')) {
         if (-not (Test-Path -LiteralPath (Join-Path $target $name) -PathType Leaf)) {
             throw 'Synthetic bootstrap omitted a protected file.'
         }
     }
     $pgSuper=[IO.File]::ReadAllText((Join-Path $target 'pg-super.secret')).Trim()
     $pgService=[IO.File]::ReadAllText((Join-Path $target 'pg-service.secret')).Trim()
-    if ($pgSuper -ceq $pgService -or $pgSuper.Length -lt 48 -or $pgService.Length -lt 48) {
+    $pgApp=[IO.File]::ReadAllText((Join-Path $target 'pg-app.secret')).Trim()
+    if ($pgSuper -ceq $pgService -or $pgSuper -ceq $pgApp -or
+        $pgService -ceq $pgApp -or $pgSuper.Length -lt 48 -or
+        $pgService.Length -lt 48 -or $pgApp.Length -lt 48) {
         throw 'Database secret generation did not produce independent strong tokens.'
     }
     $acl=[IO.File]::ReadAllText((Join-Path $target 'garnet.acl'))
@@ -52,9 +55,9 @@ try {
         $acl -notmatch '(?m)^user esteriumcache on >[a-zA-Z0-9_-]{48,}') {
         throw 'Garnet ACL credentials are missing or unsafe.'
     }
-    foreach ($name in @('pg-super.secret','pg-service.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','redis-url.secret')) {
-        $allowNetwork=$name -notlike 'pg-*' -and $name -ne 'redis-url.secret'
-        $allowLocal=$name -eq 'redis-url.secret'
+    foreach ($name in @('pg-super.secret','pg-service.secret','pg-app.secret','garnet.acl','garnet-pfx.secret','garnet.pfx','garnet-server.cer','redis-url.secret')) {
+        $allowNetwork=$name -notlike 'pg-*' -and $name -notin @('redis-url.secret','garnet-server.cer')
+        $allowLocal=$name -in @('redis-url.secret','garnet-server.cer')
         $hasNetwork=$false
         $hasLocal=$false
         foreach ($ace in (Get-Acl -LiteralPath (Join-Path $target $name)).Access) {
@@ -76,6 +79,10 @@ try {
     }
     $secret=ConvertTo-SecureString ([IO.File]::ReadAllText((Join-Path $target 'garnet-pfx.secret')).Trim()) -AsPlainText -Force
     $cert=Get-PfxCertificate -FilePath (Join-Path $target 'garnet.pfx') -Password $secret
+    $public=[Security.Cryptography.X509Certificates.X509Certificate2]::new((Join-Path $target 'garnet-server.cer'))
+    if ($null -eq $public -or $public.Thumbprint -cne $cert.Thumbprint -or $public.HasPrivateKey) {
+        throw 'Garnet public trust certificate does not match its TLS service identity.'
+    }
     if ($null -eq $cert -or $cert.NotAfter -le (Get-Date).AddMonths(11)) {
         throw 'Short-lived or invalid synthetic TLS PFX.'
     }

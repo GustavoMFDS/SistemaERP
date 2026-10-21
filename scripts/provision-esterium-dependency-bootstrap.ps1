@@ -58,7 +58,7 @@ while ($cursor) {
     $cursor=$next
 }
 if (-not $Apply) {
-    Write-Output 'PLAN: gerar senhas PostgreSQL, uma URL rediss para a conta local do ERP e um certificado localhost TLS.'
+    Write-Output 'PLAN: gerar senhas PostgreSQL independentes incluindo a conta SQL do ERP, uma URL rediss para a conta local do ERP e um certificado localhost TLS.'
     Write-Output 'PLAN: segredos protegidos, sem mostrar valores nem instalar confiança no certificado.'
     Write-Output 'PLAN: nenhuma escrita, serviço, conexão ou banco alterado.'
     return
@@ -67,7 +67,7 @@ $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.Window
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Criar credenciais locais requer Administrador.'
 }
-foreach ($cmd in @('New-SelfSignedCertificate','Export-PfxCertificate')) {
+foreach ($cmd in @('New-SelfSignedCertificate','Export-PfxCertificate','Export-Certificate')) {
     if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
         throw 'O Windows não possui a ferramenta de certificado necessária.'
     }
@@ -112,10 +112,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao proteger pasta temporária de bootstrap.' }
     $pgSuper=New-Secret
     $pgService=New-Secret
+    $pgApp=New-Secret
     $aclSecret=New-Secret
     $pfxSecret=New-Secret
     Write-Secret (Join-Path $stage 'pg-super.secret') $pgSuper $false
     Write-Secret (Join-Path $stage 'pg-service.secret') $pgService $false
+    Write-Secret (Join-Path $stage 'pg-app.secret') $pgApp $false
     $aclText=('user default off' + [Environment]::NewLine +
         'user esteriumcache on >'+$aclSecret+' ~* +@all')
     Write-Secret (Join-Path $stage 'garnet.acl') $aclText $true
@@ -131,6 +133,15 @@ try {
     $pfxPassword=ConvertTo-SecureString $pfxSecret -AsPlainText -Force
     Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pfxPassword -ErrorAction Stop | Out-Null
     Protect-Item $pfxPath $true
+    # Export only the public certificate for the LocalService ERP client.
+    # Never add the self-signed leaf to global Windows trusted roots.
+    $publicPath=Join-Path $stage 'garnet-server.cer'
+    Export-Certificate -Cert $cert -FilePath $publicPath -Type CERT -ErrorAction Stop | Out-Null
+    Protect-Item $publicPath $false $true
+    if (-not (Test-Path -LiteralPath $publicPath -PathType Leaf) -or
+        (Get-Item -LiteralPath $publicPath).Length -lt 128) {
+        throw 'Certificado publico TLS do Garnet nao foi exportado.'
+    }
     if (-not (Test-Path -LiteralPath $pfxPath -PathType Leaf)) {
         throw 'Arquivo PFX não foi criado.'
     }
@@ -141,7 +152,7 @@ try {
     Write-Output 'NOT READY: certificado autofirmado não é confiável para o cliente; configurar confiança TLS corretamente antes de iniciar ERP.'
     Write-Output 'NEXT: gerar configurações protegidas com prepare-esterium-local-dependency-configs.ps1.'
 } finally {
-    $pgSuper=$null; $pgService=$null; $aclSecret=$null; $pfxSecret=$null
+    $pgSuper=$null; $pgService=$null; $pgApp=$null; $aclSecret=$null; $pfxSecret=$null
     if ($certStorePath -and (Test-Path -LiteralPath $certStorePath)) {
         Remove-Item -LiteralPath $certStorePath -Force -ErrorAction SilentlyContinue
     }

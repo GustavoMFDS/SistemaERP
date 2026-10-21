@@ -12,6 +12,7 @@ param(
     [Parameter(Mandatory = $true)][string]$PostgresBin,
     [Parameter(Mandatory = $true)][string]$DatabaseURLFile,
     [Parameter(Mandatory = $true)][string]$RedisURLFile,
+    [string]$RedisCACertFile = '',
     [Parameter(Mandatory = $true)][string]$JWTSecretFile,
     [Parameter(Mandatory = $true)][string]$MetricsBearerTokenFile,
     [Parameter(Mandatory = $true)][string]$AllowedOrigin,
@@ -69,6 +70,7 @@ $serviceArgs = @{
     BundleDir=$BundleDir
     DatabaseURLFile=$DatabaseURLFile
     RedisURLFile=$RedisURLFile
+    RedisCACertFile=$RedisCACertFile
     JWTSecretFile=$JWTSecretFile
     MetricsBearerTokenFile=$MetricsBearerTokenFile
     AllowedOrigin=$AllowedOrigin

@@ -66,11 +66,14 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         'provision-esterium-dependency-bootstrap.ps1',
     'setup-esterium-local-dependencies.ps1',
         'check-esterium-postgres-tls-policy.ps1',
-        'provision-esterium-postgres-tls-policy.ps1'
+        'provision-esterium-postgres-tls-policy.ps1',
+        'initialize-esterium-postgres-app-db.ps1',
+        'apply-esterium-initial-schema.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $path 'tools') -ErrorAction Stop
     }
     [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-migrate.exe'), 'synthetic migrate stub never executed')
+    [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-pg-tls-certgen.exe'), 'synthetic migrate stub never executed')
     for ($i = 1; $i -le $migrationCount; $i++) {
         $prefix = '{0:d4}_ci_fixture' -f $i
         foreach ($direction in @('up', 'down')) {

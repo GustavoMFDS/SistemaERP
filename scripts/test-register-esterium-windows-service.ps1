@@ -43,6 +43,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $bundle 'esterium-server.exe'), 'synthetic-not-executable')
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'tools')) | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-migrate.exe'), 'synthetic-CLI-never-executed')
+    [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-pg-tls-certgen.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), 'synthetic-html')
     $migrationDir = Join-Path $bundle 'migrations'
     [IO.Directory]::CreateDirectory($migrationDir) | Out-Null
@@ -82,7 +83,9 @@ try {
         'provision-esterium-dependency-bootstrap.ps1',
     'setup-esterium-local-dependencies.ps1',
     'check-esterium-postgres-tls-policy.ps1',
-        'provision-esterium-postgres-tls-policy.ps1'
+        'provision-esterium-postgres-tls-policy.ps1',
+        'initialize-esterium-postgres-app-db.ps1',
+        'apply-esterium-initial-schema.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $bundleTools $tool)
     }

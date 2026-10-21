@@ -34,17 +34,33 @@ try {
     $args.Apply=$true
     $args.UnsignedDisposableCIFixture=$true
     $result=@(& $tool @args) -join ' '
-    if ($result -notmatch 'PASS: new protected PostgreSQL') {
+    if ($result -notmatch 'PASS: new PostgreSQL TLS/SCRAM policy, private server key') {
         throw 'Synthetic protected PostgreSQL policy provisioning failed.'
     }
     $pg=Join-Path $root 'postgresql.conf'
     $hba=Join-Path $root 'pg_hba.conf'
+    $certFolder=Join-Path $root 'certificates'
+    foreach ($name in @('server.crt','server.key','root.crt')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $certFolder $name) -PathType Leaf)) {
+            throw 'Offline certificate generator omitted a PostgreSQL TLS file.'
+        }
+        $readSids=@((Get-Acl -LiteralPath (Join-Path $certFolder $name)).Access | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and
+            ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -ne 0
+        } | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value })
+        $localCanRead='S-1-5-19' -in $readSids
+        if (($name -eq 'root.crt') -ne $localCanRead) {
+            throw 'LocalService access to PostgreSQL TLS root/private key does not follow isolation policy.'
+        }
+    }
+
     if (-not (Test-Path -LiteralPath $pg -PathType Leaf) -or
         -not (Test-Path -LiteralPath $hba -PathType Leaf)) {
         throw 'Missing newly created PostgreSQL policy templates.'
     }
     $text=[IO.File]::ReadAllText($pg)
     if ($text -notmatch "(?m)^port = 64333\r?$" -or $text -notmatch "ssl = on" -or
+        $text -notmatch [regex]::Escape('certificates/server.crt') -or
         $text -notmatch "password_encryption = 'scram-sha-256'") {
         throw 'PostgreSQL policy contains unexpected listen/transport/auth settings.'
     }
@@ -54,7 +70,7 @@ try {
     if ($denied -notmatch 'must not be overwritten') {
         throw 'Policy generator overwrote an existing trusted destination.'
     }
-    Write-Output 'PASS: protected offline PostgreSQL TLS/SCRAM templates deny unapproved paths, ports, signatures and overwrite.'
+    Write-Output 'PASS: local PostgreSQL TLS/SCRAM templates, newly minted root/server keys and ACL isolation deny overwrite.'
 } finally {
     Remove-Item Env:ESTERIUM_PG_POLICY_DISPOSABLE_CI -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
