@@ -108,6 +108,17 @@ jobs:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+      - name: Compile offline PostgreSQL TLS certificate utility for disposable Windows fixture
+        shell: pwsh
+        run: |
+          Push-Location backend
+          try {
+            go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
+            if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL TLS certificate utility build failed.' }
+          } finally { Pop-Location }
       - name: Verify freshness and integrity of synthetic local and external backups
         shell: pwsh
         run: ./scripts/test-esterium-backup-integrity.ps1
