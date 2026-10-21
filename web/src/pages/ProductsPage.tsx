@@ -50,6 +50,10 @@ type ProductCreateRequest = {
   return_days?: number | null
 }
 
+const formatPrice = (value: number) => new Intl.NumberFormat('pt-BR', {
+  style: 'currency', currency: 'BRL',
+}).format(value)
+
 export default function ProductsPage() {
   const [query, setQuery] = useState('')
   const [onlyLowStock, setOnlyLowStock] = useState(false)
@@ -660,7 +664,7 @@ export default function ProductsPage() {
                   </button> : null}
                 </td>
                 <td className="px-3 py-2">{p.unit}</td>
-                <td className="px-3 py-2">{p.price_cash.toFixed(2)}</td>
+                <td className="px-3 py-2">{formatPrice(p.price_cash)}</td>
                 <td className="px-3 py-2">
                   {p.qty_on_hand.toFixed(2)}
                   {p.active && p.min_stock > 0 && p.qty_on_hand <= p.min_stock ? (
@@ -777,7 +781,7 @@ export default function ProductsPage() {
                   {importPreview.errors.length > 20 ? <p>Mais {importPreview.errors.length - 20} erro(s).</p> : null}
                 </div>
               ) : null}
-              <p className="text-xs text-gray-600">Prévia: {importPreview.valid.slice(0, 5).map((row) => `${row.sku} — ${row.name} (R$ ${row.price_cash.toFixed(2)})`).join(' · ')}</p>
+              <p className="text-xs text-gray-600">Prévia: {importPreview.valid.slice(0, 5).map((row) => `${row.sku} — ${row.name} (${formatPrice(row.price_cash)})`).join(' · ')}</p>
               <p className="text-xs text-amber-800">Códigos NCM/CEST precisam ser conferidos com o contador. A importação não habilita emissão fiscal.</p>
               <button type="button" onClick={() => void importProducts()} disabled={importing || importPreview.valid.length === 0 || importPreview.errors.length > 0 || !importKey || importScope !== getSessionScope()}
                 className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
