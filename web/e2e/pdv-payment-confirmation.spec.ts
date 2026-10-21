@@ -70,6 +70,7 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   const finalize = page.getByRole('button', { name: 'Finalizar venda', exact: true })
   await expect(finalize).toHaveCount(1)
   await expect(finalize).toBeDisabled()
+  await expect(page.getByRole('dialog', { name: 'Venda concluída' })).toHaveCount(0)
   await page.getByRole('combobox', { name: 'Produto', exact: true }).selectOption(productID)
   await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
@@ -135,6 +136,11 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   await expect(page.getByRole('status').filter({ hasText: 'Troco: R$ 5,00' })).toBeVisible()
   await finalize.click()
   await expect(page.getByText(/Venda finalizada:/)).toBeVisible()
+  const completedDialog = page.getByRole('dialog', { name: 'Venda concluída' })
+  await expect(completedDialog).toBeVisible()
+  await expect(completedDialog).toContainText('R$ 25,00')
+  await completedDialog.getByRole('button', { name: 'Continuar no caixa' }).click()
+  await expect(completedDialog).toHaveCount(0)
   expect(salePosts).toBe(1)
   expect(lastSale).toMatchObject({
     items: [{ qty: 2 }],
