@@ -53,6 +53,15 @@ if ($Apply) {
         $ApprovedManifestSHA256 -cnotmatch '^[0-9a-fA-F]{64}$') {
         throw 'Initial setup requires an independently approved manifest SHA-256 and publisher.'
     }
+    # Authenticate delegated verification code BEFORE invoking it as admin.
+    foreach ($file in @('check-esterium-signed-release.ps1','verify-esterium-bundle.ps1')) {
+        $auth=Get-AuthenticodeSignature -LiteralPath (Join-Path $PSScriptRoot $file)
+        if ($auth.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+            $null -eq $auth.SignerCertificate -or
+            $auth.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $TrustedPublisherThumbprint.ToUpperInvariant()) {
+            throw 'Initial setup approval helper is not signed by approved publisher.'
+        }
+    }
     $signature=Get-AuthenticodeSignature -LiteralPath $PSCommandPath
     if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
         $null -eq $signature.SignerCertificate -or
