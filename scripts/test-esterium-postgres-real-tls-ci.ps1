@@ -81,13 +81,31 @@ try {
         throw 'Approved PostgreSQL binary ZIP lacks pg_ctl or psql.'
     }
     $env:PATH=$bin+';'+$oldEnv['PATH']
-    & $initdb '-D' $data '--username=postgres' ('--pwfile='+$passwordFile) '--auth-host=scram-sha-256' '--encoding=UTF8' '--no-instructions' | Out-Null
+    & $initdb '-D' $data '--username=postgres' ('--pwfile='+$passwordFile) '--auth-host=scram-sha-256' '--auth-local=scram-sha-256' '--encoding=UTF8' '--no-instructions' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Real PostgreSQL initdb failed on isolated Windows host.' }
     Copy-Item -LiteralPath $policyConfig -Destination (Join-Path $data 'postgresql.conf') -Force
     Copy-Item -LiteralPath $policyHba -Destination (Join-Path $data 'pg_hba.conf') -Force
     & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf (Join-Path $data 'postgresql.conf') -PgHbaConf (Join-Path $data 'pg_hba.conf') | Out-Null
+    # The disposable runner runs postgres under its current Windows SID,
+    # whereas real installation grants the freshly created service-account SID.
+    # Grant the CI identity explicit key read without relaxing production ACLs.
+    $tlsDir=Join-Path $policy 'certificates'
+    foreach ($folder in @($policy,$tlsDir)) {
+        & icacls.exe $folder '/grant:r' ('*'+$runnerSID+':RX') | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Unable to grant synthetic PostgreSQL directory traversal.' }
+    }
+    foreach ($name in @('server.crt','server.key')) {
+        & icacls.exe (Join-Path $tlsDir $name) '/grant:r' ('*'+$runnerSID+':R') | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Unable to grant synthetic PostgreSQL service key read.' }
+    }
     & $pgCtl '-D' $data '-l' $log '-w' 'start' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Real PostgreSQL refused prepared TLS/SCRAM config.' }
+    if ($LASTEXITCODE -ne 0) {
+        if (Test-Path -LiteralPath $log) {
+            Write-Host 'PostgreSQL CI startup log (last 35 lines, no credentials):'
+            foreach ($line in @(Get-Content -LiteralPath $log -Tail 35)) { Write-Host $line }
+        }
+        throw 'Real PostgreSQL refused prepared TLS/SCRAM config.'
+    }
     $started=$true
     $env:PGHOST='localhost'
     $env:PGPORT=[string]$port
