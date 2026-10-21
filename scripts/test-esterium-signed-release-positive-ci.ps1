@@ -103,7 +103,7 @@ try {
     # reject this fixture. Only approved publisher certificates may pass it.
     Write-Output 'STEP: ephemeral self-signed identity ready; system trust remains unchanged.'
     Write-Output 'STEP: signing disposable executables and all packaged scripts.'
-    $signTargets=@($server,(Join-Path $toolsDir 'esterium-migrate.exe'))
+    $signTargets=@($server,(Join-Path $toolsDir 'esterium-migrate.exe'),(Join-Path $toolsDir 'esterium-pg-tls-certgen.exe'))
     $signTargets+=@(Get-ChildItem -LiteralPath $toolsDir -File -Filter '*.ps1' | ForEach-Object { $_.FullName })
     foreach ($path in $signTargets) {
         Write-Output ('STEP: signing synthetic file ' + [IO.Path]::GetFileName($path))
