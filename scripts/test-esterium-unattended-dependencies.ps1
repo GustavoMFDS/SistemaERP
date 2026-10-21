@@ -70,7 +70,7 @@ try {
     $garnetConfig=[ordered]@{
         Address='127.0.0.1';Port=64322;EnableCluster=$false
         AuthenticationMode='ACL';AclFile=$aclFile
-        EnableTLS=$true;CertFileName=$pfxFile;CertPassword='synthetic-only'
+        EnableTLS=$true;ClientCertificateRequired=$false;CertFileName=$pfxFile;CertPassword='synthetic-only'
         EnableLua=$true;LuaTransactionMode=$true
         LuaMemoryManagementMode='Tracked';LuaScriptMemoryLimit='8m';LuaScriptTimeoutMs=5000
         EnableAOF=$true;WaitForCommit=$true;CommitFrequencyMs=0
