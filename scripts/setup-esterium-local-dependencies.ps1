@@ -158,7 +158,7 @@ if ($ExpectedServiceWrapperSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
         $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
     throw 'Gerenciador de serviço NSSM não possui hash aprovado de fonte independente.'
 }
-$bootstrapArgs=@{DestinationDir=$BootstrapDir}
+$bootstrapArgs=@{DestinationDir=$BootstrapDir;GarnetPort=$GarnetPort}
 & $bootstrap @bootstrapArgs | Out-Null
 if (-not $Apply) {
     Write-Output 'PLAN: pacotes aprovados, portas e pastas novas, geração de segredos e execução offline planejadas.'
