@@ -15,6 +15,7 @@ test('código de barras pode ser salvo sem abrir os campos fiscais', async ({ pa
   }
   let savedBarcode = ''
   let savedPrice = 0
+  let savedPolicy = ''
 
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -38,9 +39,10 @@ test('código de barras pode ser salvo sem abrir os campos fiscais', async ({ pa
     }
     if (path === '/api/v1/products/images/previews') return reply({ items: {} })
     if (path === '/api/v1/products/' + productID && method === 'PUT') {
-      const body = route.request().postDataJSON() as { barcode: string; price_cash: number }
+      const body = route.request().postDataJSON() as { barcode: string; price_cash: number; return_policy: string }
       savedBarcode = body.barcode
       savedPrice = body.price_cash
+      savedPolicy = body.return_policy
       return reply({ id: productID })
     }
     return reply({ message: 'endpoint de teste não disponível' }, 404)
@@ -53,11 +55,17 @@ test('código de barras pode ser salvo sem abrir os campos fiscais', async ({ pa
   await expect(page).toHaveURL(/\/home$/)
   await page.goto('/products')
   await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
-  await expect(page.getByRole('columnheader', { name: 'Código de barras' })).toBeVisible()
+  try {
+    await expect(page.getByRole('columnheader', { name: 'Código de barras' })).toBeVisible()
+  } catch (error) {
+    console.error('ProductsPage debug:', (await page.locator('body').innerText()).slice(0, 2800))
+    throw error
+  }
   await expect(page.getByRole('columnheader', { name: 'Classificação (NCM)' })).toHaveCount(0)
   await page.getByLabel('Código de barras de Produto com leitor').fill('7891234567895')
   await page.getByRole('button', { name: 'Salvar código de barras de Produto com leitor' }).click()
   await expect.poll(() => savedBarcode).toBe('7891234567895')
   expect(savedPrice).toBe(12.5)
+  expect(savedPolicy).toBe('allowed')
   await expect(page.getByLabel('Código de barras de Produto com leitor')).toHaveValue('7891234567895')
 })
