@@ -70,6 +70,7 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         'stage-esterium-postgres-tls.ps1',
         'probe-esterium-local-first-run.ps1',
         'bootstrap-esterium-local-schema.ps1',
+        'stage-esterium-approved-windows-release.ps1',
         'initialize-esterium-postgres-app-db.ps1',
         'apply-esterium-initial-schema.ps1'
     )) {
