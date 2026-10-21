@@ -244,7 +244,10 @@ try {
     } finally { $client.Dispose() }
     $success=$true
 } finally {
-    # Fail closed even when a service, port ownership or SQL/TLS check fails.
+    # Always attempt BOTH services, even when the first stop command fails.
+    # Retain a hard failure if any process is still running or auto-start
+    # policy was not disabled. No success receipt is ever created on failure.
+    $cleanupFailures=@()
     foreach ($name in @($GarnetServiceName,$PostgresServiceName)) {
         try {
             if ((Get-Service -Name $name -ErrorAction Stop).Status -ne 'Stopped') {
@@ -252,9 +255,19 @@ try {
                 (Get-Service -Name $name).WaitForStatus(
                     [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
             }
-        } finally {
-            Set-Service -Name $name -StartupType Disabled -ErrorAction Stop
-        }
+        } catch { $cleanupFailures+=('stop:'+ $name) }
+        try { Set-Service -Name $name -StartupType Disabled -ErrorAction Stop }
+        catch { $cleanupFailures+=('disable:'+ $name) }
+    }
+    foreach ($name in @($GarnetServiceName,$PostgresServiceName)) {
+        try {
+            $actual=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
+            if ($actual.StartMode -cne 'Disabled' -or $actual.State -cne 'Stopped' -or
+                [int]$actual.ProcessId -ne 0) { $cleanupFailures+=('unsafe-state:'+ $name) }
+        } catch { $cleanupFailures+=('unverifiable-state:'+ $name) }
+    }
+    if ($cleanupFailures.Count -gt 0) {
+        throw 'Probe cleanup could not confirm BOTH dependencies stopped and disabled; manual intervention required.'
     }
 }
 if (-not $success) { throw 'Runtime probe did not pass.' }
