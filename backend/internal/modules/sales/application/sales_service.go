@@ -54,7 +54,8 @@ type SaleItemRequest struct {
 
 type SalePaymentRequest struct {
 	Method            string         `json:"method" validate:"required,oneof=cash pix debit credit transfer voucher"`
-	Amount            platform.Money `json:"amount" validate:"required,gt=0"`
+	Amount            platform.Money  `json:"amount" validate:"required,gt=0"`
+	CashReceived      *platform.Money `json:"cash_received,omitempty" validate:"omitempty,gt=0"`
 	Provider          *string        `json:"provider" validate:"omitempty,max=100"`
 	TransactionRef    *string        `json:"transaction_ref" validate:"omitempty,max=200"`
 	AuthorizationCode *string        `json:"authorization_code" validate:"omitempty,max=100"`
@@ -74,8 +75,27 @@ func validateSalePaymentSemantics(payments []SalePaymentRequest) error {
 			(payment.Provider != nil || payment.TransactionRef != nil || payment.AuthorizationCode != nil) {
 			return common.ErrValidation
 		}
+		if payment.Method != "cash" && payment.CashReceived != nil {
+			return common.ErrValidation
+		}
+		if payment.CashReceived != nil {
+			change, err := payment.CashReceived.SubChecked(payment.Amount)
+			if err != nil || payment.Amount <= 0 || *payment.CashReceived <= 0 || change < 0 {
+				return common.ErrValidation
+			}
+		}
 	}
 	return nil
+}
+
+// The tender is validated in integer cents before calculating the change.
+// The booked payment and cash ledger continue to hold only the net sale amount.
+func cashChangeForTender(p SalePaymentRequest) *platform.Money {
+	if p.CashReceived == nil {
+		return nil // Historical cash sales may have no recorded tender.
+	}
+	change := *p.CashReceived - p.Amount
+	return &change
 }
 
 func NewSalesService(cfg config.Config, uow db.UnitOfWork, salesRepo SalesRepository, invRepo InventoryRepository, finRepo FinanceRepository, cashRepo CashRepository, productsRepo ProductsRepository, auditSvc *audit.Service, bus *events.Bus, v *validator.Validate, logger *slog.Logger) *SalesService {
@@ -202,7 +222,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 			status = "not_applicable"
 		}
 		pays = append(pays, sales.Payment{
-			Method: p.Method, Amount: p.Amount, Provider: p.Provider,
+			Method: p.Method, Amount: p.Amount, CashReceived: p.CashReceived, CashChange: cashChangeForTender(p), Provider: p.Provider,
 			TransactionRef: p.TransactionRef, AuthorizationCode: p.AuthorizationCode,
 			Installments: p.Installments, ReconciliationStatus: status,
 		})
@@ -313,7 +333,7 @@ func (s *SalesService) CreateAndFinalize(ctx context.Context, tenantID string, a
 			status = "not_applicable"
 		}
 		pay := sales.Payment{
-			SaleID: saleID, Method: p.Method, Amount: p.Amount, Provider: p.Provider,
+			SaleID: saleID, Method: p.Method, Amount: p.Amount, CashReceived: p.CashReceived, CashChange: cashChangeForTender(p), Provider: p.Provider,
 			TransactionRef: p.TransactionRef, AuthorizationCode: p.AuthorizationCode,
 			Installments: p.Installments, ReconciliationStatus: status,
 		}
@@ -395,6 +415,7 @@ func saleRequestHash(req SaleCreateRequest) (string, error) {
 	type payment struct {
 		Method            string         `json:"method"`
 		Amount            platform.Money `json:"amount"`
+		CashReceived      *platform.Money `json:"cash_received,omitempty"`
 		Provider          *string        `json:"provider"`
 		TransactionRef    *string        `json:"transaction_ref"`
 		AuthorizationCode *string        `json:"authorization_code"`
