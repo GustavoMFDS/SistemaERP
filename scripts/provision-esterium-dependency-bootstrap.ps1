@@ -67,7 +67,7 @@ $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.Window
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Criar credenciais locais requer Administrador.'
 }
-foreach ($cmd in @('New-SelfSignedCertificate','Export-PfxCertificate')) {
+foreach ($cmd in @('New-SelfSignedCertificate','Export-PfxCertificate','Export-Certificate')) {
     if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
         throw 'O Windows não possui a ferramenta de certificado necessária.'
     }
@@ -133,6 +133,15 @@ try {
     $pfxPassword=ConvertTo-SecureString $pfxSecret -AsPlainText -Force
     Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pfxPassword -ErrorAction Stop | Out-Null
     Protect-Item $pfxPath $true
+    # Export only the public certificate for the LocalService ERP client.
+    # Never add the self-signed leaf to global Windows trusted roots.
+    $publicPath=Join-Path $stage 'garnet-server.cer'
+    Export-Certificate -Cert $cert -FilePath $publicPath -Type CERT -ErrorAction Stop | Out-Null
+    Protect-Item $publicPath $false $true
+    if (-not (Test-Path -LiteralPath $publicPath -PathType Leaf) -or
+        (Get-Item -LiteralPath $publicPath).Length -lt 128) {
+        throw 'Certificado publico TLS do Garnet nao foi exportado.'
+    }
     if (-not (Test-Path -LiteralPath $pfxPath -PathType Leaf)) {
         throw 'Arquivo PFX não foi criado.'
     }
