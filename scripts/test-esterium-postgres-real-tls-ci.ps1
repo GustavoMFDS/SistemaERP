@@ -23,7 +23,19 @@ $zip=Join-Path $root 'vendor.zip'
 $wrongRoot=Join-Path $root 'wrong-cert'
 $log=Join-Path $root 'postgres.log'
 $passwordFile=Join-Path $root 'pg-password.secret'
-$port=64339
+# A fixed high port may be in a Windows excluded/reserved port range and
+# cause WSAEACCES, even on a disposable hosted runner. Let the OS select
+# an available loopback port before generating the TLS policy.
+$portListener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
+try {
+    $portListener.Start()
+    $port=([Net.IPEndPoint]$portListener.LocalEndpoint).Port
+} finally {
+    $portListener.Stop()
+}
+if ($port -lt 1024 -or $port -gt 65535) {
+    throw 'Windows failed to select a valid temporary PostgreSQL port.'
+}
 $pass='ci-postgres-secret-'+$id
 $pgCtl=$null
 $psql=$null
