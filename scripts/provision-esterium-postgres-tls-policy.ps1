@@ -130,6 +130,12 @@ try {
     [IO.Directory]::CreateDirectory($stage) | Out-Null
     & $icacls $stage '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Cannot protect staged PostgreSQL policy.' }
+    # Grant directory traversal without inheriting read to the protected
+    # configuration files or server private key.
+    $traversal=@('/grant:r','*S-1-5-19:RX')
+    if ($serviceSID) { $traversal+=('*'+$serviceSID+':RX') }
+    & $icacls $stage @traversal | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot grant safe TLS material directory traversal.' }
 
     $certDir=Join-Path $stage 'certificates'
     [IO.Directory]::CreateDirectory($certDir) | Out-Null
