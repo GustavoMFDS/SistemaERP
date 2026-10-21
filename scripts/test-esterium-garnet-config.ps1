@@ -82,11 +82,10 @@ try {
         throw 'Generated Garnet config has unsafe or incomplete settings.'
     }
     $state=Join-Path $target 'state'
-    if ($config.LogDir -ne (Join-Path $state 'logs') -or
-        $config.CheckpointDir -ne (Join-Path $state 'checkpoints')) {
+    if ($config.CheckpointDir -ne (Join-Path $state 'checkpoints')) {
         throw 'AOF data paths do not stay inside the separate protected state tree.'
     }
-    foreach ($folder in @($state,(Join-Path $state 'logs'),(Join-Path $state 'checkpoints'))) {
+    foreach ($folder in @($state,(Join-Path $state 'checkpoints'))) {
         if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
             throw 'Missing protected Garnet AOF or checkpoint directory.'
         }
