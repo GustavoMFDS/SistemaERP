@@ -122,7 +122,8 @@ if ($denied -notmatch 'valid HTTPS origin') {
 $code=[IO.File]::ReadAllText($coordinator)
 foreach ($required in @('stage-esterium-approved-windows-release.ps1',
     'bootstrap-esterium-local-schema.ps1','register-esterium-windows-service.ps1',
-    'probe-esterium-local-first-run.ps1','provision-esterium-app-secrets.ps1')) {
+    'probe-esterium-local-first-run.ps1','provision-esterium-app-secrets.ps1',
+    "Set-Service -Name 'EsteriumERP' -StartupType Disabled")) {
     if (-not $code.Contains($required)) {
         throw 'Combined installer lost an essential signed first-install step.'
     }
