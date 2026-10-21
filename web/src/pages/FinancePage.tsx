@@ -79,6 +79,10 @@ const RECONCILIATION_LABELS: Record<string, string> = {
   not_applicable: 'Conferir no caixa',
 }
 
+const money = (value: number) => new Intl.NumberFormat('pt-BR', {
+  style: 'currency', currency: 'BRL',
+}).format(value)
+
 export default function FinancePage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -353,7 +357,7 @@ export default function FinancePage() {
         <p className="mt-2 text-sm text-slate-600">Abra apenas quando precisar conferir pagamentos, taxas ou reembolsos individualmente.</p>
 
       {error ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
@@ -397,7 +401,7 @@ export default function FinancePage() {
           {dashboardRows.map(([key, value]) => (
             <div key={key} className="rounded-md bg-gray-50 p-2 text-xs">
               <div className="text-gray-600">{key}</div>
-              <div className="mt-1 font-semibold">R$ {Number(value).toFixed(2)}</div>
+              <div className="mt-1 font-semibold">{money(Number(value))}</div>
             </div>
           ))}
           {dashboardRows.length === 0 ? <div className="text-xs text-gray-500">Sem lançamentos.</div> : null}
@@ -423,7 +427,7 @@ export default function FinancePage() {
                 <tr key={payment.id}>
                   <td className="px-2 py-2 font-mono text-xs">{payment.sale_id}</td>
                   <td className="px-2 py-2">{METHOD_LABELS[payment.method] ?? payment.method}</td>
-                  <td className="px-2 py-2">R$ {payment.amount.toFixed(2)}</td>
+                  <td className="px-2 py-2">{money(payment.amount)}</td>
                   <td className="px-2 py-2 text-xs">{payment.provider ?? '—'} / {payment.transaction_ref ?? '—'}</td>
                   <td className="px-2 py-2">{RECONCILIATION_LABELS[payment.reconciliation_status] ?? 'A verificar'}</td>
                   <td className="px-2 py-2">
@@ -555,7 +559,7 @@ export default function FinancePage() {
                 <div className="rounded-md bg-gray-50 p-2 text-xs">
                   <div className="font-semibold">Conciliação inicial • {reconciliationHistory.initial.status}</div>
                   <div className="mt-1">
-                    Esperado R$ {reconciliationHistory.initial.expected_amount.toFixed(2)} • recebido R$ {reconciliationHistory.initial.received_amount.toFixed(2)} • taxa R$ {reconciliationHistory.initial.fee_amount.toFixed(2)} • diferença R$ {reconciliationHistory.initial.difference_amount.toFixed(2)}
+                    Esperado {money(reconciliationHistory.initial.expected_amount)} • recebido {money(reconciliationHistory.initial.received_amount)} • taxa {money(reconciliationHistory.initial.fee_amount)} • diferença {money(reconciliationHistory.initial.difference_amount)}
                   </div>
                   <div className="mt-1 text-gray-600">
                     {reconciliationHistory.initial.provider ?? 'sem provedor'} / {reconciliationHistory.initial.external_ref ?? 'sem referência externa'} • {new Date(reconciliationHistory.initial.created_at).toLocaleString()}
@@ -570,10 +574,10 @@ export default function FinancePage() {
                       <div key={adjustment.id} className="rounded-md border p-2 text-xs">
                         <div className="font-semibold">Ajuste {index + 1} • {adjustment.status}</div>
                         <div className="mt-1">
-                          Recebido R$ {adjustment.previous_received_amount.toFixed(2)} → R$ {adjustment.new_received_amount.toFixed(2)}
+                          Recebido {money(adjustment.previous_received_amount)} → {money(adjustment.new_received_amount)}
                         </div>
                         <div>
-                          Taxa R$ {adjustment.previous_fee_amount.toFixed(2)} → R$ {adjustment.new_fee_amount.toFixed(2)} • diferença R$ {adjustment.difference_amount.toFixed(2)}
+                          Taxa {money(adjustment.previous_fee_amount)} → {money(adjustment.new_fee_amount)} • diferença {money(adjustment.difference_amount)}
                         </div>
                         <div className="mt-1 text-gray-600">{new Date(adjustment.created_at).toLocaleString()}</div>
                         {adjustment.notes ? <div className="mt-1">{adjustment.notes}</div> : null}
@@ -605,9 +609,9 @@ export default function FinancePage() {
               {refunds.map((refund) => (
                 <tr key={refund.return_id}>
                   <td className="px-2 py-2 font-mono text-xs">{refund.sale_id}</td>
-                  <td className="px-2 py-2">R$ {refund.refund_due.toFixed(2)}</td>
-                  <td className="px-2 py-2">R$ {refund.settled_amount.toFixed(2)}</td>
-                  <td className="px-2 py-2">R$ {refund.remaining_amount.toFixed(2)}</td>
+                  <td className="px-2 py-2">{money(refund.refund_due)}</td>
+                  <td className="px-2 py-2">{money(refund.settled_amount)}</td>
+                  <td className="px-2 py-2">{money(refund.remaining_amount)}</td>
                   <td className="px-2 py-2">{refund.status}</td>
                   <td className="px-2 py-2">
                     {refund.remaining_amount > 0 ? (
