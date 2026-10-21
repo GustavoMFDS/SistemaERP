@@ -69,6 +69,28 @@ function Assert-RunningService([string]$name) {
     }
     # Windows process command-line details might embed credentials: NEVER echo PathName.
 }
+# A service wrapper (NSSM) holds the SCM PID, while the wrapped Garnet
+# listener is a child. Permit only a bounded process ancestry under NETWORK
+# SERVICE; do not weaken PostgreSQL's direct owner check.
+function Assert-GarnetServiceDescendant([int]$listenerPid, [int]$servicePid) {
+    $currentPid = $listenerPid
+    $visited = @{}
+    for ($depth = 0; $depth -lt 6; $depth++) {
+        if ($currentPid -eq $servicePid) { return }
+        if ($currentPid -le 0 -or $visited.ContainsKey($currentPid)) {
+            throw 'Garnet listener process ancestry is invalid.'
+        }
+        $visited[$currentPid] = $true
+        $processes = @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$currentPid" -ErrorAction Stop)
+        if ($processes.Count -ne 1) { throw 'Garnet listener process is missing.' }
+        $owner = Invoke-CimMethod -InputObject $processes[0] -MethodName GetOwnerSid -ErrorAction Stop
+        if ($owner.ReturnValue -ne 0 -or $owner.Sid -ne 'S-1-5-20') {
+            throw 'Garnet listener must run under NETWORK SERVICE.'
+        }
+        $currentPid = [int]$processes[0].ParentProcessId
+    }
+    throw 'Garnet listener is not descended from its Windows service.'
+}
 function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
     $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
     if ($listeners.Count -eq 0) {
@@ -79,7 +101,10 @@ function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
             throw "Local dependency port $port is exposed on a non-loopback address."
         }
         if ($RequireServiceOwnership -and [int]$listener.OwningProcess -ne $expectedPid) {
-            throw "Dependency listener process does not belong to its declared Windows service."
+            if ($port -ne $RedisPort) {
+                throw 'Dependency listener process does not belong to its declared Windows service.'
+            }
+            Assert-GarnetServiceDescendant ([int]$listener.OwningProcess) $expectedPid
         }
     }
 }

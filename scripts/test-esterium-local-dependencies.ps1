@@ -16,9 +16,16 @@ $global:ESTERIUM_TEST_LAN_BIND = $false
 $global:ESTERIUM_TEST_PG_MISSING = $false
 $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $false
 $global:ESTERIUM_TEST_PG_PID_MISSING = $false
+$global:ESTERIUM_TEST_GARNET_WRAPPED = $false
+$global:ESTERIUM_TEST_GARNET_WRONG_OWNER = $false
+$global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $false
 function Get-CimInstance {
     [CmdletBinding()]
     param([string]$ClassName, [string]$Filter)
+    if ($ClassName -eq 'Win32_Process') {
+        if ($Filter -ne 'ProcessId=28103') { throw 'Unexpected Garnet process.' }
+        return [PSCustomObject]@{ ParentProcessId=$(if ($global:ESTERIUM_TEST_GARNET_WRONG_PARENT) { 28199 } else { 28102 }) }
+    }
     if ($ClassName -ne 'Win32_Service') { throw 'Unexpected CIM request.' }
     if ($Filter -eq "Name='EsteriumCI-Postgres'") {
         if ($global:ESTERIUM_TEST_PG_MISSING) { return }
@@ -37,6 +44,15 @@ function Get-CimInstance {
     }
     throw 'Unexpected Windows service requested.'
 }
+function Invoke-CimMethod {
+    [CmdletBinding()]
+    param($InputObject, [string]$MethodName)
+    if ($MethodName -ne 'GetOwnerSid') { throw 'Unexpected process owner query.' }
+    return [PSCustomObject]@{
+        ReturnValue=0
+        Sid=$(if ($global:ESTERIUM_TEST_GARNET_WRONG_OWNER) { 'S-1-5-21-123' } else { 'S-1-5-20' })
+    }
+}
 function Get-NetTCPConnection {
     [CmdletBinding()]
     param([string]$State, [int]$LocalPort)
@@ -45,6 +61,7 @@ function Get-NetTCPConnection {
     }
     $pidValue = if ($LocalPort -eq 5432) { 28101 } else { 28102 }
     if ($global:ESTERIUM_TEST_PORT_OWNER_MISMATCH -and $LocalPort -eq 6379) { $pidValue = 28199 }
+    if ($global:ESTERIUM_TEST_GARNET_WRAPPED -and $LocalPort -eq 6379) { $pidValue = 28103 }
     if ($global:ESTERIUM_TEST_LAN_BIND -and $LocalPort -eq 6379) {
         return [PSCustomObject]@{ LocalAddress='0.0.0.0'; LocalPort=$LocalPort; OwningProcess=$pidValue }
     }
@@ -79,8 +96,20 @@ try {
     if ($strictResult -notmatch 'strict ownership mode') {
         throw 'Synthetic strict dependency listener ownership was not checked.'
     }
+    $global:ESTERIUM_TEST_GARNET_WRAPPED = $true
+    $wrapped = @(& $checker @inventoryParameters) -join ' '
+    if ($wrapped -notmatch 'strict ownership mode') {
+        throw 'Restricted Garnet process child was not accepted.'
+    }
+    $global:ESTERIUM_TEST_GARNET_WRONG_OWNER = $true
+    Assert-Reject 'Garnet child in an unrelated OS identity' 'NETWORK SERVICE'
+    $global:ESTERIUM_TEST_GARNET_WRONG_OWNER = $false
+    $global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $true
+    Assert-Reject 'Garnet child outside the service ancestry' 'Unexpected Garnet process'
+    $global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $false
+    $global:ESTERIUM_TEST_GARNET_WRAPPED = $false
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $true
-    Assert-Reject 'a different executable listening on the Redis port' 'does not belong to its declared Windows service'
+    Assert-Reject 'a different executable listening on the Redis port' 'Unexpected Garnet process'
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $false
     $global:ESTERIUM_TEST_PG_PID_MISSING = $true
     Assert-Reject 'a service without a live owning process' 'does not expose a running process'
@@ -106,7 +135,7 @@ try {
     Write-Output 'PASS: synthetic Windows dependency inventory rejects LAN exposure, invalid or missing services, and missing backup tooling.'
 } finally {
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING', 'ESTERIUM_TEST_PORT_OWNER_MISMATCH', 'ESTERIUM_TEST_PG_PID_MISSING')) {
+    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING', 'ESTERIUM_TEST_PORT_OWNER_MISMATCH', 'ESTERIUM_TEST_PG_PID_MISSING', 'ESTERIUM_TEST_GARNET_WRAPPED', 'ESTERIUM_TEST_GARNET_WRONG_OWNER', 'ESTERIUM_TEST_GARNET_WRONG_PARENT')) {
         Remove-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
     }
 }

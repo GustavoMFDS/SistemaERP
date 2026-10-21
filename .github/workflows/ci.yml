@@ -93,6 +93,17 @@ jobs:
         timeout-minutes: 15
         run: ./scripts/test-esterium-signed-release-positive-ci.ps1
 
+  local-garnet-real-aof-smoke:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify pinned official Garnet Windows TLS ACL and AOF recovery after crash
+        shell: pwsh
+        run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
+
   local-backup-integrity-gate:
     runs-on: windows-2025
     steps:
@@ -115,9 +126,18 @@ jobs:
       - name: Prepare combined PostgreSQL and Garnet new-install configuration in disposable Windows CI
         shell: pwsh
         run: ./scripts/test-esterium-local-dependency-configs.ps1
+      - name: Audit dry-run of offline PostgreSQL and Garnet installation (never run third-party binaries)
+        shell: pwsh
+        run: ./scripts/test-esterium-unattended-dependencies.ps1
+      - name: Generate protected bootstrap passwords and Garnet TLS on an isolated Windows CI machine
+        shell: pwsh
+        run: ./scripts/test-esterium-dependency-bootstrap.ps1
       - name: Validate static local-only TLS/SCRAM PostgreSQL config using fake Windows files
         shell: pwsh
         run: ./scripts/test-esterium-postgres-tls-policy.ps1
+      - name: Generate protected PostgreSQL TLS/SCRAM policy templates in Windows CI
+        shell: pwsh
+        run: ./scripts/test-esterium-postgres-tls-policy-generator.ps1
       - name: Validate immutable migration chain and verified backup before Windows upgrade
         shell: pwsh
         run: ./scripts/test-esterium-upgrade-plan.ps1
@@ -235,7 +255,11 @@ jobs:
             scripts/provision-esterium-garnet-config.ps1 \
             scripts/provision-esterium-postgres-optionfile.ps1 \
             scripts/prepare-esterium-local-dependency-configs.ps1 \
+            scripts/install-esterium-local-dependencies.ps1 \
+            scripts/provision-esterium-dependency-bootstrap.ps1 \
+            scripts/setup-esterium-local-dependencies.ps1 \
             scripts/check-esterium-postgres-tls-policy.ps1 \
+            scripts/provision-esterium-postgres-tls-policy.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
