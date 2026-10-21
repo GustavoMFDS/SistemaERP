@@ -205,13 +205,14 @@ if ($config.Address -cne '127.0.0.1' -or [int]$config.Port -ne $GarnetPort -or
 # is checked. In particular, a forged config could point at a different ACL
 # or PFX, or turn off scripting limits, without changing the basic flags.
 $keys=@('Address','Port','EnableCluster','AuthenticationMode','AclFile',
-    'EnableTLS','CertFileName','CertPassword','EnableLua','LuaTransactionMode',
+    'EnableTLS','ClientCertificateRequired','CertFileName','CertPassword','EnableLua','LuaTransactionMode',
     'LuaMemoryManagementMode','LuaScriptMemoryLimit','LuaScriptTimeoutMs',
     'EnableAOF','WaitForCommit','CommitFrequencyMs','Recover',
     'FailOnRecoveryError','UseAofNullDevice','CheckpointDir')
 $names=@($config.PSObject.Properties | ForEach-Object { $_.Name })
 if ($names.Count -ne $keys.Count -or @($names | Where-Object { $_ -notin $keys }).Count -ne 0 -or
     $config.EnableCluster -cne $false -or
+    $config.ClientCertificateRequired -cne $false -or
     $config.LuaMemoryManagementMode -cne 'Tracked' -or
     $config.LuaScriptMemoryLimit -cne '8m' -or
     [int]$config.LuaScriptTimeoutMs -ne 5000 -or
