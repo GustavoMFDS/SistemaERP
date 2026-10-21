@@ -99,6 +99,7 @@ try {
         PostgresInstallDir=$pgDir
         PostgresDataDir=$data
         PostgresServiceName=$servicePg
+        PostgresServiceAccount='ci_fixture_pg'
         GarnetServiceName=$serviceCache
         GarnetInstallDir=$cache
         PostgresPort=64321
@@ -174,6 +175,9 @@ try {
     $values.GarnetPort=64322
     [IO.File]::AppendAllText($options,'other=evil'+[Environment]::NewLine)
     Assert-Reject 'extra EDB option' 'Opções EDB duplicadas ou extras'
+    [IO.File]::WriteAllText($options,$optionsText+[Environment]::NewLine)
+    [IO.File]::WriteAllText($options,($optionsText.Replace('serviceaccount=ci_fixture_pg','serviceaccount=LocalSystem')+[Environment]::NewLine))
+    Assert-Reject 'service account overwritten by privileged identity' 'Opções EDB não correspondem'
     [IO.File]::WriteAllText($options,$optionsText+[Environment]::NewLine)
     $garnetConfig.EnableTLS=$false
     [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
