@@ -78,7 +78,7 @@ try {
     & (Join-Path $tools 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
 
     $secretFiles = @{}
-    foreach ($name in @('database', 'redis', 'jwt', 'metrics')) {
+    foreach ($name in @('database', 'redis', 'jwt', 'metrics', 'redis-ca')) {
         $file = Join-Path $secrets "$name.secret"
         [IO.File]::WriteAllText($file, "synthetic-placeholder-$guid")
         # Explicitly restrict the file to LocalService, SYSTEM and admin;
@@ -91,6 +91,7 @@ try {
         BundleDir = $bundle
         DatabaseURLFile = $secretFiles.database
         RedisURLFile = $secretFiles.redis
+        RedisCACertFile = $secretFiles['redis-ca']
         JWTSecretFile = $secretFiles.jwt
         MetricsBearerTokenFile = $secretFiles.metrics
         AllowedOrigin = 'https://esterium.ci.invalid'
@@ -236,6 +237,7 @@ try {
         @($values | Where-Object { $_ -eq 'HTTP_ADDR=127.0.0.1:8080' }).Count -ne 1 -or
         @($values | Where-Object { $_ -eq 'APP_ENV=prod' }).Count -ne 1 -or
         @($values | Where-Object { $_ -like 'DATABASE_URL_FILE=*' }).Count -ne 1 -or
+        @($values | Where-Object { $_ -like 'REDIS_CA_CERT_FILE=*' }).Count -ne 1 -or
         @($values | Where-Object { $_ -like 'ESTERIUM_MIGRATIONS_DIR=*' }).Count -ne 1) {
         throw 'SCM registry environment is missing restrictive production parameters.'
     }
