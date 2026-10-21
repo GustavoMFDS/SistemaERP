@@ -175,7 +175,7 @@ $required=@{
     mode='unattended';prefix=$pgDir;datadir=$pgData
     servicename=$PostgresServiceName;serverport=[string]$PostgresPort
     serviceaccount=$PostgresServiceAccount
-    'enable-components'='server,commandlinetools';'create_shortcuts'='0'
+    'enable-components'='server,commandlinetools';enable_acledit='1';'create_shortcuts'='0'
     unattendedmodeui='minimal';superaccount='postgres'
 }
 foreach ($entry in $required.GetEnumerator()) {
