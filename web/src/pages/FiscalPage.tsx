@@ -247,7 +247,7 @@ export default function FiscalPage() {
         setAuditEvents(response.items)
         setPreparationSummary(plan)
       }
-    } catch (error: unknown) {
+    } catch {
       if (seq === auditRequestSeq.current) {
         setAuditError('Não foi possível consultar as verificações desta venda. Tente novamente.')
       }
@@ -265,7 +265,7 @@ export default function FiscalPage() {
         (item.access_key ?? item.invoice_id) + '-procNFe.xml',
         'application/xml',
       )
-    } catch (error: unknown) {
+    } catch {
       setFiscalObligationsError(
         'Não foi possível baixar o arquivo da nota autorizada. Confira a conexão e peça ao responsável para verificar o registro de autorização.',
       )
@@ -280,7 +280,7 @@ export default function FiscalPage() {
         '/api/v1/fiscal/nfce/invoices/' + encodeURIComponent(item.invoice_id) + '/danfe',
         true,
       )
-    } catch (error: unknown) {
+    } catch {
       setFiscalObligationsError('Não foi possível abrir a impressão desta nota. Confira a conexão e tente novamente.')
     }
   }
@@ -299,7 +299,7 @@ export default function FiscalPage() {
       )
       setFiscalObligations(page)
       setObligationsOffset(page.offset)
-    } catch (error: unknown) {
+    } catch {
       setFiscalObligationsError('Confira sua conexão e tente novamente.')
     } finally {
       setFiscalObligationsLoading(false)
