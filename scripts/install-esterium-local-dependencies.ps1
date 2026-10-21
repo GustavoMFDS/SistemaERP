@@ -208,7 +208,7 @@ $keys=@('Address','Port','EnableCluster','AuthenticationMode','AclFile',
     'EnableTLS','CertFileName','CertPassword','EnableLua','LuaTransactionMode',
     'LuaMemoryManagementMode','LuaScriptMemoryLimit','LuaScriptTimeoutMs',
     'EnableAOF','WaitForCommit','CommitFrequencyMs','Recover',
-    'FailOnRecoveryError','UseAofNullDevice','LogDir','CheckpointDir')
+    'FailOnRecoveryError','UseAofNullDevice','CheckpointDir')
 $names=@($config.PSObject.Properties | ForEach-Object { $_.Name })
 if ($names.Count -ne $keys.Count -or @($names | Where-Object { $_ -notin $keys }).Count -ne 0 -or
     $config.EnableCluster -cne $false -or
@@ -224,13 +224,11 @@ if ($names.Count -ne $keys.Count -or @($names | Where-Object { $_ -notin $keys }
 # Mutable AOF state must be a separate directory below the protected
 # configuration parent; NETWORK SERVICE may write state but not settings.
 $stateRoot=Join-Path (Split-Path -Parent $configPath) 'state'
-$expectedLog=[IO.Path]::GetFullPath((Join-Path $stateRoot 'logs'))
 $expectedCheckpoint=[IO.Path]::GetFullPath((Join-Path $stateRoot 'checkpoints'))
-if (-not [string]::Equals([string]$config.LogDir,$expectedLog,[StringComparison]::OrdinalIgnoreCase) -or
-    -not [string]::Equals([string]$config.CheckpointDir,$expectedCheckpoint,[StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Pastas AOF e checkpoint Garnet devem ser isoladas sob state.'
+if (-not [string]::Equals([string]$config.CheckpointDir,$expectedCheckpoint,[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Pasta de checkpoints AOF Garnet deve ser isolada sob state.'
 }
-foreach ($dir in @($stateRoot,$expectedLog,$expectedCheckpoint)) {
+foreach ($dir in @($stateRoot,$expectedCheckpoint)) {
     if (-not (Test-Path -LiteralPath $dir -PathType Container) -or
         ((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'Armazenamento de durabilidade Garnet ausente ou link proibido.'
