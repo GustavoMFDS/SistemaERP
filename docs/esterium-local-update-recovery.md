@@ -90,6 +90,41 @@ do serviço após aprovação administrativa e da assinatura. Por design:
   comprovação de retenção legal/fiscal e confirmação específica de qualquer
   exclusão. Não automatizar exclusão por padrão.
 
+## Conferir o backup no computador de recuperação (somente leitura)
+
+A nova ferramenta `check-esterium-restore-archive.ps1` inspeciona um arquivo
+`.dump` **em um segundo Windows**, antes de iniciar qualquer restauração.
+É necessário possuir o backup e seu arquivo `.sha256`, mais **dois SHA-256
+aprovados por fonte independente**: o do backup e o do binário
+`pg_restore.exe` do PostgreSQL 16 instalado em
+`C:\Program Files\PostgreSQL\16\bin`.
+
+Exemplo técnico sem dados reais (substituir os valores ilustrativos por
+aprovações genuínas, e executar somente a ferramenta assinada da release):
+
+```powershell
+.\check-esterium-restore-archive.ps1 `
+    -ArchivePath 'D:\Recuperacao\esterium-AAAAmmddTHHMMSSZ-1234abcd.dump' `
+    -ExpectedArchiveSHA256 '<SHA256-64-DO-ARQUIVO-APROVADO>' `
+    -PgRestoreExe 'C:\Program Files\PostgreSQL\16\bin\pg_restore.exe' `
+    -ExpectedPgRestoreSHA256 '<SHA256-64-DA-FERRAMENTA-APROVADA>'
+```
+
+O comando recusa links para fora do diretório, arquivos alterados, divergência
+da soma de verificação, binários PostgreSQL não aprovados, versão diferente da
+16, formato não reconhecido e backups sem tabelas comerciais críticas.
+Ele executa **apenas** `pg_restore --version` e `pg_restore --list`: não
+usa senha, não abre conexão, não cria banco e não altera arquivos do cliente.
+
+**Limite fundamental:** listar um arquivo `pg_dump` não comprova que todas
+as linhas são restauráveis. Mesmo com resultado positivo, o responsável deve
+criar **uma nova instância isolada em outro computador**, restaurar nela
+com `pg_restore --exit-on-error`, comparar o estado das migrações e os
+dados de empresas, produtos, vendas e registros fiscais, e registrar a
+evidência do ensaio antes de liberar operação. O CI tem ensaios de
+restauração entre instâncias independentes somente com dados fictícios;
+não equivale a essa validação física.
+
 ## Aceite de recuperação em computador independente
 
 Antes de liberar o piloto, registrar evidências de um exercício em Windows
