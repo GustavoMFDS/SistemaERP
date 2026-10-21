@@ -108,6 +108,12 @@ foreach ($table in @('companies', 'users', 'products', 'sales', 'schema_migratio
     if ($listing -notmatch $pattern) {
         throw 'The inspected backup lacks required Esterium business/migration tables.'
     }
+    # A schema-only dump has every TABLE definition but NO recoverable
+    # table contents. Never approve it as a full recovery archive.
+    $dataPattern = '(?m)^\s*\d+;\s+\d+\s+\d+\s+TABLE DATA\s+public\s+' + [regex]::Escape($table) + '\s+'
+    if ($listing -notmatch $dataPattern) {
+        throw 'The inspected backup lacks required table data entries; schema-only archives are not complete backups.'
+    }
 }
 Write-Output 'PASS: independently approved PostgreSQL 16 archive and pg_restore validated; critical table inventory present.'
 Write-Output 'READ ONLY: no database connection, restore, migration, service or customer data change was attempted.'
