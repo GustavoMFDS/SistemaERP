@@ -47,6 +47,7 @@ $requiredTools = @(
     'tools/check-esterium-postgres-tls-policy.ps1',
     'tools/provision-esterium-postgres-tls-policy.ps1',
     'tools/esterium-migrate.exe',
+    'tools/esterium-pg-tls-certgen.exe',
     'README_LOCAL.md'
 )
 $items = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)
