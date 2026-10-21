@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { apiJson } from '../lib/api'
 import AttentionCenter from '../components/AttentionCenter'
 import FiscalSetupReminderDialog from '../components/FiscalSetupReminderDialog'
 import { fiscalReminderAlreadyShown, markFiscalReminderShown } from '../lib/fiscalReminderSession'
@@ -96,14 +96,14 @@ export default function HomePage() {
     if (finance) {
       tasks.push(apiJson<{ overview: Overview }>(`/api/v1/finance/overview?${qs.toString()}`)
         .then((data) => { setOverview(data.overview); setReportPeriod({ from: fromDate, to: toDate }) })
-        .catch((e: unknown) => { setOverview(null); setReportPeriod(null); setOverviewError(errorMessage(e)) }))
+        .catch(() => { setOverview(null); setReportPeriod(null); setOverviewError('Não foi possível consultar as vendas deste período.') }))
     } else {
       setOverview(null)
     }
     if (inventory) {
       tasks.push(apiJson<StockResponse>('/api/v1/inventory/low-stock?limit=8')
         .then((data) => setStock({ ...data, items: data.items ?? [] }))
-        .catch((e: unknown) => { setStock(null); setStockError(errorMessage(e)) }))
+        .catch(() => { setStock(null); setStockError('Não foi possível consultar o estoque agora.') }))
     } else {
       setStock(null)
     }
@@ -135,8 +135,8 @@ export default function HomePage() {
             })
         }
       })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(errorMessage(e))
+      .catch(() => {
+        if (!cancelled) setError('Não foi possível verificar seu acesso à loja. Atualize a página e tente novamente.')
       })
     return () => { cancelled = true }
   }, [refresh])
@@ -228,9 +228,15 @@ export default function HomePage() {
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">{report.detail}</p>
               </div>
             ))}
-            {!overview && !overviewError ? <p className="text-sm text-slate-500">Carregando indicadores…</p> : null}
+            {!overview && !overviewError ? <p role="status" className="text-sm text-slate-500">Carregando indicadores…</p> : null}
           </div>
-          {overviewError ? <p role="alert" className="text-sm text-red-700">Falha ao consultar vendas: {overviewError}</p> : null}
+          {overviewError ? (
+            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <p>{overviewError}</p>
+              <button type="button" disabled={loading} onClick={() => { if (me) void refresh(from, to, me.permissions) }}
+                className="mt-2 rounded-md border border-red-300 bg-white px-3 py-2 font-medium disabled:opacity-50">Tentar novamente</button>
+            </div>
+          ) : null}
           <details className="rounded-xl border border-slate-200 bg-white p-4">
             <summary className="cursor-pointer text-sm font-semibold text-slate-700">Consultar outro período e exportar resumo</summary>
             <form onSubmit={(e)=>void onFilter(e)} className="mt-4 flex flex-wrap items-end gap-3">
@@ -252,12 +258,18 @@ export default function HomePage() {
             <div>
               <h3 className="text-lg font-bold text-slate-900">Precisa de atenção</h3>
               <p className="mt-1 text-sm text-slate-600">
-                {stock ? (stock.total === 0 ? 'Seu estoque está dentro dos mínimos cadastrados.' : `${stock.total} produto(s) com estoque baixo.`) : 'Conferindo estoque…'}
+                {stockError ? 'Não foi possível conferir os produtos que precisam de reposição.' : stock ? (stock.total === 0 ? 'Seu estoque está dentro dos mínimos cadastrados.' : `${stock.total} produto(s) com estoque baixo.`) : 'Conferindo estoque…'}
               </p>
             </div>
             <Link to="/inventory" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Abrir estoque →</Link>
           </div>
-          {stockError ? <p role="alert" className="mt-3 text-sm text-red-700">{stockError}</p> : null}
+          {stockError ? (
+            <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <p>{stockError}</p>
+              <button type="button" disabled={loading} onClick={() => { if (me) void refresh(from, to, me.permissions) }}
+                className="mt-2 rounded-md border border-red-300 bg-white px-3 py-2 font-medium disabled:opacity-50">Tentar novamente</button>
+            </div>
+          ) : null}
           {stock?.items?.length ? (
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {stock.items.slice(0,4).map((item)=>(

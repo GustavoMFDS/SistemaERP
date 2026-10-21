@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiJson, errorMessage } from '../lib/api'
+import { apiJson } from '../lib/api'
 import { getSessionScope } from '../lib/auth'
 
 type UnifiedReceipt = {
@@ -58,8 +58,8 @@ export default function UnifiedImportHistoryPage() {
     setAuthError('')
     void apiJson<Permissions>('/api/v1/auth/me').then((me) => {
       if (!cancelled && originalScope === getSessionScope()) setPermissions(me.permissions)
-    }).catch((cause: unknown) => {
-      if (!cancelled && originalScope === getSessionScope()) setAuthError(errorMessage(cause))
+    }).catch(() => {
+      if (!cancelled && originalScope === getSessionScope()) setAuthError('Não foi possível verificar seu acesso ao histórico. Atualize a página e tente novamente.')
     })
     return () => { cancelled = true }
   }, [scope])
@@ -86,10 +86,10 @@ export default function UnifiedImportHistoryPage() {
       if (!active || requestID !== requests.current || originalScope !== getSessionScope()) return
       setPage(data)
       setLoading(false)
-    }).catch((cause: unknown) => {
+    }).catch(() => {
       if (!active || requestID !== requests.current || originalScope !== getSessionScope()) return
       setPage(null)
-      setError(errorMessage(cause))
+      setError('Não foi possível carregar as importações. Confira sua conexão e tente novamente.')
       setLoading(false)
     })
     return () => { active = false }
@@ -162,12 +162,18 @@ export default function UnifiedImportHistoryPage() {
               uma falha de conexão não confirma nem desfaz a importação.
             </p>
           </section>
-          {loading ? <p role="status" className="mt-4 text-sm">Consultando lotes…</p> : null}
-          {error ? <p role="alert" className="mt-4 text-sm text-red-700">
-            Não foi possível consultar o histórico: {error}
-          </p> : null}
+          {loading ? <p role="status" className="mt-4 text-sm">Buscando importações…</p> : null}
+          {error ? (
+            <div role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <p>{error}</p>
+              <button type="button" disabled={loading} onClick={() => setRefresh((n) => n + 1)}
+                className="mt-2 rounded-md border border-red-300 bg-white px-3 py-2 font-medium disabled:opacity-50">Tentar novamente</button>
+            </div>
+          ) : null}
           {!loading && page && (page.items?.length ?? 0) === 0 ? (
-            <p className="mt-4 text-sm text-gray-600">Nenhum lote confirmado neste período.</p>
+            <p role="status" className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700">
+              {offset > 0 ? 'Não há mais importações nesta página. Volte à página anterior.' : from || to ? 'Nenhuma importação confirmada nas datas escolhidas.' : 'Ainda não há importações confirmadas nesta loja.'}
+            </p>
           ) : null}
           {!loading && page && (page.items?.length ?? 0) > 0 ? (
             <div className="mt-4 overflow-x-auto rounded-md border">
@@ -209,7 +215,7 @@ export default function UnifiedImportHistoryPage() {
               </table>
             </div>
           ) : null}
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+          {page && (offset > 0 || page.has_more) ? <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
             <button type="button" onClick={() => setOffset((n) => Math.max(0, n - pageSize))}
               disabled={loading || offset === 0} className="rounded-md border px-3 py-2 disabled:opacity-50">
               Página anterior
@@ -220,7 +226,7 @@ export default function UnifiedImportHistoryPage() {
               className="rounded-md border px-3 py-2 disabled:opacity-50">
               Próxima página
             </button>
-          </div>
+          </div> : null}
           <p className="mt-4 text-xs text-gray-600">
             Para baixar a planilha (CSV), abra Produtos ou Estoque e use o histórico dessa área.
             Não há exportação consolidada nem acesso ao conteúdo das planilhas nesta tela.

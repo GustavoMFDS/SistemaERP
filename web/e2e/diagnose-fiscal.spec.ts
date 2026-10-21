@@ -9,6 +9,6 @@ test('fiscal page rendering diagnostic',async({page})=>{
  await page.getByRole('navigation', { name: 'Navegação principal' }).getByText('Mais áreas do sistema').click();
  await page.getByRole('link',{name:'Fiscal', exact: true}).click();
  await expect(page.getByRole('heading',{name:'Nota fiscal da loja'})).toBeVisible();
- await expect(page.getByRole('heading', { name: 'Diagnóstico local da configuração fiscal' })).toBeVisible();
+ await expect(page.getByRole('heading', { name: 'Conferência da preparação fiscal' })).toBeVisible();
  expect(errors).toEqual([]);
 });

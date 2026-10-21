@@ -387,13 +387,13 @@ export default function PDVPage() {
             Date.now() - parsed.savedAt <= PRODUCTS_CACHE_MAX_AGE_MS
           ) {
             setProducts(parsed.items.filter((product) => product.active))
-            setError('Catálogo carregado do cache local. Saldos e preços podem estar desatualizados; as vendas serão revalidadas pelo servidor ao sincronizar.')
+            setError('Lista de produtos carregada deste dispositivo. Preços e quantidades podem estar desatualizados; serão conferidos ao enviar a venda.')
             return
           }
-          setError('O catálogo offline está ausente ou expirado. Conecte-se antes de registrar novas vendas.')
+          setError('Os produtos salvos neste dispositivo estão indisponíveis ou desatualizados. Conecte-se à internet para continuar.')
           return
         } catch {
-          setError('O catálogo offline local está inválido. Conecte-se para atualizá-lo.')
+          setError('Não foi possível usar a lista de produtos salva neste dispositivo. Conecte-se à internet para atualizá-la.')
           return
         }
       }
@@ -545,7 +545,7 @@ export default function PDVPage() {
     if (legacyPending > 0) {
       setLegacyQueueCount(legacyPending)
       setError(
-        `Não é possível fechar o caixa: existem ${legacyPending} item(ns) na fila offline legada ainda não revisada. Importe a fila para atenção ou descarte-a explicitamente antes do fechamento.`,
+        `Não é possível fechar o caixa: há ${legacyPending} registro(s) de uma versão anterior aguardando revisão. Confira ou descarte esses registros antes de fechar.`,
       )
       return
     }
@@ -563,7 +563,7 @@ export default function PDVPage() {
     if (queuedForCash.total > 0) {
       refreshPending()
       setError(
-        `Não é possível fechar o caixa: existem ${queuedForCash.total} venda(s) offline deste caixa (${queuedForCash.pending} pendente(s), ${queuedForCash.attention} em atenção). Sincronize ou reconcilie essas vendas primeiro.`,
+        `Não é possível fechar o caixa: há ${queuedForCash.total} venda(s) sem confirmação (${queuedForCash.pending} aguardando envio e ${queuedForCash.attention} precisando de revisão). Confira as vendas pendentes antes de fechar.`,
       )
       return
     }
@@ -1722,10 +1722,10 @@ export default function PDVPage() {
       ) : null}
       {legacyQueueCount > 0 ? (
         <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">
-          <h3 className="text-sm font-semibold text-amber-900">Fila offline legada detectada</h3>
+          <h3 className="text-sm font-semibold text-amber-900">Vendas antigas precisam de revisão</h3>
           <p className="mt-1 text-xs text-amber-800">
-            {legacyQueueCount} item(ns) da versão anterior ainda existem neste navegador. Eles não
-            serão enviados automaticamente porque não possuem escopo tenant/usuário confiável.
+            {legacyQueueCount} registro(s) de uma versão anterior foram encontrados neste dispositivo.
+            Por segurança, não serão enviados automaticamente: não é possível confirmar a qual loja e funcionário pertencem.
           </p>
           <div className="mt-2 flex gap-2">
             <button
@@ -1740,14 +1740,14 @@ export default function PDVPage() {
               onClick={removeLegacyQueue}
               className="rounded-md border border-red-300 px-3 py-2 text-xs text-red-700"
             >
-              Descartar legado
+              Descartar registros antigos
             </button>
           </div>
         </div>
       ) : null}
       {queueItems.some((item) => item.state === 'attention') ? (
         <div className="mt-4 rounded-md border p-3">
-          <h3 className="text-sm font-semibold">Reconciliação offline</h3>
+          <h3 className="text-sm font-semibold">Vendas que precisam de conferência</h3>
           <div className="mt-2 space-y-2">
             {queueItems
               .filter((item) => item.state === 'attention')
@@ -1756,7 +1756,7 @@ export default function PDVPage() {
                   <div className="font-mono">{item.id}</div>
                   <div className="mt-1 text-gray-700">
                     Motivo: {item.attentionReason === 'expired' ? 'Prazo de sincronização excedido' : item.attentionReason === 'request_rejected' ? 'Servidor pediu revisão' : item.attentionReason === 'legacy_migration' ? 'Venda de versão anterior' : 'Conferência necessária'} •{' '}
-                    {item.lastError ?? 'sem detalhe'}
+                    Confira o registro antes de tentar novamente.
                   </div>
                   <div className="mt-2 flex gap-2">
                     <button
@@ -1799,7 +1799,7 @@ export default function PDVPage() {
             </div>
             <p className="mt-2 text-sm text-slate-600">
               Ao terminar o expediente, confira os valores recebidos antes de fechar o caixa.
-              Vendas offline pendentes precisam ser resolvidas primeiro.
+              Vendas guardadas neste dispositivo precisam ser conferidas primeiro.
             </p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5">

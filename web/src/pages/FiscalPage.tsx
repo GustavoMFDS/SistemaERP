@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
+import { APIError, apiDownload, apiJson, apiOpenPrintable } from '../lib/api'
 import FiscalDailyReview from '../components/FiscalDailyReview'
 const FiscalSetupGuide = lazy(() => import('../components/FiscalSetupGuide'))
 
@@ -247,9 +247,9 @@ export default function FiscalPage() {
         setAuditEvents(response.items)
         setPreparationSummary(plan)
       }
-    } catch (error: unknown) {
+    } catch {
       if (seq === auditRequestSeq.current) {
-        setAuditError('Não foi possível consultar o histórico técnico: ' + errorMessage(error))
+        setAuditError('Não foi possível consultar as verificações desta venda. Tente novamente.')
       }
     } finally {
       if (seq === auditRequestSeq.current) setAuditLoading(false)
@@ -265,10 +265,9 @@ export default function FiscalPage() {
         (item.access_key ?? item.invoice_id) + '-procNFe.xml',
         'application/xml',
       )
-    } catch (error: unknown) {
+    } catch {
       setFiscalObligationsError(
-        'XML autorizado indisponível: ' + errorMessage(error) +
-        '. Verifique se o protocolo SEFAZ foi preservado para esta nota.',
+        'Não foi possível baixar o arquivo da nota autorizada. Confira a conexão e peça ao responsável para verificar o registro de autorização.',
       )
     }
   }
@@ -281,8 +280,8 @@ export default function FiscalPage() {
         '/api/v1/fiscal/nfce/invoices/' + encodeURIComponent(item.invoice_id) + '/danfe',
         true,
       )
-    } catch (error: unknown) {
-      setFiscalObligationsError('Impressão indisponível: ' + errorMessage(error))
+    } catch {
+      setFiscalObligationsError('Não foi possível abrir a impressão desta nota. Confira a conexão e tente novamente.')
     }
   }
 
@@ -300,8 +299,8 @@ export default function FiscalPage() {
       )
       setFiscalObligations(page)
       setObligationsOffset(page.offset)
-    } catch (error: unknown) {
-      setFiscalObligationsError(errorMessage(error))
+    } catch {
+      setFiscalObligationsError('Confira sua conexão e tente novamente.')
     } finally {
       setFiscalObligationsLoading(false)
     }
@@ -333,8 +332,11 @@ export default function FiscalPage() {
           throw configError
         }
       }
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+    } catch {
+      setReadiness(null)
+      setItems([])
+      setTotal(0)
+      setError('Não foi possível consultar a preparação fiscal da loja. Confira sua conexão e tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -382,8 +384,8 @@ export default function FiscalPage() {
       openFiscalSection('fiscal-certificate')
       const next = await apiJson<NFCeReadiness>('/api/v1/fiscal/nfce/readiness')
       setReadiness({ ...next, blocking_reasons: Array.isArray(next.blocking_reasons) ? next.blocking_reasons : [] })
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+    } catch {
+      setError('Não foi possível confirmar os dados da empresa. Confira os campos e tente novamente.')
     } finally {
       setSavingIssuer(false)
     }
@@ -409,8 +411,8 @@ export default function FiscalPage() {
       openFiscalSection('fiscal-readiness')
       const readinessData = await apiJson<NFCeReadiness>('/api/v1/fiscal/nfce/readiness')
       setReadiness({ ...readinessData, blocking_reasons: Array.isArray(readinessData.blocking_reasons) ? readinessData.blocking_reasons : [] })
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+    } catch {
+      setError('Não foi possível salvar a preparação fiscal. Confira os dados com o responsável e tente novamente.')
     } finally {
       setSavingConfig(false)
     }
@@ -424,8 +426,8 @@ export default function FiscalPage() {
         x.file_name || `nfce-preview-${x.id}.xml`,
         'application/xml',
       )
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+    } catch {
+      setError('Não foi possível baixar o arquivo da nota. Confira a conexão e tente novamente.')
     }
   }
 
@@ -433,8 +435,8 @@ export default function FiscalPage() {
     setError('')
     try {
       await apiOpenPrintable(`/api/v1/fiscal/nfce/invoices/${x.invoice_id}/danfe`)
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+    } catch {
+      setError('Não foi possível abrir a impressão. Confira a conexão e tente novamente.')
     }
   }
 
@@ -477,7 +479,7 @@ export default function FiscalPage() {
       ) : null}
 
       {error ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
           {error}
         </div>
       ) : null}
@@ -486,10 +488,9 @@ export default function FiscalPage() {
         <section id="fiscal-readiness" className="mt-4 rounded-md border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-semibold">Diagnóstico local da configuração fiscal</h3>
+              <h3 className="text-sm font-semibold">Conferência da preparação fiscal</h3>
               <p className="text-xs text-gray-600">
-                Ambiente: {readiness.environment || 'não configurado'} · Série:{' '}
-                {readiness.series ?? '—'} · Produtos ativos: {readiness.active_products}
+                Ambiente: {readiness.environment === 'production' ? 'Produção' : readiness.environment === 'homologation' ? 'Testes' : 'Não configurado'} · Produtos ativos: {readiness.active_products}
               </p>
             </div>
             <span
@@ -533,7 +534,7 @@ export default function FiscalPage() {
                           'issuer_neighborhood_missing', 'issuer_city_missing',
                           'issuer_zip_invalid'].includes(item)))
                   ))
-                  .map((reason) => <li key={reason}>{blockerLabels[reason] ?? reason}</li>)}
+                  .map((reason) => <li key={reason}>{blockerLabels[reason] ?? 'Há uma verificação que precisa da ajuda do responsável.'}</li>)}
               </ul>
               <p className="mt-2 text-xs text-slate-600">
                 Conferência de formato e preenchimento, sem consulta ao cadastro estadual,
@@ -572,7 +573,7 @@ export default function FiscalPage() {
         </label>
         {fiscalObligationsError ? (
           <p role="alert" className="mt-3 text-sm text-red-700">
-            Não foi possível consultar as obrigações fiscais: {fiscalObligationsError}
+            Não foi possível conferir as notas das vendas: {fiscalObligationsError}
           </p>
         ) : null}
         {fiscalObligations ? (
