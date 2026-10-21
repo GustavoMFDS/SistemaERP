@@ -206,6 +206,7 @@ $installArgs=@{
     PostgresInstallDir=$PostgresInstallDir
     PostgresDataDir=$PostgresDataDir
     PostgresServiceName=$PostgresServiceName
+    PostgresServiceAccount=$PostgresServiceAccount
     GarnetServiceName=$GarnetServiceName
     GarnetInstallDir=$GarnetInstallDir
     PostgresPort=$PostgresPort
