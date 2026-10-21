@@ -176,7 +176,16 @@ try {
     $count=Run-Child $psql $preflight $true 'empty database preflight' $query
     if ($UnsignedDisposableCIFixture) { Write-Host ('PostgreSQL CI: public table preflight count='+$count) }
     if ($count -cne '0') { throw 'Banco esterium nao esta vazio: migracao inicial proibida.' }
-    $migrateArgs=('-path "'+$folder+'" -database "'+$safeUrl+'" up')
+    # golang-migrate v4.17.1 treats -path as file://... . Windows
+    # backslashes would be parsed as a malformed URL authority, so normalize
+    # only the local path separators before passing it to the signed CLI.
+    $parts=$folder.Replace('\','/').Split('/')
+    if ($parts.Count -lt 2 -or $parts[0] -cnotmatch '^[A-Za-z]:$') {
+        throw 'Pasta de migracoes precisa estar em uma unidade Windows local.'
+    }
+    $migrationURL='file://'+$parts[0]+'/'
+    $migrationURL+=((@($parts | Select-Object -Skip 1 | ForEach-Object { [Uri]::EscapeDataString($_) })) -join '/')
+    $migrateArgs=('-source "'+$migrationURL+'" -database "'+$safeUrl+'" up')
     $null=Run-Child $migrator $migrateArgs $false 'initial migration'
     $verifySQL="COPY (SELECT version::text||':'||dirty::text FROM public.schema_migrations) TO STDOUT;"
     $verifyArgs=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f -')
