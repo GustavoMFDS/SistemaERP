@@ -43,6 +43,15 @@ if ($Apply) {
         $TrustedPublisherThumbprint -cnotmatch '^[A-Fa-f0-9]{40}$') {
         throw 'First-run probe requires independently approved signature and release digest.'
     }
+    foreach ($name in @('verify-esterium-bundle.ps1','check-esterium-signed-release.ps1')) {
+        $helperSignature=Get-AuthenticodeSignature -LiteralPath (Join-Path $PSScriptRoot $name)
+        if ($helperSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+            $null -eq $helperSignature.SignerCertificate -or
+            $helperSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
+              $TrustedPublisherThumbprint.ToUpperInvariant()) {
+            throw 'First-install signed release verifier cannot be trusted.'
+        }
+    }
     $sig=Get-AuthenticodeSignature -LiteralPath $PSCommandPath
     if ($sig.Status -ne [Management.Automation.SignatureStatus]::Valid -or
         $null -eq $sig.SignerCertificate -or
