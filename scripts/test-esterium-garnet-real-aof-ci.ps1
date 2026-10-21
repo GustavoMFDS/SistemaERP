@@ -14,7 +14,6 @@ $bin=Join-Path $root 'bin'
 $acl=Join-Path $root 'garnet.acl'
 $pfx=Join-Path $root 'garnet.pfx'
 $pfxPassword=Join-Path $root 'pfx.secret'
-$fresh=Join-Path $root 'fresh.conf'
 $password='ci-only-garnet-'+$id
 $cert=$null
 $server=$null
