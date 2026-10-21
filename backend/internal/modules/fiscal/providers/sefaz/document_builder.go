@@ -48,6 +48,8 @@ func (b *DocumentBuilder) BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDr
 		payments = append(payments, UnsignedNFCePayment{
 			Method: payment.Method,
 			Amount: payment.Amount,
+			CashReceived: payment.CashReceived,
+			CashChange: payment.CashChange,
 		})
 	}
 
