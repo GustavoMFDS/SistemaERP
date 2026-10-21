@@ -135,6 +135,9 @@ jobs:
       - name: Validate static local-only TLS/SCRAM PostgreSQL config using fake Windows files
         shell: pwsh
         run: ./scripts/test-esterium-postgres-tls-policy.ps1
+      - name: Generate protected PostgreSQL TLS/SCRAM policy templates in Windows CI
+        shell: pwsh
+        run: ./scripts/test-esterium-postgres-tls-policy-generator.ps1
       - name: Validate immutable migration chain and verified backup before Windows upgrade
         shell: pwsh
         run: ./scripts/test-esterium-upgrade-plan.ps1
@@ -256,6 +259,7 @@ jobs:
             scripts/provision-esterium-dependency-bootstrap.ps1 \
             scripts/setup-esterium-local-dependencies.ps1 \
             scripts/check-esterium-postgres-tls-policy.ps1 \
+            scripts/provision-esterium-postgres-tls-policy.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
