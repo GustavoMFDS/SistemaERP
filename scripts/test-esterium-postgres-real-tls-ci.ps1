@@ -320,7 +320,7 @@ SELECT
     || '|' || (SELECT count(*)::text FROM fiscal_document_sequences);
 '@
     $sourceDigest = Run-Psql $sourceSql
-    if ($sourceDigest -notmatch '^51:false\\|[a-f0-9]{32}\\|') {
+    if ($sourceDigest -notmatch '^51:false\|[a-f0-9]{32}\|') {
         throw 'Disposable source migration or sample content fingerprint is invalid.'
     }
     $portProbe=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
