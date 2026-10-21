@@ -280,6 +280,56 @@ try {
     if ((Run-Psql 'SELECT count(*) FROM ci_durable WHERE id=17') -cne '1') {
         throw 'PostgreSQL did not recover acknowledged transaction after forced stop.'
     }
+    # A real PostgreSQL 16 custom-format archive must be inspectable by the
+    # Windows independent recovery preflight WITHOUT connecting to any DB.
+    # The running cluster, data and backup live only on this disposable runner.
+    $recoveryArchive = Join-Path $root ('esterium-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-aabbccdd.dump')
+    $pgDump = Join-Path $bin 'pg_dump.exe'
+    $pgRestore = Join-Path $bin 'pg_restore.exe'
+    if (-not (Test-Path -LiteralPath $pgDump) -or -not (Test-Path -LiteralPath $pgRestore)) {
+        throw 'Vendor PostgreSQL 16 package lacks pg_dump or pg_restore.'
+    }
+    & $pgDump '--format=custom' '--no-owner' '--no-privileges' ('--file='+$recoveryArchive)
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $recoveryArchive)) {
+        throw 'Disposable Windows PostgreSQL recovery archive creation failed.'
+    }
+    $archiveDigest = (Get-FileHash -LiteralPath $recoveryArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText(($recoveryArchive+'.sha256'),
+        ($archiveDigest+'  '+[IO.Path]::GetFileName($recoveryArchive)+[Environment]::NewLine),
+        [Text.UTF8Encoding]::new($false))
+    $pgRestoreDigest = (Get-FileHash -LiteralPath $pgRestore -Algorithm SHA256).Hash.ToLowerInvariant()
+    $preflight = Join-Path $PSScriptRoot 'check-esterium-restore-archive.ps1'
+    $env:ESTERIUM_RESTORE_DISPOSABLE_CI = '1'
+    $verifyArgs = @{
+        ArchivePath=$recoveryArchive
+        ExpectedArchiveSHA256=$archiveDigest
+        PgRestoreExe=$pgRestore
+        ExpectedPgRestoreSHA256=$pgRestoreDigest
+        SyntheticCIFixture=$true
+    }
+    $inspection = @(& $preflight @verifyArgs) -join ' '
+    if ($inspection -notmatch 'PASS: independently approved PostgreSQL 16 archive') {
+        throw 'Real Windows PostgreSQL restore preflight did not inspect the archive.'
+    }
+    $badTool = $verifyArgs.Clone()
+    $badTool.ExpectedPgRestoreSHA256 = '0' * 64
+    $badToolRejected = $false
+    try { & $preflight @badTool | Out-Null }
+    catch { $badToolRejected = $_.Exception.Message -match 'pg_restore executable differs' }
+    if (-not $badToolRejected) { throw 'Restore preflight accepted a nonapproved pg_restore binary.' }
+    $badArchive = $verifyArgs.Clone()
+    $badArchive.ExpectedArchiveSHA256 = '0' * 64
+    $badArchiveRejected = $false
+    try { & $preflight @badArchive | Out-Null }
+    catch { $badArchiveRejected = $_.Exception.Message -match 'checksum sidecar differs' }
+    if (-not $badArchiveRejected) { throw 'Restore preflight accepted an unapproved archive hash.' }
+    [IO.File]::AppendAllText($recoveryArchive, 'tampered-on-disposable-CI')
+    $changedArchiveRejected = $false
+    try { & $preflight @verifyArgs | Out-Null }
+    catch { $changedArchiveRejected = $_.Exception.Message -match 'archive bytes disagree' }
+    if (-not $changedArchiveRejected) { throw 'Restore preflight accepted tampered backup content.' }
+    Write-Output 'PASS: Windows archive preflight inspected real PostgreSQL backup and rejected bad archive or binary hashes.'
+
     Write-Output 'PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial 51 migrations and crash recovery.'
 } finally {
     if ($started -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {

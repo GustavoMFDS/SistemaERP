@@ -297,6 +297,8 @@ jobs:
             scripts/plan-esterium-local-setup.ps1 \
             scripts/install-esterium-local.ps1 \
             scripts/apply-esterium-app-update.ps1 \
+            scripts/restore-esterium-app-version.ps1 \
+            scripts/check-esterium-restore-archive.ps1 \
             scripts/check-esterium-signed-release.ps1 \
             scripts/check-esterium-offline-dependency-packages.ps1 \
             scripts/provision-esterium-garnet-config.ps1 \
@@ -1871,6 +1873,8 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # Never leave a pre-browser API readiness step holding a runner indefinitely.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -1891,6 +1895,7 @@ jobs:
             psql "postgres://sistemaemgo:sistemaemgo@db:5432/sistemaemgo" \
             -v ON_ERROR_STOP=1 -f /seed/seed.e2e.sql
       - name: Start API and wait for readiness
+        timeout-minutes: 8
         working-directory: backend
         env:
           APP_ENV: test
