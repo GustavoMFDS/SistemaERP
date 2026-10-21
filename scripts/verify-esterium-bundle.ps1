@@ -54,6 +54,7 @@ $requiredTools = @(
     'tools/provision-esterium-postgres-tls-policy.ps1',
     'tools/stage-esterium-postgres-tls.ps1',
     'tools/probe-esterium-local-first-run.ps1',
+    'tools/bootstrap-esterium-local-schema.ps1',
     'tools/initialize-esterium-postgres-app-db.ps1',
     'tools/apply-esterium-initial-schema.ps1',
     'tools/esterium-migrate.exe',
