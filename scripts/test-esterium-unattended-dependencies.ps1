@@ -61,11 +61,9 @@ try {
     [IO.File]::WriteAllText($aclFile,('user default off'+[Environment]::NewLine+'user esteriumcache on >synthetic-strong-test ~* +@all'))
     [IO.File]::WriteAllText($pfxFile,'synthetic-only-nonexecuted-PFX')
     $state=Join-Path $root 'state'
-    $logs=Join-Path $state 'logs'
     $checkpoints=Join-Path $state 'checkpoints'
-    [IO.Directory]::CreateDirectory($logs) | Out-Null
     [IO.Directory]::CreateDirectory($checkpoints) | Out-Null
-    foreach ($dir in @($state,$logs,$checkpoints)) {
+    foreach ($dir in @($state,$checkpoints)) {
         & icacls.exe $dir '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)M' | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Synthetic AOF storage ACL failed.' }
     }
@@ -77,7 +75,7 @@ try {
         LuaMemoryManagementMode='Tracked';LuaScriptMemoryLimit='8m';LuaScriptTimeoutMs=5000
         EnableAOF=$true;WaitForCommit=$true;CommitFrequencyMs=0
         Recover=$true;FailOnRecoveryError=$true;UseAofNullDevice=$false
-        LogDir=$logs;CheckpointDir=$checkpoints
+        CheckpointDir=$checkpoints
     }
     [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
     & icacls.exe $options '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
@@ -195,7 +193,7 @@ try {
     $garnetConfig.WaitForCommit=$true
     $garnetConfig.CheckpointDir=$root
     [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
-    Assert-Reject 'checkpoint escapes state directory' 'Pastas AOF'
+    Assert-Reject 'checkpoint escapes state directory' 'Pasta de checkpoints AOF'
     $garnetConfig.CheckpointDir=$checkpoints
     $garnetConfig.EnableAOF=$false
     [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))
