@@ -52,7 +52,10 @@ $requiredTools = @(
     'tools/setup-esterium-local-dependencies.ps1',
     'tools/check-esterium-postgres-tls-policy.ps1',
     'tools/provision-esterium-postgres-tls-policy.ps1',
+    'tools/initialize-esterium-postgres-app-db.ps1',
+    'tools/apply-esterium-initial-schema.ps1',
     'tools/esterium-migrate.exe',
+    'tools/esterium-pg-tls-certgen.exe',
     'README_LOCAL.md'
 )
 $seen = @{}

@@ -113,7 +113,8 @@ $trustedHelpers=@(
     'provision-esterium-garnet-config.ps1',
     'install-esterium-local-dependencies.ps1',
     'provision-esterium-postgres-tls-policy.ps1',
-    'check-esterium-postgres-tls-policy.ps1'
+    'check-esterium-postgres-tls-policy.ps1',
+    'esterium-pg-tls-certgen.exe'
 )
 foreach ($filename in $trustedHelpers) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $filename) -PathType Leaf)) {
@@ -206,6 +207,7 @@ $installArgs=@{
     PostgresInstallDir=$PostgresInstallDir
     PostgresDataDir=$PostgresDataDir
     PostgresServiceName=$PostgresServiceName
+    PostgresServiceAccount=$PostgresServiceAccount
     GarnetServiceName=$GarnetServiceName
     GarnetInstallDir=$GarnetInstallDir
     PostgresPort=$PostgresPort
@@ -216,6 +218,6 @@ $installArgs=@{
 & $install @installArgs | Out-Null
 # Never modify a newly installed cluster until its certificate and runtime
 # authentication can be validated. Staged templates cannot start the service.
-& $pgPolicyTool -DestinationDir $PostgresTlsPolicyDir -PostgresPort $PostgresPort -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
+& $pgPolicyTool -DestinationDir $PostgresTlsPolicyDir -PostgresPort $PostgresPort -PostgresServiceAccount $PostgresServiceAccount -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
 Write-Output 'PASS: dependências locais instaladas com um comando técnico; serviços permanecem desabilitados e parados.'
 Write-Output 'NOT READY: confiança TLS/SQL/migrações e teste real de recuperação ainda necessários antes da primeira venda.'

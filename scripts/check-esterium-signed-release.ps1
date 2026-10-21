@@ -29,7 +29,8 @@ $signer = $ExpectedPublisherThumbprint.ToUpperInvariant()
 # operations must be Authenticode-valid under the same approved publisher.
 $targets = @(
     (Join-Path $bundle 'esterium-server.exe'),
-    (Join-Path $bundle 'tools\esterium-migrate.exe')
+    (Join-Path $bundle 'tools\esterium-migrate.exe'),
+    (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe')
 )
 $targets += @(Get-ChildItem -LiteralPath (Join-Path $bundle 'tools') -Filter '*.ps1' -File |
     ForEach-Object { $_.FullName })

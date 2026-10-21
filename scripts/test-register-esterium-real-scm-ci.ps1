@@ -41,6 +41,7 @@ try {
     $tools = Join-Path $bundle 'tools'
     New-Item -ItemType Directory -Path $tools | Out-Null
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-migrate.exe'), 'synthetic-CLI-never-executed')
+    [IO.File]::WriteAllText((Join-Path $tools 'esterium-pg-tls-certgen.exe'), 'synthetic-signer-never-executed')
     foreach ($name in @(
         'register-esterium-windows-service.ps1',
         'provision-esterium-app-secrets.ps1',
@@ -66,7 +67,9 @@ try {
         'provision-esterium-dependency-bootstrap.ps1',
     'setup-esterium-local-dependencies.ps1',
     'check-esterium-postgres-tls-policy.ps1',
-        'provision-esterium-postgres-tls-policy.ps1'
+        'provision-esterium-postgres-tls-policy.ps1',
+        'initialize-esterium-postgres-app-db.ps1',
+        'apply-esterium-initial-schema.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $tools
     }
@@ -75,7 +78,7 @@ try {
     & (Join-Path $tools 'verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
 
     $secretFiles = @{}
-    foreach ($name in @('database', 'redis', 'jwt', 'metrics')) {
+    foreach ($name in @('database', 'redis', 'jwt', 'metrics', 'redis-ca')) {
         $file = Join-Path $secrets "$name.secret"
         [IO.File]::WriteAllText($file, "synthetic-placeholder-$guid")
         # Explicitly restrict the file to LocalService, SYSTEM and admin;
@@ -88,6 +91,7 @@ try {
         BundleDir = $bundle
         DatabaseURLFile = $secretFiles.database
         RedisURLFile = $secretFiles.redis
+        RedisCACertFile = $secretFiles['redis-ca']
         JWTSecretFile = $secretFiles.jwt
         MetricsBearerTokenFile = $secretFiles.metrics
         AllowedOrigin = 'https://esterium.ci.invalid'
@@ -233,6 +237,7 @@ try {
         @($values | Where-Object { $_ -eq 'HTTP_ADDR=127.0.0.1:8080' }).Count -ne 1 -or
         @($values | Where-Object { $_ -eq 'APP_ENV=prod' }).Count -ne 1 -or
         @($values | Where-Object { $_ -like 'DATABASE_URL_FILE=*' }).Count -ne 1 -or
+        @($values | Where-Object { $_ -like 'REDIS_CA_CERT_FILE=*' }).Count -ne 1 -or
         @($values | Where-Object { $_ -like 'ESTERIUM_MIGRATIONS_DIR=*' }).Count -ne 1) {
         throw 'SCM registry environment is missing restrictive production parameters.'
     }

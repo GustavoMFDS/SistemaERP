@@ -104,10 +104,55 @@ jobs:
         shell: pwsh
         run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
 
+  local-postgres-real-tls-smoke:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+      - name: Build local offline TLS generator for isolated PostgreSQL Windows smoke
+        shell: pwsh
+        run: |
+          Push-Location backend
+          try {
+            go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
+            if ($LASTEXITCODE -ne 0) { throw 'Could not compile offline PostgreSQL test certificate utility.' }
+          } finally { Pop-Location }
+      - name: Build pinned golang-migrate CLI for Windows SQL schema smoke
+        shell: pwsh
+        run: |
+          $oldGobin=$env:GOBIN
+          $tempBin=Join-Path $env:RUNNER_TEMP 'esterium-migrate-go-bin'
+          [IO.Directory]::CreateDirectory($tempBin) | Out-Null
+          try {
+            $env:GOBIN=$tempBin
+            Push-Location backend
+            try {
+              go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+              if ($LASTEXITCODE -ne 0) { throw 'Failed building pinned migrations CLI.' }
+            } finally { Pop-Location }
+            Copy-Item -LiteralPath (Join-Path $tempBin 'migrate.exe') -Destination ./scripts/esterium-migrate.exe
+          } finally { $env:GOBIN=$oldGobin }
+      - name: Verify pinned vendor PostgreSQL 16, localhost TLS SCRAM and crash recovery
+        shell: pwsh
+        run: ./scripts/test-esterium-postgres-real-tls-ci.ps1
+
   local-backup-integrity-gate:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+      - name: Compile offline PostgreSQL TLS certificate utility for disposable Windows fixture
+        shell: pwsh
+        run: |
+          Push-Location backend
+          try {
+            go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
+            if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL TLS certificate utility build failed.' }
+          } finally { Pop-Location }
       - name: Verify freshness and integrity of synthetic local and external backups
         shell: pwsh
         run: ./scripts/test-esterium-backup-integrity.ps1
@@ -231,6 +276,8 @@ jobs:
           test -s "$build_dir/bin/windows_amd64/migrate.exe"
           mkdir -p dist/esterium-local-win-x64/tools
           cp "$build_dir/bin/windows_amd64/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
+          (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen)
+          test -s dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe
       - name: Add curated Windows setup and backup tools
         run: |
           set -euo pipefail
@@ -260,6 +307,8 @@ jobs:
             scripts/setup-esterium-local-dependencies.ps1 \
             scripts/check-esterium-postgres-tls-policy.ps1 \
             scripts/provision-esterium-postgres-tls-policy.ps1 \
+            scripts/initialize-esterium-postgres-app-db.ps1 \
+            scripts/apply-esterium-initial-schema.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md

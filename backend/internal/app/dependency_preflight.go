@@ -86,6 +86,9 @@ func CheckLocalDependencies(parent context.Context, cfg config.Config) error {
 			Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB,
 		}
 	}
+	if err := configureRedisTLS(cfg, options); err != nil {
+		return fmt.Errorf("Redis pinned TLS certificate verification configuration failed: %w", err)
+	}
 	client := redis.NewClient(options)
 	defer client.Close()
 	if err := client.Ping(ctx).Err(); err != nil {

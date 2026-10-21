@@ -19,6 +19,7 @@ param(
     [string]$PostgresInstallDir=(Join-Path $env:ProgramFiles 'PostgreSQL\16'),
     [string]$PostgresDataDir=(Join-Path $env:ProgramData 'Esterium\PostgresData'),
     [string]$PostgresServiceName='EsteriumPostgreSQL16',
+    [string]$PostgresServiceAccount='esterium_pgsvc',
     [string]$GarnetServiceName='EsteriumGarnet',
     [string]$GarnetInstallDir=(Join-Path $env:ProgramFiles 'EsteriumGarnet'),
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
@@ -44,6 +45,13 @@ foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
     }
 }
 if ($PostgresServiceName -eq $GarnetServiceName) { throw 'Serviços não podem compartilhar nome.' }
+if ($PostgresServiceAccount -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{2,30}$' -or
+    $PostgresServiceAccount -in @('postgres','administrator','system','networkservice','localservice')) {
+    throw 'Conta Windows PostgreSQL invalida ou privilegiada.'
+}
+if (@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='$PostgresServiceAccount' AND LocalAccount=TRUE" -ErrorAction Stop).Count -gt 0) {
+    throw 'Conta PostgreSQL ja existente: nao trocar senha nem reutilizar conta.'
+}
 foreach ($digest in @($ExpectedPostgresSHA256,$ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)) {
     if ($digest -cnotmatch '^[a-fA-F0-9]{64}$') { throw 'SHA-256 aprovado é obrigatório para cada pacote.' }
 }
@@ -166,6 +174,7 @@ if ($seen.Count -ne $allowedKeys.Count) { throw 'Opções EDB incompletas.' }
 $required=@{
     mode='unattended';prefix=$pgDir;datadir=$pgData
     servicename=$PostgresServiceName;serverport=[string]$PostgresPort
+    serviceaccount=$PostgresServiceAccount
     'enable-components'='server,commandlinetools';'create_shortcuts'='0'
     unattendedmodeui='minimal';superaccount='postgres'
 }
@@ -338,6 +347,16 @@ if (-not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_isready.exe')) -or
     $null -eq (Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue)) {
     throw 'PostgreSQL não confirmou serviço, binários e cluster versão 16. Serviço permanece parado.'
 }
+$pgService=@(Get-CimInstance -ClassName Win32_Service -Filter "Name='$PostgresServiceName'" -ErrorAction Stop)
+if ($pgService.Count -ne 1 -or $pgService[0].StartMode -cne 'Disabled' -or
+    $pgService[0].State -cne 'Stopped' -or [int]$pgService[0].ProcessId -ne 0) {
+    throw 'PostgreSQL deve estar desabilitado e parado antes da configuracao TLS.'
+}
+$pgIdentity=[string]$pgService[0].StartName
+$localAccounts=@($PostgresServiceAccount,('.\'+$PostgresServiceAccount),($env:COMPUTERNAME+'\'+$PostgresServiceAccount))
+if ($pgIdentity -notin $localAccounts) {
+    throw 'Servico PostgreSQL nao pertence a conta Windows dedicada aprovada.'
+}
 # A listener should not survive shutdown; reject a port still occupied
 # instead of inferring that the new service is ready for production.
 if (@(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
@@ -396,8 +415,11 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao restringir o serviço Garnet.' }
     }
     $service=Get-CimInstance -ClassName Win32_Service -Filter "Name='$GarnetServiceName'"
-    if ($null -eq $service -or $service.StartName -notin @('NT AUTHORITY\NetworkService','NT AUTHORITY\NETWORK SERVICE')) {
-        throw 'Garnet não está sob conta NETWORK SERVICE.'
+    if ($null -eq $service -or
+        $service.StartName -notin @('NT AUTHORITY\NetworkService','NT AUTHORITY\NETWORK SERVICE') -or
+        $service.StartMode -cne 'Disabled' -or $service.State -cne 'Stopped' -or
+        [int]$service.ProcessId -ne 0) {
+        throw 'Garnet nao esta desabilitado, parado e restrito a NETWORK SERVICE.'
     }
     Write-Output 'PASS 3/3: PostgreSQL instalado e Garnet registrado desabilitado e parado, sem ativar banco ou PDV.'
     Write-Output 'GATE: ainda são necessários TLS/SCRAM/HBA PostgreSQL, usuários SQL, migrações e testes reais de ACL/Lua.'

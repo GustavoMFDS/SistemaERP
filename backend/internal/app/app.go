@@ -99,6 +99,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 				DB:       cfg.RedisDB,
 			}
 		}
+		if err := configureRedisTLS(cfg, opts); err != nil {
+			pool.Close()
+			_ = telemetryShutdown(ctx)
+			return nil, err
+		}
 		rdb = redis.NewClient(opts)
 		if cfg.OTelEnabled {
 			if err := redisotel.InstrumentTracing(rdb); err != nil {
