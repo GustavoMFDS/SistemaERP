@@ -21,6 +21,17 @@ if ($Apply) {
         $TrustedPublisherThumbprint -cnotmatch '^[A-Fa-f0-9]{40}$') {
         throw 'Release staging needs independently approved digest and publisher.'
     }
+    # Verify the helpers BEFORE executing code from their PowerShell files.
+    foreach ($helper in @('verify-esterium-bundle.ps1','check-esterium-signed-release.ps1')) {
+        $helperPath=Join-Path $PSScriptRoot $helper
+        $signed=Get-AuthenticodeSignature -LiteralPath $helperPath
+        if ($signed.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+            $null -eq $signed.SignerCertificate -or
+            $signed.SignerCertificate.Thumbprint.ToUpperInvariant() -cne
+              $TrustedPublisherThumbprint.ToUpperInvariant()) {
+            throw 'Release staging verifier is not signed by approved publisher.'
+        }
+    }
     $sig=Get-AuthenticodeSignature -LiteralPath $PSCommandPath
     if ($sig.Status -ne [Management.Automation.SignatureStatus]::Valid -or
         $null -eq $sig.SignerCertificate -or
