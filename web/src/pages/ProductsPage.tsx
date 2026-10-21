@@ -71,6 +71,7 @@ export default function ProductsPage() {
   const [cestDrafts, setCestDrafts] = useState<Record<string, string>>({})
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [listError, setListError] = useState('')
   const [error, setError] = useState('')
   const [canWrite, setCanWrite] = useState(false)
   const [importPreview, setImportPreview] = useState<ProductImportPreview | null>(null)
@@ -108,7 +109,7 @@ export default function ProductsPage() {
 
   async function load(nextQuery = query) {
     const requestId = ++latestProductRequest.current
-    setError('')
+    setListError('')
     setLoading(true)
     try {
       const qs = new URLSearchParams()
@@ -116,10 +117,15 @@ export default function ProductsPage() {
       const data = await apiJson<ListResponse>(`/api/v1/products?${qs.toString()}`)
       // A slower previous search must never replace newer results.
       if (requestId !== latestProductRequest.current) return
-      setItems(data.items)
+      setItems(data.items ?? [])
       setTotal(data.total)
-    } catch (e: unknown) {
-      if (requestId === latestProductRequest.current) setError(errorMessage(e))
+      setListError('')
+    } catch {
+      if (requestId === latestProductRequest.current) {
+        setItems([])
+        setTotal(0)
+        setListError('Não foi possível consultar os produtos. Confira sua conexão e tente novamente.')
+      }
     } finally {
       if (requestId === latestProductRequest.current) setLoading(false)
     }
@@ -132,7 +138,7 @@ export default function ProductsPage() {
         setCanWrite(writable)
         setPendingImport(writable ? readPendingProductImport() : null)
       })
-      .catch((e: unknown) => setError(errorMessage(e)))
+      .catch(() => setError('Não foi possível conferir seu acesso ao cadastro de produtos. Atualize a página e tente novamente.'))
   }, [])
 
   useEffect(() => {
@@ -498,7 +504,7 @@ export default function ProductsPage() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">Produtos da loja</h2>
-          <p className="mt-1 text-sm text-slate-600">{total} resultado(s). Busque, confira preços e veja o saldo disponível.</p>
+          <p className="mt-1 text-sm text-slate-600">Busque pelo nome ou código, confira os preços e as quantidades disponíveis.</p>
         </div>
         <button
           onClick={() => void load()}
@@ -521,11 +527,23 @@ export default function ProductsPage() {
       </div>
 
       {error ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+        <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
+      {loading ? <p role="status" className="mt-3 text-sm text-slate-600">Consultando produtos…</p> : null}
+      {listError ? (
+        <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <p>{listError}</p>
+          <button type="button" onClick={() => void load()} disabled={loading}
+            className="mt-2 rounded-md border border-red-300 bg-white px-3 py-2 font-medium disabled:opacity-50">Tentar novamente</button>
+        </div>
+      ) : null}
+      {!loading && !listError ? <p role="status" className="mt-3 text-sm text-slate-600">
+        {total === 0 ? 'Nenhum produto encontrado' : `${total} produto(s) encontrado(s)`}
+        {query.trim() ? ` para “${query.trim()}”` : ''}
+      </p> : null}
       <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl bg-slate-50 p-4 text-sm">
         <span className={lowStockItems.length ? 'font-medium text-amber-800' : 'text-gray-600'}>
           {lowStockItems.length} produto(s) com estoque no mínimo ou abaixo, entre os resultados carregados.
@@ -539,7 +557,7 @@ export default function ProductsPage() {
         </button>
       </div>
 
-      <div className="mt-4 overflow-auto rounded-xl border border-slate-200">
+      {!listError ? <div className="mt-4 overflow-auto rounded-xl border border-slate-200" aria-busy={loading}>
         <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
@@ -695,14 +713,14 @@ export default function ProductsPage() {
               ) : null}
               </Fragment>
             ))}
-            {visibleItems.length === 0 ? (
+            {!loading && visibleItems.length === 0 ? (
               <tr><td colSpan={showTechnical ? 12 : 9} className="px-3 py-6 text-center text-sm text-gray-500">
-                {onlyLowStock ? 'Nenhum produto abaixo do mínimo entre os resultados carregados.' : 'Nenhum produto encontrado.'}
+                {onlyLowStock ? 'Nenhum produto precisa de reposição entre os resultados carregados.' : query.trim() ? 'Não encontramos produtos com esse nome ou código. Experimente outra busca.' : 'Ainda não há produtos cadastrados nesta loja.'}
               </td></tr>
             ) : null}
           </tbody>
         </table>
-      </div>
+      </div> : null}
 
       {canWrite ? (
         <details open={Boolean(pendingImport || importResult)} className="mt-6 rounded-2xl border border-slate-200 p-5">
