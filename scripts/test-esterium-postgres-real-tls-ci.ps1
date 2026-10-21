@@ -229,10 +229,13 @@ try {
         throw 'Initial SQL migrations plan changed a disposable database.'
     }
     $schemaParams.Apply=$true
+    Write-Host 'PostgreSQL CI: invoking initial schema migration.'
     & $schemaTool @schemaParams | Out-Null
+    Write-Host 'PostgreSQL CI: first schema migration command completed.'
     $version=Run-Psql "SELECT version::text||':'||dirty::text FROM public.schema_migrations;"
     if ($version -cne '51:false') { throw 'Full initial schema migrations did not reach expected version 51.' }
     $replayAllowed=$false
+    Write-Host 'PostgreSQL CI: invoking expected replay rejection.'
     try { & $schemaTool @schemaParams | Out-Null; $replayAllowed=$true }
     catch { if ($_.Exception.Message -notmatch 'nao esta vazio') { throw } }
     if ($replayAllowed) { throw 'Initial schema tool unexpectedly permitted migration replay.' }
