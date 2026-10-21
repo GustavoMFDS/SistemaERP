@@ -1,6 +1,6 @@
 module github.com/example/sistemaemgo
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/beevik/etree v1.7.0
