@@ -80,7 +80,7 @@ test('PDV: escolher SKU e saldo da cor sem trocar o produto original', async ({ 
   // browser must still find the previously discovered variant in its cache.
   catalogUnavailable = true
   await page.reload()
-  await expect(page.getByText(/Catálogo carregado do cache local/)).toBeVisible()
+  await expect(page.getByText(/Lista de produtos carregada deste dispositivo/)).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'Produto', exact: true })
     .locator('option[value="' + blueID + '"]')).toHaveCount(1)
 })
