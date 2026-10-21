@@ -168,7 +168,7 @@ try {
     $config = [ordered]@{
         Address='127.0.0.1'; Port=$Port; EnableCluster=$false
         AuthenticationMode='ACL'; AclFile=$paths['ACL']
-        EnableTLS=$true; CertFileName=$paths['PFX']; CertPassword=$password
+        EnableTLS=$true; ClientCertificateRequired=$false; CertFileName=$paths['PFX']; CertPassword=$password
         EnableLua=$true; LuaTransactionMode=$true
         LuaMemoryManagementMode='Tracked'; LuaScriptMemoryLimit='8m'; LuaScriptTimeoutMs=5000
         EnableAOF=$true; WaitForCommit=$true; CommitFrequencyMs=0
