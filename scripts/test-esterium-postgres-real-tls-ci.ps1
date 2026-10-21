@@ -223,6 +223,11 @@ try {
         MigrationsDir=$migrationFolder
         UnsignedDisposableCIFixture=$true
     }
+    # Verify both migration state and crash recovery in the ERP database,
+    # never in the initial administrative maintenance database.
+    $env:PGUSER='esterium_app'
+    $env:PGDATABASE='esterium'
+    $env:PGPASSWORD=$appPassword
     $schemaPlan=@(& $schemaTool @schemaParams) -join ' '
     if ($schemaPlan -notmatch 'PLAN: aplicar migracoes' -or
         (Run-Psql "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';") -cne '0') {
