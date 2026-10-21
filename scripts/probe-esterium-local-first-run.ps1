@@ -97,6 +97,18 @@ if (-not [IO.Path]::IsPathRooted($ReadinessReceiptDir) -or
     (Test-Path -LiteralPath $receiptTarget)) {
     throw 'First-run probe receipt destination must be new and protected under ProgramData.'
 }
+$cursor=Split-Path -Parent $receiptTarget
+while ($cursor) {
+    if (Test-Path -LiteralPath $cursor) {
+        $item=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'First-run readiness receipt cannot use symbolic-link or junction ancestors.'
+        }
+    }
+    $parent=Split-Path -Parent $cursor
+    if ($parent -eq $cursor) { break }
+    $cursor=$parent
+}
 $base=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')+'\'
 foreach ($path in @($data,$policy,$options,$garnet)) {
     if (-not $path.StartsWith($base,[StringComparison]::OrdinalIgnoreCase)) {
