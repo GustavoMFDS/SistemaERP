@@ -211,6 +211,31 @@ try {
         if ($_.Exception.Message -notmatch 'nao substituir credenciais') { throw }
     }
     if ($replayAllowed) { throw 'Database bootstrap unexpectedly allowed replay.' }
+    Write-Host 'PostgreSQL CI: exercising pinned initial schema migrations under dedicated TLS app role.'
+    $migrateTool=Join-Path $PSScriptRoot 'esterium-migrate.exe'
+    $schemaTool=Join-Path $PSScriptRoot 'apply-esterium-initial-schema.ps1'
+    $migrationFolder=Join-Path $PSScriptRoot '..\backend\migrations'
+    $env:ESTERIUM_INITIAL_MIGRATIONS_DISPOSABLE_CI='1'
+    $schemaParams=@{
+        DatabaseURLFile=$urlFile
+        PsqlExe=$psql
+        MigrateExe=$migrateTool
+        MigrationsDir=$migrationFolder
+        UnsignedDisposableCIFixture=$true
+    }
+    $schemaPlan=@(& $schemaTool @schemaParams) -join ' '
+    if ($schemaPlan -notmatch 'PLAN: aplicar migracoes' -or
+        (Run-Psql "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';") -cne '0') {
+        throw 'Initial SQL migrations plan changed a disposable database.'
+    }
+    $schemaParams.Apply=$true
+    & $schemaTool @schemaParams | Out-Null
+    $version=Run-Psql "SELECT version::text||':'||dirty::text FROM public.schema_migrations;"
+    if ($version -cne '51:false') { throw 'Full initial schema migrations did not reach expected version 51.' }
+    $replayAllowed=$false
+    try { & $schemaTool @schemaParams | Out-Null; $replayAllowed=$true }
+    catch { if ($_.Exception.Message -notmatch 'nao esta vazio') { throw } }
+    if ($replayAllowed) { throw 'Initial schema tool unexpectedly permitted migration replay.' }
     Write-Host 'PostgreSQL CI: testing confirmed transaction durability.'
     $null=Run-Psql 'CREATE TABLE ci_durable(id integer PRIMARY KEY)'
     $null=Run-Psql 'INSERT INTO ci_durable VALUES(17)'
@@ -223,7 +248,7 @@ try {
     if ((Run-Psql 'SELECT count(*) FROM ci_durable WHERE id=17') -cne '1') {
         throw 'PostgreSQL did not recover acknowledged transaction after forced stop.'
     }
-    Write-Output 'PASS: PostgreSQL 16 TLS verify-full, SCRAM, HBA rejection, nonprivileged ERP role, protected URL and crash recovery.'
+    Write-Output 'PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial 51 migrations and crash recovery.'
 } finally {
     if ($started -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
         try { Invoke-PgCtl -argList @('-D',$data,'-m','immediate','-w','stop') -phase 'cleanup' }
@@ -234,6 +259,7 @@ try {
     }
     Remove-Item Env:ESTERIUM_PG_POLICY_DISPOSABLE_CI -ErrorAction SilentlyContinue
     Remove-Item Env:ESTERIUM_DB_BOOTSTRAP_DISPOSABLE_CI -ErrorAction SilentlyContinue
+    Remove-Item Env:ESTERIUM_INITIAL_MIGRATIONS_DISPOSABLE_CI -ErrorAction SilentlyContinue
     foreach ($path in @($policy,$dbInit,$root)) {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
