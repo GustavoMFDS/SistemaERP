@@ -35,7 +35,8 @@ if ($denied -notmatch 'not signed by approved publisher') {
 $text=[IO.File]::ReadAllText($probe)
 foreach ($required in @('finally {','-StartupType Disabled','--check-dependencies',
     'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership',
-    'backupRestoreApproved=$false','automaticStartupApproved=$false','probe-result.json')) {
+    'backupRestoreApproved=$false','automaticStartupApproved=$false','probe-result.json',
+    "Set-Service -Name 'EsteriumERP' -StartupType Disabled")) {
     if (-not $text.Contains($required)) {
         throw 'First-run probe lost a required fail-closed security contract.'
     }
