@@ -116,12 +116,13 @@ if ($port -lt 1 -or $port -gt 65535 -or
 }
 $safeUrl=('postgres://esterium_app@localhost:'+$port+'/esterium?sslmode=verify-full&sslrootcert='+[Uri]::EscapeDataString($ca)+'&search_path=public')
 if ($safeUrl.Contains($password)) { throw 'A URL do migrador nao pode conter senha.' }
-function Run-Child([string]$exe,[string]$args,[bool]$returnOutput,[string]$phase='readiness') {
+function Run-Child([string]$exe,[string]$args,[bool]$returnOutput,[string]$phase='readiness',[string]$sqlInput='') {
     $info=[Diagnostics.ProcessStartInfo]::new()
     $info.FileName=$exe
     $info.Arguments=$args
     $info.UseShellExecute=$false
     $info.CreateNoWindow=$true
+    $info.RedirectStandardInput=$true
     $info.RedirectStandardOutput=$true
     $info.RedirectStandardError=$true
     # Never inherit the administrator's PostgreSQL connection identity.
@@ -141,6 +142,8 @@ function Run-Child([string]$exe,[string]$args,[bool]$returnOutput,[string]$phase
     $proc=[Diagnostics.Process]::Start($info)
     if ($null -eq $proc) { throw 'Cliente de migracoes indisponivel.' }
     try {
+        if ($sqlInput) { $proc.StandardInput.WriteLine($sqlInput) }
+        $proc.StandardInput.Close()
         # Drain child streams concurrently. A full migration prints more
         # than a pipe buffer on Windows; waiting before reading can deadlock.
         $outputTask=$proc.StandardOutput.ReadToEndAsync()
@@ -169,15 +172,15 @@ function Run-Child([string]$exe,[string]$args,[bool]$returnOutput,[string]$phase
 }
 try {
     $query="SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"
-    $preflight=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -c "'+$query+'"')
-    $count=Run-Child $psql $preflight $true 'empty database preflight'
+    $preflight=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f -')
+    $count=Run-Child $psql $preflight $true 'empty database preflight' $query
     if ($UnsignedDisposableCIFixture) { Write-Host ('PostgreSQL CI: public table preflight count='+$count) }
     if ($count -cne '0') { throw 'Banco esterium nao esta vazio: migracao inicial proibida.' }
     $migrateArgs=('-path "'+$folder+'" -database "'+$safeUrl+'" up')
     $null=Run-Child $migrator $migrateArgs $false 'initial migration'
     $verifySQL="SELECT version::text||':'||dirty::text FROM public.schema_migrations;"
-    $verifyArgs=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -c "'+$verifySQL+'"')
-    $result=Run-Child $psql $verifyArgs $true 'schema version verification'
+    $verifyArgs=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f -')
+    $result=Run-Child $psql $verifyArgs $true 'schema version verification' $verifySQL
     if ($result -cne ($versions.Count.ToString()+':false')) {
         throw 'Migracoes iniciais nao terminaram na versao esperada ou estao dirty.'
     }
