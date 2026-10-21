@@ -196,7 +196,7 @@ export default function ProductsPage() {
         return next
       })
       await load()
-    } catch (e: unknown) {
+    } catch {
       setError('Não foi possível salvar o código de barras ou os dados fiscais. Confira as informações e tente novamente.')
     }
   }
