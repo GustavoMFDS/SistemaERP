@@ -58,7 +58,7 @@ while ($cursor) {
     $cursor=$next
 }
 if (-not $Apply) {
-    Write-Output 'PLAN: gerar senhas PostgreSQL, uma URL rediss para a conta local do ERP e um certificado localhost TLS.'
+    Write-Output 'PLAN: gerar senhas PostgreSQL independentes incluindo a conta SQL do ERP, uma URL rediss para a conta local do ERP e um certificado localhost TLS.'
     Write-Output 'PLAN: segredos protegidos, sem mostrar valores nem instalar confiança no certificado.'
     Write-Output 'PLAN: nenhuma escrita, serviço, conexão ou banco alterado.'
     return
@@ -112,10 +112,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao proteger pasta temporária de bootstrap.' }
     $pgSuper=New-Secret
     $pgService=New-Secret
+    $pgApp=New-Secret
     $aclSecret=New-Secret
     $pfxSecret=New-Secret
     Write-Secret (Join-Path $stage 'pg-super.secret') $pgSuper $false
     Write-Secret (Join-Path $stage 'pg-service.secret') $pgService $false
+    Write-Secret (Join-Path $stage 'pg-app.secret') $pgApp $false
     $aclText=('user default off' + [Environment]::NewLine +
         'user esteriumcache on >'+$aclSecret+' ~* +@all')
     Write-Secret (Join-Path $stage 'garnet.acl') $aclText $true
@@ -141,7 +143,7 @@ try {
     Write-Output 'NOT READY: certificado autofirmado não é confiável para o cliente; configurar confiança TLS corretamente antes de iniciar ERP.'
     Write-Output 'NEXT: gerar configurações protegidas com prepare-esterium-local-dependency-configs.ps1.'
 } finally {
-    $pgSuper=$null; $pgService=$null; $aclSecret=$null; $pfxSecret=$null
+    $pgSuper=$null; $pgService=$null; $pgApp=$null; $aclSecret=$null; $pfxSecret=$null
     if ($certStorePath -and (Test-Path -LiteralPath $certStorePath)) {
         Remove-Item -LiteralPath $certStorePath -Force -ErrorAction SilentlyContinue
     }
