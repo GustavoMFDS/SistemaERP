@@ -8,6 +8,7 @@ param(
     [Parameter(Mandatory = $true)][string]$BundleDir,
     [Parameter(Mandatory = $true)][string]$DatabaseURLFile,
     [Parameter(Mandatory = $true)][string]$RedisURLFile,
+    [string]$RedisCACertFile = '',
     [Parameter(Mandatory = $true)][string]$JWTSecretFile,
     [Parameter(Mandatory = $true)][string]$MetricsBearerTokenFile,
     [Parameter(Mandatory = $true)][string]$AllowedOrigin,
@@ -114,6 +115,9 @@ $secrets = @(
     @{ name = 'JWT_SECRET_FILE'; file = $JWTSecretFile },
     @{ name = 'METRICS_BEARER_TOKEN_FILE'; file = $MetricsBearerTokenFile }
 )
+if (-not [string]::IsNullOrWhiteSpace($RedisCACertFile)) {
+    $secrets += @{ name = 'REDIS_CA_CERT_FILE'; file = $RedisCACertFile }
+}
 if ($hasTLSCert) {
     $secrets += @{ name = 'ESTERIUM_TLS_KEY_FILE'; file = $TLSKeyFile }
     $secrets += @{ name = 'ESTERIUM_TLS_CERT_FILE'; file = $TLSCertFile }
