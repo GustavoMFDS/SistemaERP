@@ -103,6 +103,7 @@ $prepare=Join-Path $PSScriptRoot 'prepare-esterium-local-dependency-configs.ps1'
 $install=Join-Path $PSScriptRoot 'install-esterium-local-dependencies.ps1'
 $releaseGate=Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'
 $pgPolicyTool=Join-Path $PSScriptRoot 'provision-esterium-postgres-tls-policy.ps1'
+$stagePolicyTool=Join-Path $PSScriptRoot 'stage-esterium-postgres-tls.ps1'
 $trustedHelpers=@(
     'verify-esterium-bundle.ps1',
     'check-esterium-signed-release.ps1',
@@ -113,6 +114,7 @@ $trustedHelpers=@(
     'provision-esterium-garnet-config.ps1',
     'install-esterium-local-dependencies.ps1',
     'provision-esterium-postgres-tls-policy.ps1',
+    'stage-esterium-postgres-tls.ps1',
     'check-esterium-postgres-tls-policy.ps1',
     'esterium-pg-tls-certgen.exe'
 )
@@ -219,5 +221,6 @@ $installArgs=@{
 # Never modify a newly installed cluster until its certificate and runtime
 # authentication can be validated. Staged templates cannot start the service.
 & $pgPolicyTool -DestinationDir $PostgresTlsPolicyDir -PostgresPort $PostgresPort -PostgresServiceAccount $PostgresServiceAccount -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
+& $stagePolicyTool -PostgresDataDir $PostgresDataDir -TlsPolicyDir $PostgresTlsPolicyDir -FreshClusterMarker (Join-Path $PostgresOptionsDir ('PostgresFresh-'+$PostgresServiceName+'.marker')) -PostgresServiceName $PostgresServiceName -PostgresServiceAccount $PostgresServiceAccount -PostgresPort $PostgresPort -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
 Write-Output 'PASS: dependências locais instaladas com um comando técnico; serviços permanecem desabilitados e parados.'
-Write-Output 'NOT READY: confiança TLS/SQL/migrações e teste real de recuperação ainda necessários antes da primeira venda.'
+Write-Output 'NOT READY: configurações TLS instaladas offline, mas serviços ainda desabilitados. Falta validação real do EDB.exe, conexão SSL e primeiro schema antes da primeira venda.'

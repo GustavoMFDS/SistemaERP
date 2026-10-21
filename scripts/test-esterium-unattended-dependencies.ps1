@@ -54,6 +54,7 @@ try {
         'superpassword=synthetic-only-do-not-use'
         'servicepassword=synthetic-only-do-not-use-2'
         'enable-components=server,commandlinetools'
+        'enable_acledit=1'
         'create_shortcuts=0'
         'unattendedmodeui=minimal'
     ) -join [Environment]::NewLine
@@ -178,6 +179,8 @@ try {
     [IO.File]::WriteAllText($options,$optionsText+[Environment]::NewLine)
     [IO.File]::WriteAllText($options,($optionsText.Replace('serviceaccount=ci_fixture_pg','serviceaccount=LocalSystem')+[Environment]::NewLine))
     Assert-Reject 'service account overwritten by privileged identity' 'Opções EDB não correspondem'
+    [IO.File]::WriteAllText($options,($optionsText.Replace('enable_acledit=1','enable_acledit=0')+[Environment]::NewLine))
+    Assert-Reject 'vendor ACL editing disabled for Windows service account' 'Opções EDB não correspondem'
     [IO.File]::WriteAllText($options,$optionsText+[Environment]::NewLine)
     $garnetConfig.EnableTLS=$false
     [IO.File]::WriteAllText($config,($garnetConfig | ConvertTo-Json))

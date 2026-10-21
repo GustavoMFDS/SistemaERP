@@ -130,6 +130,7 @@ foreach ($tool in @(
     'setup-esterium-local-dependencies.ps1',
     'check-esterium-postgres-tls-policy.ps1',
         'provision-esterium-postgres-tls-policy.ps1',
+    'stage-esterium-postgres-tls.ps1',
     'initialize-esterium-postgres-app-db.ps1',
     'apply-esterium-initial-schema.ps1'
 )) {
