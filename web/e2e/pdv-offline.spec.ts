@@ -41,7 +41,7 @@ test('login, sale offline queue and reconnect sync', async ({ page, context }) =
 
   await page.getByRole('button', { name: 'Fechar caixa' }).click()
   await expect(
-    page.getByText(/Não é possível fechar o caixa: existem 1 venda\(s\) offline deste caixa/),
+    page.getByText(/Não é possível fechar o caixa: há 1 venda\(s\) sem confirmação/),
   ).toBeVisible()
   await expect
     .poll(async () =>
