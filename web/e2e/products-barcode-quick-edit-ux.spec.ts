@@ -57,7 +57,7 @@ test('código de barras pode ser salvo sem abrir os campos fiscais', async ({ pa
   await page.getByLabel('Senha', { exact: true }).fill('senha-ficticia')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/home$/)
-  await page.goto('/products')
+  await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Produtos', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Produtos da loja' })).toBeVisible()
   try {
     await expect(page.getByRole('columnheader', { name: 'Código de barras' })).toBeVisible()
