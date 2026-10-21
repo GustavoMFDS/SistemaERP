@@ -112,10 +112,10 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
   })
 
   await page.getByRole('link', { name: 'PDV' }).click()
-  await expect(page.getByText('Fila offline legada detectada')).toBeVisible()
+  await expect(page.getByText('Vendas antigas precisam de revisão')).toBeVisible()
   await page.getByRole('button', { name: 'Importar para revisão' }).click()
 
-  await expect(page.getByText('Reconciliação offline')).toBeVisible()
+  await expect(page.getByText('Vendas que precisam de conferência')).toBeVisible()
   await expect(page.getByText(/Venda de versão anterior/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Abrir' }).click()
@@ -149,7 +149,7 @@ test('legacy offline queue is visible and requires explicit operator reconciliat
 
   page.once('dialog', (dialog) => void dialog.accept())
   await page.getByRole('button', { name: 'Usar caixa atual' }).click()
-  await expect(page.getByText('Reconciliação offline')).not.toBeVisible()
+  await expect(page.getByText('Vendas que precisam de conferência')).not.toBeVisible()
   expect(reboundCash).toBe(currentCash)
   expect(reboundIdempotencyKey).toBe('legacy-idem-1')
 
