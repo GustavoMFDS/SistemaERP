@@ -155,11 +155,11 @@ export default function ProductsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query])
 
-  async function saveCatalogFiscal(product: Product) {
+  async function saveCatalogFiscal(product: Product, barcodeOnly = false) {
     setError('')
     const nextBarcode = (barcodeDrafts[product.id] ?? product.barcode ?? '').trim()
-    const nextNCM = (ncmDrafts[product.id] ?? product.ncm ?? '').trim()
-    const nextCEST = (cestDrafts[product.id] ?? product.cest ?? '').trim()
+    const nextNCM = (barcodeOnly ? product.ncm ?? '' : ncmDrafts[product.id] ?? product.ncm ?? '').trim()
+    const nextCEST = (barcodeOnly ? product.cest ?? '' : cestDrafts[product.id] ?? product.cest ?? '').trim()
     try {
       const payload: ProductCreateRequest = {
         category_id: product.category_id ?? null,
@@ -175,6 +175,8 @@ export default function ProductsPage() {
         promo_price: product.promo_price ?? null,
         min_stock: product.min_stock,
         active: product.active,
+        return_policy: product.return_policy ?? 'allowed',
+        return_days: product.return_days ?? null,
       }
       await apiJson<{ id: string }>(`/api/v1/products/${product.id}`, {
         method: 'PUT',
@@ -185,19 +187,21 @@ export default function ProductsPage() {
         delete next[product.id]
         return next
       })
-      setNcmDrafts((prev) => {
-        const next = { ...prev }
-        delete next[product.id]
-        return next
-      })
-      setCestDrafts((prev) => {
-        const next = { ...prev }
-        delete next[product.id]
-        return next
-      })
+      if (!barcodeOnly) {
+        setNcmDrafts((prev) => {
+          const next = { ...prev }
+          delete next[product.id]
+          return next
+        })
+        setCestDrafts((prev) => {
+          const next = { ...prev }
+          delete next[product.id]
+          return next
+        })
+      }
       await load()
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+    } catch {
+      setError('Não foi possível salvar o código de barras ou os dados fiscais. Confira as informações e tente novamente.')
     }
   }
 
@@ -557,7 +561,7 @@ export default function ProductsPage() {
           Mostrar somente estoque baixo
         </label>
         <button type="button" onClick={() => setShowTechnical((value) => !value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium hover:bg-slate-100">
-          {showTechnical ? 'Ocultar códigos fiscais' : 'Editar códigos e dados fiscais'}
+          {showTechnical ? 'Ocultar códigos fiscais' : 'Editar códigos fiscais'}
         </button>
       </div>
 
@@ -565,20 +569,20 @@ export default function ProductsPage() {
         <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
-              <th className="px-3 py-2">Foto</th>
-              <th className="px-3 py-2">Código do produto</th>
+              <th scope="col" className="px-3 py-2">Foto</th>
+              <th scope="col" className="px-3 py-2">Código do produto</th>
+              <th scope="col" className="px-3 py-2">Código de barras</th>
               {showTechnical ? (<>
-              <th className="px-3 py-2">Código de barras</th>
-              <th className="px-3 py-2">Classificação (NCM)</th>
-              <th className="px-3 py-2">Tributação (CEST)</th>
+              <th scope="col" className="px-3 py-2">Classificação (NCM)</th>
+              <th scope="col" className="px-3 py-2">Tributação (CEST)</th>
               </>) : null}
-              <th className="px-3 py-2">Nome</th>
-              <th className="px-3 py-2">Unidade</th>
-              <th className="px-3 py-2">Preço</th>
-              <th className="px-3 py-2">Em estoque</th>
-              <th className="px-3 py-2">Mínimo</th>
-              <th className="px-3 py-2">Ativo</th>
-              <th className="px-3 py-2">Devolução voluntária</th>
+              <th scope="col" className="px-3 py-2">Nome</th>
+              <th scope="col" className="px-3 py-2">Unidade</th>
+              <th scope="col" className="px-3 py-2">Preço</th>
+              <th scope="col" className="px-3 py-2">Em estoque</th>
+              <th scope="col" className="px-3 py-2">Mínimo</th>
+              <th scope="col" className="px-3 py-2">Ativo</th>
+              <th scope="col" className="px-3 py-2">Devolução voluntária</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -594,22 +598,35 @@ export default function ProductsPage() {
                   </div>
                 </td>
                 <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
-                {showTechnical ? (<>
                 <td className="px-3 py-2">
                   {canWrite ? (
-                    <input
-                      value={barcodeDrafts[p.id] ?? p.barcode ?? ''}
-                      onChange={(e) =>
-                        setBarcodeDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
-                      }
-                      placeholder="Sem código"
-                      autoComplete="off"
-                      className="min-w-52 rounded-md border px-2 py-1 font-mono text-xs"
-                    />
+                    <div className="flex min-w-52 items-center gap-2">
+                      <input
+                        aria-label={`Código de barras de ${p.name}`}
+                        value={barcodeDrafts[p.id] ?? p.barcode ?? ''}
+                        onChange={(e) =>
+                          setBarcodeDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
+                        }
+                        placeholder="Sem código"
+                        autoComplete="off"
+                        className="min-w-36 w-full rounded-md border px-2 py-2 font-mono text-xs"
+                      />
+                      {barcodeDrafts[p.id] !== undefined && barcodeDrafts[p.id].trim() !== (p.barcode ?? '') ? (
+                        <button
+                          type="button"
+                          aria-label={`Salvar código de barras de ${p.name}`}
+                          onClick={() => void saveCatalogFiscal(p, true)}
+                          className="rounded-md border border-slate-300 px-3 py-2 text-xs font-medium hover:bg-slate-50"
+                        >
+                          Salvar
+                        </button>
+                      ) : null}
+                    </div>
                   ) : (
                     <span className="font-mono text-xs">{p.barcode ?? '—'}</span>
                   )}
                 </td>
+                {showTechnical ? (<>
                 <td className="px-3 py-2">
                   {canWrite ? (
                     <input
@@ -705,12 +722,12 @@ export default function ProductsPage() {
                 </td>
               </tr>
               {familyProductId === p.id ? (
-                <tr><td colSpan={showTechnical ? 12 : 9} className="p-3">
+                <tr><td colSpan={showTechnical ? 12 : 10} className="p-3">
                   <ProductFamily productId={p.id} />
                 </td></tr>
               ) : null}
               {photoProductId === p.id ? (
-                <tr><td colSpan={showTechnical ? 12 : 9} className="p-3">
+                <tr><td colSpan={showTechnical ? 12 : 10} className="p-3">
                   <ProductPhotos productId={p.id} productName={p.name} canWrite={canWrite}
                     onChange={() => setPhotoVersion((value) => value + 1)} />
                 </td></tr>
@@ -718,7 +735,7 @@ export default function ProductsPage() {
               </Fragment>
             ))}
             {!loading && visibleItems.length === 0 ? (
-              <tr><td colSpan={showTechnical ? 12 : 9} className="px-3 py-6 text-center text-sm text-gray-500">
+              <tr><td colSpan={showTechnical ? 12 : 10} className="px-3 py-6 text-center text-sm text-gray-500">
                 {onlyLowStock ? 'Nenhum produto precisa de reposição entre os resultados carregados.' : query.trim() ? 'Não encontramos produtos com esse nome ou código. Experimente outra busca.' : 'Ainda não há produtos cadastrados nesta loja.'}
               </td></tr>
             ) : null}
