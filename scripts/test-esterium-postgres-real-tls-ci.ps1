@@ -51,7 +51,8 @@ function Must-Deny([string]$description) {
 try {
     [IO.Directory]::CreateDirectory($root) | Out-Null
     [IO.File]::WriteAllText($passwordFile,$pass+[Environment]::NewLine)
-    & icacls.exe $passwordFile '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    $runnerSID=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    & icacls.exe $passwordFile '/inheritance:r' '/grant:r' ('*'+$runnerSID+':R') '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict synthetic PostgreSQL test password.' }
     $certGen=Join-Path $PSScriptRoot 'esterium-pg-tls-certgen.exe'
     if (-not (Test-Path -LiteralPath $certGen -PathType Leaf)) {
