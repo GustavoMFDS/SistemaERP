@@ -69,5 +69,26 @@ foreach ($must in @('-StartupType Disabled','finally {','apply-esterium-initial-
     }
 }
 Write-Output 'PASS: first-install SQL bootstrap parses and refuses unknown publisher before accessing Windows services.'
+# Fresh signed release staging never accepts an untrusted Publisher or hash.
+$stageTool=Join-Path $PSScriptRoot 'stage-esterium-approved-windows-release.ps1'
+$parseErrors=$null
+[void][Management.Automation.Language.Parser]::ParseFile($stageTool,[ref]$tokens,[ref]$parseErrors)
+if (@($parseErrors).Count -gt 0) {
+    throw ('Approved release staging parser errors: '+(@($parseErrors | Select-Object -ExpandProperty Message) -join '; '))
+}
+$denied=''
+try { & $stageTool -SourceBundleDir $env:RUNNER_TEMP -Apply | Out-Null }
+catch { $denied=$_.Exception.Message }
+if ($denied -notmatch 'independently approved digest and publisher') {
+    throw 'New-install release staging accepted an unapproved manifest.'
+}
+$denied=''
+try {
+    & $stageTool -SourceBundleDir $env:RUNNER_TEMP -Apply -ApprovedManifestSHA256 ('0'*64) -TrustedPublisherThumbprint ('0'*40) | Out-Null
+} catch { $denied=$_.Exception.Message }
+if ($denied -notmatch 'not signed by approved publisher') {
+    throw 'Release staging accepted an unapproved signer.'
+}
+Write-Output 'PASS: new release staging parser and approved-signature pre-write gate reject unknown publishers.'
 Write-Output 'PASS: first-run runtime probe parses and refuses unsigned Apply before touching Windows services.'
 Write-Output 'NOT EXECUTED: genuine signed EDB/NSSM SCM startup remains a vendor pilot gate.'
