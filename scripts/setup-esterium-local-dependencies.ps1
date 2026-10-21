@@ -18,6 +18,7 @@ param(
     [string]$BundleDir=(Split-Path -Parent $PSScriptRoot),
     [string]$BootstrapDir=(Join-Path $env:ProgramData 'Esterium\DependencyBootstrap'),
     [string]$PostgresOptionsDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
+    [string]$PostgresTlsPolicyDir=(Join-Path $env:ProgramData 'Esterium\PostgresTlsPolicy'),
     [string]$GarnetConfigDir=(Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
     [string]$PostgresInstallDir=(Join-Path $env:ProgramFiles 'PostgreSQL\16'),
     [string]$PostgresDataDir=(Join-Path $env:ProgramData 'Esterium\PostgresData'),
@@ -57,7 +58,7 @@ $existingAccounts=@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='
 if ($existingAccounts.Count -ne 0) { throw 'Conta PostgreSQL existente: nao sobrescrever.' }
 $pgBase=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')
 $programBase=[IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\')
-foreach ($candidate in @($BootstrapDir,$PostgresOptionsDir,$GarnetConfigDir,$PostgresDataDir)) {
+foreach ($candidate in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresDataDir)) {
     if (-not [IO.Path]::GetFullPath($candidate).StartsWith($pgBase+'\',[StringComparison]::OrdinalIgnoreCase)) {
         throw 'Dados e configuracoes devem ficar sob ProgramData Esterium.'
     }
@@ -67,7 +68,7 @@ foreach ($candidate in @($PostgresInstallDir,$GarnetInstallDir)) {
         throw 'Executaveis devem ficar sob Program Files.'
     }
 }
-foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir)) {
+foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir)) {
     if (-not [IO.Path]::IsPathRooted($dir) -or $dir.StartsWith('\\')) {
         throw 'Destino de instalacao deve usar disco local absoluto.'
     }
@@ -75,7 +76,7 @@ foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$GarnetConfigDir,$PostgresI
         throw 'Ha arquivos anteriores de instalacao: nao sobrescrever.'
     }
 }
-$allPaths=@($BootstrapDir,$PostgresOptionsDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir) |
+$allPaths=@($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir) |
     ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') }
 for ($i=0;$i -lt $allPaths.Count;$i++) {
     for ($j=$i+1;$j -lt $allPaths.Count;$j++) {
@@ -101,6 +102,7 @@ $bootstrap=Join-Path $PSScriptRoot 'provision-esterium-dependency-bootstrap.ps1'
 $prepare=Join-Path $PSScriptRoot 'prepare-esterium-local-dependency-configs.ps1'
 $install=Join-Path $PSScriptRoot 'install-esterium-local-dependencies.ps1'
 $releaseGate=Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'
+$pgPolicyTool=Join-Path $PSScriptRoot 'provision-esterium-postgres-tls-policy.ps1'
 $trustedHelpers=@(
     'verify-esterium-bundle.ps1',
     'check-esterium-signed-release.ps1',
@@ -109,7 +111,9 @@ $trustedHelpers=@(
     'prepare-esterium-local-dependency-configs.ps1',
     'provision-esterium-postgres-optionfile.ps1',
     'provision-esterium-garnet-config.ps1',
-    'install-esterium-local-dependencies.ps1'
+    'install-esterium-local-dependencies.ps1',
+    'provision-esterium-postgres-tls-policy.ps1',
+    'check-esterium-postgres-tls-policy.ps1'
 )
 foreach ($filename in $trustedHelpers) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $filename) -PathType Leaf)) {
@@ -210,5 +214,8 @@ $installArgs=@{
     Apply=$true
 }
 & $install @installArgs | Out-Null
+# Never modify a newly installed cluster until its certificate and runtime
+# authentication can be validated. Staged templates cannot start the service.
+& $pgPolicyTool -DestinationDir $PostgresTlsPolicyDir -PostgresPort $PostgresPort -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
 Write-Output 'PASS: dependências locais instaladas com um comando técnico; serviços permanecem desabilitados e parados.'
 Write-Output 'NOT READY: confiança TLS/SQL/migrações e teste real de recuperação ainda necessários antes da primeira venda.'
