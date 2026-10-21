@@ -116,10 +116,10 @@ if ($port -lt 1 -or $port -gt 65535 -or
 }
 $safeUrl=('postgres://esterium_app@localhost:'+$port+'/esterium?sslmode=verify-full&sslrootcert='+[Uri]::EscapeDataString($ca)+'&search_path=public')
 if ($safeUrl.Contains($password)) { throw 'A URL do migrador nao pode conter senha.' }
-function Run-Child([string]$exe,[string]$args,[bool]$returnOutput,[string]$phase='readiness',[string]$sqlInput='') {
+function Run-Child([string]$exe,[string]$commandLine,[bool]$returnOutput,[string]$phase='readiness',[string]$sqlInput='') {
     $info=[Diagnostics.ProcessStartInfo]::new()
     $info.FileName=$exe
-    $info.Arguments=$args
+    $info.Arguments=$commandLine
     $info.UseShellExecute=$false
     $info.CreateNoWindow=$true
     $info.RedirectStandardInput=$true
