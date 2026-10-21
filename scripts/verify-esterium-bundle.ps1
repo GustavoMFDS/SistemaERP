@@ -58,6 +58,8 @@ $requiredTools = @(
     'tools/esterium-pg-tls-certgen.exe',
     'README_LOCAL.md'
 )
+# Validate it when present, but do not require it in older bundles.
+$optionalTools = @('tools/restore-esterium-app-version.ps1')
 $seen = @{}
 foreach ($record in @($document.files)) {
     $relative = [string]$record.path
@@ -69,7 +71,8 @@ foreach ($record in @($document.files)) {
     if ($relative -ne 'esterium-server.exe' -and
         -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
         -not $relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
-        -not ($requiredTools -contains $relative)) {
+        -not ($requiredTools -contains $relative) -and
+        -not ($optionalTools -contains $relative)) {
         throw 'Unexpected manifest path.'
     }
     if ($relative.Contains('\') -or $relative.Contains(':') -or
