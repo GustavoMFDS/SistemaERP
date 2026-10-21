@@ -298,6 +298,7 @@ jobs:
             scripts/install-esterium-local.ps1 \
             scripts/apply-esterium-app-update.ps1 \
             scripts/restore-esterium-app-version.ps1 \
+            scripts/check-esterium-restore-archive.ps1 \
             scripts/check-esterium-signed-release.ps1 \
             scripts/check-esterium-offline-dependency-packages.ps1 \
             scripts/provision-esterium-garnet-config.ps1 \
