@@ -58,6 +58,7 @@ $requiredTools = @(
     'tools/stage-esterium-approved-windows-release.ps1',
     'tools/probe-esterium-local-first-run.ps1',
     'tools/finish-esterium-local-first-install.ps1',
+    'tools/install-esterium-local-complete.ps1',
     'tools/apply-esterium-initial-schema.ps1',
     'tools/esterium-migrate.exe',
     'tools/esterium-pg-tls-certgen.exe',

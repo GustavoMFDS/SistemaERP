@@ -129,5 +129,85 @@ foreach ($required in @('stage-esterium-approved-windows-release.ps1',
     }
 }
 Write-Output 'PASS: combined first-install coordinator parses, blocks bad publisher/origin and retains expected safe ordering.'
+# Combined entry point must be signed, safely deny bad approvals and retain
+# the non-mutating PLAN before either vendor or ERP initialization.
+$one=Join-Path $PSScriptRoot 'install-esterium-local-complete.ps1'
+$parseErrors=$null
+[void][Management.Automation.Language.Parser]::ParseFile(
+    $one,[ref]$tokens,[ref]$parseErrors)
+if (@($parseErrors).Count -gt 0) {
+    throw ('One-command Windows installer parser errors: '+
+        (@($parseErrors | Select-Object -ExpandProperty Message) -join '; '))
+}
+$entryText=[IO.File]::ReadAllText($one)
+foreach ($part in @('setup-esterium-local-dependencies.ps1',
+                    'finish-esterium-local-first-install.ps1',
+                    'Get-AuthenticodeSignature',
+                    '& $setup @setupArgs | Out-Null',
+                    '& $finish @finishArgs | Out-Null',
+                    '$setupArgs.Apply=$true',
+                    '$finishArgs.Apply=$true',
+                    'nao repetir Apply')) {
+    if (-not $entryText.Contains($part)) {
+        throw 'Single-command installer lost a required fail-closed operation.'
+    }
+}
+$fakeRoot=Join-Path $env:RUNNER_TEMP ('esterium-first-install-entry-'+[Guid]::NewGuid().ToString('N'))
+$fakeTools=Join-Path $fakeRoot 'tools'
+[IO.Directory]::CreateDirectory($fakeTools) | Out-Null
+try {
+    foreach ($file in @('install-esterium-local-complete.ps1',
+                        'setup-esterium-local-dependencies.ps1',
+                        'finish-esterium-local-first-install.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $fakeTools -ErrorAction Stop
+    }
+    $fakeEntry=Join-Path $fakeTools 'install-esterium-local-complete.ps1'
+    $args=@{
+        SourceBundleDir=$fakeRoot
+        AllowedOrigin='https://esterium.ci.invalid'
+        PostgresInstaller=(Join-Path $fakeRoot 'postgres.exe')
+        ExpectedPostgresSHA256=('0'*64)
+        ExpectedPostgresPublisherThumbprint=('0'*40)
+        GarnetPackage=(Join-Path $fakeRoot 'garnet.zip')
+        ExpectedGarnetSHA256=('0'*64)
+        ServiceWrapperExe=(Join-Path $fakeRoot 'nssm.exe')
+        ExpectedServiceWrapperSHA256=('0'*64)
+        ApprovedManifestSHA256=('0'*64)
+        TrustedPublisherThumbprint=('0'*40)
+        Apply=$true
+    }
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'sem assinatura do editor aprovado') {
+        throw 'One-command setup did not refuse an untrusted publisher before side effects.'
+    }
+    $args.ApprovedManifestSHA256=''
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'manifesto e editor aprovados independentemente') {
+        throw 'One-command setup accepted missing release approval.'
+    }
+    $args.Apply=$false
+    $args.AllowedOrigin='http://localhost:8080'
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'origem HTTPS aprovada') {
+        throw 'One-command setup accepted an insecure browser origin.'
+    }
+    $args.AllowedOrigin='https://esterium.ci.invalid'
+    $args.GarnetPort=5432
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'precisam ser distintas') {
+        throw 'One-command setup accepted conflicting database/cache ports.'
+    }
+    if (@(Get-ChildItem -LiteralPath $fakeTools -File).Count -ne 3) {
+        throw 'One-command negative tests mutated disposable source tools.'
+    }
+} finally {
+    Remove-Item -LiteralPath $fakeRoot -Recurse -Force -ErrorAction Stop
+}
+Write-Output 'PASS: single-command installer parses and refuses unsigned Apply, missing approval and unsafe origin/ports.'
+
 Write-Output 'PASS: first-run runtime probe parses and refuses unsigned Apply before touching Windows services.'
 Write-Output 'NOT EXECUTED: genuine signed EDB/NSSM SCM startup remains a vendor pilot gate.'
