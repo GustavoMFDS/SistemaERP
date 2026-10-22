@@ -112,7 +112,7 @@ aprovações genuínas, e executar somente a ferramenta assinada da release):
 
 O comando recusa links para fora do diretório, arquivos alterados, divergência
 da soma de verificação, binários PostgreSQL não aprovados, versão diferente da
-16, formato não reconhecido e backups sem tabelas comerciais críticas.
+16, formato não reconhecido, backups sem tabelas comerciais críticas e arquivos que contêm apenas o esquema das tabelas, sem entradas de dados.
 Ele executa **apenas** `pg_restore --version` e `pg_restore --list`: não
 usa senha, não abre conexão, não cria banco e não altera arquivos do cliente.
 
