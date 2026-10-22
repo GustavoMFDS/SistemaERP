@@ -239,6 +239,14 @@ try {
     $migrateTool=Join-Path $PSScriptRoot 'esterium-migrate.exe'
     $schemaTool=Join-Path $PSScriptRoot 'apply-esterium-initial-schema.ps1'
     $migrationFolder=Join-Path $PSScriptRoot '..\backend\migrations'
+    # The release schema is versioned by its bundled migration files, not by
+    # a frozen count; this keeps fresh-install smoke in sync with new versions.
+    $latestMigration=Get-ChildItem -LiteralPath $migrationFolder -Filter '*.up.sql' -File |
+        Sort-Object Name | Select-Object -Last 1
+    if ($null -eq $latestMigration -or $latestMigration.Name -notmatch '^(\d{4})_') {
+        throw 'No valid numbered SQL migrations in Windows CI bundle.'
+    }
+    $expectedVersion=[int]$Matches[1]
     $env:ESTERIUM_INITIAL_MIGRATIONS_DISPOSABLE_CI='1'
     $schemaParams=@{
         DatabaseURLFile=$urlFile
@@ -262,7 +270,9 @@ try {
     & $schemaTool @schemaParams | Out-Null
     Write-Host 'PostgreSQL CI: first schema migration command completed.'
     $version=Run-Psql "SELECT version::text||':'||dirty::text FROM public.schema_migrations;"
-    if ($version -cne '51:false') { throw 'Full initial schema migrations did not reach expected version 51.' }
+    if ($version -cne "${expectedVersion}:false") {
+        throw "Full initial schema migrations did not reach expected version $expectedVersion."
+    }
     $replayAllowed=$false
     Write-Host 'PostgreSQL CI: invoking expected replay rejection.'
     try { & $schemaTool @schemaParams | Out-Null; $replayAllowed=$true }
@@ -330,7 +340,7 @@ try {
     if (-not $changedArchiveRejected) { throw 'Restore preflight accepted tampered backup content.' }
     Write-Output 'PASS: Windows archive preflight inspected real PostgreSQL backup and rejected bad archive or binary hashes.'
 
-    Write-Output 'PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial 51 migrations and crash recovery.'
+    Write-Output "PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial schema version $expectedVersion and crash recovery."
 } finally {
     if ($started -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
         try { Invoke-PgCtl -argList @('-D',$data,'-m','immediate','-w','stop') -phase 'cleanup' }

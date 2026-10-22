@@ -63,13 +63,20 @@ func (r *SalesRepo) InsertPayment(ctx context.Context, tx db.DBTX, tenantID stri
 			status = "not_applicable"
 		}
 	}
+	var cashReceived, cashChange any
+	if p.CashReceived != nil {
+		cashReceived = p.CashReceived.DBString()
+	}
+	if p.CashChange != nil {
+		cashChange = p.CashChange.DBString()
+	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO payments(
 			tenant_id, sale_id, method, amount, provider, transaction_ref,
-			authorization_code, installments, reconciliation_status
+			authorization_code, installments, reconciliation_status, cash_received, cash_change
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-	`, tenantID, p.SaleID, p.Method, p.Amount.DBString(), p.Provider, p.TransactionRef, p.AuthorizationCode, installments, status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	`, tenantID, p.SaleID, p.Method, p.Amount.DBString(), p.Provider, p.TransactionRef, p.AuthorizationCode, installments, status, cashReceived, cashChange)
 	return mapSalesWriteError(err)
 }
 
@@ -116,7 +123,7 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 
 	payRows, err := r.db.Query(ctx, `
 		SELECT id::text, sale_id::text, method, amount::text, provider, transaction_ref,
-		       authorization_code, installments, reconciliation_status
+		       authorization_code, installments, reconciliation_status, cash_received::text, cash_change::text
 		FROM payments
 		WHERE tenant_id=$1 AND sale_id=$2
 		ORDER BY created_at
@@ -129,13 +136,17 @@ func (r *SalesRepo) GetSale(ctx context.Context, tenantID string, id string) (sa
 	for payRows.Next() {
 		var p sales.Payment
 		var amount string
+		var cashReceived, cashChange *string
 		if err := payRows.Scan(
 			&p.ID, &p.SaleID, &p.Method, &amount, &p.Provider, &p.TransactionRef,
-			&p.AuthorizationCode, &p.Installments, &p.ReconciliationStatus,
+			&p.AuthorizationCode, &p.Installments, &p.ReconciliationStatus, &cashReceived, &cashChange,
 		); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		if p.Amount, err = platform.ParseMoney(amount); err != nil {
+			return sales.Sale{}, nil, nil, err
+		}
+		if err := assignCashPaymentAmounts(&p, cashReceived, cashChange); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		pays = append(pays, p)
@@ -255,7 +266,7 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 
 	payRows, err := tx.Query(ctx, `
 		SELECT id::text, sale_id::text, method, amount::text, provider, transaction_ref,
-		       authorization_code, installments, reconciliation_status
+		       authorization_code, installments, reconciliation_status, cash_received::text, cash_change::text
 		FROM payments
 		WHERE tenant_id=$1 AND sale_id=$2
 		ORDER BY created_at
@@ -268,13 +279,17 @@ func (r *SalesRepo) GetSaleForUpdate(ctx context.Context, tx db.DBTX, tenantID s
 	for payRows.Next() {
 		var p sales.Payment
 		var amount string
+		var cashReceived, cashChange *string
 		if err := payRows.Scan(
 			&p.ID, &p.SaleID, &p.Method, &amount, &p.Provider, &p.TransactionRef,
-			&p.AuthorizationCode, &p.Installments, &p.ReconciliationStatus,
+			&p.AuthorizationCode, &p.Installments, &p.ReconciliationStatus, &cashReceived, &cashChange,
 		); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		if p.Amount, err = platform.ParseMoney(amount); err != nil {
+			return sales.Sale{}, nil, nil, err
+		}
+		if err := assignCashPaymentAmounts(&p, cashReceived, cashChange); err != nil {
 			return sales.Sale{}, nil, nil, err
 		}
 		pays = append(pays, p)
@@ -354,6 +369,25 @@ func assignSaleItemNumbers(it *sales.SaleItem, qty, unitPrice, discount, subtota
 	}
 	if it.CostUnit, err = platform.ParseMoney(costUnit); err != nil {
 		return err
+	}
+	return nil
+}
+
+// Preserve NULL tender metadata for historical payments.
+func assignCashPaymentAmounts(p *sales.Payment, received, change *string) error {
+	if received != nil {
+		value, err := platform.ParseMoney(*received)
+		if err != nil {
+			return err
+		}
+		p.CashReceived = &value
+	}
+	if change != nil {
+		value, err := platform.ParseMoney(*change)
+		if err != nil {
+			return err
+		}
+		p.CashChange = &value
 	}
 	return nil
 }

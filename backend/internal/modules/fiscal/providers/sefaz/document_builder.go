@@ -46,8 +46,10 @@ func (b *DocumentBuilder) BuildUnsignedLegacyCandidate(draft fisc.NFCeDocumentDr
 	payments := make([]UnsignedNFCePayment, 0, len(draft.Payments))
 	for _, payment := range draft.Payments {
 		payments = append(payments, UnsignedNFCePayment{
-			Method: payment.Method,
-			Amount: payment.Amount,
+			Method:       payment.Method,
+			Amount:       payment.Amount,
+			CashReceived: payment.CashReceived,
+			CashChange:   payment.CashChange,
 		})
 	}
 

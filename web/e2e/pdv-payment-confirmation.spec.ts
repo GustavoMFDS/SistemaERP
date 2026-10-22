@@ -11,7 +11,7 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
     sub: userID, tenant_id: tenantID, exp: Math.floor(Date.now() / 1000) + 3600,
   })).toString('base64url') + '.signature'
   let salePosts = 0
-  let lastSale: { items: Array<{ qty: number }>; payments: Array<{ method: string; amount: number }> } | null = null
+  let lastSale: { items: Array<{ qty: number }>; payments: Array<{ method: string; amount: number; cash_received?: number }> } | null = null
 
   await page.route('**/api/v1/**', (route) => {
     const url = new URL(route.request().url())
@@ -127,8 +127,8 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   await expect(finalize).toBeDisabled()
   expect(salePosts).toBe(0)
 
-  // Re-selecting money requires a new amount, then sends only the sale total
-  // (not tendered cash) as payment; the difference is change, not revenue.
+  // Re-selecting money sends the sale total and the tender as separate fields.
+  // The extra amount is change, not revenue.
   await page.getByLabel('Forma de pagamento').selectOption('cash')
   await expect(cashReceived).toHaveValue('')
   await expect(finalize).toBeDisabled()
@@ -144,7 +144,7 @@ test('PDV valida dinheiro, troco e revalida aprovações após mudanças no carr
   expect(salePosts).toBe(1)
   expect(lastSale).toMatchObject({
     items: [{ qty: 2 }],
-    payments: [{ method: 'cash', amount: 25 }],
+    payments: [{ method: 'cash', amount: 25, cash_received: 30 }],
   })
   await expect(page.getByRole('button', { name: 'Sim, abrir para imprimir' })).toBeDisabled()
 })

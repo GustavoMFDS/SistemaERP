@@ -300,11 +300,12 @@ type idemResult struct {
 }
 
 type fakeSalesRepo struct {
-	mu              sync.Mutex
-	insertedItems   []sales.SaleItem
-	insertedSales   []sales.Sale
-	insertSaleCount int
-	results         map[string]idemResult
+	mu               sync.Mutex
+	insertedItems    []sales.SaleItem
+	insertedPayments []sales.Payment
+	insertedSales    []sales.Sale
+	insertSaleCount  int
+	results          map[string]idemResult
 }
 
 func (r *fakeSalesRepo) InsertSale(_ context.Context, _ db.DBTX, _ string, sale sales.Sale) (string, error) {
@@ -316,7 +317,8 @@ func (r *fakeSalesRepo) InsertItem(_ context.Context, _ db.DBTX, _ string, it sa
 	r.insertedItems = append(r.insertedItems, it)
 	return nil
 }
-func (r *fakeSalesRepo) InsertPayment(context.Context, db.DBTX, string, sales.Payment) error {
+func (r *fakeSalesRepo) InsertPayment(_ context.Context, _ db.DBTX, _ string, payment sales.Payment) error {
+	r.insertedPayments = append(r.insertedPayments, payment)
 	return nil
 }
 func (r *fakeSalesRepo) GetSale(context.Context, string, string) (sales.Sale, []sales.SaleItem, []sales.Payment, error) {
@@ -428,4 +430,62 @@ func (fakeFinanceRepo) GetIdempotencyResult(context.Context, db.DBTX, string, st
 }
 func (fakeFinanceRepo) SaveIdempotencyResult(context.Context, db.DBTX, string, string, string, string, string, string, *platform.Money) error {
 	return nil
+}
+
+// Tender and change must never inflate revenue; idempotency covers the tender.
+func TestCreateAndFinalizeRecordsCashTenderAndChange(t *testing.T) {
+	svc, repo, _, _ := newSalesServiceFixture(platform.NewQuantityMilli(10_000))
+	received := platform.NewMoneyCents(2000)
+	req := SaleCreateRequest{
+		CashSessionID: "cash-1",
+		Items:         []SaleItemRequest{{ProductID: "prod-1", Qty: platform.NewQuantityMilli(1_000)}},
+		Payments:      []SalePaymentRequest{{Method: "cash", Amount: platform.NewMoneyCents(1000), CashReceived: &received}},
+	}
+	_, total, created, err := svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "tender-key", req)
+	if err != nil || !created || total.Cents() != 1000 {
+		t.Fatalf("sale total/creation: %v, %v, %d", err, created, total.Cents())
+	}
+	if len(repo.insertedPayments) != 1 || repo.insertedPayments[0].Amount.Cents() != 1000 {
+		t.Fatalf("cash receipt must not increase booked payment: %+v", repo.insertedPayments)
+	}
+	payment := repo.insertedPayments[0]
+	if payment.CashReceived == nil || payment.CashReceived.Cents() != 2000 ||
+		payment.CashChange == nil || payment.CashChange.Cents() != 1000 {
+		t.Fatalf("cash tender/change not persisted: %+v", payment)
+	}
+	_, _, created, err = svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "tender-key", req)
+	if err != nil || created || len(repo.insertedPayments) != 1 {
+		t.Fatalf("replay duplicated payment: %v / %v / %d", err, created, len(repo.insertedPayments))
+	}
+	other := platform.NewMoneyCents(2100)
+	req.Payments[0].CashReceived = &other
+	_, _, _, err = svc.CreateAndFinalize(context.Background(), "tenant-1", "user-1", "tender-key", req)
+	if !errors.Is(err, common.ErrConflict) {
+		t.Fatalf("changed tender with same key must conflict: %v", err)
+	}
+}
+
+func TestCashTenderValidation(t *testing.T) {
+	amount, less, zero := platform.NewMoneyCents(1000), platform.NewMoneyCents(999), platform.NewMoneyCents(0)
+	for _, tc := range []struct {
+		name     string
+		method   string
+		received *platform.Money
+		invalid  bool
+	}{
+		{"exact cash", "cash", &amount, false},
+		{"insufficient", "cash", &less, true},
+		{"zero", "cash", &zero, true},
+		{"pix tender", "pix", &amount, true},
+		{"legacy cash", "cash", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSalePaymentSemantics([]SalePaymentRequest{{
+				Method: tc.method, Amount: amount, CashReceived: tc.received, Installments: 1,
+			}})
+			if (err != nil) != tc.invalid {
+				t.Fatalf("unexpected validation error %v (invalid=%v)", err, tc.invalid)
+			}
+		})
+	}
 }

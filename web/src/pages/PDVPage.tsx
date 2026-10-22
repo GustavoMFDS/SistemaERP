@@ -87,7 +87,7 @@ type SaleItem = {
   discount_value: number
 }
 
-type SalePayment = { method: string; amount: number }
+type SalePayment = { method: string; amount: number; cash_received?: number }
 
 type SaleFiscalStatus = {
   sale_id: string
@@ -999,7 +999,11 @@ export default function PDVPage() {
     setPrintDecisionOpen(false)
     fiscalSaleRef.current = ''
 
-    const payments: SalePayment[] = [{ method: payMethod, amount: computedTotal }]
+    const payments: SalePayment[] = [{
+      method: payMethod,
+      amount: computedTotal,
+      ...(payMethod === 'cash' ? { cash_received: cashCents / 100 } : {}),
+    }]
     const body = {
       cash_session_id: cashSessionId,
       customer_id: null,

@@ -1228,6 +1228,8 @@ func (s *FiscalService) GetNFCeDocumentDraft(
 		documentPayments = append(documentPayments, fisc.NFCeDocumentPayment{
 			Method:            payment.Method,
 			Amount:            payment.Amount,
+			CashReceived:      payment.CashReceived,
+			CashChange:        payment.CashChange,
 			Provider:          payment.Provider,
 			TransactionRef:    payment.TransactionRef,
 			AuthorizationCode: payment.AuthorizationCode,

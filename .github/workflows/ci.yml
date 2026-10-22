@@ -1800,6 +1800,112 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_pwdreset WITH (FORCE);"
 
+      - name: Verify v52 cash tender migration preserves old data and rejects unsafe rollback
+        run: |
+          set -euo pipefail
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_cash_tender WITH (FORCE);" \
+            -c "CREATE DATABASE sistemaemgo_cash_tender OWNER sistemaemgo;"
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_cash_tender?sslmode=disable" \
+            goto 51
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender \
+            -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+          # Construct a disposable historical cash sale and payment at v51.
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO cash_registers(tenant_id,name)
+            SELECT id,'CI cash tender v52' FROM companies WHERE cnpj='12345678000195';
+          INSERT INTO cash_sessions(tenant_id,cash_register_id,opened_by_user_id,status)
+            SELECT c.tenant_id,c.id,u.id,'open' FROM cash_registers c
+            JOIN users u ON u.email='admin@sistema.local'
+            WHERE c.name='CI cash tender v52';
+          INSERT INTO sales(tenant_id,cash_session_id,created_by_user_id,subtotal,total)
+            SELECT cs.tenant_id,cs.id,u.id,19.00,19.00 FROM cash_sessions cs
+            JOIN cash_registers cr ON cr.id=cs.cash_register_id
+            JOIN users u ON u.email='admin@sistema.local'
+            WHERE cr.name='CI cash tender v52';
+          INSERT INTO payments(tenant_id,sale_id,method,amount)
+            SELECT s.tenant_id,s.id,'cash',19.00 FROM sales s
+            JOIN cash_sessions cs ON cs.id=s.cash_session_id
+            JOIN cash_registers cr ON cr.id=cs.cash_register_id
+            WHERE cr.name='CI cash tender v52';
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_cash_tender?sslmode=disable" \
+            up 1
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender -v ON_ERROR_STOP=1 <<'SQL'
+          DO $test$
+          DECLARE p payments%ROWTYPE;
+          BEGIN
+            SELECT * INTO STRICT p FROM payments WHERE amount=19.00 AND method='cash';
+            IF p.cash_received IS NOT NULL OR p.cash_change IS NOT NULL THEN
+              RAISE EXCEPTION 'v52 changed historical cash payments';
+            END IF;
+            UPDATE payments SET cash_received=20.00, cash_change=1.00 WHERE id=p.id;
+            BEGIN
+              UPDATE payments SET cash_received=18.00, cash_change=0 WHERE id=p.id;
+              RAISE EXCEPTION 'insufficient tender accepted';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+            BEGIN
+              UPDATE payments SET cash_received=20.00, cash_change=0 WHERE id=p.id;
+              RAISE EXCEPTION 'inconsistent change accepted';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+            BEGIN
+              UPDATE payments SET method='pix' WHERE id=p.id;
+              RAISE EXCEPTION 'digital method with cash tender accepted';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+            IF NOT EXISTS(SELECT 1 FROM payments WHERE id=p.id
+                AND method='cash' AND amount=19.00 AND cash_received=20.00 AND cash_change=1.00) THEN
+              RAISE EXCEPTION 'v52 failed to retain net amount and cash change';
+            END IF;
+          END $test$;
+          SQL
+          # The migration's own down script must refuse to erase cash receipt history.
+          if docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender \
+            -v ON_ERROR_STOP=1 -f /dev/stdin < backend/migrations/0052_cash_tender_change.down.sql; then
+            echo 'Unsafe v52 rollback unexpectedly succeeded' >&2
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender \
+            -v ON_ERROR_STOP=1 -c "SELECT 1 FROM payments WHERE cash_received=20.00 AND cash_change=1.00;"
+          # Clear only disposable CI tender metadata before testing safe downgrade.
+          # Preserve the original payment row, its tenant, amount and sale.
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender \
+            -v ON_ERROR_STOP=1 -c "UPDATE payments SET cash_received=NULL, cash_change=NULL WHERE cash_received IS NOT NULL;"
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_cash_tender?sslmode=disable" \
+            down 1
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender -v ON_ERROR_STOP=1 <<'SQL'
+          DO $test$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments'
+                  AND column_name IN ('cash_received','cash_change')) THEN
+              RAISE EXCEPTION 'v52 rollback left receipt columns behind';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM payments WHERE method='cash' AND amount=19.00) THEN
+              RAISE EXCEPTION 'rollback destroyed historical net payment';
+            END IF;
+          END $test$;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/sistemaemgo_cash_tender?sslmode=disable" \
+            up 1
+          docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender \
+            -v ON_ERROR_STOP=1 -c "SELECT version, dirty FROM schema_migrations;"
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sistemaemgo_cash_tender WITH (FORCE);"
+
       - name: Run tagged integration tests
         working-directory: backend
         env:

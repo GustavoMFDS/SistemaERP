@@ -164,15 +164,17 @@ func (it SaleItem) ProfitEstimado() (platform.Money, error) {
 }
 
 type Payment struct {
-	ID                   string         `json:"id"`
-	SaleID               string         `json:"sale_id"`
-	Method               string         `json:"method"`
-	Amount               platform.Money `json:"amount"`
-	Provider             *string        `json:"provider,omitempty"`
-	TransactionRef       *string        `json:"transaction_ref,omitempty"`
-	AuthorizationCode    *string        `json:"authorization_code,omitempty"`
-	Installments         int            `json:"installments"`
-	ReconciliationStatus string         `json:"reconciliation_status"`
+	ID                   string          `json:"id"`
+	SaleID               string          `json:"sale_id"`
+	Method               string          `json:"method"`
+	Amount               platform.Money  `json:"amount"`
+	CashReceived         *platform.Money `json:"cash_received,omitempty"`
+	CashChange           *platform.Money `json:"cash_change,omitempty"`
+	Provider             *string         `json:"provider,omitempty"`
+	TransactionRef       *string         `json:"transaction_ref,omitempty"`
+	AuthorizationCode    *string         `json:"authorization_code,omitempty"`
+	Installments         int             `json:"installments"`
+	ReconciliationStatus string          `json:"reconciliation_status"`
 }
 
 type CashSession struct {
