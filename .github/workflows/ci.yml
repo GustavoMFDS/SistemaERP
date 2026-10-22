@@ -183,6 +183,9 @@ jobs:
       - name: Generate protected PostgreSQL TLS/SCRAM policy templates in Windows CI
         shell: pwsh
         run: ./scripts/test-esterium-postgres-tls-policy-generator.ps1
+      - name: Deny unsigned runtime activation and parse fail-closed first-run Windows probe
+        shell: pwsh
+        run: ./scripts/test-esterium-first-run-probe-ci.ps1
       - name: Validate immutable migration chain and verified backup before Windows upgrade
         shell: pwsh
         run: ./scripts/test-esterium-upgrade-plan.ps1
@@ -312,6 +315,10 @@ jobs:
             scripts/stage-esterium-postgres-tls.ps1 \
             scripts/initialize-esterium-postgres-app-db.ps1 \
             scripts/apply-esterium-initial-schema.ps1 \
+            scripts/bootstrap-esterium-local-schema.ps1 \
+            scripts/stage-esterium-approved-windows-release.ps1 \
+            scripts/probe-esterium-local-first-run.ps1 \
+            scripts/finish-esterium-local-first-install.ps1 \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md

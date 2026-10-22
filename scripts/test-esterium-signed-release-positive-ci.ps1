@@ -58,6 +58,10 @@ try {
         'provision-esterium-postgres-tls-policy.ps1',
         'stage-esterium-postgres-tls.ps1',
         'initialize-esterium-postgres-app-db.ps1',
+        'bootstrap-esterium-local-schema.ps1',
+        'stage-esterium-approved-windows-release.ps1',
+        'probe-esterium-local-first-run.ps1',
+        'finish-esterium-local-first-install.ps1',
         'apply-esterium-initial-schema.ps1'
     )
     foreach ($tool in $required) {
