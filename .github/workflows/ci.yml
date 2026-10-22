@@ -1875,9 +1875,10 @@ jobs:
           fi
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender \
             -v ON_ERROR_STOP=1 -c "SELECT 1 FROM payments WHERE cash_received=20.00 AND cash_change=1.00;"
-          # Removing only synthetic CI rows makes a downgrade/re-upgrade test safe.
+          # Clear only disposable CI tender metadata before testing safe downgrade.
+          # Preserve the original payment row, its tenant, amount and sale.
           docker compose exec -T db psql -U sistemaemgo -d sistemaemgo_cash_tender \
-            -v ON_ERROR_STOP=1 -c "DELETE FROM payments WHERE cash_received IS NOT NULL;"
+            -v ON_ERROR_STOP=1 -c "UPDATE payments SET cash_received=NULL, cash_change=NULL WHERE cash_received IS NOT NULL;"
           docker run --rm --network host \
             -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
             -path=/migrations \
