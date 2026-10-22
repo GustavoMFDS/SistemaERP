@@ -138,6 +138,21 @@ jobs:
         shell: pwsh
         run: ./scripts/test-esterium-postgres-real-tls-ci.ps1
 
+  local-postgres-real-edb-exe-smoke:
+    # The actual vendor EXE is expensive to download/install. Exercise it on
+    # disposable Windows PR runners, not twice again on every main push.
+    if: github.event_name == 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install vendor-pinned PostgreSQL 16 EDB EXE unattended and verify safe shutdown
+        shell: pwsh
+        timeout-minutes: 42
+        env:
+          ESTERIUM_EDB_REAL_DISPOSABLE_CI: "1"
+        run: ./scripts/test-esterium-edb-real-exe-ci.ps1
+
   local-backup-integrity-gate:
     runs-on: windows-2025
     steps:
