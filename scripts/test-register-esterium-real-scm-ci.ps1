@@ -74,6 +74,7 @@ try {
         'stage-esterium-approved-windows-release.ps1',
         'probe-esterium-local-first-run.ps1',
         'finish-esterium-local-first-install.ps1',
+        'install-esterium-local-complete.ps1',
         'apply-esterium-initial-schema.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $tools
