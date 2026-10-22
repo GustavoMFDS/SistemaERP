@@ -40,6 +40,9 @@ $pass='ci-postgres-secret-'+$id
 $pgCtl=$null
 $psql=$null
 $started=$false
+$secondStarted=$false
+$secondData=Join-Path $root 'recovery-independent-cluster'
+$secondLog=Join-Path $root 'recovery-independent.log'
 $oldEnv=@{}
 $env:ESTERIUM_PG_POLICY_DISPOSABLE_CI='1'
 foreach ($key in @('PGPASSWORD','PGHOST','PGPORT','PGUSER','PGDATABASE','PGSSLROOTCERT','PGSSLMODE','PGHOSTADDR','PATH')) {
@@ -279,8 +282,8 @@ try {
     catch { if ($_.Exception.Message -notmatch 'nao esta vazio') { throw } }
     if ($replayAllowed) { throw 'Initial schema tool unexpectedly permitted migration replay.' }
     Write-Host 'PostgreSQL CI: testing confirmed transaction durability.'
-    $null=Run-Psql 'CREATE TABLE ci_durable(id integer PRIMARY KEY)'
-    $null=Run-Psql 'INSERT INTO ci_durable VALUES(17)'
+    $null=Run-Psql 'CREATE TABLE ci_durable(id integer PRIMARY KEY, value text NOT NULL)'
+    $null=Run-Psql "INSERT INTO ci_durable VALUES(17,'acknowledged-before-crash'),(42,'independent-restore-proof')"
     Write-Host 'PostgreSQL CI: initiating immediate shutdown for WAL recovery test.'
     Invoke-PgCtl -argList @('-D',$data,'-m','immediate','-w','stop') -phase 'immediate stop'
     $started=$false
@@ -321,6 +324,24 @@ try {
     if ($inspection -notmatch 'PASS: independently approved PostgreSQL 16 archive') {
         throw 'Real Windows PostgreSQL restore preflight did not inspect the archive.'
     }
+    # An archive with all CREATE TABLE statements but no TABLE DATA records
+    # must never be mistaken for a full, recoverable database backup.
+    $schemaOnlyArchive = Join-Path $root ('esterium-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-eeff0011.dump')
+    & $pgDump '--format=custom' '--schema-only' '--no-owner' '--no-privileges' ('--file='+$schemaOnlyArchive)
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $schemaOnlyArchive)) {
+        throw 'Cannot create synthetic schema-only negative recovery fixture.'
+    }
+    $schemaDigest = (Get-FileHash -LiteralPath $schemaOnlyArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText(($schemaOnlyArchive+'.sha256'),
+        ($schemaDigest+'  '+[IO.Path]::GetFileName($schemaOnlyArchive)+[Environment]::NewLine),
+        [Text.UTF8Encoding]::new($false))
+    $schemaArgs = $verifyArgs.Clone()
+    $schemaArgs.ArchivePath = $schemaOnlyArchive
+    $schemaArgs.ExpectedArchiveSHA256 = $schemaDigest
+    $schemaOnlyRejected = $false
+    try { & $preflight @schemaArgs | Out-Null }
+    catch { $schemaOnlyRejected = $_.Exception.Message -match 'schema-only archives are not complete backups' }
+    if (-not $schemaOnlyRejected) { throw 'Recovery preflight accepted a schema-only archive without table data.' }
     $badTool = $verifyArgs.Clone()
     $badTool.ExpectedPgRestoreSHA256 = '0' * 64
     $badToolRejected = $false
@@ -333,6 +354,86 @@ try {
     try { & $preflight @badArchive | Out-Null }
     catch { $badArchiveRejected = $_.Exception.Message -match 'checksum sidecar differs' }
     if (-not $badArchiveRejected) { throw 'Restore preflight accepted an unapproved archive hash.' }
+    # Stronger than an archive-directory check: restore the ENTIRE archive
+    # into a second, completely fresh PostgreSQL cluster on this disposable
+    # Windows runner. No volume, data directory, roles or server process is
+    # shared with the source. This is NOT a second physical PC.
+    Write-Host 'PostgreSQL CI: restoring archive into a second isolated Windows cluster.'
+    $sourceSql = @'
+SELECT
+    (SELECT version::text || ':' || dirty::text FROM schema_migrations)
+    || '|' || (SELECT md5(string_agg(id::text || ':' || value, '|' ORDER BY id)) FROM ci_durable)
+    || '|' || (SELECT count(*)::text FROM companies)
+    || '|' || (SELECT count(*)::text FROM users)
+    || '|' || (SELECT count(*)::text FROM products)
+    || '|' || (SELECT count(*)::text FROM sales)
+    || '|' || (SELECT count(*)::text FROM audit_logs)
+    || '|' || (SELECT count(*)::text FROM sale_fiscal_intents)
+    || '|' || (SELECT count(*)::text FROM fiscal_document_sequences);
+'@
+    $sourceDigest = Run-Psql $sourceSql
+    if ($sourceDigest -notmatch "^${expectedVersion}:false\|[a-f0-9]{32}\|") {
+        throw 'Disposable source migration or sample content fingerprint is invalid.'
+    }
+    $portProbe=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
+    try {
+        $portProbe.Start()
+        $secondPort=([Net.IPEndPoint]$portProbe.LocalEndpoint).Port
+    } finally {
+        $portProbe.Stop()
+    }
+    if ($secondPort -lt 1024 -or $secondPort -eq $port) {
+        throw 'Cannot allocate a distinct loopback-only restore server port.'
+    }
+    # Fresh cluster: never use an existing database directory or drop a DB.
+    if (Test-Path -LiteralPath $secondData) { throw 'Second restore cluster directory already exists.' }
+    & $initdb '-D' $secondData '--username=postgres' ('--pwfile='+$passwordFile) '--auth-host=scram-sha-256' '--auth-local=scram-sha-256' '--encoding=UTF8' '--no-instructions' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Second disposable Windows PostgreSQL initdb failed.' }
+    [IO.File]::AppendAllText((Join-Path $secondData 'postgresql.conf'),
+        [Environment]::NewLine + "listen_addresses = '127.0.0.1'" + [Environment]::NewLine +
+        "port = $secondPort" + [Environment]::NewLine)
+    Invoke-PgCtl -argList @('-D',$secondData,'-l',$secondLog,'-w','start') -phase 'second recovery cluster startup'
+    $secondStarted=$true
+    # Keep the original source connection to verify it is not changed.
+    $preRestoreKeys = @{}
+    foreach ($key in @('PGHOST','PGPORT','PGUSER','PGDATABASE','PGPASSWORD','PGSSLMODE','PGSSLROOTCERT','PGHOSTADDR')) {
+        $preRestoreKeys[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+    }
+    try {
+        $env:PGHOST='127.0.0.1'
+        $env:PGPORT=[string]$secondPort
+        $env:PGUSER='postgres'
+        $env:PGDATABASE='postgres'
+        $env:PGPASSWORD=$pass
+        $env:PGSSLMODE='disable' # localhost-only disposable cluster; NO production exception
+        Remove-Item Env:PGSSLROOTCERT,Env:PGHOSTADDR -ErrorAction SilentlyContinue
+        $isolation = @(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' 'SHOW listen_addresses;') -join ''
+        if ($LASTEXITCODE -ne 0 -or $isolation.Trim() -cne '127.0.0.1') {
+            throw 'Second disposable PostgreSQL cluster is not bound only to loopback.'
+        }
+        & $psql '-X' '-q' '-v' 'ON_ERROR_STOP=1' '-c' 'CREATE DATABASE esterium_recovery_ci;' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot create a NEW database in the independent Windows cluster.' }
+        & $pgRestore '--exit-on-error' '--no-owner' '--no-privileges' '--dbname=esterium_recovery_ci' $recoveryArchive | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Independent Windows PostgreSQL pg_restore failed.' }
+        $restored = @(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-d' 'esterium_recovery_ci' '-c' $sourceSql) -join ''
+        if ($LASTEXITCODE -ne 0 -or $restored.Trim() -cne $sourceDigest) {
+            throw 'Independent Windows restore differs in migration, sample payload or critical business/fiscal counts.'
+        }
+        $tablesSql = "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('companies','users','products','sales','sale_items','payments','audit_logs','nfce_configs','fiscal_document_sequences','sale_fiscal_intents','schema_migrations');"
+        $tables = @(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-d' 'esterium_recovery_ci' '-c' $tablesSql) -join ''
+        if ($LASTEXITCODE -ne 0 -or $tables.Trim() -cne '11') {
+            throw 'Independent Windows recovery is missing critical ERP tables.'
+        }
+    } finally {
+        foreach ($entry in $preRestoreKeys.GetEnumerator()) {
+            [Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')
+        }
+    }
+    if ((Run-Psql $sourceSql) -cne $sourceDigest) {
+        throw 'Independent Windows restore unexpectedly changed the original PostgreSQL source.'
+    }
+    Write-Output 'PASS: full archive restored into independent Windows PostgreSQL 16 cluster; migration, content and critical tables match.'
+
     [IO.File]::AppendAllText($recoveryArchive, 'tampered-on-disposable-CI')
     $changedArchiveRejected = $false
     try { & $preflight @verifyArgs | Out-Null }
@@ -342,6 +443,10 @@ try {
 
     Write-Output "PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial schema version $expectedVersion and crash recovery."
 } finally {
+    if ($secondStarted -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
+        try { Invoke-PgCtl -argList @('-D',$secondData,'-m','immediate','-w','stop') -phase 'second cluster cleanup' }
+        catch { Write-Warning 'Disposable recovery cluster needs runner teardown.' }
+    }
     if ($started -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
         try { Invoke-PgCtl -argList @('-D',$data,'-m','immediate','-w','stop') -phase 'cleanup' }
         catch { Write-Warning 'Disposable PostgreSQL server needs runner teardown.' }
