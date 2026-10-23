@@ -200,9 +200,31 @@ try {
     Stop-Process -Id $server.Id -Force
     $server.WaitForExit()
     $server=$null
-    $nssmUrl='https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
     $nssmHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
-    Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -TimeoutSec 180 -ErrorAction Stop
+    # Both addresses belong to the upstream publisher. HTTP 503 is retried
+    # with bounded backoff, never accepted as a reason to skip verification.
+    $downloaded=$false
+    foreach ($nssmUrl in @(
+        'https://www.nssm.cc/ci/nssm-2.24-101-g897c7ad.zip',
+        'https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
+    )) {
+        for ($attempt=0; $attempt -lt 3; $attempt++) {
+            try {
+                if (Test-Path -LiteralPath $nssmZip) {
+                    Remove-Item -LiteralPath $nssmZip -Force
+                }
+                Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -TimeoutSec 90 -ErrorAction Stop
+                $downloaded=$true
+                break
+            } catch {
+                if ($attempt -lt 2) { Start-Sleep -Seconds @(2,6,14)[$attempt] }
+            }
+        }
+        if ($downloaded) { break }
+    }
+    if (-not $downloaded) {
+        throw 'Publisher unavailable: NSSM ZIP could not be downloaded; service proof is blocked.'
+    }
     if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmHash) {
         throw 'NSSM package differs from independently approved upstream WinGet SHA-256.'
     }
