@@ -15,3 +15,19 @@ O teste `test-esterium-postgres-real-tls-ci.ps1` agora cria **um segundo cluster
 O teste executa `pg_restore --exit-on-error`, compara estado das migrações, resumo criptográfico de registros fictícios de teste, contagens críticas de empresas, usuários, produtos, vendas e registros fiscais, e verifica a existência de 11 tabelas essenciais. Depois ainda confirma que o banco de origem não foi alterado. A limpeza encerra somente as instâncias iniciadas pelo próprio teste e apaga a pasta isolada do runner. Nenhuma restauração é executada sobre dados reais.
 
 **Limite:** são duas instâncias independentes no **mesmo computador virtual Windows descartável**, não dois computadores físicos. Isso acrescenta cobertura de ferramentas e procedimentos Windows ao teste Linux entre instâncias, mas **não** comprova conectividade entre máquinas, cópia SMB de verdade, restauração de imagens de produto ou operação após falha física. Esses ensaios continuam pendentes para a homologação do instalador e da recuperação do Esterium.
+
+## Imagens dos produtos no backup
+
+No Esterium, fotos e miniaturas dos produtos são gravadas na tabela
+`product_images` do próprio PostgreSQL (campos binários `image_data` e
+`thumb_data`). Não existe pasta separada de fotos para copiar no procedimento
+atual; um `pg_dump` completo e restaurável deve preservar **também os bytes
+das imagens, as legendas e a associação à empresa e ao produto**.
+
+A verificação Windows agora grava uma imagem e uma miniatura **sintéticas**
+vinculadas a produto descartável antes do teste de queda forçada; depois
+restaura o backup em outro cluster e compara a assinatura do conteúdo
+binário e da legenda, além de exigir a presença de `product_images` no
+arquivo. O verificador externo recusa backup sem a entrada `TABLE DATA`
+dessa tabela. Isso testa integridade de bytes e referências, **não**
+a validade visual do JPEG, nem restauração em dois computadores físicos.

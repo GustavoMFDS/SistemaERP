@@ -284,6 +284,32 @@ try {
     Write-Host 'PostgreSQL CI: testing confirmed transaction durability.'
     $null=Run-Psql 'CREATE TABLE ci_durable(id integer PRIMARY KEY, value text NOT NULL)'
     $null=Run-Psql "INSERT INTO ci_durable VALUES(17,'acknowledged-before-crash'),(42,'independent-restore-proof')"
+    # Product images live inside PostgreSQL (bytea), not an external web/
+    # folder. Prove the actual image and thumbnail byte payloads survive both
+    # a forced PostgreSQL stop and a full restore into another Windows cluster.
+    # The deliberately synthetic bytes never represent a customer photo.
+    $null=Run-Psql @'
+WITH company AS (
+  INSERT INTO companies(legal_name, trade_name, cnpj, ie, crt)
+  VALUES ('CI Recovery Photos LTDA', 'CI Recovery Photos', '98989898000198', 'ISENTO', '1')
+  RETURNING id
+), product AS (
+  INSERT INTO products(tenant_id, sku, name, unit, cost_price, price_cash, min_stock, active)
+  SELECT id, 'CI-RESTORE-PHOTO', 'Foto de teste descartavel', 'UN', 1.00, 3.00, 0, true
+  FROM company RETURNING tenant_id, id
+)
+INSERT INTO product_images(tenant_id, product_id, upload_key, content_sha256,
+                           image_data, thumb_data, caption)
+SELECT tenant_id, id, gen_random_uuid(),
+       decode('f46e8d0056321744073c78d41d11d020ffabd11d595b347e5ba24b363de48016','hex'),
+       decode('ffd8ffe000104a46494600ffd9','hex'),
+       decode('ffd8ffe000104a464946ffd9','hex'),
+       'CI foto/miniatura apos restauracao'
+FROM product;
+'@
+    if ((Run-Psql "SELECT count(*) FROM product_images WHERE caption='CI foto/miniatura apos restauracao'") -cne '1') {
+        throw 'Disposable recovery source did not persist the product-image fixture.'
+    }
     Write-Host 'PostgreSQL CI: initiating immediate shutdown for WAL recovery test.'
     Invoke-PgCtl -argList @('-D',$data,'-m','immediate','-w','stop') -phase 'immediate stop'
     $started=$false
@@ -366,6 +392,10 @@ SELECT
     || '|' || (SELECT count(*)::text FROM companies)
     || '|' || (SELECT count(*)::text FROM users)
     || '|' || (SELECT count(*)::text FROM products)
+    || '|' || (SELECT count(*)::text FROM product_images)
+    || '|' || (SELECT md5(string_agg(
+          encode(image_data,'hex') || ':' || encode(thumb_data,'hex') || ':' || caption,
+          '|' ORDER BY id)) FROM product_images)
     || '|' || (SELECT count(*)::text FROM sales)
     || '|' || (SELECT count(*)::text FROM audit_logs)
     || '|' || (SELECT count(*)::text FROM sale_fiscal_intents)
@@ -419,9 +449,9 @@ SELECT
         if ($LASTEXITCODE -ne 0 -or $restored.Trim() -cne $sourceDigest) {
             throw 'Independent Windows restore differs in migration, sample payload or critical business/fiscal counts.'
         }
-        $tablesSql = "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('companies','users','products','sales','sale_items','payments','audit_logs','nfce_configs','fiscal_document_sequences','sale_fiscal_intents','schema_migrations');"
+        $tablesSql = "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('companies','users','products','product_images','sales','sale_items','payments','audit_logs','nfce_configs','fiscal_document_sequences','sale_fiscal_intents','schema_migrations');"
         $tables = @(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-d' 'esterium_recovery_ci' '-c' $tablesSql) -join ''
-        if ($LASTEXITCODE -ne 0 -or $tables.Trim() -cne '11') {
+        if ($LASTEXITCODE -ne 0 -or $tables.Trim() -cne '12') {
             throw 'Independent Windows recovery is missing critical ERP tables.'
         }
     } finally {
