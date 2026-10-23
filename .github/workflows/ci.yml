@@ -61,6 +61,9 @@ jobs:
       - name: Validate production configuration without opening external services
         shell: pwsh
         run: ./scripts/test-local-config-preflight-ci.ps1
+      - name: Fail closed on unsafe second-terminal HTTPS LAN setup
+        shell: pwsh
+        run: ./scripts/test-esterium-lan-terminal-ci.ps1
 
   local-windows-secret-provision:
     runs-on: windows-2025
