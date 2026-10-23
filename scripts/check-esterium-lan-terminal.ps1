@@ -27,7 +27,7 @@ if (-not [Uri]::TryCreate($ERPUrl,[UriKind]::Absolute,[ref]$uri) -or
     $uri.Host -match '(?i)\.(example|invalid|test)$') {
     throw 'Acesso do segundo caixa exige URL HTTPS de nome DNS da loja, sem usuario, query, IP ou localhost.'
 }
-if ($uri.Port -in @(80,8080,5432,6379) -or $uri.Port -lt 1024) {
+if ($uri.Port -in @(80,8080,5432,6379) -or ($uri.Port -lt 1024 -and $uri.Port -ne 443)) {
     throw 'Acesso do terminal exige porta HTTPS nao privilegiada, fora do banco/cache/HTTP.'
 }
 if ($ExpectedCertificateSHA256 -cnotmatch '^[A-Fa-f0-9]{64}$') {
