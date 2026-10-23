@@ -10,6 +10,11 @@ $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-garnet-aof-'+$id)
 $destination=Join-Path $env:ProgramData ('Esterium\GarnetAofCI-'+$id)
 $zip=Join-Path $root 'garnet.zip'
+$nssmZip=Join-Path $root 'nssm.zip'
+$nssmDir=Join-Path $root 'nssm'
+$nssmExe=Join-Path $nssmDir 'nssm-2.24-101-g897c7ad\\win64\\nssm.exe'
+$nssmService='EstGarCI'+$id.Substring(0,12)
+$nssmRegistered=$false
 $bin=Join-Path $root 'bin'
 $acl=Join-Path $root 'garnet.acl'
 $pfx=Join-Path $root 'garnet.pfx'
@@ -120,6 +125,11 @@ function Start-Garnet([string]$conf,[string]$phase) {
 }
 try {
     [IO.Directory]::CreateDirectory($root) | Out-Null
+    # Service binaries and TLS fixture must be traversable by NetworkService;
+    # only the disposable runner hosts this ACL. Secrets are separately ACL
+    # protected and are NOT packaged into customer releases.
+    & icacls.exe $root '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)RX' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not protect disposable Garnet service fixture root.' }
     [IO.File]::WriteAllText($acl,('user default off'+[Environment]::NewLine+'user esteriumcache on >'+$password+' ~* +@all'))
     [IO.File]::WriteAllText($pfxPassword,('ci-only-pfx-'+$id))
     $cert=New-SelfSignedCertificate -DnsName localhost -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(3) -ErrorAction Stop
@@ -183,8 +193,142 @@ try {
     } finally {
         $connection.reader.Dispose();$connection.ssl.Dispose();$connection.tcp.Dispose()
     }
+    # The console process passed AOF recovery. Now prove exactly the same
+    # protected Garnet executable/configuration under REAL Windows SCM/NSSM.
+    # NSSM 2.24-101 is the Windows 10+ compatible upstream pre-release;
+    # the SHA-256 was independently pinned by WinGet's version manifest.
+    Stop-Process -Id $server.Id -Force
+    $server.WaitForExit()
+    $server=$null
+    $nssmHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
+    # Both addresses belong to the upstream publisher. HTTP 503 is retried
+    # with bounded backoff, never accepted as a reason to skip verification.
+    $downloaded=$false
+    foreach ($nssmUrl in @(
+        'https://www.nssm.cc/ci/nssm-2.24-101-g897c7ad.zip',
+        'https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
+    )) {
+        for ($attempt=0; $attempt -lt 3; $attempt++) {
+            try {
+                if (Test-Path -LiteralPath $nssmZip) {
+                    Remove-Item -LiteralPath $nssmZip -Force
+                }
+                Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -TimeoutSec 90 -ErrorAction Stop
+                $downloaded=$true
+                break
+            } catch {
+                if ($attempt -lt 2) { Start-Sleep -Seconds @(2,6,14)[$attempt] }
+            }
+        }
+        if ($downloaded) { break }
+    }
+    if (-not $downloaded) {
+        throw 'Publisher unavailable: NSSM ZIP could not be downloaded; service proof is blocked.'
+    }
+    if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmHash) {
+        throw 'NSSM package differs from independently approved upstream WinGet SHA-256.'
+    }
+    Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmDir -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $nssmExe -PathType Leaf)) {
+        throw 'Pinned NSSM ZIP has no required Windows x64 executable.'
+    }
+    if ($null -ne (Get-Service -Name $nssmService -ErrorAction SilentlyContinue)) {
+        throw 'Disposable Garnet service identity is already registered.'
+    }
+    $garnetExe=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.exe')
+    if ($garnetExe.Count -ne 1) { throw 'Expected one pinned GarnetServer.exe for SCM.' }
+    & $nssmExe install $nssmService $garnetExe[0].FullName '--config-import-path' $confPath | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'NSSM did not register Garnet Windows service.' }
+    $nssmRegistered=$true
+    foreach ($cmd in @(
+        @('set',$nssmService,'ObjectName','NT AUTHORITY\NetworkService'),
+        @('set',$nssmService,'Start','SERVICE_DISABLED'),
+        @('set',$nssmService,'AppDirectory',$garnetExe[0].DirectoryName),
+        @('set',$nssmService,'AppExit','Default','Restart'),
+        @('set',$nssmService,'AppRestartDelay','5000')
+    )) {
+        & $nssmExe @cmd | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'NSSM refused restricted Garnet SCM settings.' }
+    }
+    $scm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
+    if ($scm.Count -ne 1 -or $scm[0].StartMode -cne 'Disabled' -or
+        $scm[0].State -cne 'Stopped' -or $scm[0].StartName -notin
+        @('NT AUTHORITY\NetworkService','NT AUTHORITY\NETWORK SERVICE')) {
+        throw 'NSSM Garnet service is not disabled/stopped with NetworkService identity.'
+    }
+    # Only on an ephemeral CI runner, turn the previously disabled fixture on
+    # long enough to validate its real TLS/ACL/AOF runtime and SCM transitions.
+    Set-Service -Name $nssmService -StartupType Manual -ErrorAction Stop
+    Start-Service -Name $nssmService -ErrorAction Stop
+    (Get-Service -Name $nssmService).WaitForStatus(
+        [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
+    $ready=$false
+    for($attempt=0; $attempt -lt 45; $attempt++) {
+        $tcp=[Net.Sockets.TcpClient]::new()
+        try {
+            $task=$tcp.ConnectAsync('127.0.0.1',$port)
+            if ($task.Wait(400) -and $tcp.Connected) { $ready=$true;break }
+        } catch {} finally { $tcp.Dispose() }
+        Start-Sleep -Milliseconds 800
+    }
+    if (-not $ready) { throw 'NSSM Garnet service did not expose local TLS on its expected port.' }
+    $serviceConnection=Open-Redis
+    try {
+        Assert-RedisDenied $serviceConnection.ssl $serviceConnection.reader @('PING')
+        if ((Send-Redis $serviceConnection.ssl $serviceConnection.reader @('AUTH','esteriumcache',$password)) -ne 'OK') {
+            throw 'Real NetworkService Garnet could not use its protected ACL.'
+        }
+        if ((Send-Redis $serviceConnection.ssl $serviceConnection.reader @('GET',('esterium:smoke:'+$id))) -ne 'committed-value') {
+            throw 'NSSM-wrapped Garnet lost its durable AOF data.'
+        }
+    } finally {
+        $serviceConnection.reader.Dispose()
+        $serviceConnection.ssl.Dispose()
+        $serviceConnection.tcp.Dispose()
+    }
+    Stop-Service -Name $nssmService -ErrorAction Stop
+    (Get-Service -Name $nssmService).WaitForStatus(
+        [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+    Set-Service -Name $nssmService -StartupType Disabled -ErrorAction Stop
+    # SCM can report 'Stopped' slightly before the wrapped child closes TCP.
+    $portClosed=$false
+    for ($attempt=0; $attempt -lt 30; $attempt++) {
+        if (@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -eq 0) {
+            $portClosed=$true
+            break
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $portClosed) { throw 'Stopped NSSM wrapper left the child Garnet TLS port open.' }
+    $scm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
+    if ($scm.Count -ne 1 -or $scm[0].State -cne 'Stopped' -or
+        $scm[0].StartMode -cne 'Disabled' -or [int]$scm[0].ProcessId -ne 0 -or
+        @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -ne 0) {
+        throw 'SCM service shutdown left Garnet running or its local TLS port open.'
+    }
+    Write-Output 'PASS: upstream WinGet-pinned NSSM runs authenticated Garnet TLS under NetworkService and stops disabled with no listener.'
     Write-Output 'PASS: pinned Garnet TLS, default user rejection, ACL, atomic Lua and AOF recovery survived hard Windows restart.'
 } finally {
+    if ($nssmRegistered) {
+        # Never leave a CI service startable on error; only this randomly named
+        # fixture can be removed, never any pre-existing Windows service.
+        try {
+            $svc=Get-Service -Name $nssmService -ErrorAction SilentlyContinue
+            if ($null -ne $svc) {
+                Set-Service -Name $nssmService -StartupType Disabled -ErrorAction Stop
+                if ($svc.Status -ne 'Stopped') {
+                    Stop-Service -Name $nssmService -Force -ErrorAction Stop
+                    (Get-Service -Name $nssmService).WaitForStatus(
+                        [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+                }
+                & $nssmExe remove $nssmService confirm | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw 'NSSM did not remove disposable Garnet CI service.' }
+            }
+        } catch {
+            Write-Warning 'NSSM CI service cleanup failed: discard this hosted runner.'
+            throw
+        }
+    }
     if ($null -ne $server) {
         $server.Refresh()
         if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
