@@ -101,7 +101,7 @@ test('dois caixas HTTPS isolados nao vendem a mesma ultima unidade de estoque', 
     await terminal.getByLabel('E-mail').fill('admin@sistema.local')
     await terminal.getByLabel('Senha', { exact: true }).fill('admin123')
     await terminal.getByRole('button', { name: 'Entrar' }).click()
-    await expect(terminal).toHaveURL(/\\/home$/)
+    await expect(terminal).toHaveURL(/[/]home$/)
   }
 
   try {
