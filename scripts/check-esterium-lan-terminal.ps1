@@ -93,9 +93,7 @@ try {
             # Never use a callback that accepts an untrusted test certificate.
             $ssl.AuthenticateAsClient($uri.DnsSafeHost,$null,
                 [Security.Authentication.SslProtocols]::None,$true)
-            if ($ssl.SslProtocol -notin @(
-                [Security.Authentication.SslProtocols]::Tls12,
-                [Security.Authentication.SslProtocols]::Tls13)) {
+            if ($ssl.SslProtocol.ToString() -notin @('Tls12','Tls13')) {
                 throw 'ERP HTTPS negociou TLS obsoleto.'
             }
             $request="GET / HTTP/1.1`r`nHost: $($uri.Authority)`r`nAccept: text/html`r`nConnection: close`r`n`r`n"
