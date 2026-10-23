@@ -301,7 +301,7 @@ WITH company AS (
 INSERT INTO product_images(tenant_id, product_id, upload_key, content_sha256,
                            image_data, thumb_data, caption)
 SELECT tenant_id, id, gen_random_uuid(),
-       decode(repeat('ab',32),'hex'),
+       decode('f46e8d0056321744073c78d41d11d020ffabd11d595b347e5ba24b363de48016','hex'),
        decode('ffd8ffe000104a46494600ffd9','hex'),
        decode('ffd8ffe000104a464946ffd9','hex'),
        'CI foto/miniatura apos restauracao'
