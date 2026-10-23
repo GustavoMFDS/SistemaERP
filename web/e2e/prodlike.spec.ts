@@ -167,9 +167,9 @@ test('dois caixas HTTPS isolados nao vendem a mesma ultima unidade de estoque', 
               }],
             },
           })
-          return { ok: true, id: response.id, total: response.total, key: idempotencyKey }
+          return { ok: true as const, id: response.id, total: response.total, key: idempotencyKey }
         } catch (error) {
-          if (error instanceof APIError) return { ok: false, status: error.status }
+          if (error instanceof APIError) return { ok: false as const, status: error.status }
           throw error
         }
       }, { id: setup.productId, cashId: setup.cashId, idempotencyKey: key })
@@ -180,8 +180,8 @@ test('dois caixas HTTPS isolados nao vendem a mesma ultima unidade de estoque', 
       sell(page, crypto.randomUUID()),
       sell(secondPage, crypto.randomUUID()),
     ])
-    const successful = [a, b].filter((result) => result.ok)
-    const rejected = [a, b].filter((result) => !result.ok)
+    const successful = [a, b].filter((result): result is Extract<typeof a, { ok: true }> => result.ok)
+    const rejected = [a, b].filter((result): result is Extract<typeof a, { ok: false }> => !result.ok)
     expect(successful).toHaveLength(1)
     expect(rejected).toHaveLength(1)
     expect([409, 422]).toContain(rejected[0].status)
@@ -196,8 +196,8 @@ test('dois caixas HTTPS isolados nao vendem a mesma ultima unidade de estoque', 
 
     // Retrying an acknowledged sale in the other browser is idempotent:
     // same sale id, still zero inventory and no duplicate booking.
-    const retry = await sell(secondPage, successful[0].key!)
-    expect(retry.ok).toBe(true)
+    const retry = await sell(secondPage, successful[0].key)
+    if (!retry.ok) throw new Error('Venda idempotente foi recusada pelo outro caixa')
     expect(retry.id).toBe(successful[0].id)
     const remaining = await secondPage.evaluate(async (id) => {
       const { apiJson } = await import('/src/lib/api.ts')
