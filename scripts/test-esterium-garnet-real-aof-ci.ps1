@@ -268,6 +268,16 @@ try {
     (Get-Service -Name $nssmService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
     Set-Service -Name $nssmService -StartupType Disabled -ErrorAction Stop
+    # SCM can report 'Stopped' slightly before the wrapped child closes TCP.
+    $portClosed=$false
+    for ($attempt=0; $attempt -lt 30; $attempt++) {
+        if (@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -eq 0) {
+            $portClosed=$true
+            break
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $portClosed) { throw 'Stopped NSSM wrapper left the child Garnet TLS port open.' }
     $scm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
     if ($scm.Count -ne 1 -or $scm[0].State -cne 'Stopped' -or
         $scm[0].StartMode -cne 'Disabled' -or [int]$scm[0].ProcessId -ne 0 -or
