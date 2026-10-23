@@ -103,7 +103,7 @@ if ($LASTEXITCODE -ne 0) {
 $listing = @($entries) -join [Environment]::NewLine
 # A custom-format archive can have a valid header but be partial. Require
 # critical business and migration table definitions, not just a success code.
-foreach ($table in @('companies', 'users', 'products', 'sales', 'schema_migrations')) {
+foreach ($table in @('companies', 'users', 'products', 'product_images', 'sales', 'schema_migrations')) {
     $pattern = '(?m)^\s*\d+;\s+\d+\s+\d+\s+TABLE\s+public\s+' + [regex]::Escape($table) + '\s+'
     if ($listing -notmatch $pattern) {
         throw 'The inspected backup lacks required Esterium business/migration tables.'
