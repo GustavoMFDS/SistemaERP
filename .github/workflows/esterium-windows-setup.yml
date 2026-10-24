@@ -1,0 +1,51 @@
+name: Esterium Windows Setup EXE
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'windows-setup/**'
+      - '.github/workflows/esterium-windows-setup.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'windows-setup/**'
+      - '.github/workflows/esterium-windows-setup.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-preview:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build UI executable (no payload, no release)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir "$env:GITHUB_WORKSPACE\release-preview"
+          $exe = "$env:GITHUB_WORKSPACE\release-preview\EsteriumERP-Setup.exe"
+          if (-not (Test-Path $exe)) { throw 'Missing Setup EXE' }
+          $test = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($test.ExitCode -ne 0) { throw 'Bootstrap self-test failed' }
+          $payload = Start-Process -FilePath $exe -ArgumentList '--has-payload' -Wait -PassThru
+          if ($payload.ExitCode -ne 2) { throw 'Unsigned preview must NOT have embedded payload' }
+          if ((Get-AuthenticodeSignature $exe).Status -eq 'Valid') {
+            throw 'Preview unexpectedly signed; do not publish as commercial release'
+          }
+      - name: Reject incomplete packaging inputs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rejected = $false
+          try {
+            & .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir "$env:RUNNER_TEMP\must-not-exist" -ExpectedPostgresSHA256 ('A' * 64)
+          } catch { $rejected = $true }
+          if (-not $rejected) { throw 'Builder accepted incomplete vendor input' }
+          if (Test-Path "$env:RUNNER_TEMP\must-not-exist") { throw 'Rejected build created output' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Esterium-Windows-Setup-UNSIGNED-TECHNICAL-PREVIEW
+          path: release-preview/*
+          retention-days: 7
