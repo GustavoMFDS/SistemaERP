@@ -314,6 +314,7 @@ jobs:
             scripts/check-esterium-windows-host.ps1 \
             scripts/unregister-esterium-windows-service.ps1 \
             scripts/check-esterium-local-dependencies.ps1 \
+            scripts/check-esterium-lan-terminal.ps1 \
             scripts/plan-esterium-windows-upgrade.ps1 \
             scripts/plan-esterium-local-setup.ps1 \
             scripts/install-esterium-local.ps1 \
