@@ -133,6 +133,61 @@ try {
     $writer=Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1'
     & $writer -BundleDir $bundle | Out-Null
     $hash=(Get-FileHash -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Algorithm SHA256).Hash
+    # Exercise the REAL one-command orchestration through both PLAN delegates,
+    # against a complete signed-but-untrusted CI bundle and inert vendor files.
+    # Never execute any fake vendor binaries or modify Windows services.
+    $vendors=Join-Path $root 'vendor-plan-only'
+    [IO.Directory]::CreateDirectory($vendors) | Out-Null
+    $pg=Join-Path $vendors 'postgresql-16-plan-only.exe'
+    $wrapper=Join-Path $vendors 'nssm-plan-only.exe'
+    $garnet=Join-Path $vendors 'garnet-plan-only.zip'
+    [IO.File]::WriteAllText($pg,'CI inert EDB fixture NEVER RUN')
+    [IO.File]::WriteAllText($wrapper,'CI inert NSSM fixture NEVER RUN')
+    $zipSource=Join-Path $vendors 'src'
+    [IO.Directory]::CreateDirectory($zipSource) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $zipSource 'GarnetServer.exe'),'CI inert Garnet fixture NEVER RUN')
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::CreateFromDirectory($zipSource,$garnet)
+    $planArgs=@{
+        SourceBundleDir=$bundle
+        AllowedOrigin='https://erp.loja.local:8443'
+        PostgresInstaller=$pg
+        ExpectedPostgresSHA256=(Get-FileHash -LiteralPath $pg -Algorithm SHA256).Hash
+        ExpectedPostgresPublisherThumbprint=('A'*40)
+        GarnetPackage=$garnet
+        ExpectedGarnetSHA256=(Get-FileHash -LiteralPath $garnet -Algorithm SHA256).Hash
+        ServiceWrapperExe=$wrapper
+        ExpectedServiceWrapperSHA256=(Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash
+        ApprovedManifestSHA256=$hash
+        TrustedPublisherThumbprint=$certThumb
+        SyntheticPlanCIFixture=$true
+    }
+    $env:ESTERIUM_SETUP_PLAN_DISPOSABLE_CI='1'
+    $env:ESTERIUM_DEPENDENCY_PACKAGE_DISPOSABLE_CI='1'
+    $runOne=Join-Path $toolsDir 'install-esterium-local-complete.ps1'
+    try {
+        $result=@(& $runOne @planArgs) -join ' '
+        if ($result -notmatch 'PLAN: PostgreSQL 16, Garnet e ERP' -or
+            $result -notmatch 'nenhuma pasta, senha, banco ou servico foi alterado') {
+            throw 'Single command did not finish both genuine read-only PLAN delegates.'
+        }
+        if ((Test-Path -LiteralPath (Join-Path $env:ProgramData 'Esterium\\DependencyBootstrap')) -or
+            (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'EsteriumApprovedSetup')) -or
+            (Get-Service -Name 'EsteriumGarnet' -ErrorAction SilentlyContinue)) {
+            throw 'Synthetic signed first-install PLAN changed a Windows installation.'
+        }
+        $planArgs.Apply=$true
+        $refusal=''
+        try { & $runOne @planArgs | Out-Null }
+        catch { $refusal=$_.Exception.Message }
+        if ($refusal -notmatch 'Plano sintetico restrito a CI Windows descartavel') {
+            throw 'The synthetic entry could invoke -Apply instead of rejecting it.'
+        }
+        Write-Output 'PASS: unified installer PLAN completed both read-only stages; fake vendor EXE/ZIP never executed; CI override rejects Apply.'
+    } finally {
+        Remove-Item Env:ESTERIUM_SETUP_PLAN_DISPOSABLE_CI -ErrorAction SilentlyContinue
+        Remove-Item Env:ESTERIUM_DEPENDENCY_PACKAGE_DISPOSABLE_CI -ErrorAction SilentlyContinue
+    }
     # Independently verify actual signing cryptography without trusting a
     # new OS root certificate. The detached CMS is a CI-only test artifact,
     # NOT the signature format used by a commercial Esterium release.

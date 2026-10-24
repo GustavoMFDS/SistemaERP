@@ -21,11 +21,19 @@ param(
     [string]$TrustedPublisherThumbprint='',
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
-    [switch]$Apply
+    [switch]$Apply,
+    # Absolutely no executable vendor/ERP installation is allowed with this
+    # test-only option. It verifies ONLY the real two-stage PLAN path in CI.
+    [switch]$SyntheticPlanCIFixture
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'A instalacao completa exige Windows.' }
+if ($SyntheticPlanCIFixture -and ($Apply -or $env:GITHUB_ACTIONS -ne 'true' -or
+    $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:ESTERIUM_SETUP_PLAN_DISPOSABLE_CI -ne '1')) {
+    throw 'Plano sintetico restrito a CI Windows descartavel, proibido em Apply.'
+}
 if ($PostgresPort -in @($GarnetPort,8080) -or $GarnetPort -eq 8080) {
     throw 'Portas da aplicacao, PostgreSQL e Garnet precisam ser distintas.'
 }
@@ -88,6 +96,7 @@ $setupArgs=@{
     ApprovedManifestSHA256=$ApprovedManifestSHA256
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint
 }
+if ($SyntheticPlanCIFixture) { $setupArgs.SyntheticPlanCIFixture=$true }
 $finishArgs=@{
     SourceBundleDir=$source
     AllowedOrigin=$AllowedOrigin
