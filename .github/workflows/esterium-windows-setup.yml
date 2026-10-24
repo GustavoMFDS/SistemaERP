@@ -1,0 +1,88 @@
+name: Esterium Windows Setup EXE
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'windows-setup/**'
+      - '.github/workflows/esterium-windows-setup.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'windows-setup/**'
+      - '.github/workflows/esterium-windows-setup.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-preview:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build UI executable (no payload, no release)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir "$env:GITHUB_WORKSPACE\release-preview"
+          $exe = "$env:GITHUB_WORKSPACE\release-preview\EsteriumERP-Setup.exe"
+          if (-not (Test-Path $exe)) { throw 'Missing Setup EXE' }
+          $test = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($test.ExitCode -ne 0) { throw 'Bootstrap self-test failed' }
+          $payload = Start-Process -FilePath $exe -ArgumentList '--has-payload' -Wait -PassThru
+          if ($payload.ExitCode -ne 2) { throw 'Unsigned preview must NOT have embedded payload' }
+          $retail = Start-Process -FilePath $exe -ArgumentList '--is-retail-build' -Wait -PassThru
+          if ($retail.ExitCode -ne 3) { throw 'Unsigned preview must permanently block installation' }
+          if ((Get-AuthenticodeSignature $exe).Status -eq 'Valid') {
+            throw 'Preview unexpectedly signed; do not publish as commercial release'
+          }
+      - name: Reject incomplete packaging inputs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rejected = $false
+          try {
+            & .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir "$env:RUNNER_TEMP\must-not-exist" -ExpectedPostgresSHA256 ('A' * 64)
+          } catch { $rejected = $true }
+          if (-not $rejected) { throw 'Builder accepted incomplete vendor input' }
+          if (Test-Path "$env:RUNNER_TEMP\must-not-exist") { throw 'Rejected build created output' }
+      - name: Inspect synthetic embedded ZIP; reject tampered hash
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'esterium-synthetic-embed'
+          foreach ($name in @('erp\web','erp\tools','vendor')) {
+            New-Item -ItemType Directory -Path (Join-Path $dir ('payload\'+$name)) -Force | Out-Null
+          }
+          $files = @('erp\bundle-manifest.json','erp\esterium-server.exe','erp\web\index.html',
+                     'erp\tools\install-esterium-local-complete.ps1',
+                     'vendor\postgresql.exe','vendor\garnet.zip','vendor\nssm.exe')
+          foreach ($file in $files) {
+            Set-Content -LiteralPath (Join-Path (Join-Path $dir 'payload') $file) -Value "SYNTHETIC CI ONLY $file" -Encoding Ascii
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = Join-Path $dir 'payload.zip'
+          [IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $dir 'payload'),$zip)
+          $exe = Join-Path $dir 'test-preview.exe'
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64/v4.0.30319/csc.exe'
+          & $csc /nologo /target:winexe /platform:x64 /define:ESTERIUM_PREVIEW /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.Web.Extensions.dll ("/out:" + $exe) ("/resource:" + $zip + ",Esterium.Payload") .\windows-setup\EsteriumSetup.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic resource build failed' }
+          $probe = Start-Process -FilePath $exe -ArgumentList '--is-retail-build' -Wait -PassThru
+          if ($probe.ExitCode -ne 3) { throw 'Synthetic preview unexpectedly installable' }
+          $checks = @{Exe=$exe;
+            ExpectedManifestSHA256=(Get-FileHash (Join-Path $dir 'payload\erp\bundle-manifest.json') -Algorithm SHA256).Hash;
+            ExpectedPostgresSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\postgresql.exe') -Algorithm SHA256).Hash;
+            ExpectedGarnetSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\garnet.zip') -Algorithm SHA256).Hash;
+            ExpectedNssmSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\nssm.exe') -Algorithm SHA256).Hash}
+          & .\windows-setup\test-embedded-preview.ps1 @checks
+          $rejected = $false
+          $checks.ExpectedGarnetSHA256 = ('A' * 64)
+          try {
+            & .\windows-setup\test-embedded-preview.ps1 @checks | Out-Null
+          } catch { $rejected = $true }
+          if (-not $rejected) { throw 'Tampered vendor digest was accepted' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Esterium-Windows-Setup-UNSIGNED-TECHNICAL-PREVIEW
+          path: release-preview/*
+          retention-days: 7
