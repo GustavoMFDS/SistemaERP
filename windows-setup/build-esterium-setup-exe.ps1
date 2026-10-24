@@ -119,6 +119,9 @@ try {
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw 'Windows EXE compilation failed.' }
     $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
     "SHA256 $hash  $exeName" | Set-Content -LiteralPath (Join-Path $OutputDir 'EsteriumERP-Setup.sha256.txt') -Encoding Ascii
+    # The MIT copyright notice travels with the binary; it does not relicense vendors.
+    Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $OutputDir 'LICENSE.txt') -ErrorAction Stop
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $OutputDir 'THIRD_PARTY_NOTICES.md') -ErrorAction Stop
     Write-Output "PASS: $exe"
     Write-Output "SHA256: $hash"
     if ($TechnicalPreviewPayload) {

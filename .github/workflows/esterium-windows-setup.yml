@@ -27,6 +27,10 @@ jobs:
           & .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir "$env:GITHUB_WORKSPACE\release-preview"
           $exe = "$env:GITHUB_WORKSPACE\release-preview\EsteriumERP-Setup.exe"
           if (-not (Test-Path $exe)) { throw 'Missing Setup EXE' }
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\release-preview\LICENSE.txt") -or
+              -not (Test-Path "$env:GITHUB_WORKSPACE\release-preview\THIRD_PARTY_NOTICES.md")) {
+            throw 'Unsigned MIT preview must ship its copyright and vendor notices'
+          }
           $test = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
           if ($test.ExitCode -ne 0) { throw 'Bootstrap self-test failed' }
           $payload = Start-Process -FilePath $exe -ArgumentList '--has-payload' -Wait -PassThru
