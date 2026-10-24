@@ -147,7 +147,9 @@ foreach ($part in @('setup-esterium-local-dependencies.ps1',
                     '& $finish @finishArgs | Out-Null',
                     '$setupArgs.Apply=$true',
                     '$finishArgs.Apply=$true',
-                    'nao repetir Apply')) {
+                    'nao repetir Apply',
+                    '$VerifyApprovedRelease',
+                    '& $signedGate -BundleDir $source')) {
     if (-not $entryText.Contains($part)) {
         throw 'Single-command installer lost a required fail-closed operation.'
     }
@@ -188,6 +190,22 @@ try {
         throw 'One-command setup accepted missing release approval.'
     }
     $args.Apply=$false
+    # Signed-only approved PLAN must refuse missing release approval and a
+    # fake publisher BEFORE it reaches either delegated PLAN or Windows SCM.
+    $args.VerifyApprovedRelease=$true
+    $args.ApprovedManifestSHA256=''
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'manifesto e editor aprovados independentemente') {
+        throw 'Approved read-only plan accepted missing release identity.'
+    }
+    $args.ApprovedManifestSHA256='0'*64
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'sem assinatura do editor aprovado') {
+        throw 'Approved read-only plan accepted an unsigned publisher.'
+    }
+    $args.VerifyApprovedRelease=$false
     $args.AllowedOrigin='http://localhost:8080'
     $denied=''
     try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
