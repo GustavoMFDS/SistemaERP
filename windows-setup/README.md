@@ -97,3 +97,45 @@ outros instaladores.
 
 A previa publica pequena em GitHub Releases nao tem componentes
 embutidos e continua sem instalacao nem plano funcional.
+
+
+## Preparar arquivos em Program Files — MIT sem assinatura (Fase 1)
+
+A versão -TechnicalPreviewPayload com todos os arquivos permite agora
+ações separadas:
+
+- Verificar arquivos: confere manifesto ERP e os hashes de PostgreSQL,
+  Garnet e NSSM, sem privilégios de administrador.
+- Ver plano: confere o fluxo existente de dependências e bootstrap em
+  modo somente leitura, sem -Apply.
+- Preparar arquivos (não instala): após confirmação e UAC, o próprio
+  EXE recompõe o conteúdo ERP a partir do ZIP integrado, valida
+  o manifesto e todos os hashes de fornecedores registrados no build
+  e copia SOMENTE o ERP para C:\Program Files\EsteriumOpenSourceStage.
+  Impede sobrescrever a pasta, configura ACL restrita para SYSTEM e
+  Administradores, valida os hashes depois da cópia e depois da renomeação.
+
+A fase de preparação nunca executa o instalador EDB, nem cria contas locais,
+serviços, segredos, banco ou configurações de rede. O botão Instalar
+continua bloqueado. Preparar arquivos NÃO equivale a instalar o ERP.
+Uma segunda execução é recusada para proteger os dados já preparados.
+
+O processo elevado usa um comando nativo do mesmo executável
+(--stage-oss-files), reextrai e revalida os recursos incorporados e jamais
+executa um script PowerShell temporário com privilégios de administrador.
+O arquivo técnico não é assinado: essa medida protege a integridade dos
+arquivos comparados aos hashes embutidos, mas NÃO prova a identidade
+do publicador. Verifique também o hash do EXE contra o valor fornecido
+por fonte independente confiável.
+
+Teste disponível em test-unsigned-real-plan-ci.ps1 no GitHub Actions
+Windows hospedado: build real e download/assinatura/hash dos fornecedores,
+plano não destrutivo, construção do EXE integrado, staging real em
+Program Files, conferência de hashes, rejeição de repetição e ausência
+de serviços. O teste NÃO deve ser executado no computador de uma loja.
+
+A próxima fase de instalação de PostgreSQL/Garnet e SQL continua bloqueada,
+pois os coordenadores comerciais existentes exigem assinaturas Authenticode.
+Não é permitido contornar ou simular essas assinaturas. O empacotador
+de fornecedores e as condições de redistribuição da EDB precisam ser
+revisados antes do upload do EXE integrado a Releases públicos.

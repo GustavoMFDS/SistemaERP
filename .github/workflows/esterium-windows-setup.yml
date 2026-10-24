@@ -69,10 +69,13 @@ jobs:
           $approvalFile = Join-Path $dir 'preview-approvals.json'
           '{"manifest":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","pgSigner":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}' | Set-Content -LiteralPath $approvalFile -Encoding UTF8
           $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64/v4.0.30319/csc.exe'
-          & $csc /nologo /target:winexe /platform:x64 /define:ESTERIUM_PREVIEW /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.Web.Extensions.dll ("/out:" + $exe) ("/resource:" + $zip + ",Esterium.Payload") ("/resource:" + $approvalFile + ",Esterium.PreviewApprovals") .\windows-setup\EsteriumSetup.cs
+          & $csc /nologo /target:winexe /platform:x64 /define:ESTERIUM_PREVIEW /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.Web.Extensions.dll ("/out:" + $exe) ("/resource:" + $zip + ",Esterium.Payload") ("/resource:" + $approvalFile + ",Esterium.PreviewApprovals") .\windows-setup\EsteriumSetup.cs .\windows-setup\EsteriumOpenSourceStage.cs
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic resource build failed' }
           $probe = Start-Process -FilePath $exe -ArgumentList '--is-retail-build' -Wait -PassThru
           if ($probe.ExitCode -ne 3) { throw 'Synthetic preview unexpectedly installable' }
+          # Synthetic untrusted ZIP must be refused before touching Program Files.
+          $stage = Start-Process -FilePath $exe -ArgumentList '--stage-oss-files' -Wait -PassThru
+          if ($stage.ExitCode -ne 5) { throw 'Synthetic untrusted payload was accepted for staging' }
           $meta = Start-Process -FilePath $exe -ArgumentList '--has-preview-approvals' -Wait -PassThru
           if ($meta.ExitCode -ne 0) { throw 'Preview approval metadata was not embedded' }
           $manifest = [Reflection.Assembly]::LoadFrom($exe).GetManifestResourceStream('Esterium.PreviewApprovals')
@@ -113,7 +116,7 @@ jobs:
           node-version: '22.13.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Build real ERP and verify vendors in read-only plan
+      - name: Verify real read-only plan and stage protected ERP files (no services)
         shell: powershell
         env:
           ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"

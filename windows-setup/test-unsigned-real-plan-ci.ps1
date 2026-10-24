@@ -74,3 +74,52 @@ $after=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumER
 if ($after.Count -ne 0) {throw 'Read-only plan unexpectedly modified services'}
 Write-Output 'PASS: unsigned real ERP + EDB/Garnet/NSSM plan on disposable Windows.'
 Write-Output 'NOT INSTALLED: no -Apply, no bypass of privileged Authenticode checks.'
+
+# PHASE ONE ONLY: integrated unsigned native EXE may copy verified ERP to a
+# new admin-only Program Files staging directory, but must NOT install vendors,
+# register services, migrate database, or enable fiscal/sales features.
+$stageDir=Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage'
+if (Test-Path -LiteralPath $stageDir) { throw 'Disposable runner already has an ERP open-source stage' }
+$exeDir=Join-Path $dest 'oss-exe'
+$build=@{
+    OutputDir=$exeDir;BundleDir=$bundle;TechnicalPreviewPayload=$true
+    ApprovedManifestSHA256=$manifest
+    PostgresInstaller=$pg;ExpectedPostgresSHA256=$edbHash
+    ExpectedPostgresPublisherThumbprint=$edbCert
+    GarnetPackage=$gn;ExpectedGarnetSHA256=$garnetHash
+    ServiceWrapperExe=$nssm;ExpectedServiceWrapperSHA256=$nssmHash
+}
+& (Join-Path $root 'windows-setup/build-esterium-setup-exe.ps1') @build | Out-Null
+$exe=Join-Path $exeDir 'EsteriumERP-Setup-TECHNICAL-PREVIEW.exe'
+if (-not (Test-Path $exe -PathType Leaf)) {throw 'Missing integrated unsigned EXE'}
+foreach ($case in @(@('--has-payload',0),@('--has-preview-approvals',0),@('--is-retail-build',3))) {
+    $probe=Start-Process -FilePath $exe -ArgumentList $case[0] -Wait -PassThru
+    if ($probe.ExitCode -ne $case[1]) {throw "Unexpected EXE gate for $($case[0])"}
+}
+if ((Get-AuthenticodeSignature -LiteralPath $exe).Status -ne 'NotSigned') {
+    throw 'Technical preview unexpectedly signed'
+}
+$stage=Start-Process -FilePath $exe -ArgumentList '--stage-oss-files' -Wait -PassThru
+if ($stage.ExitCode -ne 0) {throw "Native admin-only ERP stage failed: $($stage.ExitCode)"}
+if ((Get-FileHash -LiteralPath (Join-Path $stageDir 'bundle-manifest.json') -Algorithm SHA256).Hash -cne $manifest) {
+    throw 'Staged ERP manifest differs from approved original'
+}
+& (Join-Path $bundle 'tools/verify-esterium-bundle.ps1') -BundleDir $stageDir | Out-Null
+if (Test-Path -LiteralPath (Join-Path $stageDir 'vendor')) {throw 'Vendor binary incorrectly copied to ERP stage'}
+$acl=Get-Acl -LiteralPath $stageDir
+if (-not $acl.AreAccessRulesProtected) {throw 'Open-source ERP stage inherited unauthorized ACLs'}
+$access=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+if (@($access | Where-Object { $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544') }).Count -ne 0) {
+    throw 'Open-source ERP staging is writable by an unapproved principal'
+}
+if (@($access | Where-Object { $_.IdentityReference.Value -eq 'S-1-5-18' }).Count -eq 0 -or
+    @($access | Where-Object { $_.IdentityReference.Value -eq 'S-1-5-32-544' }).Count -eq 0) {
+    throw 'Native staging missing required SYSTEM/Administrators ACL'
+}
+$repeated=Start-Process -FilePath $exe -ArgumentList '--stage-oss-files' -Wait -PassThru
+if ($repeated.ExitCode -ne 5) {throw 'Reinstallation must be blocked'}
+& (Join-Path $bundle 'tools/verify-esterium-bundle.ps1') -BundleDir $stageDir | Out-Null
+$services=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
+if ($services.Count -ne 0) {throw 'ERP stage unexpectedly registered services'}
+Write-Output 'PASS: unsigned native EXE staged verified ERP into admin-only Program Files.'
+Write-Output 'PASS: second run rejected without altering staging; vendor, SQL and services not installed.'
