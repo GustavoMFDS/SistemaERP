@@ -22,6 +22,8 @@ param(
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [switch]$Apply,
+    # Read-only production signing/manifest gate, before either PLAN delegate.
+    [switch]$VerifyApprovedRelease,
     # Absolutely no executable vendor/ERP installation is allowed with this
     # test-only option. It verifies ONLY the real two-stage PLAN path in CI.
     [switch]$SyntheticPlanCIFixture
@@ -59,7 +61,7 @@ foreach ($helper in @($setup,$finish)) {
         throw 'Instalador incompleto: falta etapa obrigatoria.'
     }
 }
-if ($Apply) {
+if ($Apply -or $VerifyApprovedRelease) {
     if ($ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
         $TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
         throw 'Execucao real exige manifesto e editor aprovados independentemente.'
@@ -70,9 +72,11 @@ if ($Apply) {
         [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Execucao real somente a partir das ferramentas do pacote assinado.'
     }
-    # Authorize this coordinator and both privileged delegates before PLAN
-    # or execution. Each delegate will independently recheck its own helpers.
-    foreach ($path in @($PSCommandPath,$setup,$finish)) {
+    # Authorize the verifier ITSELF, this coordinator and both privileged
+    # delegates before executing any approval code.
+    $verify=Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1'
+    $signedGate=Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'
+    foreach ($path in @($PSCommandPath,$setup,$finish,$verify,$signedGate)) {
         $signature=Get-AuthenticodeSignature -LiteralPath $path
         if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
             $null -eq $signature.SignerCertificate -or
@@ -81,6 +85,10 @@ if ($Apply) {
             throw 'Instalador completo sem assinatura do editor aprovado.'
         }
     }
+    # Verify SHA-256 manifest from the separately trusted approval channel
+    # and EVERY privileged script/executable's Authenticode publisher before
+    # showing an approved PLAN or performing any Windows change.
+    & $signedGate -BundleDir $source -ExpectedManifestSHA256 $ApprovedManifestSHA256 -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
 }
 $setupArgs=@{
     PostgresInstaller=$PostgresInstaller
@@ -111,6 +119,9 @@ $finishArgs=@{
 & $setup @setupArgs | Out-Null
 & $finish @finishArgs | Out-Null
 if (-not $Apply) {
+    if ($VerifyApprovedRelease) {
+        Write-Output 'PASS: release completa com manifesto e assinatura aprovados independentemente.'
+    }
     Write-Output 'PLAN: PostgreSQL 16, Garnet e ERP em um procedimento tecnico unico.'
     Write-Output 'PLAN: dependencias locais, TLS, banco novo e prova sem habilitar venda.'
     Write-Output 'PLAN: nenhuma pasta, senha, banco ou servico foi alterado.'
