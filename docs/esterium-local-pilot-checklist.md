@@ -4,7 +4,7 @@
 
 | Gate | Prova observável | Resultado |
 | --- | --- | --- |
-| 1. Pacote confiável | Origem aprovada, versão registrada, arquivo intacto e `tools/verify-esterium-bundle.ps1` aprovado; pacote ainda **não possui assinatura oficial** | [ ] |
+| 1. Pacote confiável | Origem aprovada, versão registrada, manifesto SHA-256 conferido por canal independente e `install-esterium-local-complete.ps1 -VerifyApprovedRelease` aprovado com **assinatura comercial Authenticode válida**; enquanto não houver editor certificado, **reprovar** | [ ] |
 | 2. Equipamento e serviço | PC Windows x64 compatível, espaço e energia estável; serviço `EsteriumERP` sob `LocalService`, sem Go/Node/Docker necessários para **executar** a UI | [ ] |
 | 3. Banco e segurança | PostgreSQL 16 e Redis compatível provisionados fora do bundle; inventário Windows em loopback, credenciais em arquivos com ACL restrita, TLS/certificados confiáveis, versão SQL correta e `--check-config` / `--check-dependencies` reais aprovados | [ ] |
 | 4. Rede interna | Pelo menos **dois caixas físicos** acessam a mesma loja por HTTPS confiável, sem expor PostgreSQL/Redis na LAN; login e permissões segregados | [ ] |
@@ -31,7 +31,7 @@ Com configurações seguras já provisionadas para a identidade de serviço, exe
 .\esterium-server.exe --check-dependencies
 ```
 
-O segundo comando apenas testa conectividade, esquema e operações atômicas; **não migra o banco**. Para backup externo, usar `tools/check-esterium-backup-integrity.ps1` com os dois diretórios reais; ver `docs/esterium-local-backup-externo.md`. Não colocar senhas em comandos, ZIP, arquivos de log ou capturas.
+O segundo comando apenas testa conectividade, esquema e operações atômicas; **não migra o banco**. O primeiro comando verifica somente a integridade estrutural do manifesto, **não valida o editor comercial**. Antes de aprovar o gate 1, executar o PLAN assinado com `-VerifyApprovedRelease` e hashes/certificado provenientes de canal independente conforme [guia do comando único](esterium-local-one-command-first-install.md); o script nunca instala uma autoridade certificadora, nunca aceita certificados fictícios da CI e não modifica serviços durante o plano. Para backup externo, usar `tools/check-esterium-backup-integrity.ps1` com os dois diretórios reais; ver `docs/esterium-local-backup-externo.md`. Não colocar senhas em comandos, ZIP, arquivos de log ou capturas.
 
 ## Decisão do piloto
 
