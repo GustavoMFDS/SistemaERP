@@ -138,6 +138,14 @@ namespace Esterium.WindowsSetup
                 foreach (var item in inputs) values[item.Key] = item.Value.Text;
                 Log("Conferindo hashes do ERP e fornecedores antes de solicitar UAC...");
                 await Task.Run(() => Prepare(values));
+                // The elevated EXE independently extracts and hashes the embedded bytes.
+                // Do not leave a second 400+ MB extraction resident during UAC.
+                string inspected = staging;
+                await Task.Run(() => CleanTemporaryFiles());
+                if (inspected != null && Directory.Exists(inspected))
+                    throw new InvalidOperationException("Nao foi possivel limpar os arquivos temporarios.");
+                staging = null;
+                ownsStaging = false;
                 var result = MessageBox.Show(
                     "PREPARAR ARQUIVOS, NAO INSTALAR.\n\nSera criada a pasta protegida C:\\Program Files\\EsteriumOpenSourceStage.\n" +
                     "O banco, os servicos, a rede e as vendas NAO serao alterados.\n" +
