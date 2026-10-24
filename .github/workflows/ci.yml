@@ -103,9 +103,21 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
+      - name: Restore optional vendor NSSM ZIP cache (untrusted until SHA-256 verified)
+        id: nssm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
+          key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
       - name: Verify pinned official Garnet Windows TLS ACL and AOF recovery after crash
         shell: pwsh
         run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
+      - name: Save verified NSSM ZIP after successful Windows SCM/TLS/AOF test
+        if: success() && steps.nssm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
+          key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
 
   local-postgres-real-tls-smoke:
     runs-on: windows-2025
