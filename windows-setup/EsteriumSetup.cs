@@ -244,8 +244,11 @@ namespace Esterium.WindowsSetup
                             !seen.Add(name.TrimEnd('/')))
                             throw new InvalidOperationException("ZIP contém entrada insegura.");
                         foreach (string part in parts)
-                            if (part == "" || part == "." || part == "..")
-                                throw new InvalidOperationException("ZIP contém caminho relativo inseguro.");
+                            if (part == "" || part == "." || part == ".." || part.EndsWith(".") ||
+                                part.EndsWith(" ") ||
+                                Regex.IsMatch(part, @"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$", RegexOptions.IgnoreCase) ||
+                                Regex.IsMatch(part, @"[<>?*|\x00-\x1F]"))
+                                throw new InvalidOperationException("ZIP contém nome incompatível ou reservado do Windows.");
                         expanded += entry.Length;
                         if (expanded > 4L * 1024 * 1024 * 1024 || entry.Length > 2L * 1024 * 1024 * 1024)
                             throw new InvalidOperationException("ZIP excede os limites permitidos.");
@@ -319,7 +322,7 @@ namespace Esterium.WindowsSetup
         {
             string[] args = {
                 "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
-                Program.PreviewBuild ? "Bypass" : "AllSigned", "-File",
+                Program.PreviewBuild ? "RemoteSigned" : "AllSigned", "-File",
                 Path.Combine(erp, "tools", "install-esterium-local-complete.ps1"),
                 "-SourceBundleDir", erp, "-AllowedOrigin", Origin(inputs["origin"].Text.Trim()),
                 "-PostgresInstaller", Path.Combine(staging, "vendor", "postgresql.exe"),

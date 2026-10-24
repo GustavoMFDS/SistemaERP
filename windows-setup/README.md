@@ -68,8 +68,9 @@ nao embute nem presume certificado confiavel para o editor ERP.
 
 No computador Windows, a interface permite **Verificar arquivos** e
 **Ver plano**, mas nunca **Instalar**. O plano e executado em PowerShell
-nao elevado, com `-ExecutionPolicy Bypass` APENAS para avaliar scripts
-locais cujos bytes foram conferidos contra o manifesto SHA-256. O
+nao elevado, com `-ExecutionPolicy RemoteSigned` para avaliar scripts
+locais cujos bytes foram conferidos contra o manifesto SHA-256.
+Nao altera a politica permanente do Windows nem remove GPOs empresariais. O
 coordenador nao recebe `-Apply`. A protecao por hash nao garante
 autenticidade do publicador: compare o SHA-256 do EXE com o release
 original no GitHub antes de executar. Nunca instale uma CA raiz ou
