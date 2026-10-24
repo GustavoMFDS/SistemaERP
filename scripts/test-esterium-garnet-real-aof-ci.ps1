@@ -201,10 +201,25 @@ try {
     $server.WaitForExit()
     $server=$null
     $nssmHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
-    # Both addresses belong to the upstream publisher. HTTP 503 is retried
-    # with bounded backoff, never accepted as a reason to skip verification.
+    $cacheRoot=Join-Path $env:GITHUB_WORKSPACE '.vendor-cache'
+    $cacheFile=Join-Path $cacheRoot 'nssm-2.24-101-g897c7ad.zip'
     $downloaded=$false
-    foreach ($nssmUrl in @(
+    # GitHub Actions cache is an UNTRUSTED byte source. Its content must pass
+    # the same independently pinned vendor SHA-256 as direct upstream bytes.
+    if (Test-Path -LiteralPath $cacheFile -PathType Leaf) {
+        $cacheHash=(Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash
+        if ($cacheHash -cne $nssmHash) {
+            throw 'Cached NSSM ZIP differs from approved upstream SHA-256; refuse cache and installation.'
+        }
+        Copy-Item -LiteralPath $cacheFile -Destination $nssmZip -ErrorAction Stop
+        $downloaded=$true
+        Write-Output 'PASS: reused SHA-256 verified official NSSM ZIP from ephemeral CI cache.'
+    }
+    # Publisher-only fallback for a cold cache. The downloaded binary is
+    # cached only AFTER immutable SHA-256 verification and a full successful
+    # live Windows service test; it is never signed on behalf of the vendor.
+    if (-not $downloaded) {
+      foreach ($nssmUrl in @(
         'https://www.nssm.cc/ci/nssm-2.24-101-g897c7ad.zip',
         'https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
     )) {
@@ -221,9 +236,10 @@ try {
             }
         }
         if ($downloaded) { break }
+      }
     }
     if (-not $downloaded) {
-        throw 'Publisher unavailable: NSSM ZIP could not be downloaded; service proof is blocked.'
+        throw 'Publisher unavailable and no verified NSSM cache exists; service proof is blocked.'
     }
     if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmHash) {
         throw 'NSSM package differs from independently approved upstream WinGet SHA-256.'
@@ -305,6 +321,21 @@ try {
         $scm[0].StartMode -cne 'Disabled' -or [int]$scm[0].ProcessId -ne 0 -or
         @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -ne 0) {
         throw 'SCM service shutdown left Garnet running or its local TLS port open.'
+    }
+    if (-not (Test-Path -LiteralPath $cacheFile)) {
+        if (Test-Path -LiteralPath $cacheRoot) {
+            $cacheDir=Get-Item -LiteralPath $cacheRoot -Force -ErrorAction Stop
+            if (($cacheDir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Refuse NSSM CI cache through a symbolic link or junction.'
+            }
+        } else {
+            [IO.Directory]::CreateDirectory($cacheRoot) | Out-Null
+        }
+        # Copy only after the genuine SCM/TLS/ACL/AOF proof passed.
+        Copy-Item -LiteralPath $nssmZip -Destination $cacheFile -ErrorAction Stop
+        if ((Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash -cne $nssmHash) {
+            throw 'NSSM vendor cache bytes changed while preparing GitHub upload.'
+        }
     }
     Write-Output 'PASS: upstream WinGet-pinned NSSM runs authenticated Garnet TLS under NetworkService and stops disabled with no listener.'
     Write-Output 'PASS: pinned Garnet TLS, default user rejection, ACL, atomic Lua and AOF recovery survived hard Windows restart.'
