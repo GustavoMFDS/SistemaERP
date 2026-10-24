@@ -104,6 +104,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Restore optional vendor NSSM ZIP cache (untrusted until SHA-256 verified)
+        id: nssm-cache
         uses: actions/cache/restore@v4
         with:
           path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
@@ -112,7 +113,7 @@ jobs:
         shell: pwsh
         run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
       - name: Save verified NSSM ZIP after successful Windows SCM/TLS/AOF test
-        if: success()
+        if: success() && steps.nssm-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
