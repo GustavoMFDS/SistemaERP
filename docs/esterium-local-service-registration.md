@@ -292,3 +292,24 @@ Provisionar PostgreSQL e backend Redis/Garnet com TLS e ACL, segredo por DPAPI/C
 Depois de preparar os arquivos restritos acima, o pacote passa a incluir `tools/install-esterium-local-dependencies.ps1`. Seu modo padrão é **somente leitura**: verifica procedência dos pacotes EDB/Garnet e do gerenciador Windows NSSM, caminhos novos, ACL, portas e conteúdo exato do arquivo de opções PostgreSQL. `-Apply` administrativo exige **script e verificador assinados por editor independente aprovado**, executa o PostgreSQL 16 em modo silencioso, confere cluster/serviço/escuta local e registra Garnet como serviço NetworkService com **inicialização manual, ainda parado**. Se houver erro, mantém qualquer banco para análise e tenta desfazer apenas o serviço Garnet criado pela própria execução.
 
 **Não é um instalador de um clique concluído:** certificados PostgreSQL, SQL/banco, configurações TLS/SCRAM, usuário de aplicação, migrações e smoke com binários externos reais ainda precisam ser automatizados/validados antes de operar. O teste do CI é sintético; ver o procedimento completo em `docs/esterium-local-unattended-dependencies.md` (repositório de origem).
+
+
+## Verificação do HTTPS em cada caixa Windows
+
+O pacote também inclui `tools/check-esterium-lan-terminal.ps1`.
+Um técnico deve executá-lo em **cada caixa físico**, com URL HTTPS da loja
+e SHA-256 do certificado DER recebido de **fonte aprovada independente**.
+Ele não altera o firewall, não instala certificados e rejeita HTTP, DNS
+público ou certificado não confiável:
+
+```powershell
+.\tools\check-esterium-lan-terminal.ps1 `
+  -ERPUrl 'https://erp.minhaloja.local:8443/' `
+  -ExpectedCertificateSHA256 '<SHA256_CERTIFICADO_APROVADO>'
+```
+
+Substitua os marcadores por dados reais validados pela equipe de TI; a
+aprovação da CI do pacote **não comprova confiança HTTPS nos computadores da
+loja**. Não habilite vendas antes de registrar resultados de ambos os
+terminais, backup restaurado em outro computador e os demais gates de
+aceitação do checklist #151.
