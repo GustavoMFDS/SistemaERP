@@ -68,7 +68,8 @@ $args=@{ SourceBundleDir=$bundle; AllowedOrigin='https://erp.example.org';
     ExpectedPostgresPublisherThumbprint=$edbCert; GarnetPackage=$gn;
     ExpectedGarnetSHA256=$garnetHash; ServiceWrapperExe=$nssm;
     ExpectedServiceWrapperSHA256=$nssmHash; ApprovedManifestSHA256=$manifest }
-& (Join-Path $root 'scripts/install-esterium-local-complete.ps1') @args
+# Invoke the tools embedded in the built ERP bundle, never unbuilt source scripts.
+& (Join-Path $bundle 'tools/install-esterium-local-complete.ps1') @args
 $after=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
 if ($after.Count -ne 0) {throw 'Read-only plan unexpectedly modified services'}
 Write-Output 'PASS: unsigned real ERP + EDB/Garnet/NSSM plan on disposable Windows.'
