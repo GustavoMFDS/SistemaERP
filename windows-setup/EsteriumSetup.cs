@@ -18,10 +18,16 @@ namespace Esterium.WindowsSetup
 {
     static class Program
     {
+#if ESTERIUM_PREVIEW
+        internal static readonly bool PreviewBuild = true;
+#else
+        internal static readonly bool PreviewBuild = false;
+#endif
         [STAThread]
         static void Main(string[] args)
         {
             if (args.Length > 0 && args[0] == "--self-test") { Environment.Exit(0); return; }
+            if (args.Length > 0 && args[0] == "--is-retail-build") { Environment.Exit(PreviewBuild ? 3 : 0); return; }
             if (args.Length > 0 && args[0] == "--has-payload")
             {
                 using (var payload = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.Payload"))
@@ -41,6 +47,7 @@ namespace Esterium.WindowsSetup
         readonly Button check = new Button(), plan = new Button(), install = new Button();
         string staging;
         bool working;
+        bool ownsStaging;
 
         public Installer()
         {
@@ -71,7 +78,10 @@ namespace Esterium.WindowsSetup
             var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
             check.Text = "Verificar arquivos"; check.AutoSize = true;
             plan.Text = "Ver plano"; plan.AutoSize = true;
-            install.Text = "Instalar"; install.AutoSize = true;
+            plan.Enabled = !Program.PreviewBuild;
+            install.Text = Program.PreviewBuild ? "Instalação bloqueada (prévia)" : "Instalar";
+            install.AutoSize = true;
+            install.Enabled = !Program.PreviewBuild;
             actions.Controls.Add(check); actions.Controls.Add(plan); actions.Controls.Add(install);
             table.Controls.Add(actions, 0, 9); table.SetColumnSpan(actions, 2);
             var warning = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
@@ -86,7 +96,9 @@ namespace Esterium.WindowsSetup
             check.Click += async (s, e) => await Run(false, false);
             plan.Click += async (s, e) => await Run(true, false);
             install.Click += async (s, e) => await Run(true, true);
-            Log("Um EXE sem pacotes anexados permite apenas testes do iniciador.");
+            Log("Prévia técnica: nenhum serviço será instalado sem assinatura comercial e liberação.");
+            FormClosing += (s, e) => { if (working) { e.Cancel = true; Log("Aguarde a conclusão da operação em andamento."); } };
+            FormClosed += (s, e) => CleanTemporaryFiles();
         }
 
         void Add(TableLayoutPanel t, int row, string label, string key, string value)
@@ -180,13 +192,11 @@ namespace Esterium.WindowsSetup
             using (var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.Payload"))
             {
                 if (resource == null)
-                {
-                    string sidecar = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "package");
-                    OrdinaryTree(sidecar);
-                    return sidecar;
-                }
+                    throw new InvalidOperationException("Este EXE não contém o pacote completo. Nenhuma instalação é permitida.");
                 string root = Path.Combine(Path.GetTempPath(), "EsteriumSetup-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(root);
+                try
+                {
                 using (var zip = new ZipArchive(resource, ZipArchiveMode.Read))
                 {
                     if (zip.Entries.Count < 4 || zip.Entries.Count > 15000)
@@ -217,11 +227,18 @@ namespace Esterium.WindowsSetup
                     }
                 }
                 return root;
+                }
+                catch
+                {
+                    try { OrdinaryTree(root); Directory.Delete(root, true); }
+                    catch { /* Leave unexpected paths for manual review. */ }
+                    throw;
+                }
             }
         }
         string Prepare(Dictionary<string,string> values)
         {
-            if (staging == null) staging = Unpack();
+            if (staging == null) { staging = Unpack(); ownsStaging = true; }
             string erp = Path.Combine(staging, "erp");
             Bundle(erp, Hex("manifesto", values["manifest"], 64));
             string[] names = { "postgresql.exe", "garnet.zip", "nssm.exe" };
@@ -233,8 +250,9 @@ namespace Esterium.WindowsSetup
                     Digest(file) != Hex(names[i], values[keys[i]], 64))
                     throw new InvalidOperationException("Fornecedor ausente ou SHA-256 divergente: " + names[i]);
             }
-            Hex("editor", values["editor"], 40);
-            Hex("certificado PostgreSQL", values["pgSigner"], 40);
+            if (!Program.PreviewBuild) Hex("editor", values["editor"], 40);
+            // Preview inspects only pinned file integrity. Retail mode needs publisher approval.
+            if (!Program.PreviewBuild) Hex("certificado PostgreSQL", values["pgSigner"], 40);
             Origin(values["origin"].Trim());
             return erp;
         }
@@ -289,9 +307,24 @@ namespace Esterium.WindowsSetup
                 RedirectStandardOutput = !apply, RedirectStandardError = !apply, CreateNoWindow = !apply
             };
         }
+        void CleanTemporaryFiles()
+        {
+            if (!ownsStaging || staging == null) return;
+            string prefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) +
+                            Path.DirectorySeparatorChar + "EsteriumSetup-";
+            try
+            {
+                string path = Path.GetFullPath(staging);
+                if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return;
+                OrdinaryTree(path);
+                Directory.Delete(path, true);
+            }
+            catch { /* Never delete an unexpected/reparse directory. */ }
+        }
         async Task Run(bool invoke, bool apply)
         {
             if (working) return;
+            if (invoke && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica serve apenas para inspecionar integridade."); return; }
             working = true; check.Enabled = plan.Enabled = install.Enabled = false;
             try
             {
@@ -329,7 +362,7 @@ namespace Esterium.WindowsSetup
                     "FALHA (código " + exit + "). Não repita uma instalação parcial sem diagnóstico.");
             }
             catch (Exception error) { Log("BLOQUEADO: " + error.Message); }
-            finally { working = false; check.Enabled = plan.Enabled = install.Enabled = true; }
+            finally { working = false; check.Enabled = true; plan.Enabled = install.Enabled = !Program.PreviewBuild; }
         }
     }
 }

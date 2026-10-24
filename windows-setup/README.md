@@ -18,11 +18,22 @@ Framework. No computador da loja nao exige Go, Docker nem Node.
 
     powershell.exe -NoProfile -File .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir C:\releases\setup-preview-novo
 
-5. Gerar o EXE UNICO com o bundle assinado e os tres fornecedores:
+5. Para um EXE de PREVIA TECNICA com os binarios reais embutidos, sem
+   comprar assinatura, usar -TechnicalPreviewPayload e os hashes de fontes
+   confiaveis; o botao Instalar fica bloqueado mesmo se o arquivo for
+   assinado posteriormente. Exige pacote ERP com manifesto valido, vendor
+   PostgreSQL realmente assinado e hashes confiaveis dos tres fornecedores.
+   O arquivo gerado recebe o nome EsteriumERP-Setup-TECHNICAL-PREVIEW.exe.
+   Para a previa, reutilize os parametros do exemplo abaixo, mas SUBSTITUA
+   -TrustedPublisherThumbprint EDITOR_APROVADO por -TechnicalPreviewPayload.
+   A previa NUNCA declara um editor comercial: usa o manifesto tecnico real
+   e os hashes independentes EDB, Garnet e NSSM. Nao permite instalacao.
+
+6. Gerar o EXE UNICO comercial com o bundle assinado e os tres fornecedores:
 
     powershell.exe -NoProfile -File .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir C:\releases\setup-completo-novo -BundleDir C:\releases\erp-assinado -ApprovedManifestSHA256 SHA256_APROVADO -TrustedPublisherThumbprint EDITOR_APROVADO -PostgresInstaller C:\vendors\postgresql.exe -ExpectedPostgresSHA256 SHA256_PG -ExpectedPostgresPublisherThumbprint EDITOR_PG -GarnetPackage C:\vendors\garnet.zip -ExpectedGarnetSHA256 SHA256_GARNET -ServiceWrapperExe C:\vendors\nssm.exe -ExpectedServiceWrapperSHA256 SHA256_NSSM
 
-6. Assinar o EXE FINAL com o certificado Authenticode comercial do editor,
+7. Assinar o EXE FINAL com o certificado Authenticode comercial do editor,
    validar a assinatura e SHA-256 e realizar piloto em Windows limpo.
 
 ## Comportamento e limites de seguranca

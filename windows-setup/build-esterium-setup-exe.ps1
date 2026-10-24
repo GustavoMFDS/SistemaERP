@@ -14,7 +14,9 @@ param(
     [string]$GarnetPackage='',
     [string]$ExpectedGarnetSHA256='',
     [string]$ServiceWrapperExe='',
-    [string]$ExpectedServiceWrapperSHA256=''
+    [string]$ExpectedServiceWrapperSHA256='',
+    # Test artifact only: embeds real unsigned ERP without enabling Apply.
+    [switch]$TechnicalPreviewPayload
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -26,9 +28,19 @@ if (-not [IO.Path]::IsPathRooted($OutputDir) -or $OutputDir.StartsWith('\\') -or
     throw 'OutputDir must be a new absolute local directory.'
 }
 $inputs=@($PostgresInstaller,$GarnetPackage,$ServiceWrapperExe,$ApprovedManifestSHA256,
-    $TrustedPublisherThumbprint,$ExpectedPostgresSHA256,$ExpectedPostgresPublisherThumbprint,
+    $ExpectedPostgresSHA256,$ExpectedPostgresPublisherThumbprint,
     $ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)
 $full=-not [string]::IsNullOrWhiteSpace($BundleDir)
+if ($TechnicalPreviewPayload -and -not $full) { throw 'Preview payload requires BundleDir.' }
+if ($TechnicalPreviewPayload -and $TrustedPublisherThumbprint -ne '') {
+    throw 'Technical preview must not claim a commercial publisher approval.'
+}
+if (-not $TechnicalPreviewPayload -and $full -and [string]::IsNullOrWhiteSpace($TrustedPublisherThumbprint)) {
+    throw 'Commercial bundle requires independently approved signer.'
+}
+if (-not $full -and $TrustedPublisherThumbprint -ne '') {
+    throw 'Publisher input requires commercial bundle.'
+}
 if (-not $full -and @($inputs | Where-Object { $_ -ne '' }).Count -gt 0) {
     throw 'Vendor inputs require an ERP bundle.'
 }
@@ -42,7 +54,13 @@ try {
         $bundle=(Resolve-Path -LiteralPath $BundleDir).Path
         $verify=@{BundleDir=$bundle;ExpectedManifestSHA256=$ApprovedManifestSHA256;
             ExpectedPublisherThumbprint=$TrustedPublisherThumbprint}
-        & (Join-Path $root 'scripts/check-esterium-signed-release.ps1') @verify | Out-Null
+        if ($TechnicalPreviewPayload) {
+            & (Join-Path $root 'scripts/verify-esterium-bundle.ps1') -BundleDir $bundle | Out-Null
+            if ((Get-FileHash -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Algorithm SHA256).Hash -cne
+                    $ApprovedManifestSHA256.ToUpperInvariant()) { throw 'ERP preview manifest SHA-256 mismatch.' }
+        } else {
+            & (Join-Path $root 'scripts/check-esterium-signed-release.ps1') @verify | Out-Null
+        }
         $vendor=@{PostgresInstaller=$PostgresInstaller;ExpectedPostgresSHA256=$ExpectedPostgresSHA256;
             ExpectedPostgresPublisherThumbprint=$ExpectedPostgresPublisherThumbprint;
             GarnetPackage=$GarnetPackage;ExpectedGarnetSHA256=$ExpectedGarnetSHA256}
@@ -58,7 +76,13 @@ try {
         Copy-Item -LiteralPath $GarnetPackage -Destination (Join-Path $stage 'vendor/garnet.zip') -ErrorAction Stop
         Copy-Item -LiteralPath $ServiceWrapperExe -Destination (Join-Path $stage 'vendor/nssm.exe') -ErrorAction Stop
         $verify.BundleDir=Join-Path $stage 'erp'
-        & (Join-Path $root 'scripts/check-esterium-signed-release.ps1') @verify | Out-Null
+        if ($TechnicalPreviewPayload) {
+            & (Join-Path $root 'scripts/verify-esterium-bundle.ps1') -BundleDir $verify.BundleDir | Out-Null
+            if ((Get-FileHash -LiteralPath (Join-Path $verify.BundleDir 'bundle-manifest.json') -Algorithm SHA256).Hash -cne
+                    $ApprovedManifestSHA256.ToUpperInvariant()) { throw 'Staged ERP preview manifest SHA-256 mismatch.' }
+        } else {
+            & (Join-Path $root 'scripts/check-esterium-signed-release.ps1') @verify | Out-Null
+        }
         foreach ($item in @(@('postgresql.exe',$ExpectedPostgresSHA256),
                             @('garnet.zip',$ExpectedGarnetSHA256),
                             @('nssm.exe',$ExpectedServiceWrapperSHA256))) {
@@ -70,19 +94,23 @@ try {
         [IO.Compression.ZipFile]::CreateFromDirectory($stage,$archive,[IO.Compression.CompressionLevel]::Optimal,$false)
     }
     New-Item -ItemType Directory -Path $OutputDir -ErrorAction Stop | Out-Null
-    $exe=Join-Path $OutputDir 'EsteriumERP-Setup.exe'
+    $exeName=if ($TechnicalPreviewPayload) { 'EsteriumERP-Setup-TECHNICAL-PREVIEW.exe' } else { 'EsteriumERP-Setup.exe' }
+    $exe=Join-Path $OutputDir $exeName
     $arguments=@('/nologo','/target:winexe','/platform:x64','/optimize+',
         '/r:System.Windows.Forms.dll','/r:System.Drawing.dll',
         '/r:System.IO.Compression.dll','/r:System.Web.Extensions.dll',('/out:'+$exe))
     if ($full) { $arguments+=('/resource:'+$archive+',Esterium.Payload') }
+    if ($TechnicalPreviewPayload -or -not $full) { $arguments+='/define:ESTERIUM_PREVIEW' }
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumSetup.cs')
     & $csc @arguments
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw 'Windows EXE compilation failed.' }
     $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
-    "SHA256 $hash  EsteriumERP-Setup.exe" | Set-Content -LiteralPath (Join-Path $OutputDir 'EsteriumERP-Setup.sha256.txt') -Encoding Ascii
+    "SHA256 $hash  $exeName" | Set-Content -LiteralPath (Join-Path $OutputDir 'EsteriumERP-Setup.sha256.txt') -Encoding Ascii
     Write-Output "PASS: $exe"
     Write-Output "SHA256: $hash"
-    if ($full) {
+    if ($TechnicalPreviewPayload) {
+        Write-Output 'TECHNICAL PREVIEW: real ERP and vendors are embedded, but install is permanently disabled.'
+    } elseif ($full) {
         Write-Output 'BUNDLE: ERP, PostgreSQL, Garnet and NSSM embedded in one executable.'
         Write-Output 'NOT RELEASED: Authenticode-sign the FINAL EXE and validate clean-Windows physical pilot.'
     } else {
