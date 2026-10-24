@@ -56,3 +56,43 @@ assinado NAO passa pelo empacotador de distribuicao.
 Ainda pendente antes de vender: assinatura do editor, fornecedores aprovados
 reais, teste em Windows novo, HTTPS dos terminais, backup restaurado e
 verificacao fisica de reboot e recuperacao.
+
+
+## Distribuicao MIT sem certificado pago (plano seguro)
+
+A MIT do repositorio rege o codigo Esterium; as licencas dos fornecedores
+permanecem independentes. O bootstrapper pode ser compilado sem assinatura
+paga. O modo `-TechnicalPreviewPayload` EMBUTE os arquivos reais, hashes
+SHA-256 da versao e thumbprint do EDB como metadados de conferencia;
+nao embute nem presume certificado confiavel para o editor ERP.
+
+No computador Windows, a interface permite **Verificar arquivos** e
+**Ver plano**, mas nunca **Instalar**. O plano e executado em PowerShell
+nao elevado, com `-ExecutionPolicy Bypass` APENAS para avaliar scripts
+locais cujos bytes foram conferidos contra o manifesto SHA-256. O
+coordenador nao recebe `-Apply`. A protecao por hash nao garante
+autenticidade do publicador: compare o SHA-256 do EXE com o release
+original no GitHub antes de executar. Nunca instale uma CA raiz ou
+altere politica global de PowerShell para testar o pacote.
+
+O plano pode falhar legitimamente em maquina ja usada: as verificacoes
+interrompem se pastas, portas, contas e servicos indicarem instalacao
+anterior. Nao apague os dados anteriores nem tente contornar essa protecao.
+O campo de HTTPS deve receber a origem real da loja, previamente definida.
+
+O caminho real para INSTALAR sem certificado comercial ainda precisa de
+uma cadeia de verificacao de integridade antes de executar cada delegado
+privilegiado, testes de ponta a ponta em Windows descartavel e prova de
+recuperacao/backup. Os scripts atuais de `-Apply` da release comercial
+exigem assinatura valida dos proprios scripts e continuam intactos.
+Esta etapa nao pretende remover ou contornar essa exigencia.
+
+Garnet (MIT), NSSM (dominio publico), PostgreSQL e o empacotamento EDB
+tem seus proprios termos. Revisar os avisos e a autorizacao de
+redistribuicao de binarios de terceiros, em especial o EXE do EDB,
+antes de fazer upload de pacote offline grande nos Releases. O
+PostgreSQL.org recomenda ZIP de binarios proprio para incorporacao em
+outros instaladores.
+
+A previa publica pequena em GitHub Releases nao tem componentes
+embutidos e continua sem instalacao nem plano funcional.

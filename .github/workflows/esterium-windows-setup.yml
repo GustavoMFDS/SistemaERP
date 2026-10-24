@@ -31,6 +31,8 @@ jobs:
           if ($test.ExitCode -ne 0) { throw 'Bootstrap self-test failed' }
           $payload = Start-Process -FilePath $exe -ArgumentList '--has-payload' -Wait -PassThru
           if ($payload.ExitCode -ne 2) { throw 'Unsigned preview must NOT have embedded payload' }
+          $pins = Start-Process -FilePath $exe -ArgumentList '--has-preview-approvals' -Wait -PassThru
+          if ($pins.ExitCode -ne 2) { throw 'Empty preview must not advertise approved vendor digests' }
           $retail = Start-Process -FilePath $exe -ArgumentList '--is-retail-build' -Wait -PassThru
           if ($retail.ExitCode -ne 3) { throw 'Unsigned preview must permanently block installation' }
           if ((Get-AuthenticodeSignature $exe).Status -eq 'Valid') {
@@ -64,11 +66,18 @@ jobs:
           $zip = Join-Path $dir 'payload.zip'
           [IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $dir 'payload'),$zip)
           $exe = Join-Path $dir 'test-preview.exe'
+          $approvalFile = Join-Path $dir 'preview-approvals.json'
+          '{"manifest":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","pgSigner":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}' | Set-Content -LiteralPath $approvalFile -Encoding UTF8
           $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64/v4.0.30319/csc.exe'
-          & $csc /nologo /target:winexe /platform:x64 /define:ESTERIUM_PREVIEW /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.Web.Extensions.dll ("/out:" + $exe) ("/resource:" + $zip + ",Esterium.Payload") .\windows-setup\EsteriumSetup.cs
+          & $csc /nologo /target:winexe /platform:x64 /define:ESTERIUM_PREVIEW /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.Web.Extensions.dll ("/out:" + $exe) ("/resource:" + $zip + ",Esterium.Payload") ("/resource:" + $approvalFile + ",Esterium.PreviewApprovals") .\windows-setup\EsteriumSetup.cs
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic resource build failed' }
           $probe = Start-Process -FilePath $exe -ArgumentList '--is-retail-build' -Wait -PassThru
           if ($probe.ExitCode -ne 3) { throw 'Synthetic preview unexpectedly installable' }
+          $meta = Start-Process -FilePath $exe -ArgumentList '--has-preview-approvals' -Wait -PassThru
+          if ($meta.ExitCode -ne 0) { throw 'Preview approval metadata was not embedded' }
+          $manifest = [Reflection.Assembly]::LoadFrom($exe).GetManifestResourceStream('Esterium.PreviewApprovals')
+          if ($null -eq $manifest) { throw 'Preview approval resource missing' }
+          $manifest.Dispose()
           $checks = @{Exe=$exe;
             ExpectedManifestSHA256=(Get-FileHash (Join-Path $dir 'payload\erp\bundle-manifest.json') -Algorithm SHA256).Hash;
             ExpectedPostgresSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\postgresql.exe') -Algorithm SHA256).Hash;
@@ -86,3 +95,30 @@ jobs:
           name: Esterium-Windows-Setup-UNSIGNED-TECHNICAL-PREVIEW
           path: release-preview/*
           retention-days: 7
+
+  unsigned-real-readonly-plan:
+    # Explicit/manual CI only: real vendor downloads and full Windows ERP build.
+    # No Apply, no service creation, no database or customer data.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build real ERP and verify vendors in read-only plan
+        shell: powershell
+        env:
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm install --global npm@11.6.1
+          if ($LASTEXITCODE -ne 0) { throw 'npm toolchain unavailable' }
+          & .\windows-setup\test-unsigned-real-plan-ci.ps1

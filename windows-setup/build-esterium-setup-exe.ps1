@@ -49,6 +49,7 @@ if ($full -and @($inputs | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Co
 }
 $stage=''
 $archive=''
+$previewApprovals=''
 try {
     if ($full) {
         $bundle=(Resolve-Path -LiteralPath $BundleDir).Path
@@ -100,6 +101,17 @@ try {
         '/r:System.Windows.Forms.dll','/r:System.Drawing.dll',
         '/r:System.IO.Compression.dll','/r:System.Web.Extensions.dll',('/out:'+$exe))
     if ($full) { $arguments+=('/resource:'+$archive+',Esterium.Payload') }
+    if ($TechnicalPreviewPayload) {
+        $previewApprovals=Join-Path ([IO.Path]::GetTempPath()) ('esterium-approvals-'+[Guid]::NewGuid().ToString('N')+'.json')
+        @{
+            manifest=$ApprovedManifestSHA256.ToUpperInvariant()
+            postgres=$ExpectedPostgresSHA256.ToUpperInvariant()
+            pgSigner=$ExpectedPostgresPublisherThumbprint.ToUpperInvariant()
+            garnet=$ExpectedGarnetSHA256.ToUpperInvariant()
+            nssm=$ExpectedServiceWrapperSHA256.ToUpperInvariant()
+        } | ConvertTo-Json -Compress | Set-Content -LiteralPath $previewApprovals -Encoding UTF8
+        $arguments+=('/resource:'+$previewApprovals+',Esterium.PreviewApprovals')
+    }
     if ($TechnicalPreviewPayload -or -not $full) { $arguments+='/define:ESTERIUM_PREVIEW' }
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumSetup.cs')
     & $csc @arguments
@@ -109,7 +121,7 @@ try {
     Write-Output "PASS: $exe"
     Write-Output "SHA256: $hash"
     if ($TechnicalPreviewPayload) {
-        Write-Output 'TECHNICAL PREVIEW: real ERP and vendors are embedded, but install is permanently disabled.'
+        Write-Output 'TECHNICAL PREVIEW: ERP and vendors embedded; one-click verified PLAN available; Apply permanently disabled.'
     } elseif ($full) {
         Write-Output 'BUNDLE: ERP, PostgreSQL, Garnet and NSSM embedded in one executable.'
         Write-Output 'NOT RELEASED: Authenticode-sign the FINAL EXE and validate clean-Windows physical pilot.'
@@ -122,5 +134,8 @@ try {
     }
     if ($archive -and (Test-Path -LiteralPath $archive)) {
         Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+    }
+    if ($previewApprovals -and (Test-Path -LiteralPath $previewApprovals)) {
+        Remove-Item -LiteralPath $previewApprovals -Force -ErrorAction SilentlyContinue
     }
 }

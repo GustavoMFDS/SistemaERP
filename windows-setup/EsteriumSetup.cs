@@ -23,11 +23,21 @@ namespace Esterium.WindowsSetup
 #else
         internal static readonly bool PreviewBuild = false;
 #endif
+        internal static bool HasPayload
+        {
+            get { using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.Payload")) return s != null; }
+        }
         [STAThread]
         static void Main(string[] args)
         {
             if (args.Length > 0 && args[0] == "--self-test") { Environment.Exit(0); return; }
             if (args.Length > 0 && args[0] == "--is-retail-build") { Environment.Exit(PreviewBuild ? 3 : 0); return; }
+            if (args.Length > 0 && args[0] == "--has-preview-approvals")
+            {
+                using (var meta = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.PreviewApprovals"))
+                    Environment.Exit(meta == null ? 2 : 0);
+                return;
+            }
             if (args.Length > 0 && args[0] == "--has-payload")
             {
                 using (var payload = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.Payload"))
@@ -65,7 +75,10 @@ namespace Esterium.WindowsSetup
                 Font = new Font("Segoe UI", 16, FontStyle.Bold) };
             table.Controls.Add(title, 0, 0); table.SetColumnSpan(title, 2);
             var detail = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
-                Text = "Instalação técnica protegida. Informe aprovações obtidas fora do próprio pacote. " +
+                Text = Program.PreviewBuild ?
+                       "CÓDIGO ABERTO / SEM ASSINATURA: hashes de referência carregados do build. " +
+                       "Confira o SHA-256 do EXE por canal independente. Só verificar e planejar; NUNCA instalar." :
+                       "Instalação técnica protegida. Informe aprovações obtidas fora do próprio pacote. " +
                        "O ERP só poderá entrar em operação após testes e homologação." };
             table.Controls.Add(detail, 0, 1); table.SetColumnSpan(detail, 2);
             Add(table, 2, "Endereço HTTPS autorizado", "origin", "https://erp.exemplo.com");
@@ -75,10 +88,11 @@ namespace Esterium.WindowsSetup
             Add(table, 6, "Certificado do PostgreSQL", "pgSigner", "");
             Add(table, 7, "SHA-256 Garnet", "garnet", "");
             Add(table, 8, "SHA-256 NSSM", "nssm", "");
+            LoadPreviewApprovals();
             var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
             check.Text = "Verificar arquivos"; check.AutoSize = true;
             plan.Text = "Ver plano"; plan.AutoSize = true;
-            plan.Enabled = !Program.PreviewBuild;
+            plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
             install.Text = Program.PreviewBuild ? "Instalação bloqueada (prévia)" : "Instalar";
             install.AutoSize = true;
             install.Enabled = !Program.PreviewBuild;
@@ -96,11 +110,28 @@ namespace Esterium.WindowsSetup
             check.Click += async (s, e) => await Run(false, false);
             plan.Click += async (s, e) => await Run(true, false);
             install.Click += async (s, e) => await Run(true, true);
-            Log("Prévia técnica: nenhum serviço será instalado sem assinatura comercial e liberação.");
+            Log(Program.PreviewBuild ?
+                "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado." :
+                "Edição assinada: aplique somente após aprovação independente e homologação.");
             FormClosing += (s, e) => { if (working) { e.Cancel = true; Log("Aguarde a conclusão da operação em andamento."); } };
             FormClosed += (s, e) => CleanTemporaryFiles();
         }
 
+        void LoadPreviewApprovals()
+        {
+            if (!Program.PreviewBuild) return;
+            using (var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.PreviewApprovals"))
+            {
+                if (resource == null) return;
+                using (var reader = new StreamReader(resource, Encoding.UTF8))
+                {
+                    var approvals = new JavaScriptSerializer().Deserialize<Dictionary<string,string>>(reader.ReadToEnd());
+                    foreach (var entry in approvals)
+                        if (inputs.ContainsKey(entry.Key) && entry.Key != "editor" && entry.Key != "origin")
+                            inputs[entry.Key].Text = entry.Value;
+                }
+            }
+        }
         void Add(TableLayoutPanel t, int row, string label, string key, string value)
         {
             t.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 6, 2, 4) }, 0, row);
@@ -251,8 +282,8 @@ namespace Esterium.WindowsSetup
                     throw new InvalidOperationException("Fornecedor ausente ou SHA-256 divergente: " + names[i]);
             }
             if (!Program.PreviewBuild) Hex("editor", values["editor"], 40);
-            // Preview inspects only pinned file integrity. Retail mode needs publisher approval.
-            if (!Program.PreviewBuild) Hex("certificado PostgreSQL", values["pgSigner"], 40);
+            // PostgreSQL is always signed by its real upstream publisher, even in unsigned preview.
+            Hex("certificado PostgreSQL", values["pgSigner"], 40);
             Origin(values["origin"].Trim());
             return erp;
         }
@@ -287,7 +318,8 @@ namespace Esterium.WindowsSetup
         ProcessStartInfo Build(string erp, bool apply)
         {
             string[] args = {
-                "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "AllSigned", "-File",
+                "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+                Program.PreviewBuild ? "Bypass" : "AllSigned", "-File",
                 Path.Combine(erp, "tools", "install-esterium-local-complete.ps1"),
                 "-SourceBundleDir", erp, "-AllowedOrigin", Origin(inputs["origin"].Text.Trim()),
                 "-PostgresInstaller", Path.Combine(staging, "vendor", "postgresql.exe"),
@@ -324,7 +356,8 @@ namespace Esterium.WindowsSetup
         async Task Run(bool invoke, bool apply)
         {
             if (working) return;
-            if (invoke && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica serve apenas para inspecionar integridade."); return; }
+            if (apply && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica nunca executa instalação."); return; }
+            if (invoke && Program.PreviewBuild && !Program.HasPayload) { Log("BLOQUEADO: prévia sem payload."); return; }
             working = true; check.Enabled = plan.Enabled = install.Enabled = false;
             try
             {
@@ -341,7 +374,8 @@ namespace Esterium.WindowsSetup
                     "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
                 ProcessStartInfo psi = Build(erp, apply);
                 Log(apply ? "Solicitando UAC. Serviços continuarão desativados para vendas." :
-                            "Verificando plano de instalação com PowerShell AllSigned.");
+                    (Program.PreviewBuild ? "Executando APENAS o plano técnico não elevado, sem Apply." :
+                     "Verificando plano de instalação com PowerShell AllSigned."));
                 string message = "";
                 int exit = await Task.Run(() => {
                     using (var p = Process.Start(psi))
@@ -362,7 +396,8 @@ namespace Esterium.WindowsSetup
                     "FALHA (código " + exit + "). Não repita uma instalação parcial sem diagnóstico.");
             }
             catch (Exception error) { Log("BLOQUEADO: " + error.Message); }
-            finally { working = false; check.Enabled = true; plan.Enabled = install.Enabled = !Program.PreviewBuild; }
+            finally { working = false; check.Enabled = true; plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
+                      install.Enabled = !Program.PreviewBuild; }
         }
     }
 }
