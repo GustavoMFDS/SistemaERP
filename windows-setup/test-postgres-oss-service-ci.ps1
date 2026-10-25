@@ -109,6 +109,43 @@ try {
         if ($LASTEXITCODE -ne 0 -or ($sql -join '').Trim() -cne '1') {
             throw 'Authenticated local SQL query failed in disposable PostgreSQL service.'
         }
+        # Separate throwaway database with a tiny deterministic record.
+        # Exercise real pg_dump -Fc and pg_restore against this live local
+        # PostgreSQL service; never read or touch an ERP/customer database.
+        $probeDb='esterium_ci_recovery'
+        $psql=Join-Path $pgDir 'bin\psql.exe'
+        $dump=Join-Path $pgDir 'bin\pg_dump.exe'
+        $restore=Join-Path $pgDir 'bin\pg_restore.exe'
+        $backup=Join-Path (Split-Path -Parent $data) 'disposable-recovery.dump'
+        if (-not (Test-Path -LiteralPath $dump -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $restore -PathType Leaf) -or
+            (Test-Path -LiteralPath $backup)) {
+            throw 'Backup tooling missing or previous CI backup unexpectedly exists.'
+        }
+        $create=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('CREATE DATABASE '+$probeDb) 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'CI-only PostgreSQL recovery database could not be created.'}
+        $createTable=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d $probeDb -c 'CREATE TABLE ci_recovery_probe (id integer primary key, note text not null)' 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'CI-only PostgreSQL recovery table creation failed.'}
+        $insert=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d $probeDb -c "INSERT INTO ci_recovery_probe(id,note) VALUES (42,'esterium_ci_marker')" 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'CI-only PostgreSQL recovery fixture insert failed.'}
+        $dumpResult=@(& $dump -w -h 127.0.0.1 -p $port -U postgres -d $probeDb -Fc -f $backup 2>&1)
+        if ($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $backup -PathType Leaf) -or
+            (Get-Item -LiteralPath $backup).Length -lt 128) {
+            throw 'A real pg_dump -Fc backup failed in disposable Windows CI.'
+        }
+        $drop=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('DROP DATABASE '+$probeDb) 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Could not drop only the ephemeral recovery test database.'}
+        $recreate=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('CREATE DATABASE '+$probeDb) 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Could not recreate disposable recovery database.'}
+        $restoreResult=@(& $restore -w -h 127.0.0.1 -p $port -U postgres -d $probeDb --exit-on-error $backup 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Real pg_restore of ephemeral PostgreSQL backup failed.'}
+        $restored=@(& $psql -X -w -q -A -t -h 127.0.0.1 -p $port -U postgres -d $probeDb -c 'SELECT note FROM ci_recovery_probe WHERE id=42' 2>&1)
+        if ($LASTEXITCODE -ne 0 -or ($restored -join '').Trim() -cne 'esterium_ci_marker') {
+            throw 'Restored database contents differ from original recovery fixture.'
+        }
+        $cleanupDatabase=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('DROP DATABASE '+$probeDb) 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Test recovery database was not cleaned up.'}
+        Write-Output 'PASS: pg_dump custom-format backup, drop, pg_restore and verified SQL data on disposable Windows.'
         $env:PGPASSWORD=$oldPgPassword
         Write-Output 'PASS: isolated PostgreSQL service started on 127.0.0.1 and answered authenticated SQL SELECT 1.'
         Stop-Service -Name $name -ErrorAction Stop
