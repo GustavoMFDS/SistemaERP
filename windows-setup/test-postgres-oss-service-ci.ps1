@@ -57,9 +57,7 @@ if ($ExerciseLoopback) {
     if ($port -lt 1024) {throw 'Unexpected PostgreSQL test port.'}
     $conf=Join-Path $data 'postgresql.conf'
     if (-not (Test-Path -LiteralPath $conf -PathType Leaf)) {throw 'Missing PostgreSQL config.'}
-    Add-Content -LiteralPath $conf -Value (""
-        +"listen_addresses = '127.0.0.1'"+[Environment]::NewLine
-        +"port = "+$port+[Environment]::NewLine) -Encoding Ascii
+    Add-Content -LiteralPath $conf -Value ("listen_addresses = '127.0.0.1'"+[Environment]::NewLine+"port = "+$port+[Environment]::NewLine) -Encoding Ascii
 }
 try {
     New-Service -Name $name -BinaryPathName $command -Credential $ServiceCredential -StartupType Disabled -DisplayName ('Esterium disposable PG16 '+$name) -ErrorAction Stop | Out-Null
