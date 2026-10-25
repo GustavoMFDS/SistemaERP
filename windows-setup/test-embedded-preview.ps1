@@ -22,6 +22,23 @@ if([IO.Path]::GetExtension($path).ToLowerInvariant() -ne '.exe') { throw 'Expect
 $assembly=[Reflection.Assembly]::LoadFrom($path)
 $resource=$assembly.GetManifestResourceStream('Esterium.Payload')
 if($null -eq $resource){ throw 'Executable has no embedded payload.' }
+$pgName='vendor/postgresql.exe'
+$metaStream=$assembly.GetManifestResourceStream('Esterium.PreviewApprovals')
+if($null -ne $metaStream){
+    $reader=[IO.StreamReader]::new($metaStream)
+    try{$metadata=$reader.ReadToEnd()|ConvertFrom-Json}finally{$reader.Dispose()}
+    if($metadata.pgFormat -eq 'zip'){
+        $pgName='vendor/postgresql-binaries.zip'
+        $official='43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'
+        if($ExpectedPostgresSHA256.ToUpperInvariant() -cne $official -or
+           [string]$metadata.postgres -cne $official -or
+           -not [string]::IsNullOrEmpty([string]$metadata.pgSigner)){
+            throw 'PostgreSQL binary ZIP preview does not match pinned EDB version.'
+        }
+    } elseif([string]$metadata.pgFormat -notin @('','edb')){
+        throw 'Unknown PostgreSQL preview package format.'
+    }
+}
 Add-Type -AssemblyName System.IO.Compression
 $zip=$null
 try {
@@ -45,7 +62,7 @@ try {
     }
     foreach($pair in @(
         @{name='erp/bundle-manifest.json';hash=$ExpectedManifestSHA256},
-        @{name='vendor/postgresql.exe';hash=$ExpectedPostgresSHA256},
+        @{name=$pgName;hash=$ExpectedPostgresSHA256},
         @{name='vendor/garnet.zip';hash=$ExpectedGarnetSHA256},
         @{name='vendor/nssm.exe';hash=$ExpectedNssmSHA256}
     )){
