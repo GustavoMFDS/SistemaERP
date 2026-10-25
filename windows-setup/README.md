@@ -343,3 +343,30 @@ funcionamento PostgreSQL + Garnet + ERP, TLS, backup, migrações ou
 recuperação após falha; tampouco executa serviços no PC de usuário.
 O script recusa execução fora do GitHub Actions hospedado com a
 variável `ESTERIUM_PG_ZIP_DISPOSABLE_CI=1`.
+
+
+## Startup real do servico PostgreSQL no Windows descartavel
+
+O primeiro teste com `New-Service -Credential` registrou o servico
+PostgreSQL como conta Windows sem direitos de administrador, desabilitado
+e parado, e confirmou sua remocao. Ao tentar iniciar o servico, o
+Windows devolveu **codigo 15 (falha de logon no servico)**, o que
+explicou a diferenca entre apenas registrar e realmente executar.
+
+No teste `test-postgres-oss-lsa-ci.ps1`, a conta **unica e efemera**
+de CI recebe temporariamente `SeServiceLogonRight` via API LSA do
+Windows. O script recusa execucao fora do runner GitHub hospedado,
+confirma SID de usuario local e prefixo de conta `epg`, e nao
+usa `secedit` para substituir politicas existentes.
+
+O teste de ciclo de vida agora tenta: registrar servico Disabled,
+alterar temporariamente para Manual **somente no runner**, iniciar
+em `127.0.0.1` e porta aleatoria, consultar `SELECT 1` usando
+uma credencial efemera nunca registrada em argumento CLI ou logs,
+parar, desabilitar, excluir servico, revogar a permissao LSA e remover
+a conta criada.
+
+**Nao confundir o teste Windows CI com instalacao aprovada no cliente.**
+A versao MIT publica continua com instalacao e migracoes bloqueadas,
+sem TLS e sem testes de backup/restauracao. A operacao de permissão
+LSA nao faz parte do EXE distribuido aos clientes.
