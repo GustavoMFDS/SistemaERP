@@ -237,3 +237,46 @@ somente o prefixo que garante as categorias é constante. Nenhuma senha
 é escrita no console, nos logs ou no GitHub Release.
 
 Esta alteração não equivale à aprovação de uma instalação completa.
+
+
+## PostgreSQL no instalador MIT: alternativa oficial em ZIP (investigação)
+
+O teste CI de instalação *real* do `postgresql-16.15-1-windows-x64.exe`
+encontrou um problema de política de senha, corrigido no gerador, mas a
+execução seguinte **travou e atingiu o limite de 8 minutos** no Windows
+descartável (run 40167419917). Portanto, esse instalador EDB ainda NÃO
+foi homologado para uso automático na release MIT.
+
+O projeto PostgreSQL documenta que binários Windows em ZIP são
+destinados a integrações com instaladores de outras aplicações:
+https://www.postgresql.org/download/windows/
+
+A EDB oferece `postgresql-16.15-5-windows-x64-binaries.zip`.
+O SHA-256 fixado da edição **16.15-5**, divulgado por um colaborador
+do projeto EDB e conferido diretamente após o download, é:
+`43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281`.
+Referência: https://github.com/EnterpriseDB/edb-installers/issues/731 .
+**Atenção:** o SHA `80379...` na mesma discussão é da edição
+**PostgreSQL 17.11-5**, e NÃO deve ser usado com 16.15.
+
+Validação técnica observada no Windows do desenvolvedor: ZIP de
+373.254.386 bytes com 21.799 entradas, incluindo `pgsql/bin/postgres.exe`,
+`initdb.exe`, `pg_ctl.exe`, `psql.exe` e `pg_isready.exe`, sem
+symlinks, e correspondência exata ao SHA pinado. **Nenhum executável do
+ZIP foi usado para instalar serviços nem inicializar o banco no PC.**
+
+O novo teste de CI `test-postgres-oss-binaries-ci.ps1` verifica o
+hash independentemente fixado, caminhos do arquivo compactado e
+`--version` dos executáveis extraídos em Windows descartável.
+Ele não executa `initdb`, não configura credenciais nem serviços.
+
+A antiga experimentação de instalação do EDB EXE permanece acessível
+somente por ação manual explícita
+`run_experimental_edb_install=true` no workflow. Está separada do
+fluxo preferencial do ZIP para NÃO mascarar o histórico de falhas.
+
+**Próximo desenvolvimento:** implementar instalação real do PostgreSQL
+diretamente a partir do ZIP com conta não privilegiada, initdb, registro
+de serviço desabilitado, TLS, SQL, Garnet e backups, seguido de teste
+E2E completo. Até lá, o botão **Instalar** da versão MIT continua
+bloqueado e nenhum ZIP/EXE integrado foi publicado como release.
