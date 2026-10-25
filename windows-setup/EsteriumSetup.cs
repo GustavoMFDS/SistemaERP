@@ -110,7 +110,7 @@ namespace Esterium.WindowsSetup
             var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
             check.Text = "Verificar arquivos"; check.AutoSize = true;
             plan.Text = "Ver plano"; plan.AutoSize = true;
-            plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
+            plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
             install.Text = Program.PreviewBuild ? "Instalação bloqueada (prévia)" : "Instalar";
             install.AutoSize = true;
             install.Enabled = !Program.PreviewBuild;
@@ -143,7 +143,8 @@ namespace Esterium.WindowsSetup
             stageVendors.Click += async (s, e) => await RunStageVendors();
             preflight.Click += async (s, e) => await RunUnsignedPreflight();
             Log(Program.PreviewBuild ?
-                "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado." :
+                (IsPostgresZipPreview ? "Prévia ZIP verificada: não executa serviços nem plano legado EDB. Instalar bloqueado." :
+                 "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado.") :
                 "Edição assinada: aplique somente após aprovação independente e homologação.");
             FormClosing += (s, e) => { if (working) { e.Cancel = true; Log("Aguarde a conclusão da operação em andamento."); } };
             FormClosed += (s, e) => CleanTemporaryFiles();
@@ -307,7 +308,7 @@ namespace Esterium.WindowsSetup
             if (staging == null) { staging = Unpack(); ownsStaging = true; }
             string erp = Path.Combine(staging, "erp");
             Bundle(erp, Hex("manifesto", values["manifest"], 64));
-            string[] names = { "postgresql.exe", "garnet.zip", "nssm.exe" };
+            string[] names = { EmbeddedPostgresName, "garnet.zip", "nssm.exe" };
             string[] keys = { "postgres", "garnet", "nssm" };
             for (int i = 0; i < names.Length; i++)
             {
@@ -317,8 +318,10 @@ namespace Esterium.WindowsSetup
                     throw new InvalidOperationException("Fornecedor ausente ou SHA-256 divergente: " + names[i]);
             }
             if (!Program.PreviewBuild) Hex("editor", values["editor"], 40);
-            // PostgreSQL is always signed by its real upstream publisher, even in unsigned preview.
-            Hex("certificado PostgreSQL", values["pgSigner"], 40);
+            // EDB installer requires Authenticode. Official binary ZIP uses an
+            // independently vendor-published SHA instead and is preview-only.
+            if (IsPostgresZipPreview) AssertOfficialPostgresZip(Path.Combine(staging, "vendor", EmbeddedPostgresName));
+            else Hex("certificado PostgreSQL", values["pgSigner"], 40);
             Origin(values["origin"].Trim());
             return erp;
         }
@@ -393,6 +396,7 @@ namespace Esterium.WindowsSetup
             if (working) return;
             if (apply && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica nunca executa instalação."); return; }
             if (invoke && Program.PreviewBuild && !Program.HasPayload) { Log("BLOQUEADO: prévia sem payload."); return; }
+            if (invoke && IsPostgresZipPreview) { Log("BLOQUEADO: o coordenador EDB EXE ainda nao aceita ZIP. Use Verificar arquivos e Pre-checar Windows."); return; }
             working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = false;
             try
             {
@@ -431,7 +435,8 @@ namespace Esterium.WindowsSetup
                     "FALHA (código " + exit + "). Não repita uma instalação parcial sem diagnóstico.");
             }
             catch (Exception error) { Log("BLOQUEADO: " + error.Message); }
-            finally { working = false; check.Enabled = true; plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
+            finally { working = false; check.Enabled = true;
+                      plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
                       stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.PreviewBuild && Program.HasPayload;
                       install.Enabled = !Program.PreviewBuild; }
         }
