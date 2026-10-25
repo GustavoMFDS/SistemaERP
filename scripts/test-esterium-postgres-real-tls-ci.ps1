@@ -99,11 +99,12 @@ try {
     $policyHba=Join-Path $policy 'pg_hba.conf'
     & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf $policyConfig -PgHbaConf $policyHba | Out-Null
     Write-Host 'PostgreSQL CI: downloading pinned EDB Windows ZIP and validating its SHA-256.'
-    # Hash independently published by EnterpriseDB for the exact 16.15-1 ZIP.
-    $url='https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip'
+    # Hash independently published by EnterpriseDB for the exact 16.15-5 ZIP:
+    # https://github.com/EnterpriseDB/edb-installers/issues/731 .
+    $url='https://get.enterprisedb.com/postgresql/postgresql-16.15-5-windows-x64-binaries.zip'
     Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
     $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($hash -cne '25e6fcdfb8caec38691bf461125e7564508760666f7b8e5dc6a5f0818f58f81e') {
+    if ($hash -cne '43bb45f173a6f08cf1d29a97a6d8deb119e8e8093a24c00d2d1001a0ccaa8281') {
         throw 'Vendor PostgreSQL Windows ZIP hash mismatch: no third-party binary can execute.'
     }
     Expand-Archive -LiteralPath $zip -DestinationPath $unpacked -ErrorAction Stop
