@@ -50,6 +50,13 @@ try {
         $pgService.Length -lt 48 -or $pgApp.Length -lt 48) {
         throw 'Database secret generation did not produce independent strong tokens.'
     }
+    foreach ($password in @($pgSuper,$pgService,$pgApp)) {
+        if ($password -cnotmatch '^[A-Za-z0-9_-]{48,128}$' -or
+            $password -cnotmatch '[A-Z]' -or $password -cnotmatch '[a-z]' -or
+            $password -cnotmatch '[0-9]' -or $password -cnotmatch '[_-]') {
+            throw 'PostgreSQL passwords must satisfy Windows service account complexity reliably.'
+        }
+    }
     $acl=[IO.File]::ReadAllText((Join-Path $target 'garnet.acl'))
     if ($acl -notmatch '(?m)^user default off\r?$' -or $acl -match 'nopass' -or
         $acl -notmatch '(?m)^user esteriumcache on >[a-zA-Z0-9_-]{48,}') {
