@@ -403,3 +403,35 @@ independentemente validado), configurar TLS, Garnet, serviços do ERP,
 migrações, prova de integridade fiscal, backup externo/restore de
 instalação completa, recuperação de falhas e homologação em máquina
 Windows limpa. O botão Instalar continua desabilitado nas prévias.
+
+
+## Validação integrada dos componentes MIT no Windows (25/10/2026)
+
+O workflow manual `.github/workflows/esterium-windows-setup.yml` agora reutiliza
+testes *reais* no Windows GitHub hospedado, mantendo os componentes isolados:
+
+- `postgresql-oss-binaries-smoke`: ZIP original PostgreSQL 16.15-5 com
+  SHA-256 publicado pela EDB, conta Windows sem privilégios, cluster inicializado,
+  serviço iniciado somente em loopback, consulta SQL, `pg_dump`, `pg_restore`
+  e limpeza de serviço/conta/permissões;
+- `garnet-oss-real-tls-aof-smoke`: Garnet 2.2.3 com TLS, ACL negando
+  autenticação indevida, Lua, AOF recuperado após encerramento forçado,
+  NSSM executado como NETWORK SERVICE e serviço finalmente parado/desativado;
+- `postgres-oss-tls-schema-smoke`: ZIP 16.15-5 com TLS verify-full, SCRAM,
+  conta de aplicação do ERP sem privilégios, migrações reais, rejeição de
+  replay e recuperação do banco em outro cluster. Teste de
+  https://github.com/GustavoMFDS/SistemaERP/actions/runs/40242731044 aprovado;
+- `unsigned-integrated-zip-preview`: compila e extrai/verifica ERP e
+  fornecedores em um único EXE sem assinatura; verifica hashes,
+  preparação de arquivos com ACLs e negativa contra adulterações.
+- `unsigned-preview`: build e testes negativos de instalação.
+
+O job `oss-component-gate` é uma condição fail-closed: exige
+`success` em **todos** os cinco testes anteriores. Testes
+ignorados/cancelados/falhos NÃO aprovam o conjunto.
+
+**NÃO significa que o instalador de clientes está pronto.** O
+workflow não realiza, numa única instalação persistente, o bootstrap
+completo de PostgreSQL+Garnet+ERP, recuperação após reboot,
+backup externo/restauração do sistema da loja ou teste fiscal.
+O fluxo MIT continua com `Instalar` desabilitado e a PR em draft.
