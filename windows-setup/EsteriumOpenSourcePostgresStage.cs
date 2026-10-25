@@ -69,9 +69,20 @@ namespace Esterium.WindowsSetup
                                     Path.DirectorySeparatorChar;
                 // Reopen under the protected source tree, after checking the
                 // official ZIP SHA. Archives are never executed or mounted.
-                using (var zip = ZipFile.OpenRead(file))
+                using (var locked = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
-                    foreach (var entry in zip.Entries)
+                    // One unmodified source handle is shared by the digest
+                    // verification and decompressor; deny concurrent writers.
+                    using (var check = SHA256.Create())
+                    {
+                        string actual = BitConverter.ToString(check.ComputeHash(locked)).Replace("-", "");
+                        if (!String.Equals(actual, OfficialPostgresZipSHA256, StringComparison.Ordinal))
+                            throw new InvalidOperationException("ZIP PostgreSQL foi alterado apos a verificacao.");
+                    }
+                    locked.Position = 0;
+                    using (var zip = new ZipArchive(locked, ZipArchiveMode.Read, true))
+                    {
+                        foreach (var entry in zip.Entries)
                     {
                         if (++count > 30000 || entry.Length > 1300000000L ||
                             total + entry.Length > 1300000000L)
@@ -125,6 +136,7 @@ namespace Esterium.WindowsSetup
                             total += length;
                         }
                         else throw new InvalidOperationException("ZIP possui caminho duplicado.");
+                        }
                     }
                 }
 
