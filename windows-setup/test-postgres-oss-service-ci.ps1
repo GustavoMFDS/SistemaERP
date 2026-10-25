@@ -74,7 +74,14 @@ try {
     }
     if ($ExerciseLoopback) {
         Set-Service -Name $name -StartupType Manual -ErrorAction Stop
-        Start-Service -Name $name -ErrorAction Stop
+        # WMI/CIM StartService exposes actionable numeric Win32 return codes
+        # (15 = account lacks service-logon right or supplied credential
+        # rejected), unlike the generic Start-Service error text.
+        $serviceRecord=Get-CimInstance -ClassName Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop
+        $startResult=Invoke-CimMethod -InputObject $serviceRecord -MethodName StartService -ErrorAction Stop
+        if ([int]$startResult.ReturnValue -ne 0) {
+            throw ('Disposable PostgreSQL SCM start failed, numeric Win32 code '+$startResult.ReturnValue)
+        }
         $started=$true
         $svc=Get-Service -Name $name -ErrorAction Stop
         $svc.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(50))
