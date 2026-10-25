@@ -81,7 +81,9 @@ if(-not $PostgresBinaryZip){
 }
 $after=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
 if ($after.Count -ne 0) {throw 'Read-only plan unexpectedly modified services'}
-Write-Output 'PASS: unsigned real ERP + EDB/Garnet/NSSM plan on disposable Windows.'
+if($PostgresBinaryZip){
+    Write-Output 'PASS: native MIT ZIP preview deliberately skips unsupported legacy EDB installer plan.'
+}else{ Write-Output 'PASS: unsigned real ERP + EDB/Garnet/NSSM plan on disposable Windows.' }
 Write-Output 'NOT INSTALLED: no -Apply, no bypass of privileged Authenticode checks.'
 
 # PHASE ONE ONLY: integrated unsigned native EXE may copy verified ERP to a
@@ -193,7 +195,8 @@ $retry=Start-Process -FilePath $exe -ArgumentList '--stage-oss-vendors' -Wait -P
 if ($retry.ExitCode -ne 5) {throw 'Vendor stage unexpectedly allowed second execution'}
 $services=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
 if ($services.Count -ne 0) {throw 'Vendor preparation created an unexpected service'}
-Write-Output 'PASS: unsigned native EXE staged genuine EDB/Garnet/NSSM under protected Program Files.'
+if($PostgresBinaryZip){Write-Output 'PASS: unsigned EXE staged official PostgreSQL binaries ZIP, Garnet and NSSM.'}
+else{Write-Output 'PASS: unsigned native EXE staged genuine EDB/Garnet/NSSM under protected Program Files.'}
 if($PostgresBinaryZip){Write-Output 'PASS: Official EDB binary ZIP independently pinned SHA-256 and admin-only ACL.'}
 else{Write-Output 'PASS: EDB trusted Authenticode signer, pinned hashes and admin-only ACL.'}
 Write-Output 'PASS: vendor-stage reinstallation blocked; database/credentials/services unchanged.'
