@@ -80,3 +80,6 @@ foreach ($name in @('postgres.exe','initdb.exe','pg_ctl.exe','psql.exe')) {
 $services=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
 if ($services.Count -ne 0) {throw 'Read-only PostgreSQL ZIP smoke unexpectedly created services.'}
 Write-Output 'PASS: ZIP binaries usable on Windows; no initdb, service, password or SQL was created.'
+# Only after authenticating the ZIP and verifying extracted executable versions,
+# prove a fresh cluster can be created by a new non-admin Windows identity.
+& (Join-Path $PSScriptRoot 'test-postgres-oss-initdb-ci.ps1') -VerifiedPgRoot (Join-Path $extract 'pgsql')
