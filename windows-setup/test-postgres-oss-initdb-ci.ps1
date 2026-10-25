@@ -77,6 +77,9 @@ try {
             throw 'Unprivileged initdb unexpectedly registered a service.'
         }
     }
+    # Real Windows SCM step, still disabled/stopped. User credentials stay in
+    # PSCredential SecureString and never appear in any process argument.
+    & (Join-Path $PSScriptRoot 'test-postgres-oss-service-ci.ps1') -VerifiedPgRoot $root -DataDir $data -ServiceCredential $credential
     Write-Output 'PASS: PostgreSQL 16 initdb generated a real cluster as new NON-ADMIN CI Windows user.'
     Write-Output 'PASS: PG_VERSION=16 and pg_hba SCRAM, no Windows service started or registered.'
 } finally {
