@@ -153,6 +153,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - name: Parse ZIP, initdb and Windows service CI scripts before any download
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('windows-setup/test-postgres-oss-binaries-ci.ps1',
+              'windows-setup/test-postgres-oss-initdb-ci.ps1',
+              'windows-setup/test-postgres-oss-service-ci.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $path),[ref]$tokens,[ref]$errors) | Out-Null
+            if (@($errors).Count -gt 0) { throw ('PowerShell parse error in '+$path) }
+          }
       - name: Verify official EDB Windows 16.15 binary ZIP, no installation
         shell: powershell
         env:
