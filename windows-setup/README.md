@@ -319,3 +319,27 @@ botao Instalar: as fases persistentes de conta Windows, cluster,
 servicos, SSL/TLS, schema, Garnet e backup continuam pendentes.
 A distribuicao publica precisa reter licencas/avisos de terceiros e
 ser revisada antes de promover o arquivo a Release.
+
+
+## PostgreSQL ZIP: registro do serviço Windows no CI descartável
+
+O teste de `initdb` no Windows hospedado executa uma etapa adicional
+em `test-postgres-oss-service-ci.ps1`: registra no Windows Service
+Control Manager um serviço PostgreSQL com nome aleatório exclusivo,
+usando os binários `pg_ctl.exe` do ZIP cujo SHA-256 já foi validado.
+A conta é a mesma identidade local sem privilégios de Administrador
+que criou o cluster. O registro usa `New-Service -Credential` com
+`PSCredential`, de modo que a senha não é transmitida na linha de
+comando do processo.
+
+O serviço começa com tipo de inicialização **Disabled** e estado
+**Stopped**. O teste confere no SCM o caminho do executável, o nome da
+conta, a ausência de processo em execução e a ausência de alterações
+nos nomes de serviços do Esterium de produção; remove o serviço único
+de CI antes de apagar a conta descartável.
+
+**Isso não libera instalar o ERP em lojas.** Ainda não é teste de
+funcionamento PostgreSQL + Garnet + ERP, TLS, backup, migrações ou
+recuperação após falha; tampouco executa serviços no PC de usuário.
+O script recusa execução fora do GitHub Actions hospedado com a
+variável `ESTERIUM_PG_ZIP_DISPOSABLE_CI=1`.
