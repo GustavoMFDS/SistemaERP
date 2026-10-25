@@ -59,7 +59,12 @@ function New-CIPassword {
     $bytes=New-Object byte[] 48
     try {
         $rng.GetBytes($bytes)
-        return [BitConverter]::ToString($bytes).Replace('-','')
+        # Windows password-complexity policies need mixed case, digits and
+        # punctuation; random HEX alone was rejected by Windows CI.
+        # A fixed mixed-category prefix plus CSPRNG-generated base64url
+        # preserves strong unpredictable entropy and avoids quoting issues.
+        return ('Q9!z' + [Convert]::ToBase64String($bytes).
+            Replace('+','-').Replace('/','_').TrimEnd('='))
     } finally {
         $rng.Dispose()
         [Array]::Clear($bytes,0,$bytes.Length)
