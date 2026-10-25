@@ -43,9 +43,19 @@ if ($null -ne (Get-Service -Name $name -ErrorAction SilentlyContinue)) {
 $binary=Join-Path $pgDir 'bin\pg_ctl.exe'
 $command='"'+$binary+'" runservice -N "'+$name+'" -D "'+$data+'" -w'
 $created=$false
+$logonRightGranted=$false
+$ciAccountSid=''
 $started=$false
 $port=0
 $oldPgPassword=$env:PGPASSWORD
+if ($ExerciseLoopback) {
+    $ciLocalName=$ServiceCredential.UserName.Split('\')[-1]
+    $ciUser=Get-LocalUser -Name $ciLocalName -ErrorAction Stop
+    if ($ciLocalName -cnotmatch '^epg[0-9a-f]{12}$' -or $null -eq $ciUser.SID) {
+        throw 'Service-logon right must be assigned only to a new ephemeral CI account.'
+    }
+    $ciAccountSid=[string]$ciUser.SID.Value
+}
 if ($ExerciseLoopback) {
     # Select an ephemeral loopback-only port; PostgreSQL config is confined to
     # a verified CI-only test cluster, never the store's data directory.
@@ -60,6 +70,10 @@ if ($ExerciseLoopback) {
     Add-Content -LiteralPath $conf -Value ("listen_addresses = '127.0.0.1'"+[Environment]::NewLine+"port = "+$port+[Environment]::NewLine) -Encoding Ascii
 }
 try {
+    if ($ExerciseLoopback) {
+        & (Join-Path $PSScriptRoot 'test-postgres-oss-lsa-ci.ps1') -Action Grant -Sid $ciAccountSid
+        $logonRightGranted=$true
+    }
     New-Service -Name $name -BinaryPathName $command -Credential $ServiceCredential -StartupType Disabled -DisplayName ('Esterium disposable PG16 '+$name) -ErrorAction Stop | Out-Null
     $created=$true
     $entry=@(Get-CimInstance Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop)
@@ -131,5 +145,8 @@ try {
             throw 'Ephemeral CI service persisted after cleanup.'
         }
         Write-Output 'PASS: CI test service deregistered; account cleanup remains with initdb test.'
+    }
+    if ($logonRightGranted) {
+        & (Join-Path $PSScriptRoot 'test-postgres-oss-lsa-ci.ps1') -Action Revoke -Sid $ciAccountSid
     }
 }
