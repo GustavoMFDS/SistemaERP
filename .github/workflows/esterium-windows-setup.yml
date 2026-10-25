@@ -273,3 +273,37 @@ jobs:
         shell: pwsh
         timeout-minutes: 18
         run: ./scripts/test-esterium-postgres-real-tls-ci.ps1
+
+  oss-component-gate:
+    # IMPORTANT: This is a COMPONENT TEST GATE, NOT approval of a retail
+    # or customer install. Production Apply remains disabled in MIT preview.
+    if: always() && github.event_name == 'workflow_dispatch'
+    needs:
+      - unsigned-preview
+      - postgresql-oss-binaries-smoke
+      - garnet-oss-real-tls-aof-smoke
+      - postgres-oss-tls-schema-smoke
+      - unsigned-integrated-zip-preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail closed unless EVERY unsigned component smoke passed
+        env:
+          UI: ${{ needs.unsigned-preview.result }}
+          POSTGRES_BIN: ${{ needs.postgresql-oss-binaries-smoke.result }}
+          POSTGRES_TLS_SCHEMA: ${{ needs.postgres-oss-tls-schema-smoke.result }}
+          GARNET_TLS_AOF: ${{ needs.garnet-oss-real-tls-aof-smoke.result }}
+          COMBINED_EXE: ${{ needs.unsigned-integrated-zip-preview.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for check in UI POSTGRES_BIN POSTGRES_TLS_SCHEMA GARNET_TLS_AOF COMBINED_EXE; do
+            value="${!check}"
+            printf '%s: %s\n' "$check" "$value"
+            if [ "$value" != "success" ]; then
+              echo "::error::Unsigned component checks are incomplete or failed: $check"
+              exit 1
+            fi
+          done
+          echo "PASS: independent Windows component smokes all passed."
+          echo "NOT A RETAIL INSTALL: customer Apply remains disabled; E2E ERP service, persistent deployment and full store restore still required."
