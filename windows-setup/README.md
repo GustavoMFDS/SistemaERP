@@ -435,3 +435,37 @@ workflow não realiza, numa única instalação persistente, o bootstrap
 completo de PostgreSQL+Garnet+ERP, recuperação após reboot,
 backup externo/restauração do sistema da loja ou teste fiscal.
 O fluxo MIT continua com `Instalar` desabilitado e a PR em draft.
+
+
+## Fase 3 MIT: extracao protegida de binarios PostgreSQL (nao instala)
+
+A interface tecnica ZIP inclui **"Preparar binarios PostgreSQL (nao instala)"**
+e o comando `--stage-oss-postgres`, disponiveis **somente** na previa
+MIT com payload completo e ZIP oficial 16.15-5.
+
+A operacao exige UAC e roda *preflight* novamente: validacao do
+manifesto ERP preparado, ZIP oficial PostgreSQL e demais fornecedores,
+pastas/servicos/contas/portas sem conflitos. Abre o mesmo ZIP em um
+handle sem compartilhamento de escrita, confere seu SHA-256 fixado
+`43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281`
+e somente depois extrai para um diretorio unico protegido em
+`C:\\Program Files`. Recusa entradas ZIP com caminhos inseguros,
+links simbolicos, duplicatas e arquivos alem dos limites de tamanho.
+Compara os hashes de todos os arquivos extraidos depois da renomeacao
+para `C:\\Program Files\\EsteriumOpenSourcePostgresBin\\pgsql`,
+com ACL que concede acesso apenas a SYSTEM/Administradores.
+Se o diretorio final existir, a operacao e recusada: nao substitui
+nem apaga binarios e dados anteriores.
+
+O CI sintético testa que a previa sem payload ou com bytes de
+fornecedor inventados NAO possa preparar os binarios. O CI manual
+`test-unsigned-real-plan-ci.ps1 -PostgresBinaryZip` foi ampliado
+para executar essa preparacao com o ZIP verdadeiro, conferir os
+executaveis extraidos, versao, ACL, recusa de repeticao e ausencia
+de servicos.
+
+**Limite importante:** essa etapa so extrai binarios confiaveis.
+NAO chama `initdb`, NAO registra servico, NAO cria conta local,
+NAO abre rede, NAO aplica migracoes e NAO habilita instalacao comercial.
+O binario do computador local nao foi recompilado automaticamente;
+a integracao precisa passar no Windows GitHub CI antes da entrega.
