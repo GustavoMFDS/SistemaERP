@@ -160,3 +160,31 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & .\windows-setup\test-postgres-oss-binaries-ci.ps1
+
+  unsigned-integrated-zip-preview:
+    # Build a real complete one-file MIT preview containing the official
+    # PostgreSQL 16.15 binaries ZIP, ERP, Garnet and NSSM. It only stages,
+    # validates and preflights on ephemeral GitHub Windows; never installs.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Integrated one-file ZIP preview, pin hashes, stage safely (never Apply)
+        shell: powershell
+        env:
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm install --global npm@11.6.1
+          if ($LASTEXITCODE -ne 0) { throw 'npm tooling unavailable' }
+          & .\windows-setup\test-unsigned-real-plan-ci.ps1 -PostgresBinaryZip
