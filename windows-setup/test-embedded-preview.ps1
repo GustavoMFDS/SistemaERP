@@ -27,7 +27,8 @@ $metaStream=$assembly.GetManifestResourceStream('Esterium.PreviewApprovals')
 if($null -ne $metaStream){
     $reader=[IO.StreamReader]::new($metaStream)
     try{$metadata=$reader.ReadToEnd()|ConvertFrom-Json}finally{$reader.Dispose()}
-    if($metadata.pgFormat -eq 'zip'){
+    $format=if($null -ne $metadata.PSObject.Properties['pgFormat']){[string]$metadata.pgFormat}else{''}
+    if($format -eq 'zip'){
         $pgName='vendor/postgresql-binaries.zip'
         $official='43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'
         if($ExpectedPostgresSHA256.ToUpperInvariant() -cne $official -or
@@ -35,7 +36,7 @@ if($null -ne $metaStream){
            -not [string]::IsNullOrEmpty([string]$metadata.pgSigner)){
             throw 'PostgreSQL binary ZIP preview does not match pinned EDB version.'
         }
-    } elseif([string]$metadata.pgFormat -notin @('','edb')){
+    } elseif($format -notin @('','edb')){
         throw 'Unknown PostgreSQL preview package format.'
     }
 }
