@@ -280,3 +280,42 @@ diretamente a partir do ZIP com conta não privilegiada, initdb, registro
 de serviço desabilitado, TLS, SQL, Garnet e backups, seguido de teste
 E2E completo. Até lá, o botão **Instalar** da versão MIT continua
 bloqueado e nenhum ZIP/EXE integrado foi publicado como release.
+
+
+## Um unico EXE tecnico MIT com ZIP PostgreSQL (nao instalavel)
+
+O builder aceita exclusivamente no modo `-TechnicalPreviewPayload` o switch
+`-TechnicalPreviewPostgresBinaryZip`, usando o caminho de
+`-PostgresInstaller` para o arquivo
+`postgresql-16.15-5-windows-x64-binaries.zip` e o hash
+`-ExpectedPostgresSHA256 43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281`.
+Neste modo o thumbprint
+`-ExpectedPostgresPublisherThumbprint` deve estar vazio; o ZIP nao
+e um executavel Authenticode e sua autenticidade depende da comparacao
+do SHA-256 obtido de fonte de fornecedor independente.
+O build comercial existente continua EXE EDB + Authenticode.
+
+O unico executavel tecnicamente integrado passa a carregar o recurso
+`vendor/postgresql-binaries.zip` ao lado de Garnet/NSSM e do ERP.
+Ele verifica a integridade do arquivo interno, a lista e os caminhos
+das entradas PostgreSQL ZIP, os binarios essenciais, o manifesto ERP
+e os fornecedores. A preparacao de arquivos e fornecedores continua
+restrita a Program Files, com hashes e ACLs protegidas. A rotina
+de plano PowerShell antigo (exige EDB EXE) fica DESATIVADA neste modo
+para evitar apresentar um plano incompativel.
+
+No Windows descartavel o teste integrado
+https://github.com/GustavoMFDS/SistemaERP/actions/runs/40171137153
+confirmou preparacao de ERP e fornecedores com ZIP, hashes, pastas
+protegidas, idempotencia negativa e preflight limpo.
+O job de interface deste run falhou apenas pela ausencia do campo
+opcional pgFormat na fixture antiga; a leitura foi corrigida e
+reequilibrada pelos testes subsequentes. A validacao negativa de hash
+incorreto agora e testada pelo CI do pacote integrado.
+
+Este artefato **NAO instala PostgreSQL nem inicia banco**. O teste
+separado do ZIP com initdb, aprovado no runner, nao esta ligado ao
+botao Instalar: as fases persistentes de conta Windows, cluster,
+servicos, SSL/TLS, schema, Garnet e backup continuam pendentes.
+A distribuicao publica precisa reter licencas/avisos de terceiros e
+ser revisada antes de promover o arquivo a Release.
