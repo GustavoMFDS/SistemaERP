@@ -122,7 +122,7 @@ try {
     $exe=Join-Path $OutputDir $exeName
     $arguments=@('/nologo','/target:winexe','/platform:x64','/optimize+',
         '/r:System.Windows.Forms.dll','/r:System.Drawing.dll',
-        '/r:System.IO.Compression.dll','/r:System.Web.Extensions.dll',
+        '/r:System.IO.Compression.dll','/r:System.IO.Compression.FileSystem.dll','/r:System.Web.Extensions.dll',
         '/r:System.ServiceProcess.dll','/r:System.Management.dll',('/out:'+$exe))
     if ($full) { $arguments+=('/resource:'+$archive+',Esterium.Payload') }
     if ($TechnicalPreviewPayload) {
