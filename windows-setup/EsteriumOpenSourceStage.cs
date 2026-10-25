@@ -34,7 +34,7 @@ namespace Esterium.WindowsSetup
             }
             if (pins == null) throw new InvalidOperationException("Hashes incorporados invalidos.");
             string manifestHash = Hex("manifesto", pins["manifest"], 64);
-            var filenames = new[] { "postgresql.exe", "garnet.zip", "nssm.exe" };
+            var filenames = new[] { EmbeddedPostgresName, "garnet.zip", "nssm.exe" };
             var keys = new[] { "postgres", "garnet", "nssm" };
 
             string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -60,6 +60,9 @@ namespace Esterium.WindowsSetup
                         Digest(vendor) != Hex(filenames[i], pins[keys[i]], 64))
                         throw new InvalidOperationException("Hash divergente do fornecedor " + filenames[i]);
                 }
+
+                if (IsPostgresZipPreview)
+                    AssertOfficialPostgresZip(Path.Combine(extracted, "vendor", EmbeddedPostgresName));
 
                 // Create a unique, admin-owned sibling under Program Files; never overwrite.
                 // Protect parent before writing any file, then validate copied bytes.
