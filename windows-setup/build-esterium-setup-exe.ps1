@@ -16,7 +16,8 @@ param(
     [string]$ServiceWrapperExe='',
     [string]$ExpectedServiceWrapperSHA256='',
     # Test artifact only: embeds real unsigned ERP without enabling Apply.
-    [switch]$TechnicalPreviewPayload
+    [switch]$TechnicalPreviewPayload,
+    [switch]$TechnicalPreviewPostgresBinaryZip
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -28,8 +29,10 @@ if (-not [IO.Path]::IsPathRooted($OutputDir) -or $OutputDir.StartsWith('\\') -or
     throw 'OutputDir must be a new absolute local directory.'
 }
 $inputs=@($PostgresInstaller,$GarnetPackage,$ServiceWrapperExe,$ApprovedManifestSHA256,
-    $ExpectedPostgresSHA256,$ExpectedPostgresPublisherThumbprint,
-    $ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)
+    $ExpectedPostgresSHA256,$ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)
+if (-not $TechnicalPreviewPostgresBinaryZip) { $inputs+=$ExpectedPostgresPublisherThumbprint }
+if ($TechnicalPreviewPostgresBinaryZip -and -not $TechnicalPreviewPayload) { throw 'PostgreSQL binary ZIP is preview-only.' }
+if ($TechnicalPreviewPostgresBinaryZip -and $ExpectedPostgresPublisherThumbprint) { throw 'ZIP cannot claim the EDB EXE Authenticode signer.' }
 $full=-not [string]::IsNullOrWhiteSpace($BundleDir)
 if ($TechnicalPreviewPayload -and -not $full) { throw 'Preview payload requires BundleDir.' }
 if ($TechnicalPreviewPayload -and $TrustedPublisherThumbprint -ne '') {
@@ -62,10 +65,30 @@ try {
         } else {
             & (Join-Path $root 'scripts/check-esterium-signed-release.ps1') @verify | Out-Null
         }
-        $vendor=@{PostgresInstaller=$PostgresInstaller;ExpectedPostgresSHA256=$ExpectedPostgresSHA256;
-            ExpectedPostgresPublisherThumbprint=$ExpectedPostgresPublisherThumbprint;
-            GarnetPackage=$GarnetPackage;ExpectedGarnetSHA256=$ExpectedGarnetSHA256}
-        & (Join-Path $root 'scripts/check-esterium-offline-dependency-packages.ps1') @vendor | Out-Null
+        $pgName='postgresql.exe'
+        if ($TechnicalPreviewPostgresBinaryZip) {
+            $pgName='postgresql-binaries.zip'
+            $official='43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'
+            if (-not [IO.Path]::IsPathRooted($PostgresInstaller) -or $PostgresInstaller.StartsWith('\\') -or
+                [IO.Path]::GetExtension($PostgresInstaller).ToLowerInvariant() -ne '.zip' -or
+                -not (Test-Path -LiteralPath $PostgresInstaller -PathType Leaf) -or
+                $ExpectedPostgresSHA256.ToUpperInvariant() -cne $official -or
+                (Get-FileHash -LiteralPath $PostgresInstaller -Algorithm SHA256).Hash -cne $official) {
+                throw 'PostgreSQL ZIP does not match the independently published official EDB SHA-256.'
+            }
+            if (-not [IO.Path]::IsPathRooted($GarnetPackage) -or
+                -not (Test-Path -LiteralPath $GarnetPackage -PathType Leaf) -or
+                $ExpectedGarnetSHA256 -cnotmatch '^[A-Fa-f0-9]{64}$' -or
+                (Get-FileHash -LiteralPath $GarnetPackage -Algorithm SHA256).Hash -cne
+                    $ExpectedGarnetSHA256.ToUpperInvariant()) {
+                throw 'Garnet ZIP hash mismatch.'
+            }
+        } else {
+            $vendor=@{PostgresInstaller=$PostgresInstaller;ExpectedPostgresSHA256=$ExpectedPostgresSHA256;
+                ExpectedPostgresPublisherThumbprint=$ExpectedPostgresPublisherThumbprint;
+                GarnetPackage=$GarnetPackage;ExpectedGarnetSHA256=$ExpectedGarnetSHA256}
+            & (Join-Path $root 'scripts/check-esterium-offline-dependency-packages.ps1') @vendor | Out-Null
+        }
         if ($ExpectedServiceWrapperSHA256 -cnotmatch '^[A-Fa-f0-9]{64}$' -or
             -not [IO.Path]::IsPathRooted($ServiceWrapperExe) -or
             (Get-FileHash -LiteralPath $ServiceWrapperExe -Algorithm SHA256).Hash -cne
@@ -73,7 +96,7 @@ try {
         $stage=Join-Path ([IO.Path]::GetTempPath()) ('esterium-stage-'+[Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path (Join-Path $stage 'vendor') -Force | Out-Null
         Copy-Item -LiteralPath $bundle -Destination (Join-Path $stage 'erp') -Recurse -ErrorAction Stop
-        Copy-Item -LiteralPath $PostgresInstaller -Destination (Join-Path $stage 'vendor/postgresql.exe') -ErrorAction Stop
+        Copy-Item -LiteralPath $PostgresInstaller -Destination (Join-Path (Join-Path $stage 'vendor') $pgName) -ErrorAction Stop
         Copy-Item -LiteralPath $GarnetPackage -Destination (Join-Path $stage 'vendor/garnet.zip') -ErrorAction Stop
         Copy-Item -LiteralPath $ServiceWrapperExe -Destination (Join-Path $stage 'vendor/nssm.exe') -ErrorAction Stop
         $verify.BundleDir=Join-Path $stage 'erp'
@@ -84,7 +107,7 @@ try {
         } else {
             & (Join-Path $root 'scripts/check-esterium-signed-release.ps1') @verify | Out-Null
         }
-        foreach ($item in @(@('postgresql.exe',$ExpectedPostgresSHA256),
+        foreach ($item in @(@($pgName,$ExpectedPostgresSHA256),
                             @('garnet.zip',$ExpectedGarnetSHA256),
                             @('nssm.exe',$ExpectedServiceWrapperSHA256))) {
             $digest=(Get-FileHash -LiteralPath (Join-Path (Join-Path $stage 'vendor') $item[0]) -Algorithm SHA256).Hash
@@ -104,8 +127,10 @@ try {
     if ($full) { $arguments+=('/resource:'+$archive+',Esterium.Payload') }
     if ($TechnicalPreviewPayload) {
         $previewApprovals=Join-Path ([IO.Path]::GetTempPath()) ('esterium-approvals-'+[Guid]::NewGuid().ToString('N')+'.json')
+        $pgFormat=if ($TechnicalPreviewPostgresBinaryZip) { 'zip' } else { 'edb' }
         @{
             manifest=$ApprovedManifestSHA256.ToUpperInvariant()
+            pgFormat=$pgFormat
             postgres=$ExpectedPostgresSHA256.ToUpperInvariant()
             pgSigner=$ExpectedPostgresPublisherThumbprint.ToUpperInvariant()
             garnet=$ExpectedGarnetSHA256.ToUpperInvariant()
@@ -118,6 +143,7 @@ try {
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceStage.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceVendors.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourcePreflight.cs')
+    $arguments+=(Join-Path $PSScriptRoot 'EsteriumPostgresZipMode.cs')
     & $csc @arguments
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw 'Windows EXE compilation failed.' }
     $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
