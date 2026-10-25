@@ -38,7 +38,7 @@ namespace Esterium.WindowsSetup
             string postgres = Hex("PostgreSQL", pins["postgres"], 64);
             string garnet = Hex("Garnet", pins["garnet"], 64);
             string nssm = Hex("NSSM", pins["nssm"], 64);
-            string publisher = Hex("Editor PostgreSQL", pins["pgSigner"], 40);
+            string publisher = IsPostgresZipPreview ? "" : Hex("Editor PostgreSQL", pins["pgSigner"], 40);
 
             string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             if (String.IsNullOrWhiteSpace(programFiles) || !Path.IsPathRooted(programFiles))
@@ -55,7 +55,7 @@ namespace Esterium.WindowsSetup
 
             string extracted = null, partial = null;
             bool committed = false;
-            var files = new [] { "postgresql.exe", "garnet.zip", "nssm.exe" };
+            var files = new [] { EmbeddedPostgresName, "garnet.zip", "nssm.exe" };
             var hashes = new [] { postgres, garnet, nssm };
             try
             {
@@ -73,7 +73,8 @@ namespace Esterium.WindowsSetup
                     if (!File.Exists(file) || Digest(file) != hashes[i])
                         throw new InvalidOperationException("SHA-256 incorreto: " + files[i]);
                 }
-                AssertEdBAuthenticode(Path.Combine(vendors, "postgresql.exe"), publisher);
+                if (IsPostgresZipPreview) AssertOfficialPostgresZip(Path.Combine(vendors, EmbeddedPostgresName));
+                else AssertEdBAuthenticode(Path.Combine(vendors, "postgresql.exe"), publisher);
 
                 // All bytes copied into admin-only sibling, then atomically moved.
                 partial = Path.Combine(programFiles, ".esterium-oss-vendor-" +
@@ -96,7 +97,8 @@ namespace Esterium.WindowsSetup
                     if (Digest(dest) != hashes[i])
                         throw new InvalidOperationException("Arquivo copiado divergente: " + files[i]);
                 }
-                AssertEdBAuthenticode(Path.Combine(partial, "postgresql.exe"), publisher);
+                if (IsPostgresZipPreview) AssertOfficialPostgresZip(Path.Combine(partial, EmbeddedPostgresName));
+                else AssertEdBAuthenticode(Path.Combine(partial, "postgresql.exe"), publisher);
                 OrdinaryTree(partial);
                 Bundle(erpStage, manifest);
                 if (Directory.Exists(vendorStage) || File.Exists(vendorStage))
@@ -106,7 +108,8 @@ namespace Esterium.WindowsSetup
                 for (int i = 0; i < files.Length; i++)
                     if (Digest(Path.Combine(vendorStage, files[i])) != hashes[i])
                         throw new InvalidOperationException("Fornecedor alterado apos preparacao.");
-                AssertEdBAuthenticode(Path.Combine(vendorStage, "postgresql.exe"), publisher);
+                if (IsPostgresZipPreview) AssertOfficialPostgresZip(Path.Combine(vendorStage, EmbeddedPostgresName));
+                else AssertEdBAuthenticode(Path.Combine(vendorStage, "postgresql.exe"), publisher);
                 // STOP: no vendor processes, services, SQL, or credential setup.
             }
             finally
@@ -167,7 +170,8 @@ namespace Esterium.WindowsSetup
                 if (MessageBox.Show(
                     "PREPARAR DEPENDENCIAS, NAO INSTALAR.\n\n" +
                     "Exige ERP ja preparado. Copia PostgreSQL, Garnet e NSSM " +
-                    "para pasta protegida, confere hashes e assinatura EDB.\n" +
+                    "para pasta protegida e confere hashes; ZIP oficial usa SHA-256 EDB, " +
+                    "instalador EXE usa assinatura Authenticode.\n" +
                     "NAO executa instaladores, cria contas, configura SQL nem registra servicos.\n" +
                     "Continuar?",
                     "Esterium MIT - etapa 2", MessageBoxButtons.YesNo,
