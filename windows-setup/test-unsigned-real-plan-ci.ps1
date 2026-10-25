@@ -105,6 +105,19 @@ if($PostgresBinaryZip){
 & (Join-Path $root 'windows-setup/build-esterium-setup-exe.ps1') @build | Out-Null
 $exe=Join-Path $exeDir 'EsteriumERP-Setup-TECHNICAL-PREVIEW.exe'
 if (-not (Test-Path $exe -PathType Leaf)) {throw 'Missing integrated unsigned EXE'}
+# Inspect hashes INSIDE the complete EXE, including official ZIP format.
+& (Join-Path $root 'windows-setup/test-embedded-preview.ps1') -Exe $exe -ExpectedManifestSHA256 $manifest -ExpectedPostgresSHA256 $edbHash -ExpectedGarnetSHA256 $garnetHash -ExpectedNssmSHA256 $nssmHash
+if($PostgresBinaryZip){
+    $bad=$build.Clone()
+    $bad.OutputDir=Join-Path $dest 'reject-bad-zip-hash'
+    $bad.ExpectedPostgresSHA256=('A'*64)
+    $refused=$false
+    try{ & (Join-Path $root 'windows-setup/build-esterium-setup-exe.ps1') @bad | Out-Null }catch{ $refused=$true }
+    if(-not $refused -or (Test-Path -LiteralPath $bad.OutputDir)){
+        throw 'Builder must reject an incorrect independently pinned PostgreSQL ZIP digest before creating any output.'
+    }
+    Write-Output 'PASS: unsigned ZIP preview refuses an invalid EDB digest without writing an EXE.'
+}
 foreach ($case in @(@('--has-payload',0),@('--has-preview-approvals',0),@('--is-retail-build',3))) {
     $probe=Start-Process -FilePath $exe -ArgumentList $case[0] -Wait -PassThru
     if ($probe.ExitCode -ne $case[1]) {throw "Unexpected EXE gate for $($case[0])"}
