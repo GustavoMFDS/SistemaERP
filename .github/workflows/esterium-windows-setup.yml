@@ -1,6 +1,12 @@
 name: Esterium Windows Setup EXE
 on:
   workflow_dispatch:
+    inputs:
+      run_experimental_edb_install:
+        description: 'Run known-flaky real EDB unattended installer experiment (disposable CI only)'
+        required: false
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'windows-setup/**'
@@ -113,7 +119,7 @@ jobs:
     # Manual CI only: build ERP, verify vendor origin and stage native files.
     # Final step installs REAL EDB on a unique disposable GitHub runner,
     # and forcibly disables/stops its CI-only service. Never a customer host.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_experimental_edb_install == true
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -137,3 +143,20 @@ jobs:
           npm install --global npm@11.6.1
           if ($LASTEXITCODE -ne 0) { throw 'npm toolchain unavailable' }
           & .\windows-setup\test-unsigned-real-plan-ci.ps1
+
+  postgresql-oss-binaries-smoke:
+    # Preferred integration path: EDB's officially offered binary ZIP for
+    # software vendors. Manual CI: verify independently pinned SHA-256,
+    # ZIP paths, extracted executable versions. NO installation or services.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify official EDB Windows 16.15 binary ZIP, no installation
+        shell: powershell
+        env:
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\windows-setup\test-postgres-oss-binaries-ci.ps1
