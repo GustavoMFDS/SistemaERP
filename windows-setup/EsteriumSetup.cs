@@ -30,6 +30,12 @@ namespace Esterium.WindowsSetup
         [STAThread]
         static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--stage-oss-vendors")
+            {
+                try { Installer.StageOpenSourceVendors(); Environment.Exit(0); }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.Exit(5); }
+                return;
+            }
             if (args.Length > 0 && args[0] == "--stage-oss-files")
             {
                 try { Installer.StageOpenSourceFiles(); Environment.Exit(0); }
@@ -60,7 +66,7 @@ namespace Esterium.WindowsSetup
     {
         readonly Dictionary<string, TextBox> inputs = new Dictionary<string, TextBox>();
         readonly TextBox output = new TextBox();
-        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button();
+        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button();
         string staging;
         bool working;
         bool ownsStaging;
@@ -104,12 +110,15 @@ namespace Esterium.WindowsSetup
             install.Enabled = !Program.PreviewBuild;
             stageFiles.Text = "Preparar arquivos (não instala)"; stageFiles.AutoSize = true;
             stageFiles.Enabled = Program.PreviewBuild && Program.HasPayload;
+            stageVendors.Text = "Preparar dependências (não instala)"; stageVendors.AutoSize = true;
+            stageVendors.Enabled = Program.PreviewBuild && Program.HasPayload;
             actions.Controls.Add(check); actions.Controls.Add(plan); actions.Controls.Add(stageFiles);
-            actions.Controls.Add(install);
+            actions.Controls.Add(stageVendors); actions.Controls.Add(install);
             table.Controls.Add(actions, 0, 9); table.SetColumnSpan(actions, 2);
             var warning = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
                 Text = Program.PreviewBuild ?
-                       "Preparar arquivos copia somente o ERP para Program Files, com hashes e acesso restrito. " +
+                       "Preparar arquivos copia o ERP e Preparar dependências copia os binários de fornecedores " +
+                       "para pastas protegidas, com hashes e assinatura EDB. " +
                        "NÃO instala banco, serviços ou HTTPS. Nunca repita uma etapa que falhou sem diagnóstico." :
                        "A instalação altera serviços Windows. Em caso de falha parcial, NÃO repita a instalação " +
                        "nem apague banco ou dados. O instalador nunca libera automaticamente vendas." };
@@ -123,6 +132,7 @@ namespace Esterium.WindowsSetup
             plan.Click += async (s, e) => await Run(true, false);
             install.Click += async (s, e) => await Run(true, true);
             stageFiles.Click += async (s, e) => await RunStageFiles();
+            stageVendors.Click += async (s, e) => await RunStageVendors();
             Log(Program.PreviewBuild ?
                 "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado." :
                 "Edição assinada: aplique somente após aprovação independente e homologação.");
@@ -374,7 +384,7 @@ namespace Esterium.WindowsSetup
             if (working) return;
             if (apply && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica nunca executa instalação."); return; }
             if (invoke && Program.PreviewBuild && !Program.HasPayload) { Log("BLOQUEADO: prévia sem payload."); return; }
-            working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = false;
+            working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = false;
             try
             {
                 // Capture UI state on its owning thread; hashing and extraction run off-thread.
@@ -413,7 +423,7 @@ namespace Esterium.WindowsSetup
             }
             catch (Exception error) { Log("BLOQUEADO: " + error.Message); }
             finally { working = false; check.Enabled = true; plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
-                      stageFiles.Enabled = Program.PreviewBuild && Program.HasPayload;
+                      stageFiles.Enabled = stageVendors.Enabled = Program.PreviewBuild && Program.HasPayload;
                       install.Enabled = !Program.PreviewBuild; }
         }
     }

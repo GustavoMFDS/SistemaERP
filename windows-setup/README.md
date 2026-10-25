@@ -139,3 +139,35 @@ pois os coordenadores comerciais existentes exigem assinaturas Authenticode.
 Não é permitido contornar ou simular essas assinaturas. O empacotador
 de fornecedores e as condições de redistribuição da EDB precisam ser
 revisados antes do upload do EXE integrado a Releases públicos.
+
+
+## Preparar dependências em Program Files — MIT unsigned (Fase 2A)
+
+Depois de executar com sucesso "Preparar arquivos (não instala)", o
+instalador integrado oferece "Preparar dependências (não instala)".
+Essa operação pede confirmação e UAC, verifica novamente o manifesto
+do ERP já preparado em Program Files e os hashes dos binários
+originais embutidos, inclusive a assinatura Authenticode REAL do
+instalador EDB PostgreSQL com identidade de publicador previamente
+fixada. Depois guarda exatamente:
+
+- postgresql.exe — EDB original, assinatura válida e SHA-256 fixado;
+- garnet.zip — arquivo de fornecedor cujo SHA-256 foi fixado;
+- nssm.exe — binário de fornecedor cujo SHA-256 foi fixado.
+
+Pasta final isolada: C:\Program Files\EsteriumOpenSourceVendorStage,
+com ACL sem herança que concede acesso somente ao SYSTEM e aos
+Administradores. Os bytes são comparados antes e depois da cópia.
+Uma segunda execução recusa sobrescrever arquivos existentes.
+Não é permitido preparar fornecedores se o ERP preparado não estiver
+intacto ou se qualquer assinatura ou hash esperado divergir.
+
+**NÃO executa os fornecedores, NÃO configura PostgreSQL/Garnet, NÃO cria
+contas, credenciais, certificados, dados SQL ou serviços.** Isso exige
+uma etapa adicional de instalação propriamente dita, que continuará
+protegida e terá de ser validada de ponta a ponta em ambiente descartável.
+
+Teste CI sob workflow_dispatch verifica cenário real com os binários
+fixados, valida as ACL, os hashes e a assinatura EDB pós-cópia,
+exige recusa em segunda execução e confirma que serviços não surgiram.
+Este teste NUNCA deve ser executado no PC de uma loja.

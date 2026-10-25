@@ -123,3 +123,44 @@ $services=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','Esteriu
 if ($services.Count -ne 0) {throw 'ERP stage unexpectedly registered services'}
 Write-Output 'PASS: unsigned native EXE staged verified ERP into admin-only Program Files.'
 Write-Output 'PASS: second run rejected without altering staging; vendor, SQL and services not installed.'
+
+
+# PHASE 2A: stage real, independently pinned EDB/Garnet/NSSM files in
+# a separate Program Files directory. NEVER run vendors or register SCM.
+$vendorStage=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage'
+if (Test-Path -LiteralPath $vendorStage) { throw 'Disposable runner has preexisting vendor staging' }
+$prepared=Start-Process -FilePath $exe -ArgumentList '--stage-oss-vendors' -Wait -PassThru
+if ($prepared.ExitCode -ne 0) { throw "Native vendor preparation failed: $($prepared.ExitCode)" }
+$items=@(
+    @{name='postgresql.exe';hash=$edbHash},
+    @{name='garnet.zip';hash=$garnetHash},
+    @{name='nssm.exe';hash=$nssmHash}
+)
+$found=@(Get-ChildItem -LiteralPath $vendorStage -File -Force)
+if ($found.Count -ne $items.Count) {throw 'Vendor stage has unexpected file count'}
+foreach ($item in $items) {
+    $p=Join-Path $vendorStage $item.name
+    if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash -cne $item.hash) {
+        throw "Vendor staged hash mismatch: $($item.name)"
+    }
+}
+$auth=Get-AuthenticodeSignature -LiteralPath (Join-Path $vendorStage 'postgresql.exe')
+if ($auth.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+    $null -eq $auth.SignerCertificate -or
+    $auth.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $edbCert) {
+    throw 'Staged EnterpriseDB executable publisher signature invalid'
+}
+$vendorAcl=Get-Acl -LiteralPath $vendorStage
+if (-not $vendorAcl.AreAccessRulesProtected) {throw 'Vendor stage has inherited ACL'}
+$entries=@($vendorAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+if (@($entries | Where-Object { $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544') }).Count -ne 0) {
+    throw 'Vendor stage ACL unexpectedly grants outside principals'
+}
+$retry=Start-Process -FilePath $exe -ArgumentList '--stage-oss-vendors' -Wait -PassThru
+if ($retry.ExitCode -ne 5) {throw 'Vendor stage unexpectedly allowed second execution'}
+$services=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
+if ($services.Count -ne 0) {throw 'Vendor preparation created an unexpected service'}
+Write-Output 'PASS: unsigned native EXE staged genuine EDB/Garnet/NSSM under protected Program Files.'
+Write-Output 'PASS: EDB trusted Authenticode signer, pinned hashes and admin-only ACL.'
+Write-Output 'PASS: vendor-stage reinstallation blocked; database/credentials/services unchanged.'

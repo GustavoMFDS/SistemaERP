@@ -115,6 +115,7 @@ try {
     if ($TechnicalPreviewPayload -or -not $full) { $arguments+='/define:ESTERIUM_PREVIEW' }
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumSetup.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceStage.cs')
+    $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceVendors.cs')
     & $csc @arguments
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw 'Windows EXE compilation failed.' }
     $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
