@@ -4,6 +4,8 @@
   the real ERP bundle, and runs the unsigned READ-ONLY two-phase plan.
   NEVER use -Apply or execute this test on a user's device.
 #>
+[CmdletBinding()]
+param([switch]$PostgresBinaryZip)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
@@ -21,17 +23,18 @@ function DownloadPinned([string]$url,[string]$file,[string]$expected) {
         throw "Pinned vendor hash mismatch: $file"
     }
 }
-$edbHash='DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'
+$edbHash=if($PostgresBinaryZip){'43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'}else{'DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'}
 $garnetHash='5CD130686AB415B13C59D36D048A6FADED81E707FFE6DA5953F98BEEB79F9F16'
 $nssmArchiveHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
 $nssmHash='EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'
 $edbCert='7BEDD1269FCCF7A5D95F18274750B79893C06C70'
-$pg=Join-Path $dest 'postgresql.exe'
+$pg=Join-Path $dest $(if($PostgresBinaryZip){'postgresql-binaries.zip'}else{'postgresql.exe'})
 $gn=Join-Path $dest 'garnet.zip'
 $nupkg=Join-Path $dest 'nssm.nupkg'
 $nz=Join-Path $dest 'nssm.zip'
 $nssm=Join-Path $dest 'nssm.exe'
-DownloadPinned 'https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64.exe' $pg $edbHash
+$pgURL=if($PostgresBinaryZip){'https://get.enterprisedb.com/postgresql/postgresql-16.15-5-windows-x64-binaries.zip'}else{'https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64.exe'}
+DownloadPinned $pgURL $pg $edbHash
 DownloadPinned 'https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip' $gn $garnetHash
 # Chocolatey is only a byte transport; the extracted NSSM ZIP must match
 # the independently pinned WinGet hash.
@@ -52,11 +55,13 @@ $extract=Join-Path $dest 'nssm-unpacked'
 Expand-Archive -LiteralPath $nz -DestinationPath $extract -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $extract 'nssm-2.24-101-g897c7ad\win64\nssm.exe') -Destination $nssm -ErrorAction Stop
 if ((Get-FileHash -LiteralPath $nssm -Algorithm SHA256).Hash -cne $nssmHash) {throw 'Unexpected x64 NSSM'}
-$sig=Get-AuthenticodeSignature -LiteralPath $pg
-if ($sig.Status -ne [Management.Automation.SignatureStatus]::Valid -or
-    $null -eq $sig.SignerCertificate -or
-    $sig.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $edbCert) {
-    throw 'EDB publisher identity is invalid'
+if (-not $PostgresBinaryZip){
+    $sig=Get-AuthenticodeSignature -LiteralPath $pg
+    if ($sig.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+        $null -eq $sig.SignerCertificate -or
+        $sig.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $edbCert){
+        throw 'EDB EXE publisher identity is invalid'
+    }
 }
 $bundle=Join-Path $dest 'erp-bundle'
 & (Join-Path $root 'scripts/build-esterium-local-windows.ps1') -OutputDir $bundle | Out-Null
@@ -69,7 +74,11 @@ $args=@{ SourceBundleDir=$bundle; AllowedOrigin='https://erp.example.org';
     ExpectedGarnetSHA256=$garnetHash; ServiceWrapperExe=$nssm;
     ExpectedServiceWrapperSHA256=$nssmHash; ApprovedManifestSHA256=$manifest }
 # Invoke the tools embedded in the built ERP bundle, never unbuilt source scripts.
-& (Join-Path $bundle 'tools/install-esterium-local-complete.ps1') @args
+if(-not $PostgresBinaryZip){
+    & (Join-Path $bundle 'tools/install-esterium-local-complete.ps1') @args
+}else{
+    Write-Output 'ZIP preview: skip legacy coordinator that requires EDB .exe.'
+}
 $after=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
 if ($after.Count -ne 0) {throw 'Read-only plan unexpectedly modified services'}
 Write-Output 'PASS: unsigned real ERP + EDB/Garnet/NSSM plan on disposable Windows.'
@@ -88,6 +97,10 @@ $build=@{
     ExpectedPostgresPublisherThumbprint=$edbCert
     GarnetPackage=$gn;ExpectedGarnetSHA256=$garnetHash
     ServiceWrapperExe=$nssm;ExpectedServiceWrapperSHA256=$nssmHash
+}
+if($PostgresBinaryZip){
+    $build.Remove('ExpectedPostgresPublisherThumbprint')
+    $build.TechnicalPreviewPostgresBinaryZip=$true
 }
 & (Join-Path $root 'windows-setup/build-esterium-setup-exe.ps1') @build | Out-Null
 $exe=Join-Path $exeDir 'EsteriumERP-Setup-TECHNICAL-PREVIEW.exe'
@@ -132,7 +145,7 @@ if (Test-Path -LiteralPath $vendorStage) { throw 'Disposable runner has preexist
 $prepared=Start-Process -FilePath $exe -ArgumentList '--stage-oss-vendors' -Wait -PassThru
 if ($prepared.ExitCode -ne 0) { throw "Native vendor preparation failed: $($prepared.ExitCode)" }
 $items=@(
-    @{name='postgresql.exe';hash=$edbHash},
+    @{name=$(if($PostgresBinaryZip){'postgresql-binaries.zip'}else{'postgresql.exe'});hash=$edbHash},
     @{name='garnet.zip';hash=$garnetHash},
     @{name='nssm.exe';hash=$nssmHash}
 )
@@ -145,11 +158,17 @@ foreach ($item in $items) {
         throw "Vendor staged hash mismatch: $($item.name)"
     }
 }
-$auth=Get-AuthenticodeSignature -LiteralPath (Join-Path $vendorStage 'postgresql.exe')
-if ($auth.Status -ne [Management.Automation.SignatureStatus]::Valid -or
-    $null -eq $auth.SignerCertificate -or
-    $auth.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $edbCert) {
-    throw 'Staged EnterpriseDB executable publisher signature invalid'
+if (-not $PostgresBinaryZip){
+    $auth=Get-AuthenticodeSignature -LiteralPath (Join-Path $vendorStage 'postgresql.exe')
+    if ($auth.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+        $null -eq $auth.SignerCertificate -or
+        $auth.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $edbCert) {
+        throw 'Staged EnterpriseDB executable publisher signature invalid'
+    }
+}else{
+    if((Get-FileHash -LiteralPath (Join-Path $vendorStage 'postgresql-binaries.zip') -Algorithm SHA256).Hash -cne $edbHash){
+        throw 'Official ZIP publisher-pinned digest mismatch after staging'
+    }
 }
 $vendorAcl=Get-Acl -LiteralPath $vendorStage
 if (-not $vendorAcl.AreAccessRulesProtected) {throw 'Vendor stage has inherited ACL'}
@@ -162,18 +181,25 @@ if ($retry.ExitCode -ne 5) {throw 'Vendor stage unexpectedly allowed second exec
 $services=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
 if ($services.Count -ne 0) {throw 'Vendor preparation created an unexpected service'}
 Write-Output 'PASS: unsigned native EXE staged genuine EDB/Garnet/NSSM under protected Program Files.'
-Write-Output 'PASS: EDB trusted Authenticode signer, pinned hashes and admin-only ACL.'
+if($PostgresBinaryZip){Write-Output 'PASS: Official EDB binary ZIP independently pinned SHA-256 and admin-only ACL.'}
+else{Write-Output 'PASS: EDB trusted Authenticode signer, pinned hashes and admin-only ACL.'}
 Write-Output 'PASS: vendor-stage reinstallation blocked; database/credentials/services unchanged.'
 $preflight=Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
 if ($preflight.ExitCode -ne 0) { throw 'Integrated unsigned native Windows preflight rejected a fresh runner.' }
 Write-Output 'PASS: unsigned native fresh-host preflight approved clean staged vendor and ERP files.'
 # Continue only on a GitHub-hosted ephemeral Windows machine. Unlike the
 # preceding steps, this final smoke truly installs EDB on CI, never on a shop PC.
-& (Join-Path $root 'windows-setup/test-real-edb-install-disposable-ci.ps1') `
-    -PostgresInstaller (Join-Path $vendorStage 'postgresql.exe') `
-    -ExpectedSHA256 $edbHash -ExpectedSignerThumbprint $edbCert
+if(-not $PostgresBinaryZip){
+    & (Join-Path $root 'windows-setup/test-real-edb-install-disposable-ci.ps1') `
+        -PostgresInstaller (Join-Path $vendorStage 'postgresql.exe') `
+        -ExpectedSHA256 $edbHash -ExpectedSignerThumbprint $edbCert
+}
 # EDB now has a real disabled/stopped service and a data directory. Refuse
 # any second bootstrap on this previously-used host even if hashes still match.
-$afterEdb=Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
-if ($afterEdb.ExitCode -ne 5) {throw 'Unsigned native preflight accepted a previously-installed PostgreSQL instance.'}
-Write-Output 'PASS: unsigned native preflight rejects reinstallation after real EDB setup.'
+if(-not $PostgresBinaryZip){
+    $afterEdb=Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
+    if ($afterEdb.ExitCode -ne 5) {throw 'Unsigned native preflight accepted a previously-installed PostgreSQL instance.'}
+    Write-Output 'PASS: unsigned native preflight rejects reinstallation after real EDB setup.'
+}else{
+    Write-Output 'PASS: integrated unsigned ZIP-based preview staged ERP and vendors and preflight; no server or service installed.'
+}
