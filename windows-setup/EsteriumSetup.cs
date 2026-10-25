@@ -103,7 +103,7 @@ namespace Esterium.WindowsSetup
             Add(table, 3, "SHA-256 do manifesto ERP", "manifest", "");
             Add(table, 4, "Certificado do editor (40 caracteres)", "editor", "");
             Add(table, 5, "SHA-256 PostgreSQL", "postgres", "");
-            Add(table, 6, "Certificado do PostgreSQL", "pgSigner", "");
+            Add(table, 6, Program.PreviewBuild && IsPostgresZipPreview ? "ZIP oficial: sem certificado do instalador EDB" : "Certificado do PostgreSQL", "pgSigner", "");
             Add(table, 7, "SHA-256 Garnet", "garnet", "");
             Add(table, 8, "SHA-256 NSSM", "nssm", "");
             LoadPreviewApprovals();
@@ -126,7 +126,7 @@ namespace Esterium.WindowsSetup
             var warning = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
                 Text = Program.PreviewBuild ?
                        "Preparar arquivos copia o ERP e Preparar dependências copia os binários de fornecedores " +
-                       "para pastas protegidas, com hashes e assinatura EDB. " +
+                       "para pastas protegidas. O ZIP oficial usa SHA-256 fixado; o EXE EDB usa assinatura. " +
                        "NÃO instala banco, serviços ou HTTPS. Nunca repita uma etapa que falhou sem diagnóstico." :
                        "A instalação altera serviços Windows. Em caso de falha parcial, NÃO repita a instalação " +
                        "nem apague banco ou dados. O instalador nunca libera automaticamente vendas." };
