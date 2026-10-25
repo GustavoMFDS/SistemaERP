@@ -154,7 +154,11 @@ try {
     Write-Output "PASS: $exe"
     Write-Output "SHA256: $hash"
     if ($TechnicalPreviewPayload) {
-        Write-Output 'TECHNICAL PREVIEW: ERP and vendors embedded; one-click verified PLAN available; Apply permanently disabled.'
+        if ($TechnicalPreviewPostgresBinaryZip) {
+            Write-Output 'MIT ZIP PREVIEW: ERP and vendors embedded; safe staging and preflight only. Legacy EDB plan and Apply BLOCKED.'
+        } else {
+            Write-Output 'TECHNICAL PREVIEW: ERP and vendors embedded; one-click verified PLAN available; Apply permanently disabled.'
+        }
     } elseif ($full) {
         Write-Output 'BUNDLE: ERP, PostgreSQL, Garnet and NSSM embedded in one executable.'
         Write-Output 'NOT RELEASED: Authenticode-sign the FINAL EXE and validate clean-Windows physical pilot.'
