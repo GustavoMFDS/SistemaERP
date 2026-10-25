@@ -229,3 +229,47 @@ jobs:
         with:
           path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
           key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
+
+  postgres-oss-tls-schema-smoke:
+    # Reuse the existing first-install PostgreSQL TLS/schema E2E test.
+    # It creates a fresh ephemeral PG16.15-5 cluster and checks TLS
+    # verify-full/SCRAM, restricted ERP SQL role, migrations and recovery.
+    # No real store Windows service is touched.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - name: Build offline PostgreSQL TLS generator for isolated CI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location backend
+          try {
+            go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
+            if ($LASTEXITCODE -ne 0) { throw 'Offline PostgreSQL TLS helper build failed.' }
+          } finally { Pop-Location }
+      - name: Build pinned Windows SQL migrator for isolated CI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $previous=$env:GOBIN
+          $dir=Join-Path $env:RUNNER_TEMP ('esterium-migrate-'+[Guid]::NewGuid().ToString('N'))
+          [IO.Directory]::CreateDirectory($dir) | Out-Null
+          try {
+            $env:GOBIN=$dir
+            Push-Location backend
+            try {
+              go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+              if ($LASTEXITCODE -ne 0) { throw 'Pinned migrator build failed.' }
+            } finally { Pop-Location }
+            Copy-Item -LiteralPath (Join-Path $dir 'migrate.exe') -Destination ./scripts/esterium-migrate.exe -ErrorAction Stop
+          } finally { $env:GOBIN=$previous }
+      - name: Verify pinned 16.15-5 ZIP, PostgreSQL TLS/SCRAM, schema, recovery
+        shell: pwsh
+        timeout-minutes: 18
+        run: ./scripts/test-esterium-postgres-real-tls-ci.ps1
