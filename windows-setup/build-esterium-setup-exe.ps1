@@ -144,6 +144,7 @@ try {
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceVendors.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourcePreflight.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumPostgresZipMode.cs')
+    $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourcePostgresStage.cs')
     & $csc @arguments
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw 'Windows EXE compilation failed.' }
     $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
@@ -155,7 +156,7 @@ try {
     Write-Output "SHA256: $hash"
     if ($TechnicalPreviewPayload) {
         if ($TechnicalPreviewPostgresBinaryZip) {
-            Write-Output 'MIT ZIP PREVIEW: ERP and vendors embedded; safe staging and preflight only. Legacy EDB plan and Apply BLOCKED.'
+            Write-Output 'MIT ZIP PREVIEW: ERP and vendors embedded; protected PostgreSQL binary staging only. No initdb, SQL or services; Apply BLOCKED.'
         } else {
             Write-Output 'TECHNICAL PREVIEW: ERP and vendors embedded; one-click verified PLAN available; Apply permanently disabled.'
         }
