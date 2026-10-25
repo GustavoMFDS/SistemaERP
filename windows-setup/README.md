@@ -222,3 +222,18 @@ configurações, serviços, firewall, bancos ou usuários. Um Windows onde
 uma instalação parcial já ocorreu precisa de avaliação manual, nunca
 limpeza automática. O teste CI exige preflight aprovado ANTES de criar
 o novo serviço EDB descartável, e preflight recusado DEPOIS.
+
+
+## Senhas fortes e compatibilidade com política Windows
+
+O teste de instalação real da EDB detectou que senhas aleatórias
+somente em hexadecimal (maiúsculas e dígitos) não são aceitas por
+políticas Windows que exigem caracteres de categorias diferentes.
+A geração no teste EDB e a geração de segredos do bootstrap Esterium
+foram adaptadas para sempre conter maiúscula, minúscula, número e
+pontuação permitida, mantendo 48 bytes independentes de entropia CSPRNG
+e o armazenamento em arquivos protegidos. Não há senha fixa:
+somente o prefixo que garante as categorias é constante. Nenhuma senha
+é escrita no console, nos logs ou no GitHub Release.
+
+Esta alteração não equivale à aprovação de uma instalação completa.
