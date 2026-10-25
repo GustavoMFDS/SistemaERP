@@ -99,7 +99,8 @@ try {
     $exe=Join-Path $OutputDir $exeName
     $arguments=@('/nologo','/target:winexe','/platform:x64','/optimize+',
         '/r:System.Windows.Forms.dll','/r:System.Drawing.dll',
-        '/r:System.IO.Compression.dll','/r:System.Web.Extensions.dll',('/out:'+$exe))
+        '/r:System.IO.Compression.dll','/r:System.Web.Extensions.dll',
+        '/r:System.ServiceProcess.dll','/r:System.Management.dll',('/out:'+$exe))
     if ($full) { $arguments+=('/resource:'+$archive+',Esterium.Payload') }
     if ($TechnicalPreviewPayload) {
         $previewApprovals=Join-Path ([IO.Path]::GetTempPath()) ('esterium-approvals-'+[Guid]::NewGuid().ToString('N')+'.json')
@@ -116,6 +117,7 @@ try {
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumSetup.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceStage.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceVendors.cs')
+    $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourcePreflight.cs')
     & $csc @arguments
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw 'Windows EXE compilation failed.' }
     $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash

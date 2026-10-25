@@ -200,3 +200,25 @@ substitui a adaptação e homologação de toda a cadeia de migrações,
 TLS, serviço ERP, backups e recuperação. É proibido executar esse
 teste fora do CI descartável. A instalação comercial com -Apply
 continua exigindo Authenticode dos scripts.
+
+
+## Pré-checagem de Windows limpo (somente leitura)
+
+A prévia integrada MIT inclui o botão "Pré-checar Windows (não instala)"
+e o comando técnico --preflight-oss. O recurso exige que o ERP e os
+fornecedores já estejam preparados e que o processo possa ler as
+pastas protegidas com autorização de Administrador.
+
+Antes de qualquer futura instalação real, a pré-checagem:
+- relê o manifesto e cada SHA-256 do ERP;
+- exige exatamente os três fornecedores esperados, seus hashes pinados
+  e a assinatura Authenticode válida do EXE EDB;
+- recusa pastas de dados/opções/instalação já existentes;
+- recusa serviços Windows Esterium existentes, conta dedicada
+  esterium_pgsvc existente, e portas 5432, 6379 e 8080 ocupadas.
+
+Não executa pacotes de fornecedor, não cria arquivos, não altera
+configurações, serviços, firewall, bancos ou usuários. Um Windows onde
+uma instalação parcial já ocorreu precisa de avaliação manual, nunca
+limpeza automática. O teste CI exige preflight aprovado ANTES de criar
+o novo serviço EDB descartável, e preflight recusado DEPOIS.

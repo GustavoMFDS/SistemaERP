@@ -164,8 +164,16 @@ if ($services.Count -ne 0) {throw 'Vendor preparation created an unexpected serv
 Write-Output 'PASS: unsigned native EXE staged genuine EDB/Garnet/NSSM under protected Program Files.'
 Write-Output 'PASS: EDB trusted Authenticode signer, pinned hashes and admin-only ACL.'
 Write-Output 'PASS: vendor-stage reinstallation blocked; database/credentials/services unchanged.'
+$preflight=Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
+if ($preflight.ExitCode -ne 0) { throw 'Integrated unsigned native Windows preflight rejected a fresh runner.' }
+Write-Output 'PASS: unsigned native fresh-host preflight approved clean staged vendor and ERP files.'
 # Continue only on a GitHub-hosted ephemeral Windows machine. Unlike the
 # preceding steps, this final smoke truly installs EDB on CI, never on a shop PC.
 & (Join-Path $root 'windows-setup/test-real-edb-install-disposable-ci.ps1') `
     -PostgresInstaller (Join-Path $vendorStage 'postgresql.exe') `
     -ExpectedSHA256 $edbHash -ExpectedSignerThumbprint $edbCert
+# EDB now has a real disabled/stopped service and a data directory. Refuse
+# any second bootstrap on this previously-used host even if hashes still match.
+$afterEdb=Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
+if ($afterEdb.ExitCode -ne 5) {throw 'Unsigned native preflight accepted a previously-installed PostgreSQL instance.'}
+Write-Output 'PASS: unsigned native preflight rejects reinstallation after real EDB setup.'

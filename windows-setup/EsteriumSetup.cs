@@ -30,6 +30,12 @@ namespace Esterium.WindowsSetup
         [STAThread]
         static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--preflight-oss")
+            {
+                try { Installer.AssertUnsignedFreshHost(); Environment.Exit(0); }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.Exit(5); }
+                return;
+            }
             if (args.Length > 0 && args[0] == "--stage-oss-vendors")
             {
                 try { Installer.StageOpenSourceVendors(); Environment.Exit(0); }
@@ -66,7 +72,7 @@ namespace Esterium.WindowsSetup
     {
         readonly Dictionary<string, TextBox> inputs = new Dictionary<string, TextBox>();
         readonly TextBox output = new TextBox();
-        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button();
+        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button(), preflight = new Button();
         string staging;
         bool working;
         bool ownsStaging;
@@ -113,7 +119,9 @@ namespace Esterium.WindowsSetup
             stageVendors.Text = "Preparar dependências (não instala)"; stageVendors.AutoSize = true;
             stageVendors.Enabled = Program.PreviewBuild && Program.HasPayload;
             actions.Controls.Add(check); actions.Controls.Add(plan); actions.Controls.Add(stageFiles);
-            actions.Controls.Add(stageVendors); actions.Controls.Add(install);
+            preflight.Text = "Pré-checar Windows (não instala)"; preflight.AutoSize = true;
+            preflight.Enabled = Program.PreviewBuild && Program.HasPayload;
+            actions.Controls.Add(stageVendors); actions.Controls.Add(preflight); actions.Controls.Add(install);
             table.Controls.Add(actions, 0, 9); table.SetColumnSpan(actions, 2);
             var warning = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
                 Text = Program.PreviewBuild ?
@@ -133,6 +141,7 @@ namespace Esterium.WindowsSetup
             install.Click += async (s, e) => await Run(true, true);
             stageFiles.Click += async (s, e) => await RunStageFiles();
             stageVendors.Click += async (s, e) => await RunStageVendors();
+            preflight.Click += async (s, e) => await RunUnsignedPreflight();
             Log(Program.PreviewBuild ?
                 "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado." :
                 "Edição assinada: aplique somente após aprovação independente e homologação.");
@@ -384,7 +393,7 @@ namespace Esterium.WindowsSetup
             if (working) return;
             if (apply && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica nunca executa instalação."); return; }
             if (invoke && Program.PreviewBuild && !Program.HasPayload) { Log("BLOQUEADO: prévia sem payload."); return; }
-            working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = false;
+            working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = false;
             try
             {
                 // Capture UI state on its owning thread; hashing and extraction run off-thread.
@@ -423,7 +432,7 @@ namespace Esterium.WindowsSetup
             }
             catch (Exception error) { Log("BLOQUEADO: " + error.Message); }
             finally { working = false; check.Enabled = true; plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
-                      stageFiles.Enabled = stageVendors.Enabled = Program.PreviewBuild && Program.HasPayload;
+                      stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.PreviewBuild && Program.HasPayload;
                       install.Enabled = !Program.PreviewBuild; }
         }
     }
