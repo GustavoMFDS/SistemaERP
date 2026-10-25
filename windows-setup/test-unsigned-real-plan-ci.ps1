@@ -203,6 +203,38 @@ Write-Output 'PASS: vendor-stage reinstallation blocked; database/credentials/se
 $preflight=Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
 if ($preflight.ExitCode -ne 0) { throw 'Integrated unsigned native Windows preflight rejected a fresh runner.' }
 Write-Output 'PASS: unsigned native fresh-host preflight approved clean staged vendor and ERP files.'
+# PHASE 3: extract actual independently pinned PostgreSQL ZIP bytes under
+# protected Program Files. No initdb, no service/account, no network.
+if($PostgresBinaryZip){
+    $pgStage=Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin'
+    if(Test-Path -LiteralPath $pgStage) {throw 'Fresh CI runner has a preexisting PostgreSQL binaries stage'}
+    $pgPrep=Start-Process -FilePath $exe -ArgumentList '--stage-oss-postgres' -Wait -PassThru
+    if($pgPrep.ExitCode -ne 0){throw ('Native ZIP PostgreSQL stage failed: '+$pgPrep.ExitCode)}
+    foreach($relative in @('pgsql\bin\postgres.exe','pgsql\bin\initdb.exe','pgsql\bin\pg_ctl.exe',
+        'pgsql\bin\psql.exe','pgsql\bin\pg_isready.exe')){
+        $item=Join-Path $pgStage $relative
+        if(-not(Test-Path -LiteralPath $item -PathType Leaf)){
+            throw 'Missing extracted PostgreSQL vendor binary: '+$relative
+        }
+        $output=@(& $item '--version' 2>&1)
+        if($LASTEXITCODE -ne 0 -or (($output -join ' ') -notmatch '16\.15')){
+            throw 'Extracted PostgreSQL binary reported incorrect version: '+$relative
+        }
+    }
+    $pgAcl=Get-Acl -LiteralPath $pgStage
+    if(-not $pgAcl.AreAccessRulesProtected){throw 'PostgreSQL stage inherited broad Windows permissions'}
+    $pgRules=@($pgAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+    if(@($pgRules | Where-Object {
+        $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544')
+    }).Count -ne 0){throw 'PostgreSQL stage grants access to unexpected principal'}
+    $again=Start-Process -FilePath $exe -ArgumentList '--stage-oss-postgres' -Wait -PassThru
+    if($again.ExitCode -ne 5){throw 'PostgreSQL binary stage accepted a second execution'}
+    if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
+        throw 'PostgreSQL binary extraction created an unexpected Windows service'
+    }
+    Write-Output 'PASS: native MIT EXE extracted PostgreSQL 16.15 into protected Program Files, verified binaries and refused retry.'
+    Write-Output 'PASS: ZIP extraction installed no PostgreSQL cluster, Windows service, user or credential.'
+}
 # Continue only on a GitHub-hosted ephemeral Windows machine. Unlike the
 # preceding steps, this final smoke truly installs EDB on CI, never on a shop PC.
 if(-not $PostgresBinaryZip){
