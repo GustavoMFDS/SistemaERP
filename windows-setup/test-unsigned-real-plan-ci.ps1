@@ -164,3 +164,8 @@ if ($services.Count -ne 0) {throw 'Vendor preparation created an unexpected serv
 Write-Output 'PASS: unsigned native EXE staged genuine EDB/Garnet/NSSM under protected Program Files.'
 Write-Output 'PASS: EDB trusted Authenticode signer, pinned hashes and admin-only ACL.'
 Write-Output 'PASS: vendor-stage reinstallation blocked; database/credentials/services unchanged.'
+# Continue only on a GitHub-hosted ephemeral Windows machine. Unlike the
+# preceding steps, this final smoke truly installs EDB on CI, never on a shop PC.
+& (Join-Path $root 'windows-setup/test-real-edb-install-disposable-ci.ps1') `
+    -PostgresInstaller (Join-Path $vendorStage 'postgresql.exe') `
+    -ExpectedSHA256 $edbHash -ExpectedSignerThumbprint $edbCert

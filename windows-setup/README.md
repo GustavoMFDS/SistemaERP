@@ -171,3 +171,32 @@ Teste CI sob workflow_dispatch verifica cenário real com os binários
 fixados, valida as ACL, os hashes e a assinatura EDB pós-cópia,
 exige recusa em segunda execução e confirma que serviços não surgiram.
 Este teste NUNCA deve ser executado no PC de uma loja.
+
+
+## Teste de instalação REAL do PostgreSQL EDB no GitHub Actions
+
+O workflow manual de Windows usa o teste
+test-real-edb-install-disposable-ci.ps1 depois de verificar o ERP e os
+fornecedores. Diferentemente do plano sem -Apply, este teste **executa
+o instalador EDB original**, mas APENAS numa máquina temporária nova
+do GitHub Actions: nunca no equipamento do usuário ou em loja.
+
+O script exige Windows, github-hosted runner, a variável explícita
+ESTERIUM_REAL_EDB_DISPOSABLE_CI=1 e privilégio de Administrador.
+Ele valida de novo o hash SHA-256 e a assinatura Authenticode do EDB
+antes da execução, cria senhas aleatórias distintas somente para
+esse runner (nunca as imprime), grava as opções EDB num arquivo com
+ACL restrita a SYSTEM/Administradores e usa destinos, conta e serviço
+**exclusivos de CI**, sem reutilizar nenhuma instalação anterior.
+A opção EDB é apagada em bloco finally.
+
+Mesmo se o instalador retornar erro, o teste tenta desabilitar e
+parar o serviço criado. O sucesso só é declarado quando existe
+PG_VERSION=16, os executáveis esperados, a identidade da conta
+dedicada, o serviço parado/desabilitado e nenhuma porta aberta.
+
+**Limitações:** não instala ou libera os serviços da loja. Não
+substitui a adaptação e homologação de toda a cadeia de migrações,
+TLS, serviço ERP, backups e recuperação. É proibido executar esse
+teste fora do CI descartável. A instalação comercial com -Apply
+continua exigindo Authenticode dos scripts.

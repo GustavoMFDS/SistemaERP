@@ -106,11 +106,12 @@ jobs:
           retention-days: 7
 
   unsigned-real-readonly-plan:
-    # Explicit/manual CI only: real vendor downloads and full Windows ERP build.
-    # No Apply, no service creation, no database or customer data.
+    # Manual CI only: build ERP, verify vendor origin and stage native files.
+    # Final step installs REAL EDB on a unique disposable GitHub runner,
+    # and forcibly disables/stops its CI-only service. Never a customer host.
     if: github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -122,10 +123,11 @@ jobs:
           node-version: '22.13.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Verify read-only plan and prepare real ERP/vendor files (no services)
+      - name: Verify unsigned staging then install real EDB on disposable Windows ONLY
         shell: powershell
         env:
           ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_REAL_EDB_DISPOSABLE_CI: "1"
         run: |
           $ErrorActionPreference = 'Stop'
           npm install --global npm@11.6.1
