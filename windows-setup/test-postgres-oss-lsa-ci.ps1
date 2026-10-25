@@ -33,7 +33,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 
-internal static class EsteriumDisposableLsa
+public static class EsteriumDisposableLsa
 {
     [StructLayout(LayoutKind.Sequential)]
     private struct LsaObjectAttributes {
@@ -103,6 +103,8 @@ internal static class EsteriumDisposableLsa
     }
 }
 '@
-Add-Type -TypeDefinition $source -ErrorAction Stop
+if ($null -eq ([Management.Automation.PSTypeName]'EsteriumDisposableLsa').Type) {
+    Add-Type -TypeDefinition $source -ErrorAction Stop
+}
 [EsteriumDisposableLsa]::Change($Sid,($Action -eq 'Grant'))
 Write-Output ('PASS: CI-only PostgreSQL service logon right '+$Action.ToLowerInvariant()+'ed for ephemeral account.')
