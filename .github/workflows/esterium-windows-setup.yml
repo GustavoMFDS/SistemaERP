@@ -179,10 +179,10 @@ jobs:
           & .\windows-setup\test-postgres-oss-binaries-ci.ps1
 
   unsigned-integrated-zip-preview:
-    # Build a real complete one-file MIT preview containing the official
-    # PostgreSQL 16.15 binaries ZIP, ERP, Garnet and NSSM. It only stages,
-    # validates and preflights on ephemeral GitHub Windows; never installs.
-    if: github.event_name == 'workflow_dispatch'
+    # Regress the protected extraction with the REAL upstream ZIP on PR
+    # as well as manual workflow dispatch. The disposable Windows runner
+    # is destroyed afterward; no customer machine or database is touched.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
