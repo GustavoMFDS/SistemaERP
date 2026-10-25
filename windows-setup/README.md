@@ -370,3 +370,36 @@ a conta criada.
 A versao MIT publica continua com instalacao e migracoes bloqueadas,
 sem TLS e sem testes de backup/restauracao. A operacao de permissão
 LSA nao faz parte do EXE distribuido aos clientes.
+
+
+## PostgreSQL ZIP — teste de serviço, SQL e backup/restore validado
+
+Em GitHub Actions Windows **descartável** (run
+https://github.com/GustavoMFDS/SistemaERP/actions/runs/40237011076)
+o script `test-postgres-oss-service-ci.ps1` concluiu:
+
+1. `initdb` em uma conta Windows **sem privilégios de Administrador**;
+2. Concessão temporária de `SeServiceLogonRight` **somente** para a conta
+   efêmera de CI via LSA; registro do serviço PostgreSQL com
+   `New-Service -Credential` sem senha em argumentos;
+3. Serviço manual apenas durante o teste, escutando em `127.0.0.1`
+   e porta aleatória. Consulta SQL autenticada `SELECT 1`;
+4. Criação de banco novo exclusivamente de teste, inserção de uma linha,
+   backup real via `pg_dump -Fc`, exclusão do banco, recriação e
+   restauração real via `pg_restore`, seguida da conferência do registro;
+5. Parada e desativação do serviço, verificação da porta fechada,
+   exclusão do serviço único de CI, revogação do direito de logon
+   temporário e exclusão da conta após o teste.
+
+A CI nunca usa contas, nomes de serviços, banco de dados, certificados
+ou arquivos de lojas. O teste exige `GITHUB_ACTIONS=true`,
+`RUNNER_ENVIRONMENT=github-hosted` e
+`ESTERIUM_PG_ZIP_DISPOSABLE_CI=1` e rejeita executar fora disso.
+Nenhuma senha foi incluída no console nem nos argumentos dos processos.
+
+**Ainda pendente para clientes:** integrar esse processo em uma
+instalação persistente confiável no EXE MIT (fluxo privilegiado
+independentemente validado), configurar TLS, Garnet, serviços do ERP,
+migrações, prova de integridade fiscal, backup externo/restore de
+instalação completa, recuperação de falhas e homologação em máquina
+Windows limpa. O botão Instalar continua desabilitado nas prévias.
