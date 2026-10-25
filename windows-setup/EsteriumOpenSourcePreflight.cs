@@ -42,7 +42,7 @@ namespace Esterium.WindowsSetup
             OrdinaryTree(erp);
             OrdinaryTree(vendor);
             Bundle(erp, Hex("manifesto", pins["manifest"], 64));
-            string[] files = { "postgresql.exe", "garnet.zip", "nssm.exe" };
+            string[] files = { EmbeddedPostgresName, "garnet.zip", "nssm.exe" };
             string[] keys = { "postgres", "garnet", "nssm" };
             if (Directory.GetFiles(vendor, "*", SearchOption.AllDirectories).Length != 3 ||
                 Directory.GetDirectories(vendor, "*", SearchOption.AllDirectories).Length != 0)
@@ -55,7 +55,8 @@ namespace Esterium.WindowsSetup
                     Digest(path) != Hex(files[i], pins[keys[i]], 64))
                     throw new InvalidOperationException("Fornecedor incorreto: " + files[i]);
             }
-            AssertEdBAuthenticode(Path.Combine(vendor, "postgresql.exe"),
+            if (IsPostgresZipPreview) AssertOfficialPostgresZip(Path.Combine(vendor, EmbeddedPostgresName));
+            else AssertEdBAuthenticode(Path.Combine(vendor, "postgresql.exe"),
                 Hex("certificado EDB", pins["pgSigner"], 40));
             // Detect conflicts BEFORE a future installer has a chance to create accounts,
             // secrets, DB clusters, Windows services, or any network listener.
