@@ -30,6 +30,12 @@ namespace Esterium.WindowsSetup
         [STAThread]
         static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--stage-oss-postgres")
+            {
+                try { Installer.StageOpenSourcePostgresBinaries(); Environment.Exit(0); }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.Exit(5); }
+                return;
+            }
             if (args.Length > 0 && args[0] == "--preflight-oss")
             {
                 try { Installer.AssertUnsignedFreshHost(); Environment.Exit(0); }
@@ -72,7 +78,7 @@ namespace Esterium.WindowsSetup
     {
         readonly Dictionary<string, TextBox> inputs = new Dictionary<string, TextBox>();
         readonly TextBox output = new TextBox();
-        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button(), preflight = new Button();
+        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button(), preflight = new Button(), stagePostgres = new Button();
         string staging;
         bool working;
         bool ownsStaging;
@@ -121,13 +127,18 @@ namespace Esterium.WindowsSetup
             actions.Controls.Add(check); actions.Controls.Add(plan); actions.Controls.Add(stageFiles);
             preflight.Text = "Pré-checar Windows (não instala)"; preflight.AutoSize = true;
             preflight.Enabled = Program.PreviewBuild && Program.HasPayload;
-            actions.Controls.Add(stageVendors); actions.Controls.Add(preflight); actions.Controls.Add(install);
+            stagePostgres.Text = "Preparar binários PostgreSQL (não instala)";
+            stagePostgres.AutoSize = true;
+            stagePostgres.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
+            actions.Controls.Add(stageVendors); actions.Controls.Add(preflight);
+            actions.Controls.Add(stagePostgres); actions.Controls.Add(install);
             table.Controls.Add(actions, 0, 9); table.SetColumnSpan(actions, 2);
             var warning = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
                 Text = Program.PreviewBuild ?
                        "Preparar arquivos copia o ERP e Preparar dependências copia os binários de fornecedores " +
                        "para pastas protegidas. O ZIP oficial usa SHA-256 fixado; o EXE EDB usa assinatura. " +
-                       "NÃO instala banco, serviços ou HTTPS. Nunca repita uma etapa que falhou sem diagnóstico." :
+                       "A etapa ZIP PostgreSQL extrai somente os binários. NÃO cria banco, serviços ou HTTPS. " +
+                       "Nunca repita uma etapa que falhou sem diagnóstico." :
                        "A instalação altera serviços Windows. Em caso de falha parcial, NÃO repita a instalação " +
                        "nem apague banco ou dados. O instalador nunca libera automaticamente vendas." };
             table.Controls.Add(warning, 0, 10); table.SetColumnSpan(warning, 2);
@@ -142,6 +153,7 @@ namespace Esterium.WindowsSetup
             stageFiles.Click += async (s, e) => await RunStageFiles();
             stageVendors.Click += async (s, e) => await RunStageVendors();
             preflight.Click += async (s, e) => await RunUnsignedPreflight();
+            stagePostgres.Click += async (s, e) => await RunStagePostgresBinaries();
             Log(Program.PreviewBuild ?
                 (IsPostgresZipPreview ? "Prévia ZIP verificada: não executa serviços nem plano legado EDB. Instalar bloqueado." :
                  "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado.") :
@@ -397,7 +409,7 @@ namespace Esterium.WindowsSetup
             if (apply && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica nunca executa instalação."); return; }
             if (invoke && Program.PreviewBuild && !Program.HasPayload) { Log("BLOQUEADO: prévia sem payload."); return; }
             if (invoke && IsPostgresZipPreview) { Log("BLOQUEADO: o coordenador EDB EXE ainda nao aceita ZIP. Use Verificar arquivos e Pre-checar Windows."); return; }
-            working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = false;
+            working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = false;
             try
             {
                 // Capture UI state on its owning thread; hashing and extraction run off-thread.
@@ -438,6 +450,7 @@ namespace Esterium.WindowsSetup
             finally { working = false; check.Enabled = true;
                       plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
                       stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.PreviewBuild && Program.HasPayload;
+                      stagePostgres.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
                       install.Enabled = !Program.PreviewBuild; }
         }
     }
