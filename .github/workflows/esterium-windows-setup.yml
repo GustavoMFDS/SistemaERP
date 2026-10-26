@@ -200,6 +200,12 @@ jobs:
           node-version: '22.13.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Restore untrusted upstream PostgreSQL ZIP cache (always rehash)
+        id: pg-zip-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vendor-cache/postgresql-16.15-5-windows-x64-binaries.zip
+          key: esterium-postgresql-edb-16.15-5-43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281
       - name: Parse guarded native ZIP and disposable PostgreSQL test scripts
         shell: powershell
         run: |
@@ -225,6 +231,12 @@ jobs:
           npm install --global npm@11.6.1
           if ($LASTEXITCODE -ne 0) { throw 'npm tooling unavailable' }
           & .\windows-setup\test-unsigned-real-plan-ci.ps1 -PostgresBinaryZip
+      - name: Save SHA-256-verified PostgreSQL ZIP for future disposable CI
+        if: success() && steps.pg-zip-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .vendor-cache/postgresql-16.15-5-windows-x64-binaries.zip
+          key: esterium-postgresql-edb-16.15-5-43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281
       - name: Build offline PostgreSQL TLS certificate generator for integrated ZIP test
         shell: pwsh
         run: |
