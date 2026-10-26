@@ -297,6 +297,53 @@ if($PostgresBinaryZip){
         throw 'Integrated CI cluster test altered a production-named service.'
     }
     Write-Output 'PASS: PostgreSQL launched from the native EXE stage as non-admin on ephemeral Windows; SQL and backup/restore passed.'
+    # PHASE 4 of the real unsigned MIT EXE: atomically create protected
+    # EMPTY ProgramData folders. No DB, credentials, account or service is
+    # permitted to be installed by this command. Fail on preexisting folders.
+    $dataRoot=Join-Path $env:ProgramData 'Esterium'
+    if(Test-Path -LiteralPath $dataRoot){
+        throw 'Expected disposable Windows runner with no preexisting Esterium ProgramData.'
+    }
+    $prepare=Start-Process -FilePath $exe -ArgumentList '--stage-oss-data' -Wait -PassThru
+    if($prepare.ExitCode -ne 0){
+        throw ('Native protected ProgramData layout refused the pinned ZIP stage: '+$prepare.ExitCode)
+    }
+    $expectedFolders=@('PostgresData','GarnetData','Secrets','Backups')
+    foreach($name in $expectedFolders){
+        $dir=Join-Path $dataRoot $name
+        if(-not(Test-Path -LiteralPath $dir -PathType Container) -or
+            @(Get-ChildItem -LiteralPath $dir -Force).Count -ne 0){
+            throw ('ProgramData stage must contain only empty folders: '+$name)
+        }
+    }
+    $acl=Get-Acl -LiteralPath $dataRoot
+    if(-not $acl.AreAccessRulesProtected){throw 'ProgramData layout inherited unsafe ACL.'}
+    $rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+    if(@($rules | Where-Object { $_.AccessControlType -eq 'Allow' -and
+            $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544')
+        }).Count -ne 0){
+        throw 'Native ProgramData layout ACL grants access outside SYSTEM/Administrators.'
+    }
+    $marker=Join-Path $dataRoot 'oss-data-layout.json'
+    if(-not(Test-Path -LiteralPath $marker -PathType Leaf)){throw 'Missing data staging journal.'}
+    $state=Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json -ErrorAction Stop
+    if($state.phase -cne 'DATA_DIRECTORIES_ONLY' -or $state.schemaVersion -ne 1 -or
+       $state.databaseInitialized -ne $false -or $state.servicesInstalled -ne $false -or
+       $state.backupsConfigured -ne $false){
+        throw 'Staging marker falsely claims a configured PostgreSQL instance.'
+    }
+    $markerHash=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
+    $repeat=Start-Process -FilePath $exe -ArgumentList '--stage-oss-data' -Wait -PassThru
+    if($repeat.ExitCode -ne 5 -or
+       (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $markerHash){
+        throw 'Native ProgramData stage rerun replaced or modified already staged data.'
+    }
+    if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
+        throw 'Data folder preparation unexpectedly installed a product Windows service.'
+    }
+    Write-Output 'PASS: native EXE prepared empty protected ProgramData\\Esterium directories with honest journal and refused rerun.'
+    Write-Output 'NOT INSTALLED: no PostgreSQL cluster, Garnet data, service, credential or backup configured.'
+
 }
 # Continue only on a GitHub-hosted ephemeral Windows machine. Unlike the
 # preceding steps, this final smoke truly installs EDB on CI, never on a shop PC.
