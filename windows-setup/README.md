@@ -469,3 +469,37 @@ NAO chama `initdb`, NAO registra servico, NAO cria conta local,
 NAO abre rede, NAO aplica migracoes e NAO habilita instalacao comercial.
 O binario do computador local nao foi recompilado automaticamente;
 a integracao precisa passar no Windows GitHub CI antes da entrega.
+
+
+## 25/10/2026 — E2E de banco a partir dos binários que o EXE realmente preparou
+
+O job `unsigned-integrated-zip-preview` na PR passou a executar,
+**somente em Windows GitHub hospedado descartável**, a cadeia:
+
+1. Empacota e verifica o próprio EXE integrado com ERP + ZIP original
+   PostgreSQL 16.15-5 + Garnet/NSSM;
+2. O próprio EXE `--stage-oss-files`, `--stage-oss-vendors`,
+   `--preflight-oss`, `--stage-oss-postgres` extrai/verifica os
+   binários dentro de Program Files, sem criar serviços/contas;
+3. Verifica ACLs e `--version` das cópias resultantes. Exige bloqueio
+   de repetição e ausência de serviços do produto;
+4. Com `GITHUB_ACTIONS=true`, `RUNNER_ENVIRONMENT=github-hosted`,
+   `ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI=1` e
+   `ESTERIUM_PG_ZIP_DISPOSABLE_CI=1`, executa exclusivamente
+   `test-postgres-oss-initdb-ci.ps1 -FromIntegratedStage` sobre
+   `C:\Program Files\EsteriumOpenSourcePostgresBin\pgsql`, e NÃO
+   sobre uma segunda cópia ZIP separada. O teste cria conta sem
+   privilégios para um cluster efêmero sob RUNNER_TEMP;
+5. Essa conta recebe temporariamente somente leitura/execução dos
+   binários. A execução usa o serviço Windows isolado, realiza
+   `SELECT 1`, `pg_dump -Fc`, `pg_restore`, confere o dado
+   restaurado e para/exclui o serviço. A permissão de logon e a
+   leitura adicional concedida ao usuário temporário são revogadas.
+
+O script com esse teste adicional é rejeitado se for chamado fora
+do runner CI hospedado. **Ainda não é um método de instalação
+persistente de clientes**: não cria serviço `EsteriumPostgreSQL16`,
+não executa Garnet nem ERP no mesmo host e não habilita `Instalar`.
+A validação dessa cadeia está em:
+https://github.com/GustavoMFDS/SistemaERP/actions/runs/40254899332
+(consulte o resultado antes de anunciar a cadeia aprovada).
