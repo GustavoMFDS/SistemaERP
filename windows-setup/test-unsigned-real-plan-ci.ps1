@@ -252,7 +252,7 @@ if($PostgresBinaryZip){
         throw 'Native ZIP integration execution is allowed ONLY on disposable GitHub-hosted Windows.'
     }
     & (Join-Path $root 'windows-setup/test-postgres-oss-initdb-ci.ps1') `
-        -VerifiedPgRoot (Join-Path $pgStage 'pgsql') -FromIntegratedStage
+        -VerifiedPgRoot (Join-Path $pgStage 'pgsql') -FromIntegratedStage -ProgramDataLayout
     if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
         throw 'Integrated CI cluster test altered a production-named service.'
     }
