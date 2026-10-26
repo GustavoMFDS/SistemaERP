@@ -143,8 +143,37 @@ try {
     }
     $env:PATH=$bin+';'+$oldEnv['PATH']
     Write-Host 'PostgreSQL CI: initializing new isolated database cluster.'
-    & $initdb '-D' $data '--username=postgres' ('--pwfile='+$passwordFile) '--auth-host=scram-sha-256' '--auth-local=scram-sha-256' '--encoding=UTF8' '--no-instructions' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Real PostgreSQL initdb failed on isolated Windows host.' }
+    # Capture only bounded, redacted diagnostic output on test failure.
+    # The password travels exclusively through --pwfile, NEVER argv/logs.
+    $initInfo=[Diagnostics.ProcessStartInfo]::new()
+    $initInfo.FileName=$initdb
+    $initInfo.UseShellExecute=$false
+    $initInfo.CreateNoWindow=$true
+    $initInfo.RedirectStandardOutput=$true
+    $initInfo.RedirectStandardError=$true
+    foreach($value in @('-D',$data,'--username=postgres',('--pwfile='+$passwordFile),
+        '--auth-host=scram-sha-256','--auth-local=scram-sha-256',
+        '--encoding=UTF8','--no-instructions')){
+        [void]$initInfo.ArgumentList.Add($value)
+    }
+    $initProc=[Diagnostics.Process]::Start($initInfo)
+    if($null -eq $initProc){throw 'Could not start PostgreSQL initdb process.'}
+    try {
+        $initOut=$initProc.StandardOutput.ReadToEnd()
+        $initErr=$initProc.StandardError.ReadToEnd()
+        if(-not $initProc.WaitForExit(120000)){
+            try{$initProc.Kill()}catch{}
+            throw 'PostgreSQL initdb timed out on ephemeral CI.'
+        }
+        if($initProc.ExitCode -ne 0){
+            $diagnostic=($initErr+[Environment]::NewLine+$initOut).
+                Replace($pass,'[REDACTED]').
+                Replace($appPassword,'[REDACTED]')
+            if($diagnostic.Length -gt 2400){$diagnostic=$diagnostic.Substring(0,2400)}
+            Write-Warning ('CI-only PostgreSQL initdb diagnostic, redacted: '+$diagnostic)
+            throw ('PostgreSQL initdb failed on isolated Windows CI, exit '+$initProc.ExitCode)
+        }
+    }finally{$initProc.Dispose()}
     # Exercise the exact first-install config installer, not a CI-only
     # Copy-Item shortcut. The vendor cluster is fresh and service is never
     # registered; only the hosted fixture bypasses SCM signature checks.
