@@ -234,6 +234,23 @@ if($PostgresBinaryZip){
     }
     Write-Output 'PASS: native MIT EXE extracted PostgreSQL 16.15 into protected Program Files, verified binaries and refused retry.'
     Write-Output 'PASS: ZIP extraction installed no PostgreSQL cluster, Windows service, user or credential.'
+    # E2E integration proof: use the exact binaries created by THIS native
+    # EXE, not a second download or unrelated manually extracted archive.
+    # Create a throwaway non-admin CI-only cluster under RUNNER_TEMP, exercise
+    # Windows SCM, authenticated SQL and backup/restore, then remove the
+    # service, rights and temporary account. Never runs on a shop machine.
+    if($env:GITHUB_ACTIONS -ne 'true' -or
+       $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+       $env:ESTERIUM_PG_ZIP_DISPOSABLE_CI -ne '1'){
+        throw 'Native ZIP integration execution is allowed ONLY on disposable GitHub-hosted Windows.'
+    }
+    & (Join-Path $root 'windows-setup/test-postgres-oss-initdb-ci.ps1') `
+        -VerifiedPgRoot (Join-Path $pgStage 'pgsql') -FromIntegratedStage
+    if($LASTEXITCODE -ne 0){throw 'Integrated native ZIP real cluster test failed.'}
+    if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
+        throw 'Integrated CI cluster test altered a production-named service.'
+    }
+    Write-Output 'PASS: PostgreSQL launched from the native EXE stage as non-admin on ephemeral Windows; SQL and backup/restore passed.'
 }
 # Continue only on a GitHub-hosted ephemeral Windows machine. Unlike the
 # preceding steps, this final smoke truly installs EDB on CI, never on a shop PC.
