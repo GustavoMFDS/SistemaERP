@@ -227,6 +227,13 @@ if($PostgresBinaryZip){
     if(@($pgRules | Where-Object {
         $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544')
     }).Count -ne 0){throw 'PostgreSQL stage grants access to unexpected principal'}
+    # Fresh-host preflight is a one-way gate; after extraction a repeat
+    # of initial-install preflight must not claim a clean host.
+    $notFresh=Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
+    if($notFresh.ExitCode -ne 5){
+        throw 'Initial clean-host preflight accepted a previously staged PostgreSQL installation.'
+    }
+    Write-Output 'PASS: fresh-host preflight is rejected after native PostgreSQL staging.'
     $again=Start-Process -FilePath $exe -ArgumentList '--stage-oss-postgres' -Wait -PassThru
     if($again.ExitCode -ne 5){throw 'PostgreSQL binary stage accepted a second execution'}
     if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
