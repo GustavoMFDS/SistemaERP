@@ -9,6 +9,7 @@ A licença MIT do repositório NÃO altera a licença dos programas de terceiros
 |---|---|---|---|
 | Esterium ERP | Este repositório | Em desenvolvimento | Código-fonte sob MIT (arquivo LICENSE na raiz) |
 | PostgreSQL Server | PostgreSQL Global Development Group | 16.15 | PostgreSQL License; preservar os avisos aplicáveis |
+| Binários PostgreSQL para integração Windows | EnterpriseDB (EDB) / PostgreSQL Global Development Group | postgresql-16.15-5-windows-x64-binaries.zip | Prévia MIT integrada inclui este ZIP, não o instalador gráfico. PostgreSQL License e eventuais avisos dos outros componentes do ZIP precisam acompanhar a distribuição; inventário ainda sujeito a revisão. |
 | Instalador PostgreSQL para Windows | EnterpriseDB (EDB) | postgresql-16.15-1-windows-x64.exe | O executável de instalação é distribuído pela EDB: sua redistribuição em um pacote de terceiros requer revisão específica |
 | Garnet | microsoft/garnet | 2.2.3 | MIT; distribuir com seu LICENSE e com os avisos de terceiros de NOTICE.md |
 | NSSM | nssm.cc | 2.24-101-g897c7ad | Domínio público, segundo o autor; preservar a atribuição e a origem por transparência |
@@ -25,10 +26,14 @@ A licença MIT do repositório NÃO altera a licença dos programas de terceiros
   até serem verificadas as permissões e condições específicas de redistribuição.
   A licença de código aberto do PostgreSQL Server não autoriza automaticamente
   a redistribuição de cada instalador ou componente de terceiros.
-* O projeto PostgreSQL recomenda seus arquivos ZIP binários do Windows,
-  sem instalador, para aplicações que incorporam PostgreSQL em seu próprio
-  instalador. A migração para esse formato exigirá um novo processo de
-  instalação e testes; não fingir compatibilidade com scripts que exigem EDB EXE.
+* O projeto PostgreSQL recomenda seus arquivos ZIP binários do Windows
+  sem instalador para aplicações que incorporam PostgreSQL no próprio
+  instalador. O build MIT experimental já inclui exclusivamente o ZIP
+  `16.15-5` e valida seu SHA-256 externo
+  `43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281`.
+  Essa preparação está em teste; não constitui licença para redistribuição
+  de componentes de terceiros nem homologação dos serviços, SQL e backups.
+  A rota antiga EDB EXE, com assinatura Authenticode, continua distinta.
 * Nunca publicar material de credencial (.env, .key, .pem, .pfx),
   bancos de dados, backups ou dados de clientes.
 * Mesmo após revisão de redistribuição, o pacote não será marcado como
