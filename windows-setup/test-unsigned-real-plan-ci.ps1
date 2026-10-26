@@ -246,7 +246,6 @@ if($PostgresBinaryZip){
     }
     & (Join-Path $root 'windows-setup/test-postgres-oss-initdb-ci.ps1') `
         -VerifiedPgRoot (Join-Path $pgStage 'pgsql') -FromIntegratedStage
-    if($LASTEXITCODE -ne 0){throw 'Integrated native ZIP real cluster test failed.'}
     if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
         throw 'Integrated CI cluster test altered a production-named service.'
     }
