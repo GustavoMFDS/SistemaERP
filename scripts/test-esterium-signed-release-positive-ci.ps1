@@ -176,6 +176,16 @@ try {
             (Get-Service -Name 'EsteriumGarnet' -ErrorAction SilentlyContinue)) {
             throw 'Synthetic signed first-install PLAN changed a Windows installation.'
         }
+        # A signed-looking but untrusted temporary CI certificate must
+        # never cause a commercially APPROVED read-only preflight to pass.
+        $planArgs.VerifyApprovedRelease=$true
+        $signatureRefusal=''
+        try { & $runOne @planArgs | Out-Null }
+        catch { $signatureRefusal=$_.Exception.Message }
+        if ($signatureRefusal -notmatch 'sem assinatura do editor aprovado') {
+            throw 'Untrusted CI certificate was accepted as a commercial signed plan.'
+        }
+        $planArgs.VerifyApprovedRelease=$false
         $planArgs.Apply=$true
         $refusal=''
         try { & $runOne @planArgs | Out-Null }

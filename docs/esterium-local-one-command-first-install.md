@@ -38,15 +38,25 @@ $setup = @{
   ApprovedManifestSHA256 = '<SHA256_MANIFESTO_RELEASE_APROVADO_EXTERNO>'
   TrustedPublisherThumbprint = '<EDITOR_ESTERIUM_APROVADO>'
 }
-# Primeiro, plano read-only, sem alterar a máquina.
+# 1. Plano read-only de requisitos: nao autentica o editor comercial.
 & 'C:\Install\EsteriumApproved\tools\install-esterium-local-complete.ps1' @setup
-# Só depois do aceite, com release real assinada e aprovação:
+# 2. Plano read-only COM manifesto e editor genuinamente aprovados fora do ZIP.
+& 'C:\Install\EsteriumApproved\tools\install-esterium-local-complete.ps1' @setup -VerifyApprovedRelease
+# 3. -Apply somente apos aceite, com pacote real assinado e plano aprovado:
 # & 'C:\Install\EsteriumApproved\tools\install-esterium-local-complete.ps1' @setup -Apply
 ```
 
 Valores entre `<...>` são **marcadores**, não hashes/certificados reais.
 A assinatura deve ser feita antes de gerar/validar o manifesto final,
 seguindo a cadeia de confiança do projeto.
+
+O `-VerifyApprovedRelease` executa uma verificação mais rigorosa e
+sem alterações no Windows: autentica primeiro os scripts que verificam a
+release, confere o SHA-256 do manifesto obtido por canal independente e
+exige assinatura Authenticode **válida e confiável** de todos os executáveis
+e scripts privilegiados. O `-Apply` exige exatamente a mesma conferência
+**antes de qualquer alteração**. Um PLAN comum não aprova o editor
+comercial, e certificado fictício de CI não habilita instalação.
 
 O procedimento faz a pré-verificação **das duas etapas** antes de qualquer
 escrita; apenas no modo `-Apply` validado executa, na ordem:
