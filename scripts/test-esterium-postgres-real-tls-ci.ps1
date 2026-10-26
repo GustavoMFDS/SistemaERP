@@ -141,7 +141,23 @@ try {
         -not (Test-Path -LiteralPath $psql -PathType Leaf)) {
         throw 'Approved PostgreSQL binary ZIP lacks pg_ctl or psql.'
     }
-    $env:PATH=$bin+';'+$oldEnv['PATH']
+    # Some EDB Windows binary subcomponents reside beside pgsql/bin under
+    # pgsql/lib. Set the private ZIP runtime search path explicitly rather
+    # than relying on the shell's global machine PATH.
+    $lib=Join-Path (Split-Path -Parent $bin) 'lib'
+    $env:PATH=$bin+';'+$lib+';'+$oldEnv['PATH']
+    foreach($tool in @('initdb.exe','postgres.exe')) {
+        $full=Join-Path $bin $tool
+        if(-not(Test-Path -LiteralPath $full -PathType Leaf)){
+            throw ('Pinned PostgreSQL runtime binary missing: '+$tool)
+        }
+        # Read-only smoke in this SAME pwsh process as initdb: catches DLL
+        # loader failures before trying to initialize a second test cluster.
+        $output=@(& $full '--version' 2>&1)
+        if($LASTEXITCODE -ne 0 -or ($output -join ' ') -notmatch '16\.15'){
+            throw ('Staged PostgreSQL runtime cannot execute '+$tool+' in pwsh; exit '+$LASTEXITCODE)
+        }
+    }
     Write-Host 'PostgreSQL CI: initializing new isolated database cluster.'
     # Capture only bounded, redacted diagnostic output on test failure.
     # The password travels exclusively through --pwfile, NEVER argv/logs.
