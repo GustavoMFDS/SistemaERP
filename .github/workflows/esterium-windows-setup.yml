@@ -196,10 +196,23 @@ jobs:
           node-version: '22.13.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Integrated one-file ZIP preview, pin hashes, stage safely (never Apply)
+      - name: Parse guarded native ZIP and disposable PostgreSQL test scripts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('windows-setup/test-unsigned-real-plan-ci.ps1',
+              'windows-setup/test-postgres-oss-initdb-ci.ps1',
+              'windows-setup/test-postgres-oss-service-ci.ps1',
+              'windows-setup/test-postgres-oss-lsa-ci.ps1')) {
+            $tokens = $null; $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $path),[ref]$tokens,[ref]$errors) | Out-Null
+            if (@($errors).Count -gt 0) { throw ('Invalid CI-only PowerShell script: '+$path) }
+          }
+      - name: Integrated MIT EXE staging and PostgreSQL initdb/SQL/backup on disposable CI
         shell: powershell
         env:
           ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
         run: |
           $ErrorActionPreference = 'Stop'
           npm install --global npm@11.6.1
