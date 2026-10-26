@@ -503,3 +503,49 @@ não executa Garnet nem ERP no mesmo host e não habilita `Instalar`.
 A validação dessa cadeia está em:
 https://github.com/GustavoMFDS/SistemaERP/actions/runs/40254899332
 (consulte o resultado antes de anunciar a cadeia aprovada).
+
+
+## Testes fim a fim usando TODOS os bytes do mesmo EXE MIT (em andamento)
+
+O workflow \`unsigned-integrated-zip-preview\` em Windows descartável
+foi ampliado para testar de forma sequencial:
+
+1. Preparação de ERP, fornecedores e ZIP PostgreSQL pelos comandos
+   nativos do mesmo arquivo \`.exe\`, mantendo ACLs e hashes pinados;
+2. PostgreSQL \`initdb\` sob uma conta local de CI sem privilégios, com
+   data directory sob uma pasta **exclusiva do teste** em ProgramData,
+   serviço temporário, SQL autenticado e pg_dump/pg_restore, revogando
+   permissões temporárias após uso;
+3. PostgreSQL TLS verify-full/SCRAM, migrações completas do ERP, WAL e
+   restauração num segundo cluster, utilizando o executável \`initdb\`
+   que o próprio \`.exe\` extraiu (sem segundo download ZIP);
+4. Garnet TLS/ACL/Lua e AOF com recuperação após falha e serviço NSSM
+   NetworkService, utilizando Garnet ZIP e NSSM que o EXE preparou.
+   O arquivo NSSM é copiado para uma pasta CI somente-leitura do
+   NetworkService, sem conceder acesso adicional ao vendor-stage;
+5. Registro do \`esterium-server.exe\` real, vindo do bundle preparado
+   pelo EXE, como serviço \`EsteriumERP\` **parado/manual**,
+   LocalService e fiscal/SEFAZ desabilitados, com arquivos de
+   credenciais sintéticos e ACLs restritas; o serviço não deve iniciar
+   e é removido no fim do teste.
+
+O passo 3 apresentou **uma falha em initdb** na primeira execução
+integrada (run 40256012496), após o sucesso das etapas de PostgreSQL
+não administrador/SQL/backup. Isso NÃO invalida os testes de componentes
+independentes, mas **bloqueia qualquer declaração de sucesso do E2E
+integrado**. O script foi atualizado para capturar apenas diagnóstico
+CI redigido com substituição de senhas sintéticas por \`[REDACTED]\`,
+a fim de identificar e corrigir a causa, em vez de pular a falha.
+Executável cliente **ainda não instala** banco ou serviços.
+
+O workflow \`oss-component-gate\` agora é fail-closed também em PR:
+exige sucesso de \`unsigned-preview\` e do E2E integrado, enquanto
+workflow manual requer os cinco jobs de componentes anteriores.
+Um CI parcialmente aprovado ou qualquer job \`skipped\` que seja
+obrigatório NÃO autoriza release.
+
+**Atenção:** esses passos são exclusivas fixtures com variáveis
+CI e Windows runner temporário. Não permitem executar scripts
+administrativos unsigned no Windows de lojas. Integrar o fluxo
+privilegiado real, testes de reboot, backup externo e auditoria
+operacional continua pendente.
