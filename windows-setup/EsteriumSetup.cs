@@ -30,6 +30,12 @@ namespace Esterium.WindowsSetup
         [STAThread]
         static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--audit-oss-postgres")
+            {
+                try { Installer.AuditOpenSourcePostgresBinaries(); Environment.Exit(0); }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.Exit(5); }
+                return;
+            }
             if (args.Length > 0 && args[0] == "--stage-oss-postgres")
             {
                 try { Installer.StageOpenSourcePostgresBinaries(); Environment.Exit(0); }
