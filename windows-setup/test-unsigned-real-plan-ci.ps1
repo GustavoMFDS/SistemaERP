@@ -239,6 +239,24 @@ if($PostgresBinaryZip){
     if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
         throw 'PostgreSQL binary extraction created an unexpected Windows service'
     }
+    # A future privileged install must RE-AUTHENTICATE installed bytes,
+    # not trust the earlier one-time ZIP extraction or the staging directory.
+    $audit=Start-Process -FilePath $exe -ArgumentList '--audit-oss-postgres' -Wait -PassThru
+    if($audit.ExitCode -ne 0){throw 'PostgreSQL native integrity audit refused the intact pinned vendor stage.'}
+    $extra=Join-Path $pgStage 'ci-audit-injected-extra-file.marker'
+    if(Test-Path -LiteralPath $extra){throw 'Fresh CI PostgreSQL binary stage had an unexpected marker.'}
+    try{
+        [IO.File]::WriteAllText($extra,'CI-only extra file that must be rejected')
+        $rejected=Start-Process -FilePath $exe -ArgumentList '--audit-oss-postgres' -Wait -PassThru
+        if($rejected.ExitCode -ne 5){
+            throw 'Native PostgreSQL audit accepted an unexpected file in protected stage.'
+        }
+    }finally{
+        if(Test-Path -LiteralPath $extra){Remove-Item -LiteralPath $extra -Force -ErrorAction Stop}
+    }
+    $againAudit=Start-Process -FilePath $exe -ArgumentList '--audit-oss-postgres' -Wait -PassThru
+    if($againAudit.ExitCode -ne 0){throw 'PostgreSQL audit did not recover after CI-only extra file removal.'}
+    Write-Output 'PASS: PostgreSQL native integrity audit confirmed every upstream file, rejected an extra file and approved intact stage.'
     Write-Output 'PASS: native MIT EXE extracted PostgreSQL 16.15 into protected Program Files, verified binaries and refused retry.'
     Write-Output 'PASS: ZIP extraction installed no PostgreSQL cluster, Windows service, user or credential.'
     # E2E integration proof: use the exact binaries created by THIS native
