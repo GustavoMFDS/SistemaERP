@@ -49,6 +49,8 @@ jobs:
           if ($fresh.ExitCode -ne 5) {throw 'Empty preview must not claim Windows installation readiness'}
           $pg = Start-Process -FilePath $exe -ArgumentList '--stage-oss-postgres' -Wait -PassThru
           if ($pg.ExitCode -ne 5) {throw 'Empty preview must reject PostgreSQL extraction'}
+          $audit = Start-Process -FilePath $exe -ArgumentList '--audit-oss-postgres' -Wait -PassThru
+          if ($audit.ExitCode -ne 5) {throw 'Empty preview must reject PostgreSQL audit'}
           if ((Get-AuthenticodeSignature $exe).Status -eq 'Valid') {
             throw 'Preview unexpectedly signed; do not publish as commercial release'
           }
@@ -96,6 +98,8 @@ jobs:
           if ($fresh.ExitCode -ne 5) { throw 'Synthetic untrusted payload was accepted by fresh-host preflight' }
           $pg = Start-Process -FilePath $exe -ArgumentList '--stage-oss-postgres' -Wait -PassThru
           if ($pg.ExitCode -ne 5) { throw 'Synthetic untrusted payload was accepted for PostgreSQL extraction' }
+          $audit = Start-Process -FilePath $exe -ArgumentList '--audit-oss-postgres' -Wait -PassThru
+          if ($audit.ExitCode -ne 5) {throw 'Synthetic untrusted payload was accepted by PostgreSQL audit'}
           $meta = Start-Process -FilePath $exe -ArgumentList '--has-preview-approvals' -Wait -PassThru
           if ($meta.ExitCode -ne 0) { throw 'Preview approval metadata was not embedded' }
           $manifest = [Reflection.Assembly]::LoadFrom($exe).GetManifestResourceStream('Esterium.PreviewApprovals')
