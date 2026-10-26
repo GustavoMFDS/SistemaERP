@@ -342,7 +342,7 @@ jobs:
   oss-component-gate:
     # IMPORTANT: This is a COMPONENT TEST GATE, NOT approval of a retail
     # or customer install. Production Apply remains disabled in MIT preview.
-    if: always() && github.event_name == 'workflow_dispatch'
+    if: always()
     needs:
       - unsigned-preview
       - postgresql-oss-binaries-smoke
@@ -354,6 +354,7 @@ jobs:
     steps:
       - name: Fail closed unless EVERY unsigned component smoke passed
         env:
+          EVENT_NAME: ${{ github.event_name }}
           UI: ${{ needs.unsigned-preview.result }}
           POSTGRES_BIN: ${{ needs.postgresql-oss-binaries-smoke.result }}
           POSTGRES_TLS_SCHEMA: ${{ needs.postgres-oss-tls-schema-smoke.result }}
@@ -362,7 +363,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for check in UI POSTGRES_BIN POSTGRES_TLS_SCHEMA GARNET_TLS_AOF COMBINED_EXE; do
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # PRs run the actual unsigned EXE staging + PostgreSQL TLS/schema
+            # and Garnet integration on a disposable Windows runner. Manual
+            # dispatch additionally requires all independent component jobs.
+            checks="UI COMBINED_EXE"
+          else
+            checks="UI POSTGRES_BIN POSTGRES_TLS_SCHEMA GARNET_TLS_AOF COMBINED_EXE"
+          fi
+          for check in $checks; do
             value="${!check}"
             printf '%s: %s\n' "$check" "$value"
             if [ "$value" != "success" ]; then
@@ -370,5 +379,5 @@ jobs:
               exit 1
             fi
           done
-          echo "PASS: independent Windows component smokes all passed."
+          echo "PASS: required Windows checks for $EVENT_NAME all passed."
           echo "NOT A RETAIL INSTALL: customer Apply remains disabled; E2E ERP service, persistent deployment and full store restore still required."
