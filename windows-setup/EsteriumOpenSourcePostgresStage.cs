@@ -180,7 +180,7 @@ namespace Esterium.WindowsSetup
                 return;
             working = true;
             check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled =
-                stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = false;
+                stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = stageData.Enabled = false;
             try
             {
                 var values = new Dictionary<string,string>();
@@ -218,7 +218,7 @@ namespace Esterium.WindowsSetup
                 check.Enabled = true;
                 plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
                 stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.HasPayload;
-                stagePostgres.Enabled = Program.HasPayload && IsPostgresZipPreview;
+                stagePostgres.Enabled = stageData.Enabled = Program.HasPayload && IsPostgresZipPreview;
                 install.Enabled = false;
             }
         }
