@@ -184,7 +184,7 @@ jobs:
     # is destroyed afterward; no customer machine or database is touched.
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -218,6 +218,41 @@ jobs:
           npm install --global npm@11.6.1
           if ($LASTEXITCODE -ne 0) { throw 'npm tooling unavailable' }
           & .\windows-setup\test-unsigned-real-plan-ci.ps1 -PostgresBinaryZip
+      - name: Build offline PostgreSQL TLS certificate generator for integrated ZIP test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location backend
+          try {
+            go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
+            if ($LASTEXITCODE -ne 0) { throw 'Offline TLS certificate generator build failed.' }
+          } finally { Pop-Location }
+      - name: Build pinned Windows migration CLI for integrated ZIP test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $previous=$env:GOBIN
+          $dir=Join-Path $env:RUNNER_TEMP ('esterium-integrated-migrator-'+[Guid]::NewGuid().ToString('N'))
+          [IO.Directory]::CreateDirectory($dir) | Out-Null
+          try {
+            $env:GOBIN=$dir
+            Push-Location backend
+            try {
+              go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+              if ($LASTEXITCODE -ne 0) { throw 'Pinned migrator build failed.' }
+            } finally { Pop-Location }
+            Copy-Item -LiteralPath (Join-Path $dir 'migrate.exe') -Destination ./scripts/esterium-migrate.exe -ErrorAction Stop
+          } finally { $env:GOBIN=$previous }
+      - name: Test TLS SCRAM real ERP migrations and recovery from EXE-staged ZIP
+        shell: pwsh
+        timeout-minutes: 18
+        env:
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./scripts/test-esterium-postgres-real-tls-ci.ps1 -FromIntegratedStage
+
 
   garnet-oss-real-tls-aof-smoke:
     # Reuse the existing CI proof: actual Garnet TLS+ACL+Lua+AOF recovery,
