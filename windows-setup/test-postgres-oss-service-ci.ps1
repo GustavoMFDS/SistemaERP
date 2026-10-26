@@ -10,7 +10,8 @@ param(
     [Parameter(Mandatory=$true)][string]$DataDir,
     [Parameter(Mandatory=$true)][pscredential]$ServiceCredential,
     [switch]$ExerciseLoopback,
-    [switch]$FromIntegratedStage
+    [switch]$FromIntegratedStage,
+    [switch]$ProgramDataLayout
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -27,6 +28,19 @@ $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
 $pgDir=[IO.Path]::GetFullPath($VerifiedPgRoot).TrimEnd('\')
 $data=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
 $approvedIntegratedRoot=Join-Path (Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin') 'pgsql'
+$approvedData=$data.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase)
+if($ProgramDataLayout){
+    if(-not $FromIntegratedStage) {throw 'ProgramData CI service test needs the pinned native EXE stage.'}
+    $ciRoot=Split-Path -Parent $data
+    $ciParent=[IO.Path]::GetFullPath((Split-Path -Parent $ciRoot)).TrimEnd('\')
+    if($ciParent -cne ([IO.Path]::GetFullPath($env:ProgramData).TrimEnd('\')) -or
+       (Split-Path -Leaf $ciRoot) -cnotmatch '^EsteriumOpenSourceCITest-[a-f0-9]{32}$' -or
+       (Split-Path -Leaf $data) -cne 'cluster' -or
+       -not(Test-Path -LiteralPath $ciRoot -PathType Container)) {
+        throw 'CI ProgramData cluster must be in a unique explicitly approved disposable folder.'
+    }
+    $approvedData=$true
+}
 $trustedSource=if($FromIntegratedStage){
     ($env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -eq '1' -and
      $pgDir -ceq $approvedIntegratedRoot)
@@ -34,7 +48,7 @@ $trustedSource=if($FromIntegratedStage){
     $pgDir.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase)
 }
 if (-not $trustedSource -or
-    -not $data.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase) -or
+    -not $approvedData -or
     $pgDir.Contains('"') -or $data.Contains('"') -or
     -not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_ctl.exe') -PathType Leaf) -or
     -not (Test-Path -LiteralPath (Join-Path $data 'PG_VERSION') -PathType Leaf) -or
