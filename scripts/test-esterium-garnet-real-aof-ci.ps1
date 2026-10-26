@@ -166,8 +166,18 @@ try {
             throw 'Protected native EXE Garnet/NSSM staged bytes not present or pin invalid.'
         }
         Copy-Item -LiteralPath $sourceZip -Destination $zip -ErrorAction Stop
-        $nssmExe=$sourceNssm
-        Write-Output 'PASS: Garnet CI uses the Garnet/NSSM files extracted from the native MIT EXE.'
+        # The original vendor staging is admin-only by design. A service
+        # running as NetworkService must get RX, never write, to the NSSM
+        # executable. Copy pinned bytes into this isolated CI fixture whose
+        # parent has explicit NetworkService RX, rather than relaxing the
+        # protected publisher staging ACL.
+        $nssmExe=Join-Path $root 'nssm.exe'
+        Copy-Item -LiteralPath $sourceNssm -Destination $nssmExe -ErrorAction Stop
+        if((Get-FileHash -LiteralPath $nssmExe -Algorithm SHA256).Hash -cne
+          'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848') {
+            throw 'Copied native-exe NSSM file failed independent SHA-256 verification.'
+        }
+        Write-Output 'PASS: Garnet CI uses the Garnet/NSSM bytes extracted from the native MIT EXE.'
     }else{
         $url='https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
         Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
