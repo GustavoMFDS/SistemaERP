@@ -10,6 +10,8 @@ on:
   pull_request:
     paths:
       - 'windows-setup/**'
+      - 'scripts/test-esterium-postgres-real-tls-ci.ps1'
+      - 'scripts/test-esterium-garnet-real-aof-ci.ps1'
       - '.github/workflows/esterium-windows-setup.yml'
   push:
     branches: [main]
@@ -19,6 +21,12 @@ on:
 
 permissions:
   contents: read
+
+# The integrated Windows job downloads/builds hundreds of MB. Cancel superseded
+# PR runs only; preserve explicitly dispatched/manual validation runs.
+concurrency:
+  group: esterium-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unsigned-preview:
