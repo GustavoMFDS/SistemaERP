@@ -115,4 +115,18 @@ try {
             Write-Output 'PASS: only the CI-owned ERP Windows service was deregistered.'
         }
     }
+    # Remove ONLY two unique directories created by this CI invocation.
+    # Never delete staged ERP source, vendor binaries or installed customer data.
+    if($guid -cmatch '^[0-9a-f]{32}$' -and
+       $install -ceq (Join-Path $env:ProgramFiles ('EsteriumERPCI-'+$guid)) -and
+       $temp -ceq (Join-Path $env:RUNNER_TEMP ('esterium-real-erp-scm-'+$guid)) -and
+       $null -eq (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) {
+        if(Test-Path -LiteralPath $install){
+            Remove-Item -LiteralPath $install -Recurse -Force -ErrorAction Stop
+        }
+        if(Test-Path -LiteralPath $temp){
+            Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop
+        }
+        Write-Output 'PASS: unique disposable ERP files and synthetic credentials cleaned up.'
+    }
 }
