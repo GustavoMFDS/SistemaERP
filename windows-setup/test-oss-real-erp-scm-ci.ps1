@@ -38,7 +38,7 @@ if(-not(Test-Path -LiteralPath $registration -PathType Leaf) -or
     throw 'Real native ERP bundle unavailable or CI service/install destination already exists.'
 }
 & $verify -BundleDir $source | Out-Null
-if($LASTEXITCODE -ne 0){throw 'Pinned native ERP staging integrity failed.'}
+if(-not $?) {throw 'Pinned native ERP staging integrity failed.'}
 try {
     [IO.Directory]::CreateDirectory($temp)|Out-Null
     $secretsDir=Join-Path $temp 'secrets'
@@ -78,7 +78,7 @@ try {
         throw 'CI ERP service is not manual/stopped, LocalService or the verified executable.'
     }
     & (Join-Path $install 'tools\verify-esterium-bundle.ps1') -BundleDir $install|Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Installed ERP bundle diverges from its own pinned manifest.'}
+    if(-not $?) {throw 'Installed ERP bundle diverges from its own pinned manifest.'}
     if(@(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){
         throw 'CI service registerer unexpectedly started an ERP HTTP listener.'
     }
