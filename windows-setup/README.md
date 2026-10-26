@@ -595,3 +595,47 @@ o ZIP oficial PostgreSQL 16.15-5, mas trata cada cache como
 antes e depois da cópia. Um cache adulterado bloqueia o teste.
 Isso não autoriza distribuir o ZIP a clientes nem elimina os
 avisos/licenças de terceiros.
+
+
+## Etapa nativa 4 — preparar pastas protegidas em ProgramData (não instala)
+
+A prévia MIT com ZIP oficial PostgreSQL dispõe da operação
+`Preparar pastas de dados (não instala)` (CLI `--stage-oss-data`).
+Ela **não usa a rota comercial de assinaturas Authenticode** e não
+substitui sua verificação; trata apenas do layout inicial da rota
+MIT experimental.
+
+A etapa exige Administrador/UAC, repete a auditoria de integridade
+de **todos** os binários PostgreSQL extraídos em Program Files, e
+revalida manifesto ERP, Garnet e NSSM por hashes embutidos.
+Recusa pasta `C:\ProgramData\Esterium` já existente e os serviços
+`EsteriumPostgreSQL16`, `EsteriumGarnet` e `EsteriumERP`
+quando registrados.
+
+A pasta `C:\ProgramData\Esterium` é criada de forma atômica
+com `CreateDirectoryW` e descritor de segurança explícito;
+uma pasta preexistente (inclusive criada em corrida) **não é adotada**.
+O DACL não herda permissões de ProgramData, autorizando apenas
+SYSTEM e Administradores. São criados apenas diretórios **vazios**:
+`PostgresData`, `GarnetData`, `Secrets` e `Backups`.
+O arquivo `oss-data-layout.json` registra honestamente a fase
+`DATA_DIRECTORIES_ONLY` com `databaseInitialized=false`,
+`servicesInstalled=false` e `backupsConfigured=false`.
+Não há segredos nesse registro.
+
+Em caso de interrupção, **o estágio parcial é preservado para
+diagnóstico**, não removido automaticamente. Uma nova tentativa
+encontra a pasta já existente e é bloqueada. Isso evita apagar
+qualquer dado de instalação anterior ao tentar recuperar de falha.
+
+O teste de CI Windows descartável confirma criação, ausência
+de arquivos nas quatro pastas, ACL sem herança, registro de estado,
+recusa da segunda execução sem alterar o marcador e ausência de
+serviços. A validação nova está em:
+https://github.com/GustavoMFDS/SistemaERP/actions/runs/40422436873
+(consultar a conclusão do job antes de anunciar como aprovada).
+
+**Não executa** `initdb`, criação de contas de serviço, SQL,
+Garnet, certificado TLS, registro de serviço, migrações ou backups.
+Essas operações requerem implementação e testes adicionais para a
+instalação persistente. O botão `Instalar` permanece bloqueado.
