@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Web.Script.Serialization;
 
 // Phase 4: prepare the FUTURE data directories with protected ACLs.
 // No PostgreSQL cluster, SQL, accounts, services, credentials, network,
@@ -30,6 +32,25 @@ namespace Esterium.WindowsSetup
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool CreateProtectedDirectory(
             string path, ref WinSecurityAttributes attributes);
+
+        private static Dictionary<string, string> PreviewPins()
+        {
+            using (var resource = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream("Esterium.PreviewApprovals"))
+            {
+                if (resource == null)
+                    throw new InvalidOperationException("Hashes embutidos ausentes.");
+                using (var reader = new StreamReader(resource, Encoding.UTF8))
+                {
+                    var data = new JavaScriptSerializer().Deserialize<Dictionary<string,string>>(
+                        reader.ReadToEnd());
+                    if (data == null || !data.ContainsKey("manifest") ||
+                        !data.ContainsKey("garnet") || !data.ContainsKey("nssm"))
+                        throw new InvalidOperationException("Aprovacoes de arquivos incompletas.");
+                    return data;
+                }
+            }
+        }
 
         internal static void StageOpenSourceDataFolders()
         {
