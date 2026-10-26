@@ -7,7 +7,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$VerifiedPgRoot,
-    [switch]$FromIntegratedStage
+    [switch]$FromIntegratedStage,
+    [switch]$ProgramDataLayout
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -37,8 +38,20 @@ $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.Window
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Only CI Administrator can create temporary low-privilege test account.'
 }
+if ($ProgramDataLayout -and -not $FromIntegratedStage) {
+    throw 'ProgramData CI fixture requires the verified native EXE binary stage.'
+}
 $account='epg'+[Guid]::NewGuid().ToString('N').Substring(0,12)
-$work=Join-Path $env:RUNNER_TEMP ('esterium-pg-initdb-'+[Guid]::NewGuid().ToString('N'))
+$work=if($ProgramDataLayout){
+    Join-Path $env:ProgramData ('EsteriumOpenSourceCITest-'+[Guid]::NewGuid().ToString('N'))
+}else{
+    Join-Path $env:RUNNER_TEMP ('esterium-pg-initdb-'+[Guid]::NewGuid().ToString('N'))
+}
+if($ProgramDataLayout -and
+   ((Split-Path -Leaf $work) -cnotmatch '^EsteriumOpenSourceCITest-[0-9a-f]{32}$' -or
+    (Test-Path -LiteralPath $work))) {
+    throw 'Disposable ProgramData fixture is not unique and empty.'
+}
 $data=Join-Path $work 'cluster'
 $pwFile=Join-Path $work 'password.secret'
 $stdout=Join-Path $work 'initdb.out'
@@ -97,9 +110,24 @@ try {
     }
     # Real Windows SCM step, still disabled/stopped. User credentials stay in
     # PSCredential SecureString and never appear in any process argument.
-    & (Join-Path $PSScriptRoot 'test-postgres-oss-service-ci.ps1') -VerifiedPgRoot $root -DataDir $data -ServiceCredential $credential -ExerciseLoopback -FromIntegratedStage:$FromIntegratedStage
+    & (Join-Path $PSScriptRoot 'test-postgres-oss-service-ci.ps1') -VerifiedPgRoot $root -DataDir $data -ServiceCredential $credential -ExerciseLoopback -FromIntegratedStage:$FromIntegratedStage -ProgramDataLayout:$ProgramDataLayout
     Write-Output 'PASS: PostgreSQL 16 initdb generated a real cluster as new NON-ADMIN CI Windows user.'
     Write-Output 'PASS: PG_VERSION=16 and pg_hba SCRAM, no Windows service started or registered.'
+    if($ProgramDataLayout) {
+        $acl=Get-Acl -LiteralPath $work
+        if(-not $acl.AreAccessRulesProtected){
+            throw 'ProgramData CI fixture must never inherit open parent permissions.'
+        }
+        $trust=@('S-1-5-18','S-1-5-32-544',$sid)
+        $rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+        if(@($rules | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and
+            $_.IdentityReference.Value -notin $trust
+        }).Count -ne 0) {
+            throw 'ProgramData CI fixture unexpectedly grants access to outside principals.'
+        }
+        Write-Output 'PASS: dedicated ProgramData PostgreSQL cluster ACL is protected and restricted.'
+    }
 } finally {
     $password=$null
     $secure=$null
