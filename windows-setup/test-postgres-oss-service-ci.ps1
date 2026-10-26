@@ -9,7 +9,8 @@ param(
     [Parameter(Mandatory=$true)][string]$VerifiedPgRoot,
     [Parameter(Mandatory=$true)][string]$DataDir,
     [Parameter(Mandatory=$true)][pscredential]$ServiceCredential,
-    [switch]$ExerciseLoopback
+    [switch]$ExerciseLoopback,
+    [switch]$FromIntegratedStage
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -25,7 +26,14 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
 $pgDir=[IO.Path]::GetFullPath($VerifiedPgRoot).TrimEnd('\')
 $data=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
-if (-not $pgDir.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase) -or
+$approvedIntegratedRoot=Join-Path (Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin') 'pgsql'
+$trustedSource=if($FromIntegratedStage){
+    ($env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -eq '1' -and
+     $pgDir -ceq $approvedIntegratedRoot)
+}else{
+    $pgDir.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase)
+}
+if (-not $trustedSource -or
     -not $data.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase) -or
     $pgDir.Contains('"') -or $data.Contains('"') -or
     -not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_ctl.exe') -PathType Leaf) -or
