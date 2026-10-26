@@ -65,6 +65,9 @@ namespace Esterium.WindowsSetup
                 Path.Combine(programFiles, "EsteriumGarnet"),
                 Path.Combine(programFiles, "EsteriumERP"),
                 Path.Combine(programFiles, "EsteriumApprovedSetup"),
+                // Once binary staging has occurred this is no longer a *fresh*
+                // Windows host for the initial setup workflow. Fail closed.
+                Path.Combine(programFiles, "EsteriumOpenSourcePostgresBin"),
                 Path.Combine(programData, "Esterium", "PostgresData"),
                 Path.Combine(programData, "Esterium", "PostgresInstallOptions"),
                 Path.Combine(programData, "Esterium", "PostgresTlsPolicy"),
