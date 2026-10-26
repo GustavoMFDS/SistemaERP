@@ -549,3 +549,49 @@ CI e Windows runner temporário. Não permitem executar scripts
 administrativos unsigned no Windows de lojas. Integrar o fluxo
 privilegiado real, testes de reboot, backup externo e auditoria
 operacional continua pendente.
+
+
+## Auditoria read-only dos binários PostgreSQL antes do bootstrap
+
+O comando nativo \`--audit-oss-postgres\`, disponível apenas no EXE MIT
+técnico com ZIP PostgreSQL embutido, NÃO altera o Windows. Ele exige
+elevação somente para leitura de Program Files, revalida o hash externo
+do ZIP original \`16.15-5\`, protege o handle de origem contra gravação
+concorrente e confere **todos os arquivos extraídos**, um por um, contra
+a versão correspondente de cada entrada aprovada no ZIP.
+Também rejeita links simbólicos/junctions, arquivos extra,
+binários essenciais ausentes e ACLs que concedam acesso fora de
+SYSTEM/Administradores.
+
+Essa auditoria será uma das pré-condições obrigatórias antes que
+qualquer futuro fluxo de instalação passe a executar o PostgreSQL.
+O CI \`test-unsigned-real-plan-ci.ps1 -PostgresBinaryZip\` testa
+sucesso sobre a cópia intacta, recusa um arquivo adicional exclusivo
+do teste, remove o marcador e exige sucesso novamente. O marcador
+não é executável e não modifica bytes do PostgreSQL.
+
+## Ciclo de integração ampliado e cache verificado
+
+Além da criação do cluster não administrativo em ProgramData de CI,
+o workflow procura executar TLS verify-full/SCRAM, migrações reais do
+ERP e restauração em cluster independente usando \`initdb.exe\`
+dentro do Program Files preparado pelo próprio EXE. Numa primeira
+tentativa houve falha \`0xC0000135\` (Windows: componente DLL ausente)
+na execução de \`initdb\` pelo PowerShell 7. A falha **não foi
+silenciada**: o script agora fornece diagnóstico limitado, sem
+credenciais, valida \`initdb.exe\` e \`postgres.exe\` no mesmo ambiente
+e configura caminho explícito de DLLs \`pgsql/bin\` e \`pgsql/lib\`.
+A rota integrada segue não homologada até obter CI verde.
+
+O workflow também valida Garnet TLS/ACL/Lua/AOF e serviço NSSM
+com os mesmos arquivos do EXE, e um teste de registro do ERP
+\`esterium-server.exe\` real como LocalService parado/manual, com
+dados de login fictícios, fiscal/SEFAZ desabilitado. Nenhum dos
+testes altera o computador de usuários.
+
+Por eficiência, o GitHub Actions pode reutilizar em \`.vendor-cache\`
+o ZIP oficial PostgreSQL 16.15-5, mas trata cada cache como
+**conteúdo NÃO CONFIÁVEL** e exige o SHA-256 independente original
+antes e depois da cópia. Um cache adulterado bloqueia o teste.
+Isso não autoriza distribuir o ZIP a clientes nem elimina os
+avisos/licenças de terceiros.
