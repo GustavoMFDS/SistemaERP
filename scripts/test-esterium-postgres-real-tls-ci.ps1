@@ -117,8 +117,38 @@ try {
            -not (Test-Path -LiteralPath (Join-Path $bin 'initdb.exe') -PathType Leaf)) {
             throw 'Native MIT ZIP stage or independently vendor-pinned SHA missing for TLS test.'
         }
+        # The initial PostgreSQL service smoke already proves in-place
+        # execution under a non-admin CI SID from this Program Files stage.
+        # Isolate the later TLS/schema fixture in RUNNER_TEMP to avoid Windows
+        # DLL-loader/ACL differences in PowerShell 7, but copy ONLY the same
+        # native EXE-staged binaries. No separate vendor download is allowed.
+        $stageRoot=Split-Path -Parent $bin
+        if ((Get-Item -LiteralPath $stageRoot -Force).Attributes -band
+            [IO.FileAttributes]::ReparsePoint) {
+            throw 'Refuse symlinked PostgreSQL source in native stage.'
+        }
+        Copy-Item -LiteralPath $stageRoot -Destination $unpacked -Recurse -ErrorAction Stop
+        $copiedRoot=$unpacked
+        $sourceFiles=@(Get-ChildItem -LiteralPath $stageRoot -Recurse -File -ErrorAction Stop)
+        $copiedFiles=@(Get-ChildItem -LiteralPath $copiedRoot -Recurse -File -ErrorAction Stop)
+        if($sourceFiles.Count -lt 20 -or $sourceFiles.Count -ne $copiedFiles.Count){
+            throw 'Second PostgreSQL fixture is incomplete or unexpected.'
+        }
+        foreach($sourceFile in $sourceFiles){
+            if (($sourceFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'Unexpected reparse point in native PostgreSQL stage.'
+            }
+            $relative=$sourceFile.FullName.Substring($stageRoot.Length).TrimStart('\')
+            $copy=Join-Path $copiedRoot $relative
+            if(-not (Test-Path -LiteralPath $copy -PathType Leaf) -or
+               (Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -cne
+                (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash){
+                throw ('Second PostgreSQL fixture differs from the pinned native stage: '+$relative)
+            }
+        }
+        $bin=Join-Path $copiedRoot 'bin'
         $initdb=Join-Path $bin 'initdb.exe'
-        Write-Output 'PASS: TLS/schema CI now uses the PostgreSQL binaries extracted by the native MIT EXE.'
+        Write-Output 'PASS: TLS/schema fixture is a byte-for-byte checked CI copy of PostgreSQL from the native MIT EXE.'
     } else {
         Write-Host 'PostgreSQL CI: downloading pinned EDB Windows ZIP and validating its SHA-256.'
         # Hash independently published by EnterpriseDB for the exact 16.15-5 ZIP:
