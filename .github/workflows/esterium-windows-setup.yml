@@ -184,7 +184,7 @@ jobs:
     # is destroyed afterward; no customer machine or database is touched.
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: windows-2025
-    timeout-minutes: 65
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -205,7 +205,8 @@ jobs:
               'windows-setup/test-postgres-oss-service-ci.ps1',
               'windows-setup/test-postgres-oss-lsa-ci.ps1',
               'scripts/test-esterium-postgres-real-tls-ci.ps1',
-              'scripts/test-esterium-garnet-real-aof-ci.ps1')) {
+              'scripts/test-esterium-garnet-real-aof-ci.ps1',
+              'windows-setup/test-oss-real-erp-scm-ci.ps1')) {
             $tokens = $null; $errors = $null
             [Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $path),[ref]$tokens,[ref]$errors) | Out-Null
             if (@($errors).Count -gt 0) { throw ('Invalid CI-only PowerShell script: '+$path) }
@@ -266,6 +267,16 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           & ./scripts/test-esterium-garnet-real-aof-ci.ps1 -FromIntegratedStage
+      - name: Register real unsigned ERP bundle as stopped Windows service (CI only)
+        shell: powershell
+        timeout-minutes: 12
+        env:
+          ESTERIUM_SCM_DISPOSABLE_CI: "1"
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\windows-setup\test-oss-real-erp-scm-ci.ps1
 
   garnet-oss-real-tls-aof-smoke:
     # Reuse the existing CI proof: actual Garnet TLS+ACL+Lua+AOF recovery,
