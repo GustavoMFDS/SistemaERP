@@ -1,4 +1,6 @@
 #requires -Version 5.1
+[CmdletBinding()]
+param([switch]$FromIntegratedStage)
 # Real Garnet smoke: disposable Windows CI, pinned upstream ZIP, no ERP data.
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -149,8 +151,27 @@ try {
     $config.Recover=$false
     [IO.File]::WriteAllText($fresh,($config | ConvertTo-Json -Depth 5))
     Protect-Fixture $fresh $false
-    $url='https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
-    Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
+    if($FromIntegratedStage){
+        if($env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -ne '1' -or
+           $env:ESTERIUM_PG_ZIP_DISPOSABLE_CI -ne '1'){
+            throw 'Integrated Garnet smoke requires the disposable hosted Windows MIT setup CI guards.'
+        }
+        $sourceZip=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\garnet.zip'
+        $sourceNssm=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\nssm.exe'
+        if(-not(Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\bundle-manifest.json') -PathType Leaf) -or
+           -not(Test-Path -LiteralPath $sourceZip -PathType Leaf) -or
+           -not(Test-Path -LiteralPath $sourceNssm -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $sourceNssm -Algorithm SHA256).Hash -cne
+             'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'){
+            throw 'Protected native EXE Garnet/NSSM staged bytes not present or pin invalid.'
+        }
+        Copy-Item -LiteralPath $sourceZip -Destination $zip -ErrorAction Stop
+        $nssmExe=$sourceNssm
+        Write-Output 'PASS: Garnet CI uses the Garnet/NSSM files extracted from the native MIT EXE.'
+    }else{
+        $url='https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
+        Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
+    }
     if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne
         '5cd130686ab415b13c59d36d048a6faded81e707ffe6da5953f98beeb79f9f16') {
         throw 'Upstream official Garnet ZIP hash differs from independently pinned CI fixture.'
@@ -200,53 +221,61 @@ try {
     Stop-Process -Id $server.Id -Force
     $server.WaitForExit()
     $server=$null
-    $nssmHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
-    $cacheRoot=Join-Path $env:GITHUB_WORKSPACE '.vendor-cache'
-    $cacheFile=Join-Path $cacheRoot 'nssm-2.24-101-g897c7ad.zip'
-    $downloaded=$false
-    # GitHub Actions cache is an UNTRUSTED byte source. Its content must pass
-    # the same independently pinned vendor SHA-256 as direct upstream bytes.
-    if (Test-Path -LiteralPath $cacheFile -PathType Leaf) {
-        $cacheHash=(Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash
-        if ($cacheHash -cne $nssmHash) {
-            throw 'Cached NSSM ZIP differs from approved upstream SHA-256; refuse cache and installation.'
-        }
-        Copy-Item -LiteralPath $cacheFile -Destination $nssmZip -ErrorAction Stop
-        $downloaded=$true
-        Write-Output 'PASS: reused SHA-256 verified official NSSM ZIP from ephemeral CI cache.'
-    }
-    # Publisher-only fallback for a cold cache. The downloaded binary is
-    # cached only AFTER immutable SHA-256 verification and a full successful
-    # live Windows service test; it is never signed on behalf of the vendor.
-    if (-not $downloaded) {
-      foreach ($nssmUrl in @(
-        'https://www.nssm.cc/ci/nssm-2.24-101-g897c7ad.zip',
-        'https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
-    )) {
-        for ($attempt=0; $attempt -lt 3; $attempt++) {
-            try {
-                if (Test-Path -LiteralPath $nssmZip) {
-                    Remove-Item -LiteralPath $nssmZip -Force
-                }
-                Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -TimeoutSec 90 -ErrorAction Stop
-                $downloaded=$true
-                break
-            } catch {
-                if ($attempt -lt 2) { Start-Sleep -Seconds @(2,6,14)[$attempt] }
+    if(-not $FromIntegratedStage){
+        $nssmHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
+        $cacheRoot=Join-Path $env:GITHUB_WORKSPACE '.vendor-cache'
+        $cacheFile=Join-Path $cacheRoot 'nssm-2.24-101-g897c7ad.zip'
+        $downloaded=$false
+        # GitHub Actions cache is an UNTRUSTED byte source. Its content must pass
+        # the same independently pinned vendor SHA-256 as direct upstream bytes.
+        if (Test-Path -LiteralPath $cacheFile -PathType Leaf) {
+            $cacheHash=(Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash
+            if ($cacheHash -cne $nssmHash) {
+                throw 'Cached NSSM ZIP differs from approved upstream SHA-256; refuse cache and installation.'
             }
+            Copy-Item -LiteralPath $cacheFile -Destination $nssmZip -ErrorAction Stop
+            $downloaded=$true
+            Write-Output 'PASS: reused SHA-256 verified official NSSM ZIP from ephemeral CI cache.'
         }
-        if ($downloaded) { break }
-      }
-    }
-    if (-not $downloaded) {
-        throw 'Publisher unavailable and no verified NSSM cache exists; service proof is blocked.'
-    }
-    if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmHash) {
-        throw 'NSSM package differs from independently approved upstream WinGet SHA-256.'
-    }
-    Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmDir -ErrorAction Stop
-    if (-not (Test-Path -LiteralPath $nssmExe -PathType Leaf)) {
-        throw 'Pinned NSSM ZIP has no required Windows x64 executable.'
+        # Publisher-only fallback for a cold cache. The downloaded binary is
+        # cached only AFTER immutable SHA-256 verification and a full successful
+        # live Windows service test; it is never signed on behalf of the vendor.
+        if (-not $downloaded) {
+          foreach ($nssmUrl in @(
+            'https://www.nssm.cc/ci/nssm-2.24-101-g897c7ad.zip',
+            'https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
+        )) {
+            for ($attempt=0; $attempt -lt 3; $attempt++) {
+                try {
+                    if (Test-Path -LiteralPath $nssmZip) {
+                        Remove-Item -LiteralPath $nssmZip -Force
+                    }
+                    Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -TimeoutSec 90 -ErrorAction Stop
+                    $downloaded=$true
+                    break
+                } catch {
+                    if ($attempt -lt 2) { Start-Sleep -Seconds @(2,6,14)[$attempt] }
+                }
+            }
+            if ($downloaded) { break }
+          }
+        }
+        if (-not $downloaded) {
+            throw 'Publisher unavailable and no verified NSSM cache exists; service proof is blocked.'
+        }
+        if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmHash) {
+            throw 'NSSM package differs from independently approved upstream WinGet SHA-256.'
+        }
+        Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmDir -ErrorAction Stop
+        if (-not (Test-Path -LiteralPath $nssmExe -PathType Leaf)) {
+            throw 'Pinned NSSM ZIP has no required Windows x64 executable.'
+        }
+    }else{
+        if(-not (Test-Path -LiteralPath $nssmExe -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $nssmExe -Algorithm SHA256).Hash -cne
+             'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'){
+            throw 'NSSM from native MIT EXE does not match the approved x64 SHA-256.'
+        }
     }
     if ($null -ne (Get-Service -Name $nssmService -ErrorAction SilentlyContinue)) {
         throw 'Disposable Garnet service identity is already registered.'
