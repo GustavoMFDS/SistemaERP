@@ -17,10 +17,32 @@ $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $dest=Join-Path $env:RUNNER_TEMP ('esterium-unsigned-plan-'+[Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($dest) | Out-Null
 function DownloadPinned([string]$url,[string]$file,[string]$expected) {
-    & curl.exe -fLsS --retry 2 --connect-timeout 25 --max-time 240 -o $file $url
-    if ($LASTEXITCODE -ne 0) {throw "Pinned upstream download unavailable: $url"}
+    # A GitHub Actions cache is UNTRUSTED: reuse only independently SHA-256
+    # approved vendor bytes, without allowing cache contents to bypass checks.
+    $cache=''
+    if($PostgresBinaryZip -and
+       $expected -ceq '43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'){
+        $cache=Join-Path $root '.vendor-cache\postgresql-16.15-5-windows-x64-binaries.zip'
+    }
+    if($cache -and (Test-Path -LiteralPath $cache -PathType Leaf)){
+        if((Get-FileHash -LiteralPath $cache -Algorithm SHA256).Hash -cne $expected){
+            throw 'Untrusted CI cache has an incorrect PostgreSQL vendor digest.'
+        }
+        Copy-Item -LiteralPath $cache -Destination $file -ErrorAction Stop
+        Write-Output 'PASS: SHA-pinned official PostgreSQL ZIP reused from disposable CI cache.'
+    }else{
+        & curl.exe -fLsS --retry 2 --connect-timeout 25 --max-time 480 -o $file $url
+        if ($LASTEXITCODE -ne 0) {throw "Pinned upstream download unavailable: $url"}
+    }
     if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) {
         throw "Pinned vendor hash mismatch: $file"
+    }
+    if($cache -and -not(Test-Path -LiteralPath $cache)){
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $cache)) | Out-Null
+        Copy-Item -LiteralPath $file -Destination $cache -ErrorAction Stop
+        if((Get-FileHash -LiteralPath $cache -Algorithm SHA256).Hash -cne $expected){
+            throw 'Failed to preserve independently approved ZIP in CI cache.'
+        }
     }
 }
 $edbHash=if($PostgresBinaryZip){'43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'}else{'DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'}
