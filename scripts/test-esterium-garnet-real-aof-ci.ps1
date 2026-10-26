@@ -361,19 +361,24 @@ try {
         @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -ne 0) {
         throw 'SCM service shutdown left Garnet running or its local TLS port open.'
     }
-    if (-not (Test-Path -LiteralPath $cacheFile)) {
-        if (Test-Path -LiteralPath $cacheRoot) {
-            $cacheDir=Get-Item -LiteralPath $cacheRoot -Force -ErrorAction Stop
-            if (($cacheDir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-                throw 'Refuse NSSM CI cache through a symbolic link or junction.'
+    # The integrated path uses the already SHA-256-approved NSSM executable
+    # provided by the MIT EXE. It has NO upstream NSSM archive or cacheFile;
+    # do not read undefined variables or fabricate an archive from the EXE.
+    if (-not $FromIntegratedStage) {
+        if (-not (Test-Path -LiteralPath $cacheFile)) {
+            if (Test-Path -LiteralPath $cacheRoot) {
+                $cacheDir=Get-Item -LiteralPath $cacheRoot -Force -ErrorAction Stop
+                if (($cacheDir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw 'Refuse NSSM CI cache through a symbolic link or junction.'
+                }
+            } else {
+                [IO.Directory]::CreateDirectory($cacheRoot) | Out-Null
             }
-        } else {
-            [IO.Directory]::CreateDirectory($cacheRoot) | Out-Null
-        }
-        # Copy only after the genuine SCM/TLS/ACL/AOF proof passed.
-        Copy-Item -LiteralPath $nssmZip -Destination $cacheFile -ErrorAction Stop
-        if ((Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash -cne $nssmHash) {
-            throw 'NSSM vendor cache bytes changed while preparing GitHub upload.'
+            # Copy only after the genuine SCM/TLS/ACL/AOF proof passed.
+            Copy-Item -LiteralPath $nssmZip -Destination $cacheFile -ErrorAction Stop
+            if ((Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash -cne $nssmHash) {
+                throw 'NSSM vendor cache bytes changed while preparing GitHub upload.'
+            }
         }
     }
     Write-Output 'PASS: upstream WinGet-pinned NSSM runs authenticated Garnet TLS under NetworkService and stops disabled with no listener.'
