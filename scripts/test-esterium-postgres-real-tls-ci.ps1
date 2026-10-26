@@ -1,4 +1,6 @@
 #requires -Version 5.1
+[CmdletBinding()]
+param([switch]$FromIntegratedStage)
 <#
   Real PostgreSQL 16 smoke, only on disposable GitHub-hosted Windows runner.
   Downloads vendor-published SHA-256-pinned community ZIP (not EDB installer);
@@ -98,20 +100,41 @@ try {
     $policyConfig=Join-Path $policy 'postgresql.conf'
     $policyHba=Join-Path $policy 'pg_hba.conf'
     & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf $policyConfig -PgHbaConf $policyHba | Out-Null
-    Write-Host 'PostgreSQL CI: downloading pinned EDB Windows ZIP and validating its SHA-256.'
-    # Hash independently published by EnterpriseDB for the exact 16.15-5 ZIP:
-    # https://github.com/EnterpriseDB/edb-installers/issues/731 .
-    $url='https://get.enterprisedb.com/postgresql/postgresql-16.15-5-windows-x64-binaries.zip'
-    Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
-    $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($hash -cne '43bb45f173a6f08cf1d29a97a6d8deb119e8e8093a24c00d2d1001a0ccaa8281') {
-        throw 'Vendor PostgreSQL Windows ZIP hash mismatch: no third-party binary can execute.'
+    if($FromIntegratedStage) {
+        # Use the actual files created and verified by the MIT setup EXE.
+        # The TLS test is still CI-only and cannot execute on a user's PC.
+        if($env:ESTERIUM_PG_ZIP_DISPOSABLE_CI -ne '1' -or
+           $env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -ne '1') {
+            throw 'Integrated TLS/schema CI requires both ephemeral Windows CI guards.'
+        }
+        $bin=Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin\pgsql\bin'
+        $vendorZip=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\postgresql-binaries.zip'
+        $erp=Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\bundle-manifest.json'
+        if(-not (Test-Path -LiteralPath $erp -PathType Leaf) -or
+           -not (Test-Path -LiteralPath $vendorZip -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $vendorZip -Algorithm SHA256).Hash -cne
+                '43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281' -or
+           -not (Test-Path -LiteralPath (Join-Path $bin 'initdb.exe') -PathType Leaf)) {
+            throw 'Native MIT ZIP stage or independently vendor-pinned SHA missing for TLS test.'
+        }
+        $initdb=Join-Path $bin 'initdb.exe'
+        Write-Output 'PASS: TLS/schema CI now uses the PostgreSQL binaries extracted by the native MIT EXE.'
+    } else {
+        Write-Host 'PostgreSQL CI: downloading pinned EDB Windows ZIP and validating its SHA-256.'
+        # Hash independently published by EnterpriseDB for the exact 16.15-5 ZIP:
+        # https://github.com/EnterpriseDB/edb-installers/issues/731 .
+        $url='https://get.enterprisedb.com/postgresql/postgresql-16.15-5-windows-x64-binaries.zip'
+        Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
+        $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($hash -cne '43bb45f173a6f08cf1d29a97a6d8deb119e8e8093a24c00d2d1001a0ccaa8281') {
+            throw 'Vendor PostgreSQL Windows ZIP hash mismatch: no third-party binary can execute.'
+        }
+        Expand-Archive -LiteralPath $zip -DestinationPath $unpacked -ErrorAction Stop
+        $initdbMatches=@(Get-ChildItem -LiteralPath $unpacked -Recurse -Filter 'initdb.exe' -File)
+        if ($initdbMatches.Count -ne 1) { throw 'Expected exactly one PostgreSQL initdb.exe in approved ZIP.' }
+        $bin=$initdbMatches[0].DirectoryName
+        $initdb=$initdbMatches[0].FullName
     }
-    Expand-Archive -LiteralPath $zip -DestinationPath $unpacked -ErrorAction Stop
-    $initdbMatches=@(Get-ChildItem -LiteralPath $unpacked -Recurse -Filter 'initdb.exe' -File)
-    if ($initdbMatches.Count -ne 1) { throw 'Expected exactly one PostgreSQL initdb.exe in approved ZIP.' }
-    $bin=$initdbMatches[0].DirectoryName
-    $initdb=$initdbMatches[0].FullName
     $pgCtl=Join-Path $bin 'pg_ctl.exe'
     $psql=Join-Path $bin 'psql.exe'
     if (-not (Test-Path -LiteralPath $pgCtl -PathType Leaf) -or
