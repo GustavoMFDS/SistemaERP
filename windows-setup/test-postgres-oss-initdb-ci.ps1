@@ -5,7 +5,10 @@
   network listener, customer PC or production credential.
 #>
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$VerifiedPgRoot)
+param(
+    [Parameter(Mandatory=$true)][string]$VerifiedPgRoot,
+    [switch]$FromIntegratedStage
+)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
@@ -15,9 +18,20 @@ if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
 }
 $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
 $root=[IO.Path]::GetFullPath($VerifiedPgRoot).TrimEnd('\')
-if (-not $root.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase) -or
-    -not (Test-Path -LiteralPath (Join-Path $root 'bin\initdb.exe') -PathType Leaf)) {
-    throw 'Verified PostgreSQL binary directory must be under hosted CI temporary files.'
+$integratedStage=Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin'
+$approvedRoot=Join-Path $integratedStage 'pgsql'
+if ($FromIntegratedStage) {
+    if ($env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -ne '1' -or
+        $root -cne $approvedRoot -or
+        -not (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\bundle-manifest.json') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\postgresql-binaries.zip') -PathType Leaf)) {
+        throw 'Integrated initdb test requires exactly the approved native ZIP stage on disposable CI.'
+    }
+} elseif (-not $root.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Standalone initdb test requires verified binaries inside hosted CI temp.'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $root 'bin\initdb.exe') -PathType Leaf)) {
+    throw 'Verified PostgreSQL initdb binary is missing.'
 }
 $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -50,7 +64,11 @@ try {
     [IO.Directory]::CreateDirectory($work) | Out-Null
     & icacls.exe $work '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ('*'+$sid+':(OI)(CI)M') | Out-Null
     if ($LASTEXITCODE -ne 0) {throw 'Cannot set ephemeral cluster directory ACL.'}
-    & icacls.exe $root '/grant' ('*'+$sid+':(OI)(CI)RX') | Out-Null
+    # Grant this temporary NON-ADMIN identity read/execute only.
+    # For native integrated Program Files stage, put inheritable RX on
+    # its locked top-level folder. Never grant write to the vendor bytes.
+    $aclTarget=if($FromIntegratedStage){$integratedStage}else{$root}
+    & icacls.exe $aclTarget '/grant' ('*'+$sid+':(OI)(CI)RX') | Out-Null
     if ($LASTEXITCODE -ne 0) {throw 'CI account cannot read verified ZIP binaries.'}
     [IO.File]::WriteAllText($pwFile,$password+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
     & icacls.exe $pwFile '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' ('*'+$sid+':R') | Out-Null
@@ -79,12 +97,18 @@ try {
     }
     # Real Windows SCM step, still disabled/stopped. User credentials stay in
     # PSCredential SecureString and never appear in any process argument.
-    & (Join-Path $PSScriptRoot 'test-postgres-oss-service-ci.ps1') -VerifiedPgRoot $root -DataDir $data -ServiceCredential $credential -ExerciseLoopback
+    & (Join-Path $PSScriptRoot 'test-postgres-oss-service-ci.ps1') -VerifiedPgRoot $root -DataDir $data -ServiceCredential $credential -ExerciseLoopback -FromIntegratedStage:$FromIntegratedStage
     Write-Output 'PASS: PostgreSQL 16 initdb generated a real cluster as new NON-ADMIN CI Windows user.'
     Write-Output 'PASS: PG_VERSION=16 and pg_hba SCRAM, no Windows service started or registered.'
 } finally {
     $password=$null
     $secure=$null
     if ($null -ne $proc) {$proc.Dispose()}
-    if ($created) {Remove-LocalUser -Name $account -ErrorAction Stop}
+    if ($created) {
+        if($FromIntegratedStage){
+            & icacls.exe $integratedStage '/remove:g' ('*'+$sid) | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not revoke CI-only read permission on staged PostgreSQL files.'}
+        }
+        Remove-LocalUser -Name $account -ErrorAction Stop
+    }
 }
