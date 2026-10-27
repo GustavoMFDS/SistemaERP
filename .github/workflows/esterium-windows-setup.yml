@@ -233,7 +233,8 @@ jobs:
               'scripts/test-esterium-postgres-real-tls-ci.ps1',
               'scripts/test-esterium-garnet-real-aof-ci.ps1',
               'windows-setup/test-oss-real-erp-scm-ci.ps1',
-              'windows-setup/test-oss-native-data-initdb-ci.ps1')) {
+              'windows-setup/test-oss-native-data-initdb-ci.ps1',
+              'windows-setup/test-oss-offline-service-identity-ci.ps1')) {
             $tokens = $null; $errors = $null
             [Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $path),[ref]$tokens,[ref]$errors) | Out-Null
             if (@($errors).Count -gt 0) { throw ('Invalid CI-only PowerShell script: '+$path) }
