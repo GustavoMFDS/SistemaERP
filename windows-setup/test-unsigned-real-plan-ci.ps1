@@ -351,6 +351,63 @@ if($PostgresBinaryZip){
     }
     & (Join-Path $root 'windows-setup/test-oss-native-data-initdb-ci.ps1') -IntegratedExe $exe
     Write-Output 'PASS: protected native ProgramData layout supported isolated non-admin PostgreSQL initdb, SQL and recovery.'
+    # PHASE 5 native MIT preview: generate real OFFLINE first-install
+    # secret material with CSPRNG, no process argv/logging or installed service.
+    # The preceding fixture returned ProgramData to the empty staged state.
+    $secretStage=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru
+    if($null -eq $secretStage -or $secretStage.ExitCode -ne 0){
+        throw 'Protected offline secret generation failed after intact native ProgramData test.'
+    }
+    $secretFolder=Join-Path $dataRoot 'Secrets'
+    $secretNames=@('pg-super.secret','pg-service.secret','pg-app.secret',
+        'garnet-password.secret','jwt.secret','metrics.secret')
+    $found=@(Get-ChildItem -LiteralPath $secretFolder -File -Force)
+    if($found.Count -ne $secretNames.Count){
+        throw 'Native offline secrets stage generated unexpected number of files.'
+    }
+    $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($name in $secretNames){
+        $path=Join-Path $secretFolder $name
+        if(-not(Test-Path -LiteralPath $path -PathType Leaf) -or
+           ((Get-Item -LiteralPath $path -Force).Attributes -band
+             [IO.FileAttributes]::ReparsePoint)){
+            throw ('Missing protected offline credential: '+$name)
+        }
+        $value=[IO.File]::ReadAllText($path).TrimEnd([char]13,[char]10)
+        if($value -cnotmatch '^Q9_z[A-Za-z0-9_-]{64}$' -or
+           -not $seen.Add($value)){
+            throw 'Native secret has invalid format, inadequate length or duplicate contents.'
+        }
+        $secretAcl=Get-Acl -LiteralPath $path
+        $grants=@($secretAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+        if(@($grants | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and
+            $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544')
+        }).Count -ne 0){
+            throw 'Offline secret file exposes data to an unapproved Windows account.'
+        }
+        $value=$null
+    }
+    $secretMarker=Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json -ErrorAction Stop
+    if($secretMarker.phase -cne 'OFFLINE_SECRETS_ONLY' -or
+       $secretMarker.secretsGenerated -ne $true -or
+       $secretMarker.databaseInitialized -ne $false -or
+       $secretMarker.servicesInstalled -ne $false -or
+       $secretMarker.backupsConfigured -ne $false){
+        throw 'Offline secret journal has incorrect installation state.'
+    }
+    $stable=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
+    $repeat=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru
+    if($repeat.ExitCode -ne 5 -or
+       (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $stable){
+        throw 'Offline secret regeneration overwrote state without explicit operator review.'
+    }
+    if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
+        throw 'Offline secret preparation registered an unexpected service.'
+    }
+    Write-Output 'PASS: native MIT EXE created six distinct CSPRNG offline secrets under protected ProgramData; no values logged.'
+    Write-Output 'PASS: journal changed atomically to OFFLINE_SECRETS_ONLY; regeneration and customer service installation blocked.'
+
 
 
 }
