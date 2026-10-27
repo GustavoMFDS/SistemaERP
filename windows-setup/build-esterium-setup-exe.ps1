@@ -147,6 +147,7 @@ try {
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourcePostgresStage.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourcePostgresAudit.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceDataStage.cs')
+    $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceSecretsStage.cs')
     & $csc @arguments
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw 'Windows EXE compilation failed.' }
     $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
