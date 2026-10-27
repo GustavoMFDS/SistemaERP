@@ -113,7 +113,7 @@ namespace Esterium.WindowsSetup
             if (!Program.PreviewBuild || !Program.HasPayload || working) return;
             working = true;
             check.Enabled = plan.Enabled = install.Enabled =
-                stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = stageData.Enabled = false;
+                stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = false;
             try
             {
                 if (MessageBox.Show(
@@ -138,7 +138,7 @@ namespace Esterium.WindowsSetup
                 working = false; check.Enabled = true;
                 plan.Enabled = stageFiles.Enabled = stageVendors.Enabled =
                     preflight.Enabled = Program.HasPayload;
-                stagePostgres.Enabled = stageData.Enabled = Program.HasPayload && IsPostgresZipPreview;
+                stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = Program.HasPayload && IsPostgresZipPreview;
                 install.Enabled = false;
             }
         }
