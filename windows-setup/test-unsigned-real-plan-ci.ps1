@@ -396,11 +396,23 @@ if($PostgresBinaryZip){
        $secretMarker.backupsConfigured -ne $false){
         throw 'Offline secret journal has incorrect installation state.'
     }
+    # Prove refusal preserves both the journal AND all six secret bytes.
+    # Only digests are retained in memory, never printed to CI logs.
     $stable=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
+    $secretDigests=@{}
+    foreach($name in $secretNames){
+        $secretDigests[$name]=(Get-FileHash -LiteralPath (Join-Path $secretFolder $name) -Algorithm SHA256).Hash
+    }
     $repeat=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru
     if($repeat.ExitCode -ne 5 -or
-       (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $stable){
-        throw 'Offline secret regeneration overwrote state without explicit operator review.'
+       (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $stable -or
+       @(Get-ChildItem -LiteralPath $secretFolder -File -Force).Count -ne $secretNames.Count){
+        throw 'Offline secret regeneration changed state without explicit operator review.'
+    }
+    foreach($name in $secretNames){
+        if((Get-FileHash -LiteralPath (Join-Path $secretFolder $name) -Algorithm SHA256).Hash -cne $secretDigests[$name]){
+            throw 'Offline secret regeneration changed existing protected credentials.'
+        }
     }
     if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count -ne 0){
         throw 'Offline secret preparation registered an unexpected service.'
