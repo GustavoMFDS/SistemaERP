@@ -343,6 +343,15 @@ if($PostgresBinaryZip){
     }
     Write-Output 'PASS: native EXE prepared empty protected ProgramData\\Esterium directories with honest journal and refused rerun.'
     Write-Output 'NOT INSTALLED: no PostgreSQL cluster, Garnet data, service, credential or backup configured.'
+    # A second, disposable CI-only cycle uses the REAL four folders from
+    # the EXE's protected ProgramData layout. Prove service, authenticated
+    # SQL, backup/restore and cleanup WITHOUT installing any customer service.
+    if($env:ESTERIUM_NATIVE_DATA_DISPOSABLE_CI -ne '1'){
+        throw 'Real native ProgramData cluster fixture requires explicit disposable Windows CI gate.'
+    }
+    & (Join-Path $root 'windows-setup/test-oss-native-data-initdb-ci.ps1') -IntegratedExe $exe
+    Write-Output 'PASS: protected native ProgramData layout supported isolated non-admin PostgreSQL initdb, SQL and recovery.'
+
 
 }
 # Continue only on a GitHub-hosted ephemeral Windows machine. Unlike the
