@@ -36,6 +36,12 @@ namespace Esterium.WindowsSetup
                 catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.Exit(5); }
                 return;
             }
+            if (args.Length > 0 && args[0] == "--stage-oss-secrets")
+            {
+                try { Installer.StageOpenSourceSecrets(); Environment.Exit(0); }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.Exit(5); }
+                return;
+            }
             if (args.Length > 0 && args[0] == "--stage-oss-data")
             {
                 try { Installer.StageOpenSourceDataFolders(); Environment.Exit(0); }
@@ -90,7 +96,7 @@ namespace Esterium.WindowsSetup
     {
         readonly Dictionary<string, TextBox> inputs = new Dictionary<string, TextBox>();
         readonly TextBox output = new TextBox();
-        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button(), preflight = new Button(), stagePostgres = new Button(), stageData = new Button();
+        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button(), preflight = new Button(), stagePostgres = new Button(), stageData = new Button(), stageSecrets = new Button();
         string staging;
         bool working;
         bool ownsStaging;
@@ -146,7 +152,11 @@ namespace Esterium.WindowsSetup
             stageData.Text = "Preparar pastas de dados (não instala)";
             stageData.AutoSize = true;
             stageData.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
-            actions.Controls.Add(stagePostgres); actions.Controls.Add(stageData); actions.Controls.Add(install);
+            stageSecrets.Text = "Preparar credenciais offline (não instala)";
+            stageSecrets.AutoSize = true;
+            stageSecrets.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
+            actions.Controls.Add(stagePostgres); actions.Controls.Add(stageData);
+            actions.Controls.Add(stageSecrets); actions.Controls.Add(install);
             table.Controls.Add(actions, 0, 9); table.SetColumnSpan(actions, 2);
             var warning = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
                 Text = Program.PreviewBuild ?
@@ -170,6 +180,7 @@ namespace Esterium.WindowsSetup
             preflight.Click += async (s, e) => await RunUnsignedPreflight();
             stagePostgres.Click += async (s, e) => await RunStagePostgresBinaries();
             stageData.Click += async (s, e) => await RunStageDataFolders();
+            stageSecrets.Click += async (s, e) => await RunStageSecrets();
             Log(Program.PreviewBuild ?
                 (IsPostgresZipPreview ? "Prévia ZIP verificada: não executa serviços nem plano legado EDB. Instalar bloqueado." :
                  "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado.") :
@@ -425,7 +436,7 @@ namespace Esterium.WindowsSetup
             if (apply && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica nunca executa instalação."); return; }
             if (invoke && Program.PreviewBuild && !Program.HasPayload) { Log("BLOQUEADO: prévia sem payload."); return; }
             if (invoke && IsPostgresZipPreview) { Log("BLOQUEADO: o coordenador EDB EXE ainda nao aceita ZIP. Use Verificar arquivos e Pre-checar Windows."); return; }
-            working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = stageData.Enabled = false;
+            working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = false;
             try
             {
                 // Capture UI state on its owning thread; hashing and extraction run off-thread.
@@ -466,7 +477,7 @@ namespace Esterium.WindowsSetup
             finally { working = false; check.Enabled = true;
                       plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
                       stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.PreviewBuild && Program.HasPayload;
-                      stagePostgres.Enabled = stageData.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
+                      stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
                       install.Enabled = !Program.PreviewBuild; }
         }
     }
