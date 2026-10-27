@@ -639,3 +639,46 @@ https://github.com/GustavoMFDS/SistemaERP/actions/runs/40422436873
 Garnet, certificado TLS, registro de serviço, migrações ou backups.
 Essas operações requerem implementação e testes adicionais para a
 instalação persistente. O botão `Instalar` permanece bloqueado.
+
+## Etapa nativa 5 — credenciais offline (não instala)
+
+O botão **Preparar credenciais offline (não instala)** e a operação
+`--stage-oss-secrets` existem apenas na prévia técnica MIT com payload
+ZIP validado. Requerem Administrador/UAC, auditoria dos binários
+PostgreSQL e a fase `DATA_DIRECTORIES_ONLY`, com pastas vazias em
+`C:\ProgramData\Esterium`. Serviços de produção preexistentes são recusados.
+
+O EXE gera seis credenciais CSPRNG independentes (48 bytes aleatórios
+por credencial): `pg-super`, `pg-service`, `pg-app`, `garnet-password`,
+`jwt` e `metrics`. Usa arquivos `CreateNew` protegidos para SYSTEM e
+Administradores, sem imprimir valores nem colocá-los nos argumentos.
+Só depois de escrever e conferir os seis arquivos o diário transita
+para `OFFLINE_SECRETS_ONLY`, mantendo banco, serviços e backups
+explicitamente NÃO configurados. Não há regeneração automática.
+
+A suíte [40445069719](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40445069719)
+confirmou PostgreSQL 16 em ProgramData, identidade CI não administradora,
+SQL, backup/restauração, persistência após parada/início do mesmo
+serviço SCM e seis segredos distintos preservados após reexecução
+rejeitada. TLS/SCRAM, migração, Garnet AOF/TLS e registro parado do
+ERP também passaram; o gate foi aprovado. Isso não prova reboot
+completo do Windows nem instalação persistente de loja.
+
+## Prova adicional — credencial offline e identidade Windows (somente CI)
+
+O script `test-oss-offline-service-identity-ci.ps1` exige Windows
+descartável hospedado no GitHub e as três variáveis explícitas de
+segurança do teste integrado. Após a etapa 5, lê a credencial
+`pg-service.secret` já protegida, cria uma única conta local
+temporária não administradora e usa essa credencial por PSCredential
+(nunca por argumento CLI) para autenticar `whoami.exe`. Verifica
+SID correspondente e hashes intactos do diário e do segredo;
+remove a conta e os arquivos temporários. Não cria serviços de
+clientes nem realiza initdb adicional.
+
+Essa prova nova somente poderá ser marcada como aprovada quando
+o job integrado e o gate terminarem em `success` no respectivo commit.
+O botão `Instalar` permanece bloqueado na prévia MIT; a rota assinada
+comercial `-Apply` segue inalterada. Reboot real, contas permanentes,
+TLS LAN, backup externo, homologação fiscal e direitos de redistribuição
+continuam pendentes. **Manter PR Draft, sem merge ou release.**
