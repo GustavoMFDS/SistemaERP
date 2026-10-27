@@ -112,6 +112,29 @@ try {
        (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $secretHash){
         throw 'Identity logon modified protected offline state.'
     }
+    # The service account must authenticate successfully yet MUST NOT read
+    # the original installer-only credential file. All subprocess arguments
+    # contain a fixed path/script, never secret material.
+    $denyScript=@'
+$source=Join-Path $env:ProgramData 'Esterium\Secrets\pg-service.secret'
+try {
+    $handle=[IO.File]::Open($source,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    $handle.Dispose()
+    exit 71  # SECURITY FAILURE: non-admin could read protected secret
+} catch [UnauthorizedAccessException] {
+    exit 0
+} catch {
+    exit 72  # Unexpected failure must not be mistaken for ACL enforcement
+}
+'@
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($denyScript))
+    $deniedArgs=@('-NoProfile','-NonInteractive','-EncodedCommand',$encoded)
+    $denied=Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList $deniedArgs -Credential $credential -Wait -PassThru -RedirectStandardOutput (Join-Path $work 'denied.out') -RedirectStandardError (Join-Path $work 'denied.err') -ErrorAction Stop
+    if($null -eq $denied -or $denied.ExitCode -ne 0){
+        throw 'Ephemeral non-admin account could access offline secret or ACL probe failed.'
+    }
+    $denied.Dispose()
+    Write-Output 'PASS: authenticated non-admin Windows account cannot read original protected pg-service.secret.'
     Write-Output 'PASS: protected pg-service secret authenticated a real disposable non-admin Windows logon.'
     Write-Output 'PASS: Windows token SID matches the local account; no passwords in command arguments.'
 }
