@@ -419,6 +419,12 @@ if($PostgresBinaryZip){
     }
     Write-Output 'PASS: native MIT EXE created six distinct CSPRNG offline secrets under protected ProgramData; no values logged.'
     Write-Output 'PASS: journal changed atomically to OFFLINE_SECRETS_ONLY; regeneration and customer service installation blocked.'
+    # Check that the real protected pg-service credential can authenticate a
+    # unique disposable NON-ADMIN Windows identity, with full local-user cleanup.
+    & (Join-Path $root 'windows-setup/test-oss-offline-service-identity-ci.ps1') -IntegratedExe $exe
+    if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count){
+        throw 'Offline Windows identity proof unexpectedly registered a customer service.'
+    }
 
 
 
