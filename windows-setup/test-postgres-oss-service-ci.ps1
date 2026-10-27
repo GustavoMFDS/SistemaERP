@@ -11,7 +11,8 @@ param(
     [Parameter(Mandatory=$true)][pscredential]$ServiceCredential,
     [switch]$ExerciseLoopback,
     [switch]$FromIntegratedStage,
-    [switch]$ProgramDataLayout
+    [switch]$ProgramDataLayout,
+    [switch]$NativeDataLayout
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -28,6 +29,12 @@ $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
 $pgDir=[IO.Path]::GetFullPath($VerifiedPgRoot).TrimEnd('\')
 $data=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
 $approvedIntegratedRoot=Join-Path (Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin') 'pgsql'
+if ($NativeDataLayout) {
+    if (-not $FromIntegratedStage -or $ProgramDataLayout -or
+        $env:ESTERIUM_NATIVE_DATA_DISPOSABLE_CI -ne '1') {
+        throw 'Native protected data test is restricted to the isolated integrated Windows CI.'
+    }
+}
 $approvedData=$data.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase)
 if($ProgramDataLayout){
     if(-not $FromIntegratedStage) {throw 'ProgramData CI service test needs the pinned native EXE stage.'}
@@ -38,6 +45,16 @@ if($ProgramDataLayout){
        (Split-Path -Leaf $data) -cne 'cluster' -or
        -not(Test-Path -LiteralPath $ciRoot -PathType Container)) {
         throw 'CI ProgramData cluster must be in a unique explicitly approved disposable folder.'
+    }
+    $approvedData=$true
+}
+if ($NativeDataLayout) {
+    $expectedNativeData=Join-Path $env:ProgramData 'Esterium\PostgresData\cluster'
+    $marker=Join-Path $env:ProgramData 'Esterium\oss-data-layout.json'
+    if ($data -cne $expectedNativeData -or
+        -not (Test-Path -LiteralPath $marker -PathType Leaf) -or
+        ((Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json).phase -cne 'DATA_DIRECTORIES_ONLY')) {
+        throw 'Native CI service may only use the exact empty-layout stage prepared by the EXE.'
     }
     $approvedData=$true
 }
@@ -138,7 +155,11 @@ try {
         $psql=Join-Path $pgDir 'bin\psql.exe'
         $dump=Join-Path $pgDir 'bin\pg_dump.exe'
         $restore=Join-Path $pgDir 'bin\pg_restore.exe'
-        $backup=Join-Path (Split-Path -Parent $data) 'disposable-recovery.dump'
+        $backup=if($NativeDataLayout){
+            Join-Path $env:ProgramData 'Esterium\Backups\disposable-recovery.dump'
+        }else{
+            Join-Path (Split-Path -Parent $data) 'disposable-recovery.dump'
+        }
         if (-not (Test-Path -LiteralPath $dump -PathType Leaf) -or
             -not (Test-Path -LiteralPath $restore -PathType Leaf) -or
             (Test-Path -LiteralPath $backup)) {
