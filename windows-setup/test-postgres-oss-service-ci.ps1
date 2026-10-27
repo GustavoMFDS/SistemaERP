@@ -189,7 +189,15 @@ try {
         $cleanupDatabase=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('DROP DATABASE '+$probeDb) 2>&1)
         if ($LASTEXITCODE -ne 0) {throw 'Test recovery database was not cleaned up.'}
         Write-Output 'PASS: pg_dump custom-format backup, drop, pg_restore and verified SQL data on disposable Windows.'
-        $env:PGPASSWORD=$oldPgPassword
+        if($NativeDataLayout) {
+            # Persist a second fixture through an actual SCM stop/start; pg_dump
+            # recovery alone does not prove on-disk data survives restart.
+            $restartDb='esterium_ci_restart'
+            $createRestart=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('CREATE DATABASE '+$restartDb) 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'Could not create throwaway service-restart database.'}
+            $writeRestart=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d $restartDb -c "CREATE TABLE ci_restart_probe (id integer primary key, note text not null); INSERT INTO ci_restart_probe VALUES (53, 'survived_scm_restart')" 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'Could not commit durable restart fixture.'}
+        }
         Write-Output 'PASS: isolated PostgreSQL service started on 127.0.0.1 and answered authenticated SQL SELECT 1.'
         Stop-Service -Name $name -ErrorAction Stop
         (Get-Service -Name $name).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
@@ -198,6 +206,38 @@ try {
         if (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -ne 0) {
             throw 'PostgreSQL loopback listener remained after controlled stop.'
         }
+        if($NativeDataLayout) {
+            # Same PostgreSQL service, data directory and NON-ADMIN identity.
+            # No operating-system reboot; this is a real SCM restart test.
+            Set-Service -Name $name -StartupType Manual -ErrorAction Stop
+            $record=Get-CimInstance -ClassName Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop
+            $restartResult=Invoke-CimMethod -InputObject $record -MethodName StartService -ErrorAction Stop
+            if([int]$restartResult.ReturnValue -ne 0){
+                throw ('PostgreSQL SCM restart failed, code '+$restartResult.ReturnValue)
+            }
+            $started=$true
+            (Get-Service -Name $name).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(50))
+            $reloaded=@(& $psql -X -w -q -A -t -h 127.0.0.1 -p $port -U postgres -d $restartDb -c 'SELECT note FROM ci_restart_probe WHERE id = 53' 2>&1)
+            if($LASTEXITCODE -ne 0 -or ($reloaded -join '').Trim() -cne 'survived_scm_restart'){
+                throw 'Durable PostgreSQL data did not survive an actual Windows SCM stop/start.'
+            }
+            $now=Get-CimInstance -ClassName Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop
+            if($now.StartName -cne $identity){
+                throw 'PostgreSQL SCM restart changed the non-admin Windows identity.'
+            }
+            $dropRestart=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('DROP DATABASE '+$restartDb) 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'Could not remove disposable restart DB.'}
+            Stop-Service -Name $name -ErrorAction Stop
+            (Get-Service -Name $name).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
+            $started=$false
+            Set-Service -Name $name -StartupType Disabled -ErrorAction Stop
+            if(@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -ne 0){
+                throw 'PostgreSQL listener survived final service stop after restart.'
+            }
+            Write-Output 'PASS: PostgreSQL persisted committed SQL through REAL Windows SCM stop/start using same non-admin account.'
+            Write-Output 'PASS: restarted service disabled/stopped and restart probe database deleted.'
+        }
+        $env:PGPASSWORD=$oldPgPassword
         Write-Output 'PASS: PostgreSQL service safely stopped/disabled; loopback port no longer listening.'
     }
     Write-Output 'PASS: PostgreSQL 16 Windows service registered for isolated NON-ADMIN CI identity.'
