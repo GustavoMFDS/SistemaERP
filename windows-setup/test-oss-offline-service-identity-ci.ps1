@@ -104,7 +104,8 @@ try {
     # Password is held in PSCredential, never supplied as argv/log text.
     $proc=Start-Process @parameters
     if($null -eq $proc -or $proc.ExitCode -ne 0){throw 'Offline secret failed Windows local logon.'}
-    if(-not [IO.File]::ReadAllText($out).Contains($sid)){
+    $tokenOutput=[IO.File]::ReadAllText($out)
+    if(-not $tokenOutput.Contains($sid)){
         throw 'Logged-on account SID does not match new non-admin user.'
     }
     if((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $journalHash -or
