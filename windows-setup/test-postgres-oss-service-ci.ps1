@@ -222,7 +222,14 @@ try {
                 throw 'Durable PostgreSQL data did not survive an actual Windows SCM stop/start.'
             }
             $now=Get-CimInstance -ClassName Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop
-            if($now.StartName -cne $identity){
+            # SCM may normalize COMPUTER\\user to .\\user and Windows account
+            # names are case-insensitive. Use the same accepted local-account
+            # spellings as at initial registration, but also require the same
+            # ephemeral SID and a running service process after restart.
+            $restartUser=Get-LocalUser -Name $ciLocalName -ErrorAction Stop
+            if($now.StartName -notin @($identity,$expectedLocal) -or
+               [int]$now.ProcessId -le 0 -or
+               [string]$restartUser.SID.Value -cne $ciAccountSid){
                 throw 'PostgreSQL SCM restart changed the non-admin Windows identity.'
             }
             $dropRestart=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('DROP DATABASE '+$restartDb) 2>&1)
