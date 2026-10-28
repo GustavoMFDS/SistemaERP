@@ -1,13 +1,15 @@
 #requires -Version 5.1
 <#
-  CI-only LSA grant/revoke for one newly created epg... local account.
+  CI-only LSA grant/revoke for a unique ephemeral epg... account,
+  or explicit offline-secret eos... identity with extra CI safeguards.
   Modify exactly SeServiceLogonRight, not security templates or global GPOs.
   Never execute this on customer/admin workstations.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('Grant','Revoke')][string]$Action,
-    [Parameter(Mandatory=$true)][string]$Sid
+    [Parameter(Mandatory=$true)][ValidateSet('Grant','Revoke','VerifyGranted','VerifyRevoked')][string]$Action,
+    [Parameter(Mandatory=$true)][string]$Sid,
+    [switch]$OfflineSecretAccount
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -24,8 +26,16 @@ if ($Sid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$') {
     throw 'Only a local machine account SID may be used.'
 }
 $account=@(Get-LocalUser | Where-Object { [string]$_.SID.Value -ceq $Sid })
-if ($account.Count -ne 1 -or $account[0].Name -cnotmatch '^epg[0-9a-f]{12}$') {
-    throw 'Cannot change logon rights outside the unique test PostgreSQL account.'
+if ($account.Count -ne 1) {throw 'LSA SID must belong to exactly one CI local user.'}
+if ($OfflineSecretAccount) {
+    if ($env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -ne '1' -or
+        $env:ESTERIUM_NATIVE_DATA_DISPOSABLE_CI -ne '1' -or
+        $account[0].Name -cnotmatch '^eos[0-9a-f]{12}$' -or
+        @(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue).Count){
+        throw 'Offline service-logon rights require a disposable EOS account and no customer services.'
+    }
+} elseif ($Action -notin @('Grant','Revoke') -or $account[0].Name -cnotmatch '^epg[0-9a-f]{12}$') {
+    throw 'Original PostgreSQL LSA path is restricted to ephemeral epg accounts.'
 }
 $source=@'
 using System;
@@ -64,7 +74,48 @@ public static class EsteriumDisposableLsa
     [DllImport("advapi32.dll")]
     private static extern uint LsaClose(IntPtr handle);
     [DllImport("advapi32.dll")]
+    private static extern uint LsaEnumerateAccountRights(IntPtr policyHandle,
+        IntPtr accountSid, out IntPtr userRights, out uint countOfRights);
+    [DllImport("advapi32.dll")]
+    private static extern uint LsaFreeMemory(IntPtr buffer);
+    [DllImport("advapi32.dll")]
     private static extern uint LsaNtStatusToWinError(uint status);
+
+    // Independently verify the applied account right through LSA.
+    public static bool HasServiceLogonRight(string sidValue)
+    {
+        var sid=new SecurityIdentifier(sidValue);
+        var bytes=new byte[sid.BinaryLength];
+        sid.GetBinaryForm(bytes,0);
+        IntPtr sidPtr=IntPtr.Zero;
+        IntPtr policy=IntPtr.Zero;
+        IntPtr rights=IntPtr.Zero;
+        try {
+            sidPtr=Marshal.AllocHGlobal(bytes.Length);
+            Marshal.Copy(bytes,0,sidPtr,bytes.Length);
+            LsaObjectAttributes attributes=new LsaObjectAttributes();
+            attributes.Length=(uint)Marshal.SizeOf(typeof(LsaObjectAttributes));
+            uint status=LsaOpenPolicy(IntPtr.Zero,ref attributes,0x800,out policy);
+            if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status));
+            uint count=0;
+            status=LsaEnumerateAccountRights(policy,sidPtr,out rights,out count);
+            if(status==0xC0000034) return false; // no rights assigned
+            if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status));
+            int size=Marshal.SizeOf(typeof(LsaUnicodeString));
+            for(uint i=0;i<count;i++) {
+                var entry=(LsaUnicodeString)Marshal.PtrToStructure(
+                    IntPtr.Add(rights,checked((int)i*size)),typeof(LsaUnicodeString));
+                if(String.Equals(Marshal.PtrToStringUni(entry.Buffer,entry.Length/2),
+                    "SeServiceLogonRight",StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        } finally {
+            if(rights!=IntPtr.Zero) LsaFreeMemory(rights);
+            if(policy!=IntPtr.Zero) LsaClose(policy);
+            if(sidPtr!=IntPtr.Zero) Marshal.FreeHGlobal(sidPtr);
+            Array.Clear(bytes,0,bytes.Length);
+        }
+    }
 
     public static void Change(string sidValue, bool grant)
     {
@@ -106,5 +157,14 @@ public static class EsteriumDisposableLsa
 if ($null -eq ([Management.Automation.PSTypeName]'EsteriumDisposableLsa').Type) {
     Add-Type -TypeDefinition $source -ErrorAction Stop
 }
-[EsteriumDisposableLsa]::Change($Sid,($Action -eq 'Grant'))
-Write-Output ('PASS: CI-only PostgreSQL service logon right '+$Action.ToLowerInvariant()+'ed for ephemeral account.')
+if($Action -in @('Grant','Revoke')){
+    [EsteriumDisposableLsa]::Change($Sid,($Action -eq 'Grant'))
+    Write-Output ('PASS: CI-only SeServiceLogonRight '+$Action+' for an ephemeral Windows account.')
+}else{
+    $present=[EsteriumDisposableLsa]::HasServiceLogonRight($Sid)
+    if(($Action -eq 'VerifyGranted' -and -not $present) -or
+       ($Action -eq 'VerifyRevoked' -and $present)){
+        throw ('Actual Windows LSA right does not match '+$Action+'.')
+    }
+    Write-Output ('PASS: Windows LSA confirmed '+$Action+' for disposable identity.')
+}
