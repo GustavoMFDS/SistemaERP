@@ -127,9 +127,22 @@ try {
     exit 72  # Unexpected failure must not be mistaken for ACL enforcement
 }
 '@
-    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($denyScript))
-    $deniedArgs=@('-NoProfile','-NonInteractive','-EncodedCommand',$encoded)
-    $denied=Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList $deniedArgs -Credential $credential -Wait -PassThru -RedirectStandardOutput (Join-Path $work 'denied.out') -RedirectStandardError (Join-Path $work 'denied.err') -ErrorAction Stop
+    # Use a short, fixed script path rather than a long encoded command.
+    # CreateProcessWithLogonW (used by -Credential) can reject the latter.
+    # The test script contains only a static file path, never a secret.
+    $probeScript=Join-Path $work 'deny-secret-read.ps1'
+    [IO.File]::WriteAllText($probeScript,$denyScript,[Text.UTF8Encoding]::new($false))
+    $deniedParams=@{
+        FilePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe')
+        ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$probeScript+'"'))
+        Credential=$credential
+        Wait=$true
+        PassThru=$true
+        RedirectStandardOutput=(Join-Path $work 'denied.out')
+        RedirectStandardError=(Join-Path $work 'denied.err')
+        ErrorAction='Stop'
+    }
+    $denied=Start-Process @deniedParams
     if($null -eq $denied -or $denied.ExitCode -ne 0){
         throw 'Ephemeral non-admin account could access offline secret or ACL probe failed.'
     }
