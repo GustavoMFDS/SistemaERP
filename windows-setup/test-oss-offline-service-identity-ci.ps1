@@ -60,7 +60,18 @@ if(@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') 
     throw 'Production service name exists, refusing CI identity test.'
 }
 $journalHash=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
-$secretHash=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+# Detect a changed or swapped file after the restricted-identity read probe.
+$secretNames=@('pg-super.secret','pg-service.secret','pg-app.secret',
+    'garnet-password.secret','jwt.secret','metrics.secret')
+$secretHashes=@{}
+foreach($secretName in $secretNames){
+    $secretFile=Join-Path $dir $secretName
+    if(-not(Test-Path -LiteralPath $secretFile -PathType Leaf) -or
+       ((Get-Item -LiteralPath $secretFile -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+        throw 'Offline identity CI needs six intact, nonlinked secret files.'
+    }
+    $secretHashes[$secretName]=(Get-FileHash -LiteralPath $secretFile -Algorithm SHA256).Hash
+}
 $name='eos'+[Guid]::NewGuid().ToString('N').Substring(0,12)
 $work=Join-Path $env:RUNNER_TEMP ('esterium-identity-'+[Guid]::NewGuid().ToString('N'))
 $out=Join-Path $work 'whoami.out'
@@ -108,24 +119,42 @@ try {
     if(-not $tokenOutput.Contains($sid)){
         throw 'Logged-on account SID does not match new non-admin user.'
     }
-    if((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $journalHash -or
-       (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $secretHash){
+    $secretChanged=$false
+    foreach($secretName in $secretNames){
+        if((Get-FileHash -LiteralPath (Join-Path $dir $secretName) -Algorithm SHA256).Hash -cne $secretHashes[$secretName]){
+            $secretChanged=$true
+        }
+    }
+    if((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $journalHash -or $secretChanged){
         throw 'Identity logon modified protected offline state.'
     }
     # The service account must authenticate successfully yet MUST NOT read
     # the original installer-only credential file. All subprocess arguments
     # contain a fixed path/script, never secret material.
     $denyScript=@'
-$source=Join-Path $env:ProgramData 'Esterium\Secrets\pg-service.secret'
-try {
-    $handle=[IO.File]::Open($source,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
-    $handle.Dispose()
-    exit 71  # SECURITY FAILURE: non-admin could read protected secret
-} catch [UnauthorizedAccessException] {
-    exit 0
-} catch {
-    exit 72  # Unexpected failure must not be mistaken for ACL enforcement
+$root=Join-Path $env:ProgramData 'Esterium'
+$targets=@(
+    'Secrets\pg-super.secret',
+    'Secrets\pg-service.secret',
+    'Secrets\pg-app.secret',
+    'Secrets\garnet-password.secret',
+    'Secrets\jwt.secret',
+    'Secrets\metrics.secret',
+    'oss-data-layout.json'
+)
+foreach($relative in $targets){
+    $source=Join-Path $root $relative
+    try {
+        $handle=[IO.File]::Open($source,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $handle.Dispose()
+        exit 71  # SECURITY FAILURE: non-admin could read a protected file
+    } catch [UnauthorizedAccessException] {
+        continue
+    } catch {
+        exit 72  # Unexpected failure must not be mistaken for ACL denial
+    }
 }
+exit 0
 '@
     # Use a short, fixed script path rather than a long encoded command.
     # CreateProcessWithLogonW (used by -Credential) can reject the latter.
@@ -147,7 +176,7 @@ try {
         throw 'Ephemeral non-admin account could access offline secret or ACL probe failed.'
     }
     $denied.Dispose()
-    Write-Output 'PASS: authenticated non-admin Windows account cannot read original protected pg-service.secret.'
+    Write-Output 'PASS: authenticated non-admin Windows account cannot read any of six protected secrets or the install journal.'
     Write-Output 'PASS: protected pg-service secret authenticated a real disposable non-admin Windows logon.'
     Write-Output 'PASS: Windows token SID matches the local account; no passwords in command arguments.'
 }
@@ -162,8 +191,13 @@ finally {
         }
     }
     if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop}
-    if((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $journalHash -or
-       (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $secretHash){
+    $secretChanged=$false
+    foreach($secretName in $secretNames){
+        if((Get-FileHash -LiteralPath (Join-Path $dir $secretName) -Algorithm SHA256).Hash -cne $secretHashes[$secretName]){
+            $secretChanged=$true
+        }
+    }
+    if((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $journalHash -or $secretChanged){
         throw 'Offline secrets or journal changed during test cleanup.'
     }
     Write-Output 'PASS: ephemeral offline credential account removed; protected secrets preserved.'
