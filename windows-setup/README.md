@@ -682,3 +682,30 @@ O botão `Instalar` permanece bloqueado na prévia MIT; a rota assinada
 comercial `-Apply` segue inalterada. Reboot real, contas permanentes,
 TLS LAN, backup externo, homologação fiscal e direitos de redistribuição
 continuam pendentes. **Manter PR Draft, sem merge ou release.**
+
+## Direitos Windows de logon como serviço — prova descartável de CI
+
+No [Windows Actions 40619471452](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40619471452),
+o teste integrado e o gate passaram: o usuário temporário autenticado
+não conseguiu ler nenhum dos seis segredos nem o diário protegido;
+os hashes foram preservados e a identidade foi removida. O
+[CI geral 40619471455](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40619471455)
+passou com 19/19 jobs.
+
+A extensão seguinte, ainda dependente de nova aprovação do CI,
+adiciona ao mesmo usuário efêmero `eos...` a prova do direito
+`SeServiceLogonRight`, sem registrar nem iniciar serviços. O helper
+`test-postgres-oss-lsa-ci.ps1` preserva a operação original para
+contas `epg...`, mas só aceita contas `eos...` com flag explícita,
+as três guardas de runner descartável, SID local confirmado e ausência
+de serviços com nomes de produção. Lê diretamente da API LSA a
+ausência inicial do direito, aplica a concessão, comprova sua
+presença, revoga e comprova a ausência final ANTES de apagar o
+usuário no bloco `finally`. A credencial vem apenas do arquivo
+`pg-service.secret`, não de parâmetros de processo ou do log.
+
+Esse teste não valida inicialização automática de serviços após
+reboot, nem realiza provisionamento real de cliente. Não alterar
+contas persistentes, política local de lojas, rota comercial
+Authenticode ou o botão `Instalar` da prévia MIT. **PR Draft,
+sem merge nem release.**
