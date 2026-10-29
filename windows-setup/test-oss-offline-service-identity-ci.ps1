@@ -82,6 +82,7 @@ $secure=$null
 $proc=$null
 $lsaHelper=Join-Path $PSScriptRoot 'test-postgres-oss-lsa-ci.ps1'
 $lsaTouched=$false
+$serviceName='EsteriumCIOfflinePG'+[Guid]::NewGuid().ToString('N').Substring(0,12)
 try {
     $secret=[IO.File]::ReadAllText($file).TrimEnd([char]13,[char]10)
     if($secret -cnotmatch '^Q9_z[A-Za-z0-9_-]{64}$'){
@@ -110,6 +111,32 @@ try {
     $lsaTouched=$true # cleanup even when the grant/verification throws
     & $lsaHelper -Action Grant -Sid $sid -OfflineSecretAccount
     & $lsaHelper -Action VerifyGranted -Sid $sid -OfflineSecretAccount
+    # SCM registration proof: only a unique CI-owned service, always
+    # DISABLED and STOPPED. No cluster exists at this location and the
+    # service must NEVER be started in this test.
+    $verifiedPgCtl=Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin\pgsql\bin\pg_ctl.exe'
+    if(-not(Test-Path -LiteralPath $verifiedPgCtl -PathType Leaf) -or
+       ((Get-Item -LiteralPath $verifiedPgCtl -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+        throw 'Only native ZIP-stage PostgreSQL pg_ctl.exe may appear in the CI service image.'
+    }
+    if($null -ne (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){
+        throw 'Unique disposable service name unexpectedly already exists.'
+    }
+    $unusedCluster=Join-Path $root 'PostgresData\cluster'
+    if(Test-Path -LiteralPath $unusedCluster){
+        throw 'Offline CI SCM test must not adopt an existing PostgreSQL cluster.'
+    }
+    $serviceCommand='"'+$verifiedPgCtl+'" runservice -N "'+$serviceName+'" -D "'+$unusedCluster+'" -w'
+    New-Service -Name $serviceName -BinaryPathName $serviceCommand -Credential $credential -StartupType Disabled -DisplayName ('Disposable offline PostgreSQL identity '+$serviceName) -ErrorAction Stop | Out-Null
+    $registered=@(Get-CimInstance -ClassName Win32_Service -Filter ("Name='"+$serviceName+"'") -ErrorAction Stop)
+    $expectedLocal='.\'+$name
+    if($registered.Count -ne 1 -or $registered[0].StartMode -cne 'Disabled' -or
+       $registered[0].State -cne 'Stopped' -or [int]$registered[0].ProcessId -ne 0 -or
+       $registered[0].StartName -notin @($credential.UserName,$expectedLocal) -or
+       $registered[0].PathName -cne $serviceCommand){
+        throw 'SCM stored incorrect disabled-state, image or non-admin offline service identity.'
+    }
+    Write-Output 'PASS: CI-only PostgreSQL service registered DISABLED and STOPPED using offline non-admin identity; never started.'
     $parameters=@{
         FilePath=(Join-Path $env:WINDIR 'System32\whoami.exe')
         ArgumentList=@('/user','/fo','csv','/nh')
@@ -187,24 +214,44 @@ exit 0
     Write-Output 'PASS: authenticated non-admin Windows account cannot read any of six protected secrets or the install journal.'
     Write-Output 'PASS: protected pg-service secret authenticated a real disposable non-admin Windows logon.'
     Write-Output 'PASS: Windows token SID matches the local account; no passwords in command arguments.'
-    Write-Output 'PASS: only CI account had its service-logon right assigned and verified; no service started.'
+    Write-Output 'PASS: offline identity SCM registration remained disabled; no Windows service process was started.'
 }
 finally {
     $secret=$null
     $secure=$null
     if($null -ne $proc){$proc.Dispose()}
-    # Cleanup is nested so account removal executes even if LSA revoke fails.
+    # Teardown order is mandatory: SCM service, LSA right, Windows user.
+    # Nested finally clauses attempt all three even if an earlier step fails.
     try {
-        if($lsaTouched){
-            & $lsaHelper -Action Revoke -Sid $sid -OfflineSecretAccount
-            & $lsaHelper -Action VerifyRevoked -Sid $sid -OfflineSecretAccount
-            Write-Output 'PASS: offline CI service-logon right revoked and verified absent.'
+        $existing=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if($null -ne $existing){
+            if($existing.Status -ne [ServiceProcess.ServiceControllerStatus]::Stopped){
+                throw 'Disposable offline service unexpectedly started; refuse unsafe cleanup.'
+            }
+            & (Join-Path $env:WINDIR 'System32\sc.exe') delete $serviceName | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Cannot deregister disposable offline Windows service.'}
+            for($i=0;$i -lt 40;$i++){
+                if($null -eq (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){break}
+                Start-Sleep -Milliseconds 250
+            }
+            if($null -ne (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){
+                throw 'Disposable offline Windows service survived SCM cleanup.'
+            }
+            Write-Output 'PASS: disposable offline PostgreSQL SCM registration removed without starting.'
         }
     } finally {
-        if($created){
-            Remove-LocalUser -Name $name -ErrorAction Stop
-            if($null -ne (Get-LocalUser -Name $name -ErrorAction SilentlyContinue)){
-                throw 'Temporary Windows account remains after cleanup.'
+        try {
+            if($lsaTouched){
+                & $lsaHelper -Action Revoke -Sid $sid -OfflineSecretAccount
+                & $lsaHelper -Action VerifyRevoked -Sid $sid -OfflineSecretAccount
+                Write-Output 'PASS: offline CI service-logon right revoked and verified absent.'
+            }
+        } finally {
+            if($created){
+                Remove-LocalUser -Name $name -ErrorAction Stop
+                if($null -ne (Get-LocalUser -Name $name -ErrorAction SilentlyContinue)){
+                    throw 'Temporary Windows account remains after cleanup.'
+                }
             }
         }
     }
