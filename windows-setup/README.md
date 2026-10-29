@@ -731,3 +731,38 @@ Uma falha em qualquer prova reprova o gate integrado. Não extrapolar
 o resultado para reboot completo, contas persistentes ou instalação
 em cliente. O instalador MIT mantém `Instalar` desabilitado e a
 PR permanece em Draft, sem merge e sem release.
+
+## Prova SQL com credenciais offline distintas — CI descartável
+
+A prova anterior de registro de serviço parado e desabilitado, usando a
+conta efêmera `eos...` baseada em `pg-service.secret`, **passou** no
+[Windows CI 40917573369](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40917573369),
+junto do gate `oss-component-gate`. O
+[CI geral 40917573426](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40917573426)
+passou com 19/19 jobs.
+
+A etapa seguinte amplia somente `test-oss-offline-service-identity-ci.ps1`,
+que continua restrito a runner GitHub Windows **descartável**. O teste
+cria `PostgresData\cluster` temporário sob a pasta protegida que o EXE
+preparou e usa as duas credenciais reais da fase offline, **distintas**:
+`pg-service.secret` somente para autenticar a conta não-admin no SCM;
+`pg-super.secret` somente no arquivo temporário de senha `initdb`
+com ACL restrita e na variável `PGPASSWORD` local ao teste. Senhas
+nunca são incluídas nos argumentos de processo nem impressas.
+
+Com os binários PostgreSQL ZIP previamente auditados, o teste faz
+`initdb` SCRAM, registra o serviço CI inicialmente **Disabled/Stopped**,
+habilita-o manualmente apenas para o teste e inicia o banco em
+`127.0.0.1` numa porta efêmera. Exige autenticação SQL, grava um
+registro de prova, para e reinicia o **mesmo serviço** sob o mesmo
+usuário, confere a persistência do registro e remove a tabela.
+Depois desabilita e para o serviço. Em `finally`, elimina o registro
+SCM, cluster e permissões temporárias, revoga `SeServiceLogonRight`,
+remove a conta e os arquivos CI, e verifica que os seis segredos
+e o diário original mantiveram seus hashes SHA-256.
+
+**Esta etapa nova ainda necessita aprovação no respectivo GitHub CI.**
+É um teste de ciclo de vida de serviço, NÃO uma etapa de instalação
+persistente para clientes, NÃO um reboot do Windows, nem um backup
+de produção. Não habilita o botão `Instalar`, não executa `-Apply`
+comercial e não autoriza merge ou release. PR continua Draft.
