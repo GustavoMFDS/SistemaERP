@@ -787,3 +787,31 @@ e serviço e preservação dos hashes das seis credenciais e diário.
 Esta prova **não é** backup externo nem rotina de backups de produção,
 não atravessa reboot integral, e permanece condicionada ao gate CI.
 Não publicar, fazer merge ou habilitar `Instalar` da prévia MIT.
+
+## Prova CI — recusa de retomada nativa com PostgreSQL e backup ativos
+
+A rodada [Windows 40928831710](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40928831710)
+passou com `unsigned-preview`, `unsigned-integrated-zip-preview` e
+`oss-component-gate` aprovados, assim como o
+[CI geral 40928831635](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40928831635)
+(19/19). Os logs confirmam `pg_dump -Fc` usando `pg-super.secret`
+e restauração em banco de CI independente com o registro SQL correto,
+seguida de limpeza dos recursos e proteção dos arquivos.
+
+A próxima prova **ainda precisa passar no CI**: com o cluster de teste
+PostgreSQL rodando no SCM (identidade derivada de `pg-service.secret`)
+e um arquivo de backup já criado em ProgramData, o script
+`test-oss-offline-service-identity-ci.ps1` chama novamente o
+`EsteriumERP-Setup-TECHNICAL-PREVIEW.exe --stage-oss-secrets`.
+O EXE **deve recusar** esta reentrada. Depois da recusa, a prova
+confere, sem imprimir os valores protegidos, os hashes SHA-256 dos
+seis segredos, diário de instalação e arquivo de backup; confere
+também que o mesmo serviço permanece `Running` sob o mesmo usuário
+não administrador e que a consulta SQL ainda retorna o valor 42.
+Qualquer reentrada aceita, mudança de conteúdo, parada do serviço
+ou falha de consulta reprova o gate integrado.
+
+Isto apenas simula uma tentativa indevida de retomada em runner
+Windows descartável, não é política automática de recuperação
+de instalação real, não reinicia o sistema operacional e não
+habilita instalação comercial. Manter PR Draft sem merge ou release.
