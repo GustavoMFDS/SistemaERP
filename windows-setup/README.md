@@ -766,3 +766,24 @@ e o diário original mantiveram seus hashes SHA-256.
 persistente para clientes, NÃO um reboot do Windows, nem um backup
 de produção. Não habilita o botão `Instalar`, não executa `-Apply`
 comercial e não autoriza merge ou release. PR continua Draft.
+
+## Prova adicional — pg_dump e pg_restore com credenciais offline (CI)
+
+O teste `test-oss-offline-service-identity-ci.ps1` agora acrescenta,
+**somente no runner Windows descartável**, um backup custom-format
+`pg_dump -Fc` da tabela de prova usando `pg-super.secret` já carregada
+em `PGPASSWORD`. O arquivo fica em `ProgramData\Esterium\Backups`
+com DACL restrita a SYSTEM/Administradores; o usuário de serviço
+criado com `pg-service.secret` deve receber acesso negado ao arquivo.
+
+Após o reinício do serviço Windows e a verificação de persistência
+SQL, o teste restaura o arquivo em um banco temporário **separado**
+`esterium_ci_offline_restore`, consulta o valor original `42`,
+remove o banco restaurado e a tabela de prova, desabilita o serviço
+e realiza cleanup de serviço, cluster, arquivo backup, ACLs, LSA
+e conta descartável. Confere ausência de arquivo, listener, cluster
+e serviço e preservação dos hashes das seis credenciais e diário.
+
+Esta prova **não é** backup externo nem rotina de backups de produção,
+não atravessa reboot integral, e permanece condicionada ao gate CI.
+Não publicar, fazer merge ou habilitar `Instalar` da prévia MIT.
