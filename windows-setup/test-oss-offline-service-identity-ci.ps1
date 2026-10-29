@@ -93,6 +93,9 @@ $grantedBin=$false
 $ownsCluster=$false
 $oldPgPassword=$env:PGPASSWORD
 $probePort=0
+$backupRoot=Join-Path $root 'Backups'
+$ciArchive=Join-Path $backupRoot 'disposable-offline-recovery.dump'
+$ownsArchive=$false
 $service=$null
 $superPassword=$null
 try {
@@ -225,6 +228,42 @@ try {
     if($LASTEXITCODE -ne 0 -or ($persisted -join '').Trim() -cne '42'){
         throw 'Committed SQL failed to persist after offline-identity SCM restart.'
     }
+    # Backup uses the REAL pg-super offline credential already supplied
+    # through the local process environment, never via CLI arguments.
+    # This is a disposable protected LOCAL archive, not external backup.
+    if(-not(Test-Path -LiteralPath $backupRoot -PathType Container) -or
+       ((Get-Item -LiteralPath $backupRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+       (Test-Path -LiteralPath $ciArchive)){
+        throw 'Offline CI archive target is not a fresh protected Backups directory.'
+    }
+    $ownsArchive=$true
+    $pgDump=Join-Path $pgRoot 'bin\pg_dump.exe'
+    $pgRestore=Join-Path $pgRoot 'bin\pg_restore.exe'
+    if(-not(Test-Path -LiteralPath $pgDump -PathType Leaf) -or
+       -not(Test-Path -LiteralPath $pgRestore -PathType Leaf)){
+        throw 'Verified PostgreSQL backup and restore binaries are missing.'
+    }
+    & $pgDump '-h' '127.0.0.1' '-p' ([string]$probePort) '-U' 'postgres' '-d' 'postgres' '-F' 'c' '-t' 'public.esterium_ci_offline_probe' '-f' $ciArchive
+    if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $ciArchive -PathType Leaf) -or
+       (Get-Item -LiteralPath $ciArchive).Length -lt 128){
+        throw 'Real offline-credential custom-format SQL backup failed.'
+    }
+    $archiveRules=@((Get-Acl -LiteralPath $ciArchive).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) |
+        Where-Object { $_.AccessControlType -eq 'Allow' -and
+                       $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544') })
+    if($archiveRules.Count){throw 'Offline CI backup archive has an unapproved Windows ACL.'}
+    & $psql @sqlArgs '-c' 'CREATE DATABASE esterium_ci_offline_restore' | Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Could not create isolated offline-credential restore database.'}
+    & $pgRestore '-h' '127.0.0.1' '-p' ([string]$probePort) '-U' 'postgres' '-d' 'esterium_ci_offline_restore' '--no-owner' '--no-privileges' '--exit-on-error' $ciArchive
+    if($LASTEXITCODE -ne 0){throw 'Custom-format archive restore into independent CI database failed.'}
+    $restoredArgs=@('-X','-w','-A','-t','-h','127.0.0.1','-p',[string]$probePort,'-U','postgres','-d','esterium_ci_offline_restore')
+    $restored=@(& $psql @restoredArgs '-c' 'SELECT value FROM public.esterium_ci_offline_probe' 2>&1)
+    if($LASTEXITCODE -ne 0 -or ($restored -join '').Trim() -cne '42'){
+        throw 'Offline archive restoration did not recover the expected committed SQL.'
+    }
+    & $psql @sqlArgs '-c' 'DROP DATABASE esterium_ci_offline_restore' | Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Could not remove restored CI-only PostgreSQL database.'}
+    Write-Output 'PASS: offline pg-super credential created protected pg_dump archive and restored verified SQL into independent CI database.'
     & $psql @sqlArgs '-c' 'DROP TABLE public.esterium_ci_offline_probe' | Out-Null
     if($LASTEXITCODE -ne 0){throw 'Cannot remove disposable PostgreSQL SQL probe.'}
     Stop-Service -Name $serviceName -ErrorAction Stop
@@ -273,7 +312,8 @@ $targets=@(
     'Secrets\garnet-password.secret',
     'Secrets\jwt.secret',
     'Secrets\metrics.secret',
-    'oss-data-layout.json'
+    'oss-data-layout.json',
+    'Backups\disposable-offline-recovery.dump'
 )
 foreach($relative in $targets){
     $source=Join-Path $root $relative
@@ -346,6 +386,9 @@ finally {
         if($ownsCluster -and $ciCluster -ceq (Join-Path $env:ProgramData 'Esterium\PostgresData\cluster')){
             if(Test-Path -LiteralPath $ciCluster){Remove-Item -LiteralPath $ciCluster -Recurse -Force -ErrorAction Stop}
         }
+        if($ownsArchive -and $ciArchive -ceq (Join-Path $env:ProgramData 'Esterium\Backups\disposable-offline-recovery.dump')){
+            if(Test-Path -LiteralPath $ciArchive){Remove-Item -LiteralPath $ciArchive -Force -ErrorAction Stop}
+        }
         if($grantedData){
             & icacls.exe $dataParent '/remove:g' ('*'+$sid) | Out-Null
             if($LASTEXITCODE -ne 0){throw 'Cannot revoke offline CI PostgreSQL data permissions.'}
@@ -372,6 +415,7 @@ finally {
     }
     if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop}
     if(Test-Path -LiteralPath $ciCluster){throw 'Temporary offline PostgreSQL cluster survived cleanup.'}
+    if(Test-Path -LiteralPath $ciArchive){throw 'Disposable offline SQL archive survived cleanup.'}
     if($null -ne (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){
         throw 'Temporary offline PostgreSQL service survived cleanup.'
     }
