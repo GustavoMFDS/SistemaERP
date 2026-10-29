@@ -264,6 +264,36 @@ try {
     & $psql @sqlArgs '-c' 'DROP DATABASE esterium_ci_offline_restore' | Out-Null
     if($LASTEXITCODE -ne 0){throw 'Could not remove restored CI-only PostgreSQL database.'}
     Write-Output 'PASS: offline pg-super credential created protected pg_dump archive and restored verified SQL into independent CI database.'
+    # Simulate an operator attempting to resume the *native installer* while
+    # a disposable cluster, running SCM service, and backup already exist.
+    # The EXE must fail CLOSED: no regenerated secrets or journal advance,
+    # no clobbered SQL, no modified backup and no service interruption.
+    $archiveHash=(Get-FileHash -LiteralPath $ciArchive -Algorithm SHA256).Hash
+    $resume=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru -ErrorAction Stop
+    if($null -eq $resume){throw 'Native offline resume probe did not return a process.'}
+    $resumeCode=$resume.ExitCode
+    $resume.Dispose()
+    if($resumeCode -eq 0){throw 'Native installer incorrectly accepted a repeat secret stage during active PostgreSQL.'}
+    if((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $journalHash -or
+       (Get-FileHash -LiteralPath $ciArchive -Algorithm SHA256).Hash -cne $archiveHash){
+        throw 'Refused native installer resume modified protected journal or backup.'
+    }
+    foreach($secretName in $secretNames){
+        if((Get-FileHash -LiteralPath (Join-Path $dir $secretName) -Algorithm SHA256).Hash -cne $secretHashes[$secretName]){
+            throw 'Refused native installer resume changed an existing offline secret.'
+        }
+    }
+    $uninterrupted=Get-CimInstance Win32_Service -Filter ("Name='"+$serviceName+"'") -ErrorAction Stop
+    if($uninterrupted.State -cne 'Running' -or
+       $uninterrupted.StartName -notin @($credential.UserName,$expectedLocal) -or
+       [int]$uninterrupted.ProcessId -le 0){
+        throw 'Refused native resume interrupted the running disposable PostgreSQL service.'
+    }
+    $stillCommitted=@(& $psql @sqlArgs '-c' 'SELECT value FROM public.esterium_ci_offline_probe' 2>&1)
+    if($LASTEXITCODE -ne 0 -or ($stillCommitted -join '').Trim() -cne '42'){
+        throw 'Refused native installer resume destroyed or modified committed SQL data.'
+    }
+    Write-Output 'PASS: native EXE refused reentry with live offline-credential PostgreSQL and backup; journal, six secrets, SQL and archive unchanged.'
     & $psql @sqlArgs '-c' 'DROP TABLE public.esterium_ci_offline_probe' | Out-Null
     if($LASTEXITCODE -ne 0){throw 'Cannot remove disposable PostgreSQL SQL probe.'}
     Stop-Service -Name $serviceName -ErrorAction Stop
