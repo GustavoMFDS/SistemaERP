@@ -709,3 +709,25 @@ reboot, nem realiza provisionamento real de cliente. Não alterar
 contas persistentes, política local de lojas, rota comercial
 Authenticode ou o botão `Instalar` da prévia MIT. **PR Draft,
 sem merge nem release.**
+
+## Prova seguinte — serviço PostgreSQL CI registrado, mas nunca iniciado
+
+A extensão experimental no script `test-oss-offline-service-identity-ci.ps1`
+usa a credencial offline `pg-service.secret` para registrar **somente**
+um serviço com nome efêmero `EsteriumCIOfflinePG...` no runner Windows
+descartável, apontando para `pg_ctl.exe` previamente extraído do ZIP
+PostgreSQL oficial no estágio MIT. Não cria um cluster adicional.
+
+O teste exige `SeServiceLogonRight` concedido ao usuário efêmero
+`eos...`, registra o serviço no SCM como **Disabled/Stopped** e
+compara nome da identidade, imagem, argumentos, PID zero e modo
+de inicialização. O serviço **nunca é iniciado**. Em seguida,
+confirma os sete arquivos inacessíveis à identidade temporária.
+
+O bloco `finally` remove primeiro o serviço CI, depois revoga e
+verifica `SeServiceLogonRight`, depois remove o usuário, revalidando
+os hashes dos seis segredos e do diário de instalação.
+Uma falha em qualquer prova reprova o gate integrado. Não extrapolar
+o resultado para reboot completo, contas persistentes ou instalação
+em cliente. O instalador MIT mantém `Instalar` desabilitado e a
+PR permanece em Draft, sem merge e sem release.
