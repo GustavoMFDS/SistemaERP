@@ -93,6 +93,8 @@ $grantedBin=$false
 $ownsCluster=$false
 $oldPgPassword=$env:PGPASSWORD
 $probePort=0
+$service=$null
+$superPassword=$null
 try {
     $secret=[IO.File]::ReadAllText($file).TrimEnd([char]13,[char]10)
     if($secret -cnotmatch '^Q9_z[A-Za-z0-9_-]{64}$'){
