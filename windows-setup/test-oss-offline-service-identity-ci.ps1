@@ -214,6 +214,11 @@ try {
     $startedAgain=Invoke-CimMethod -InputObject $again -MethodName StartService -ErrorAction Stop
     if([int]$startedAgain.ReturnValue -ne 0){throw ('Offline PostgreSQL service restart returned '+$startedAgain.ReturnValue)}
     $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(50))
+    $runningAgain=Get-CimInstance Win32_Service -Filter ("Name='"+$serviceName+"'") -ErrorAction Stop
+    if($runningAgain.StartName -notin @($credential.UserName,$expectedLocal) -or
+       [int]$runningAgain.ProcessId -le 0){
+        throw 'Restarted offline Windows service lost its non-admin account or PID.'
+    }
     $persisted=@(& $psql @sqlArgs '-c' 'SELECT value FROM public.esterium_ci_offline_probe' 2>&1)
     if($LASTEXITCODE -ne 0 -or ($persisted -join '').Trim() -cne '42'){
         throw 'Committed SQL failed to persist after offline-identity SCM restart.'
@@ -323,6 +328,8 @@ finally {
                 $existing.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
             }
             Set-Service -Name $serviceName -StartupType Disabled -ErrorAction Stop
+            if($null -ne $service){$service.Dispose()}
+            $existing.Dispose()
             & (Join-Path $env:WINDIR 'System32\sc.exe') delete $serviceName | Out-Null
             if($LASTEXITCODE -ne 0){throw 'Cannot deregister ephemeral offline Windows PostgreSQL service.'}
             for($i=0;$i -lt 40;$i++){
@@ -362,6 +369,21 @@ finally {
         }
     }
     if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop}
+    if(Test-Path -LiteralPath $ciCluster){throw 'Temporary offline PostgreSQL cluster survived cleanup.'}
+    if($null -ne (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){
+        throw 'Temporary offline PostgreSQL service survived cleanup.'
+    }
+    if($probePort -gt 0){
+        $socket=[Net.Sockets.TcpClient]::new()
+        try {
+            $attempt=$socket.BeginConnect([Net.IPAddress]::Loopback,$probePort,$null,$null)
+            if($attempt.AsyncWaitHandle.WaitOne(500)){
+                try{$socket.EndConnect($attempt);throw 'CI PostgreSQL loopback port remains listening after cleanup.'}
+                catch [Net.Sockets.SocketException] { }
+            }
+            $attempt.AsyncWaitHandle.Dispose()
+        } finally {$socket.Dispose()}
+    }
     $secretChanged=$false
     foreach($secretName in $secretNames){
         if((Get-FileHash -LiteralPath (Join-Path $dir $secretName) -Algorithm SHA256).Hash -cne $secretHashes[$secretName]){
