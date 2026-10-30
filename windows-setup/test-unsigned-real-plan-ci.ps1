@@ -351,6 +351,63 @@ if($PostgresBinaryZip){
     }
     & (Join-Path $root 'windows-setup/test-oss-native-data-initdb-ci.ps1') -IntegratedExe $exe
     Write-Output 'PASS: protected native ProgramData layout supported isolated non-admin PostgreSQL initdb, SQL and recovery.'
+    # Simulate an interrupted phase-5 write BEFORE the journal advances.
+    # The only simulated file is CI-owned and deliberately NOT a credential.
+    # A fresh --stage-oss-secrets MUST refuse to adopt or replace it.
+    $interruptedDir=Join-Path $dataRoot 'Secrets'
+    $interruptedFile=Join-Path $interruptedDir 'pg-super.secret'
+    if(@(Get-ChildItem -LiteralPath $interruptedDir -Force).Count -ne 0){
+        throw 'Interrupt injection requires an empty native Secrets folder.'
+    }
+    $beforeInterrupted=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
+    $injectedBytes=[Text.UTF8Encoding]::new($false).GetBytes('DISPOSABLE-CI-PARTIAL-'+[Guid]::NewGuid().ToString('N'))
+    $injectedDigest=''
+    $interruptedOwned=$false
+    try {
+        $handle=[IO.FileStream]::new($interruptedFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        $interruptedOwned=$true
+        try{$handle.Write($injectedBytes,0,$injectedBytes.Length);$handle.Flush($true)}finally{$handle.Dispose()}
+        $injectedDigest=(Get-FileHash -LiteralPath $interruptedFile -Algorithm SHA256).Hash
+        $injectedAcl=Get-Acl -LiteralPath $interruptedFile
+        if(@($injectedAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) |
+             Where-Object { $_.AccessControlType -eq 'Allow' -and
+                 $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544') }).Count){
+            throw 'Partial CI secret fixture unexpectedly has an open ACL.'
+        }
+        $interruptedAttempt=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru -ErrorAction Stop
+        if($null -eq $interruptedAttempt){throw 'Interrupted native-stage probe did not run.'}
+        $interruptedCode=$interruptedAttempt.ExitCode
+        $interruptedAttempt.Dispose()
+        if($interruptedCode -ne 5 -or
+           (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $beforeInterrupted -or
+           -not(Test-Path -LiteralPath $interruptedFile -PathType Leaf) -or
+           ((Get-Item -LiteralPath $interruptedFile -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+           (Get-FileHash -LiteralPath $interruptedFile -Algorithm SHA256).Hash -cne $injectedDigest -or
+           @(Get-ChildItem -LiteralPath $interruptedDir -Force).Count -ne 1){
+            throw 'Interrupted native secret stage was adopted, regenerated or altered.'
+        }
+        $phaseAfterInterrupted=Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json -ErrorAction Stop
+        if($phaseAfterInterrupted.phase -cne 'DATA_DIRECTORIES_ONLY' -or
+           $phaseAfterInterrupted.databaseInitialized -ne $false -or
+           $phaseAfterInterrupted.servicesInstalled -ne $false){
+            throw 'Interrupted secret stage falsely advanced installer phase.'
+        }
+        Write-Output 'PASS: native EXE refused simulated partial secret stage; protected first file and journal remained unchanged.'
+    }finally{
+        [Array]::Clear($injectedBytes,0,$injectedBytes.Length)
+        # Only erase the exact synthetic CI-owned file after verifying it
+        # was neither swapped nor modified by the native installer.
+        if($interruptedOwned -and
+           (Test-Path -LiteralPath $interruptedFile -PathType Leaf) -and
+           -not((Get-Item -LiteralPath $interruptedFile -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+           (Get-FileHash -LiteralPath $interruptedFile -Algorithm SHA256).Hash -ceq $injectedDigest){
+            Remove-Item -LiteralPath $interruptedFile -Force -ErrorAction Stop
+        }
+    }
+    if(@(Get-ChildItem -LiteralPath $interruptedDir -Force).Count -ne 0 -or
+       (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $beforeInterrupted){
+        throw 'Disposable interruption fixture did not restore empty pre-secret state.'
+    }
     # PHASE 5 native MIT preview: generate real OFFLINE first-install
     # secret material with CSPRNG, no process argv/logging or installed service.
     # The preceding fixture returned ProgramData to the empty staged state.
