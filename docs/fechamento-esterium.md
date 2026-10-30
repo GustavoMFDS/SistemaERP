@@ -1,45 +1,62 @@
 # Fechamento da missão — Esterium ERP
 
 **Atualizado:** 30/10/2026  
-**Estado:** fechamento local avançado; aceite final e liberação de produção continuam pendentes.
+**Estado:** PR #213 permanece Draft, CI 19/19 verde; PR #212 permanece Draft, com bootstrap do primeiro administrador e novo CI Windows em validação. Sem merge ou liberação comercial.
 
 Este relatório registra o estado da cópia em `D:\ERP` e as verificações executadas nesta sessão. Ele não declara o ERP pronto para produção.
 
 ## Baseline e limites
 
 - Repositório: `GustavoMFDS/SistemaERP`; baseline consultada: `main` em `69d5e205400d3f4b02c35dca9b164bdeaa9cf49c`.
-- A pasta `.git` está somente para leitura nesta sessão. Não contornei o bloqueio nem alterei permissões. Os arquivos locais continuam sem commit pelo Git local.
+- A pasta `.git` está somente para leitura nesta sessão. Não contornei o bloqueio nem alterei permissões. Atualizações remotas autorizadas foram feitas pela API do GitHub nas branches das PRs; nenhum commit foi feito localmente.
 - Os resultados locais foram organizados fora do repositório. O laboratório usou apenas serviços temporários em loopback, certificado/CA descartáveis e banco de teste nomeado. Os serviços foram encerrados e o banco descartado.
 - Não alterei serviços do Windows, arquivo `hosts`, banco real ou instalação do usuário.
-- PR #212 permanece Draft e sem merge. O CI do head de #212 não representa este diff local. Não instalei, assinei ou publiquei release.
+- PR #212: head `f2aa3542ac4dc42e7182138da196d01066e84eb0`, Draft, aberta e sem merge. CI executa em runner GitHub Windows descartável; nenhuma instalação foi feita no computador de trabalho. Não assinei nem publiquei release.
 
 ## Trabalho concluído nesta cópia
 
 - Corrigi os PNGs PWA de 192×192 e 512×512 e adicionei `npm run test:assets`, que valida os dois arquivos e confirma a rejeição de uma fixture corrompida. O CI agora executa essa verificação.
 - Atualizei a dependência transitiva Zod no lockfile de 4.3.6 para 4.6.7. `npm audit` registrou zero vulnerabilidades; Tailwind permaneceu na linha 3.4.19, sem atualização major.
 - Separei as páginas React por rota com `lazy`/`Suspense`. O chunk principal caiu de 545,05 kB (147,81 kB gzip) para 251,11 kB (80,44 kB gzip), redução aproximada de 54% no tamanho minificado.
-- Mapeei `web/src` com Graphify: 465 nós, 1.101 relações e 14 comunidades. O grafo e as evidências visuais ficaram fora do repositório.
+- Mapeei `web/src` com Graphify: 46 arquivos, 483 nós, 1.119 relações e 13 comunidades. O grafo e as evidências visuais ficaram fora do repositório.
 
 ## Verificações locais
 
 - `npm run lint`, `npm run build` e `npm run test:assets`: passaram na repetição final.
-- `go test ./...` e `go vet ./...`: passaram na auditoria anterior desta cópia.
+- `go vet ./...` passou na auditoria anterior. Nesta continuação, `go test ./...` local foi bloqueado pelo sandbox do Windows ao abrir sockets loopback em cinco testes HTTP; isso não é aprovação nem falha funcional. Os mesmos pacotes são reexecutados no CI hospedado.
 - Suíte de integração com PostgreSQL 16.13 e Garnet 2.2.3 descartáveis: 28 testes passaram, nenhum falhou ou foi ignorado; 52 migrações aplicadas e seed de demonstração concluído.
 - Playwright em Chromium, Firefox e WebKit: 161 passaram e 6 ficaram condicionais por falta de fixtures/ambiente na execução ampla. Reexecutei os quatro casos de layout DANFE/impressora com fixtures sintéticas e os dois casos prod-like: todos passaram. Cobertura somada: 167 casos, sem falha de produto observada. As execuções focadas ocorreram separadas da suíte ampla.
 - O segundo caso prod-like validou dois caixas HTTPS concorrentes: uma venda consumiu a última unidade e a outra recebeu conflito, sem saldo negativo. No Windows, somente as chamadas diretas de `APIRequestContext` usaram o IP loopback, pois esse cliente não herdou a regra DNS do Chromium; a navegação, autenticação, TLS e cookies permaneceram no hostname HTTPS de staging, e as asserções comerciais não mudaram. O teste temporário foi removido.
 - A configuração prod-like passou pelo preflight de PostgreSQL com TLS verificado e Garnet com TLS/senha. As credenciais, o certificado e o banco eram descartáveis; isso não equivale a homologação de produção.
 - A inspeção visual cobriu as rotas/estados desktop e oito áreas em viewport móvel de 390 px. As oito não apresentaram overflow horizontal e não houve erro fatal do app. A captura de login pegou o fallback de carregamento; ela não é evidência visual válida da tela de login. As imagens e o contato visual foram salvos fora do repositório.
-- `git diff --check`: passou antes da atualização final deste relatório; será repetido após o fechamento.
+- Bootstrap do primeiro administrador: `go test ./internal/bootstrapadmin ./cmd/esterium-bootstrap-admin` e `go vet` focados passaram; compilação cruzada Windows x64 e parse PowerShell passaram.
+- Build de pacote Windows local não terminou: `npm ci` encerrou com erro interno do npm (“Exit handler never called!”). Não foi produzido instalador local; o build do bundle roda também no CI descartável.
+- CI geral no SHA `f2aa3542ac4dc42e7182138da196d01066e84eb0` (run [41126937705](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41126937705)): E2E, prod-like, integration, backend, security e a maioria dos jobs Windows passaram; o smoke do PostgreSQL EDB seguia em execução na última consulta.
+- CI do instalador Windows no mesmo SHA (run [41126937914](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41126937914)): EXE preview passou; teste integrado ZIP/PostgreSQL ainda estava em execução na última consulta. Não declarar esse job aprovado antes da conclusão.
+- CI PR #213 no SHA `39b1d731715a3cf34fa9dabb4178a73ae7283a07`: 19/19 checks passaram (run [41120948782](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41120948782)).
+- `git diff --check` local passou antes desta atualização do relatório; será repetido ao finalizar a edição.
 
-## Issues e aceite que continuam em aberto
+## Avanço do instalador Windows
 
-- #35, #36 e #50: as funcionalidades relacionadas a devolução por produto, login por e-mail/usuário e recuperação de senha/revogação já existem na `main` e passaram pelos testes consultados. As PRs históricas #48, #49 e #51 estão fechadas sem merge.
-- #43: continua exigindo aceite manual do checklist de 19 telas, perfis e condições operacionais em desktop e celular. As capturas desta sessão ajudam na inspeção, mas não substituem esse aceite.
-- Fiscal: fixtures sintéticas cobriram renderização/medidas de DANFE e impressora. Autorização SEFAZ real, certificado, validação fiscal/contábil e credenciais de produção seguem externos e não foram simulados como aprovados.
-- Instalador/recuperação: ainda falta instalação limpa em Windows de laboratório autorizado, inicialização e recuperação após reboot, atualização/reparo/desinstalação, Authenticode com certificado real e restauração de backup externo em outro equipamento.
-- PDV em dois equipamentos físicos, rede da loja, impressora/periféricos, contingência, TEF/Pix e aceite operacional dependem de laboratório, contratos e credenciais reais.
-- A branch `main` remota permanece no SHA-base indicado acima nesta conferência. A PR de fechamento desta cópia será mantida em Draft para revisão; nada será mesclado automaticamente.
+- Commit `f2aa3542` em #212 adiciona seed de RBAC de produção sem usuários/dados de demonstração e bootstrap de uso único para primeiro administrador. O fluxo exige banco local com TLS verificado fora do fixture CI, papel SQL restrito, CNPJ válido, hash bcrypt, senha somente por stdin e transação serializável; valida empresa nova, ausência de dados e recusa replay.
+- O teste Windows integrado aplica `seed.prod.sql`, cria administrador sintético, confere perfil/auditoria e login na aplicação, serve React pelo backend em HTTPS sob LocalService, e exercita reinício/recuperação do ERP e Garnet. O resultado depende dos runs acima ainda em execução na última leitura.
+- Isso valida componentes e runtime em runner descartável. A versão unsigned de preview ainda bloqueia `-Apply`; o fluxo interativo completo do instalador não foi provado como uma única instalação normal. Reboot integral do Windows, HTTPS confiável em outro equipamento, atualização/reparo/desinstalação assistidos e restore externo continuam pendentes.
+
+## Auditoria das issues abertas
+
+Issue aberta não prova ausência de código. Conferi corpo e código atual; não fechei issues nem publiquei comentários.
+
+- Implementações presentes: #24 variações/SKUs; #35 política de devolução com snapshot na venda; #36 login por usuário/e-mail; #37 lembrete fiscal por perfil/tenant; #38 rota e menu Relatórios; #39 login redireciona a `/home`; #40 convite/ativação sem e-mail obrigatório; #50 recuperação com token de uso único. Permanecem abertas para aceite dos critérios completos, cenários multi-tenant e/ou revisão operacional.
+- Parcial: #41 navegação por permissão e áreas secundárias existem, mas falta checklist acessível/responsivo completo; #42 mensagens de venda/fiscal têm salvaguardas em vários fluxos, mas falta auditoria transversal das 19 telas; #26 marca pública Esterium já aparece no frontend, mantendo nomes técnicos e chaves locais antigas para compatibilidade. Aprovação legal de marca continua fora do código.
+- #43: Playwright e inspeção cobriram fluxos e oito áreas móveis, mas não há aceite manual registrado de todas as 19 telas, perfis, erros e estados em desktop/celular.
+- #44 e #151: componentes reais foram exercitados em CI e o primeiro administrador foi implementado. Ainda falta uma instalação completa pelo fluxo final do pacote, com inicialização automática verificada, reboot integral, HTTPS confiável de segundo terminal, update/reparo, desinstalação conservadora e restore em máquina independente.
+- #148 e #194: update de Zod não migrou Tailwind 3 para 4; risco de dependências de build continua pendente de migração visual e audit repetido.
+- #29 e #160: integration/E2E passaram uma vez no SHA novo, mas não foi provada repetição da suíte no mesmo banco/ambiente nem reparado eventual vazamento de sessão entre testes.
+- #32 e #33: geração/validação XML, filas, reconciliação, idempotência, contingência e montagem de XML processado têm código e testes sintéticos. Não houve transmissão real; protocolo, `nfeProc` e homologação dependem de resposta genuína SEFAZ, certificado e autorização fiscal. Nenhum protocolo foi inventado.
+- #28 e #52: são bloqueios históricos de CI/PRs antigas. Os runners atuais executaram jobs reais; isso não reexecuta os HEADs históricos citados nem altera a decisão de não integrar PR antiga isoladamente.
+- Critérios externos ainda bloqueiam piloto/produção: Authenticode comercial/proveniência aprovada, certificado e credenciamento SEFAZ, autorização contábil, credenciais Pix/TEF, periféricos, dois computadores físicos, rede e backup externo.
 
 ## Critério de conclusão
 
-O fechamento local desta missão inclui código, relatório e evidências reproduzíveis. A missão global só pode ser marcada como concluída depois da revisão da PR, do aceite manual das telas/fluxos e das provas físicas e fiscais autorizadas. Até lá, não declarar “desenvolvimento concluído” nem “ERP pronto para produção”.
+O fechamento local inclui código, relatório e evidências reproduzíveis. A missão global ainda exige CI final verde em #212, execução do fluxo completo de instalação e recuperação em Windows descartável, revisão das PRs, aceite manual das telas/fluxos e provas físicas/fiscais autorizadas. Até lá, não declarar “ERP pronto para produção”. PRs #212 e #213 seguem separadas, Draft e sem merge.
+
