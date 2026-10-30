@@ -356,6 +356,24 @@ jobs:
             dist/esterium-local-win-x64/README_LOCAL.md
           cp -R backend/migrations dist/esterium-local-win-x64/migrations
           test "$(find dist/esterium-local-win-x64/migrations -name '*.up.sql' | wc -l)" -ge 51
+      - name: Embed pinned .NET runtime required by Garnet
+        run: |
+          set -euo pipefail
+          runtime_version='10.0.14'
+          runtime_sha512='a176095f1db69b42c81acc60940744078d6bf2d2ac643e418342aa9c81889f4bd13e42f4621b131f9e77e4bc781ad46e375956219df9a4f979031d2a5a8d93cd'
+          runtime_zip="$(mktemp --suffix=.zip)"
+          trap 'rm -f "$runtime_zip"' EXIT
+          runtime_url="https://builds.dotnet.microsoft.com/dotnet/Runtime/${runtime_version}/dotnet-runtime-${runtime_version}-win-x64.zip"
+          curl -fLsS --retry 2 --connect-timeout 25 --max-time 300 -o "$runtime_zip" "$runtime_url"
+          echo "${runtime_sha512}  ${runtime_zip}" | sha512sum --check
+          runtime_dir='dist/esterium-local-win-x64/tools/dotnet'
+          mkdir -p "$runtime_dir"
+          unzip -q "$runtime_zip" -d "$runtime_dir"
+          test -s "$runtime_dir/dotnet.exe"
+          test -s "$runtime_dir/LICENSE.txt"
+          test -s "$runtime_dir/ThirdPartyNotices.txt"
+          test -s "$runtime_dir/host/fxr/${runtime_version}/hostfxr.dll"
+          test -s "$runtime_dir/shared/Microsoft.NETCore.App/${runtime_version}/System.Private.CoreLib.dll"
       - name: Generate and verify bundle SHA-256 manifest
         shell: pwsh
         run: |
