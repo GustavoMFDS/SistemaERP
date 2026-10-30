@@ -438,9 +438,6 @@ try {
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
-)){
-    throw 'ERP startup smoke requires the integrated PostgreSQL secret handoff.'
-}
 $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-garnet-aof-'+$id)
 $destination=Join-Path $env:ProgramData ('Esterium\GarnetAofCI-'+$id)
