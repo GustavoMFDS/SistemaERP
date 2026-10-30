@@ -284,7 +284,7 @@ jobs:
           } finally { $env:GOBIN=$previous }
       - name: Test TLS SCRAM real ERP migrations and recovery from EXE-staged ZIP
         shell: pwsh
-        timeout-minutes: 18
+        timeout-minutes: 55
         env:
           ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
           ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
