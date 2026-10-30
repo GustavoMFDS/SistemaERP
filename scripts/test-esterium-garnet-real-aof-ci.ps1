@@ -138,10 +138,12 @@ function Start-Garnet([string]$conf,[string]$phase) {
         $dotnetExe=Join-Path $script:dotnetRuntimeCopy 'dotnet.exe'
         $garnetDll=Join-Path $exes[0].DirectoryName 'GarnetServer.dll'
         $runtimeConfig=Join-Path $exes[0].DirectoryName 'GarnetServer.runtimeconfig.json'
-        if(-not(Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
-           -not(Test-Path -LiteralPath $garnetDll -PathType Leaf) -or
-           -not(Test-Path -LiteralPath $runtimeConfig -PathType Leaf)){
-            throw 'Integrated Garnet requires its bundled .NET runtime and official DLL files.'
+        $dotnetExists=Test-Path -LiteralPath $dotnetExe -PathType Leaf
+        $garnetExists=Test-Path -LiteralPath $garnetDll -PathType Leaf
+        $runtimeConfigExists=Test-Path -LiteralPath $runtimeConfig -PathType Leaf
+        if(-not $dotnetExists -or -not $garnetExists -or -not $runtimeConfigExists){
+            $candidates=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($bin.Length).TrimStart('\\') })
+            throw ('Integrated Garnet requires its bundled .NET runtime and official DLL files. dotnet='+$dotnetExists+' dll='+$garnetExists+' runtimeconfig='+$runtimeConfigExists+' appDir='+$exes[0].DirectoryName+' candidates='+($candidates -join ','))
         }
         $runtimeList=@(& $dotnetExe --list-runtimes)
         if($LASTEXITCODE -ne 0 -or -not($runtimeList -match 'Microsoft\.NETCore\.App 10\.0\.14')){
