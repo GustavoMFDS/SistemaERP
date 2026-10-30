@@ -148,6 +148,25 @@ if ($Apply) {
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         throw 'Instalação real requer administrador.'
     }
+    $dotnetRuntimeSource=Join-Path $PSScriptRoot 'dotnet'
+    $dotnetSourceExe=Join-Path $dotnetRuntimeSource 'dotnet.exe'
+    foreach ($relative in @('LICENSE.txt','ThirdPartyNotices.txt',
+        'host\fxr\10.0.14\hostfxr.dll',
+        'shared\Microsoft.NETCore.App\10.0.14\System.Private.CoreLib.dll')) {
+        $runtimeFile=Join-Path $dotnetRuntimeSource $relative
+        if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf) -or
+            ((Get-Item -LiteralPath $runtimeFile -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Pacote assinado nao contem o runtime .NET local esperado para Garnet.'
+        }
+    }
+    if (-not (Test-Path -LiteralPath $dotnetSourceExe -PathType Leaf) -or
+        ((Get-Item -LiteralPath $dotnetSourceExe -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Pacote assinado nao contem dotnet.exe local para Garnet.'
+    }
+    $runtimeList=@(& $dotnetSourceExe --list-runtimes)
+    if ($LASTEXITCODE -ne 0 -or -not ($runtimeList -match 'Microsoft\.NETCore\.App 10\.0\.14')) {
+        throw 'Runtime .NET 10.0.14 privado ausente ou invalido para Garnet.'
+    }
 }
 $packageArgs=@{
     PostgresInstaller=$pg
@@ -408,6 +427,21 @@ try {
     $relative=$servers[0].FullName.Substring($stage.Length).TrimStart('\')
     $stagedWrapper=Join-Path $stage 'esterium-service-wrapper.exe'
     Copy-Item -LiteralPath $wrapper -Destination $stagedWrapper -ErrorAction Stop
+    $dotnetStage=Join-Path $stage 'dotnet'
+    Copy-Item -LiteralPath $dotnetRuntimeSource -Destination $dotnetStage -Recurse -ErrorAction Stop
+    $stagedDotnet=Join-Path $dotnetStage 'dotnet.exe'
+    $stagedRuntimeFiles=@(Get-ChildItem -LiteralPath $dotnetStage -Recurse -File)
+    if ($stagedRuntimeFiles.Count -lt 5 -or
+        -not (Test-Path -LiteralPath (Join-Path $dotnetStage 'LICENSE.txt') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $dotnetStage 'ThirdPartyNotices.txt') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $dotnetStage 'host\fxr\10.0.14\hostfxr.dll') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $dotnetStage 'shared\Microsoft.NETCore.App\10.0.14\System.Private.CoreLib.dll') -PathType Leaf)) {
+        throw 'Runtime .NET privado nao foi copiado integralmente para Garnet.'
+    }
+    $stagedRuntimeList=@(& $stagedDotnet --list-runtimes)
+    if ($LASTEXITCODE -ne 0 -or -not ($stagedRuntimeList -match 'Microsoft\.NETCore\.App 10\.0\.14')) {
+        throw 'Runtime .NET copiado para Garnet nao iniciou de forma autonoma.'
+    }
     if ((Get-FileHash -LiteralPath $stagedWrapper -Algorithm SHA256).Hash -cne $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
         throw 'Wrapper copiado difere da versão aprovada.'
     }
@@ -416,13 +450,22 @@ try {
     $published=$true
     $serviceExe=Join-Path $garnetDir 'esterium-service-wrapper.exe'
     $garnetExe=Join-Path $garnetDir $relative
+    $garnetDll=Join-Path (Split-Path -Parent $garnetExe) 'GarnetServer.dll'
+    $runtimeConfig=Join-Path (Split-Path -Parent $garnetExe) 'GarnetServer.runtimeconfig.json'
+    $dotnetExe=Join-Path $garnetDir 'dotnet\dotnet.exe'
+    if (-not (Test-Path -LiteralPath $garnetDll -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $runtimeConfig -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $dotnetExe -PathType Leaf)) {
+        throw 'Garnet assembly, runtime config ou runtime .NET local ausente.'
+    }
     if ((Get-FileHash -LiteralPath $serviceExe -Algorithm SHA256).Hash -cne $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
         throw 'Wrapper instalado difere do SHA aprovado.'
     }
     if ($null -ne (Get-Service -Name $GarnetServiceName -ErrorAction SilentlyContinue)) {
         throw 'Serviço Garnet apareceu durante a instalação.'
     }
-    & $serviceExe install $GarnetServiceName $garnetExe '--config-import-path' $configPath | Out-Null
+    $appParameters='exec --runtimeconfig "'+$runtimeConfig+'" "'+$garnetDll+'" --config-import-path "'+$configPath+'"' 
+    & $serviceExe install $GarnetServiceName $dotnetExe $appParameters | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'NSSM não registrou Garnet.' }
     $created=$true
     foreach ($command in @(
