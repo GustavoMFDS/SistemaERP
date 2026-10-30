@@ -23,10 +23,12 @@ if (-not $implementation.Contains('Set-Service -Name $PostgresServiceName -Start
 }
 $runtimeLaunchTokens=@(
     '$dotnetRuntimeSource=Join-Path $PSScriptRoot ''dotnet''',
-    '$dotnetExe=Join-Path $garnetDir ''dotnet\dotnet.exe''',
-    '$appParameters=''exec --runtimeconfig "',
-    '& $serviceExe install $GarnetServiceName $dotnetExe $appParameters',
-    'GarnetServer.runtimeconfig.json'
+    '$dotnetRuntimeDir=Join-Path $garnetDir ''dotnet''',
+    '$appParameters=''--config-import-path "',
+    '& $serviceExe install $GarnetServiceName $garnetExe $appParameters',
+    'AppEnvironmentExtra',
+    'DOTNET_ROOT_X64=',
+    'DOTNET_ROOT='
 )
 foreach($token in $runtimeLaunchTokens){
     if(-not $implementation.Contains($token)){
