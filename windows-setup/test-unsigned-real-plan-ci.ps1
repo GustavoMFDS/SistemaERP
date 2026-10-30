@@ -73,17 +73,38 @@ function Test-CIOnlyStrictJournalRejection([string]$Exe,[string]$Journal,[string
         @{Name='string-not-bool'; Text=$original.Replace('"databaseInitialized": false','"databaseInitialized": "false"')},
         @{Name='missing-required'; Text=$original.Replace('"backupsConfigured": false','"backupConfigOmitted": false')},
         @{Name='wrong-phase'; Text=$original.Replace('"phase": "'+$ExpectedPhase+'"','"phase": "'+$other+'"')},
-        @{Name='escaped-key-alias'; Text=$original.Replace('"phase": "'+$ExpectedPhase+'"','"ph\u0061se": "'+$ExpectedPhase+'"')}
+        @{Name='escaped-key-alias'; Text=$original.Replace('"phase": "'+$ExpectedPhase+'"','"ph\u0061se": "'+$ExpectedPhase+'"')},
+        @{Name='whitespace-reformat'; Text=$original.Replace('"schemaVersion": 1','"schemaVersion" : 1')},
+        @{Name='key-order-rewrite'; Text=$original.Replace(
+            '  "databaseInitialized": false,'+[Environment]::NewLine+'  "servicesInstalled": false,',
+            '  "servicesInstalled": false,'+[Environment]::NewLine+'  "databaseInitialized": false,')}
     )
+    # BOM and invalid UTF-8 may be silently tolerated by a permissive decoder.
+    $bom=New-Object byte[] ($bytes.Length+3)
+    $bom[0]=0xef;$bom[1]=0xbb;$bom[2]=0xbf
+    [Array]::Copy($bytes,0,$bom,3,$bytes.Length)
+    $invalidBytes=[byte[]]$bytes.Clone()
+    $newlineOffset=[Array]::IndexOf($invalidBytes,[byte]13)
+    if($newlineOffset -lt 0){throw 'Canonical CRLF missing from CI journal fixture.'}
+    $invalidBytes[$newlineOffset]=0xff
+    $cases+=@{Name='utf8-bom'; Bytes=$bom}
+    $cases+=@{Name='invalid-utf8'; Bytes=$invalidBytes}
     if($ExpectedPhase -ceq 'OFFLINE_SECRETS_ONLY'){
         $cases+=@{Name='offline-secret-flag-false'; Text=$original.Replace('"secretsGenerated": true','"secretsGenerated": false')}
     }
     try{
         foreach($case in $cases){
-            if($case.Text -ceq $original){throw ('Ineffective JSON tamper fixture: '+$case.Name)}
             $mutatedHash=''
             try{
-                [IO.File]::WriteAllText($Journal,$case.Text,[Text.UTF8Encoding]::new($false))
+                if($case.ContainsKey('Bytes')){
+                    if([Convert]::ToBase64String([byte[]]$case.Bytes) -ceq [Convert]::ToBase64String($bytes)){
+                        throw ('Ineffective byte tamper fixture: '+$case.Name)
+                    }
+                    [IO.File]::WriteAllBytes($Journal,[byte[]]$case.Bytes)
+                }else{
+                    if($case.Text -ceq $original){throw ('Ineffective JSON tamper fixture: '+$case.Name)}
+                    [IO.File]::WriteAllText($Journal,$case.Text,[Text.UTF8Encoding]::new($false))
+                }
                 $mutatedHash=(Get-FileHash -LiteralPath $Journal -Algorithm SHA256).Hash
                 if($mutatedHash -ceq $baseline){throw 'Tampered journal kept original SHA-256.'}
                 $inspector=Start-Process -FilePath $Exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
