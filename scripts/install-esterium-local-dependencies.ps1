@@ -150,6 +150,15 @@ if ($Apply) {
     }
     $dotnetRuntimeSource=Join-Path $PSScriptRoot 'dotnet'
     $dotnetSourceExe=Join-Path $dotnetRuntimeSource 'dotnet.exe'
+    if (-not (Test-Path -LiteralPath $dotnetRuntimeSource -PathType Container) -or
+        ((Get-Item -LiteralPath $dotnetRuntimeSource -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Pacote assinado nao contem uma pasta de runtime .NET local segura para Garnet.'
+    }
+    foreach ($entry in @(Get-ChildItem -LiteralPath $dotnetRuntimeSource -Recurse -Force)) {
+        if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Runtime .NET local contem link ou juncao proibido.'
+        }
+    }
     foreach ($relative in @('LICENSE.txt','ThirdPartyNotices.txt',
         'host\fxr\10.0.14\hostfxr.dll',
         'shared\Microsoft.NETCore.App\10.0.14\System.Private.CoreLib.dll')) {
@@ -428,9 +437,25 @@ try {
     $stagedWrapper=Join-Path $stage 'esterium-service-wrapper.exe'
     Copy-Item -LiteralPath $wrapper -Destination $stagedWrapper -ErrorAction Stop
     $dotnetStage=Join-Path $stage 'dotnet'
+    if (Test-Path -LiteralPath $dotnetStage) {
+        throw 'Pacote Garnet conflita com o destino reservado ao runtime .NET privado.'
+    }
     Copy-Item -LiteralPath $dotnetRuntimeSource -Destination $dotnetStage -Recurse -ErrorAction Stop
     $stagedDotnet=Join-Path $dotnetStage 'dotnet.exe'
-    $stagedRuntimeFiles=@(Get-ChildItem -LiteralPath $dotnetStage -Recurse -File)
+    $sourceRuntimeFiles=@(Get-ChildItem -LiteralPath $dotnetRuntimeSource -Recurse -File -Force)
+    $stagedRuntimeFiles=@(Get-ChildItem -LiteralPath $dotnetStage -Recurse -File -Force)
+    if ($sourceRuntimeFiles.Count -lt 5 -or $sourceRuntimeFiles.Count -ne $stagedRuntimeFiles.Count) {
+        throw 'Runtime .NET privado nao foi copiado integralmente para Garnet.'
+    }
+    foreach ($sourceFile in $sourceRuntimeFiles) {
+        $relativeRuntime=$sourceFile.FullName.Substring($dotnetRuntimeSource.Length).TrimStart('\\')
+        $stagedFile=Join-Path $dotnetStage $relativeRuntime
+        if (-not (Test-Path -LiteralPath $stagedFile -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash -cne
+            (Get-FileHash -LiteralPath $stagedFile -Algorithm SHA256).Hash) {
+            throw 'Runtime .NET privado copiado para Garnet difere dos bytes aprovados.'
+        }
+    }
     if ($stagedRuntimeFiles.Count -lt 5 -or
         -not (Test-Path -LiteralPath (Join-Path $dotnetStage 'LICENSE.txt') -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $dotnetStage 'ThirdPartyNotices.txt') -PathType Leaf) -or
