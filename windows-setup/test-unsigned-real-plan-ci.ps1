@@ -333,6 +333,14 @@ if($PostgresBinaryZip){
         throw 'Staging marker falsely claims a configured PostgreSQL instance.'
     }
     $markerHash=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
+    $inspectedData=Start-Process -FilePath $exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
+    if($null -eq $inspectedData){throw 'Read-only stage inspection did not start.'}
+    $inspectionCode=$inspectedData.ExitCode
+    $inspectedData.Dispose()
+    if($inspectionCode -ne 0 -or (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $markerHash){
+        throw 'Read-only inspector refused or modified intact DATA_DIRECTORIES_ONLY stage.'
+    }
+    Write-Output 'PASS: native read-only inspection recognized intact protected data-only stage.'
     $repeat=Start-Process -FilePath $exe -ArgumentList '--stage-oss-data' -Wait -PassThru
     if($repeat.ExitCode -ne 5 -or
        (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $markerHash){
@@ -374,6 +382,11 @@ if($PostgresBinaryZip){
                  $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544') }).Count){
             throw 'Partial CI secret fixture unexpectedly has an open ACL.'
         }
+        $partialInspection=Start-Process -FilePath $exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
+        if($null -eq $partialInspection){throw 'Partial-stage inspector did not run.'}
+        $partialCode=$partialInspection.ExitCode
+        $partialInspection.Dispose()
+        if($partialCode -ne 5){throw 'Read-only inspector accepted a partial secret stage.'}
         $interruptedAttempt=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru -ErrorAction Stop
         if($null -eq $interruptedAttempt){throw 'Interrupted native-stage probe did not run.'}
         $interruptedCode=$interruptedAttempt.ExitCode
@@ -454,6 +467,11 @@ if($PostgresBinaryZip){
                 throw 'Synthetic pending journal or secret has an unauthorized Windows ACL.'
             }
         }
+        $draftInspection=Start-Process -FilePath $exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
+        if($null -eq $draftInspection){throw 'Pending-journal inspector did not run.'}
+        $draftCode=$draftInspection.ExitCode
+        $draftInspection.Dispose()
+        if($draftCode -ne 5){throw 'Read-only inspector accepted an uncommitted journal draft.'}
         $pendingProbe=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru -ErrorAction Stop
         if($null -eq $pendingProbe){throw 'Native journal interruption probe did not start.'}
         $pendingCode=$pendingProbe.ExitCode
@@ -541,6 +559,13 @@ if($PostgresBinaryZip){
        $secretMarker.backupsConfigured -ne $false){
         throw 'Offline secret journal has incorrect installation state.'
     }
+    # Inspect the published offline phase without reading any secret values.
+    $offlineInspect=Start-Process -FilePath $exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
+    if($null -eq $offlineInspect){throw 'Offline read-only inspection did not start.'}
+    $offlineCode=$offlineInspect.ExitCode
+    $offlineInspect.Dispose()
+    if($offlineCode -ne 0){throw 'Read-only inspector rejected published offline secret stage.'}
+    Write-Output 'PASS: native read-only inspector approved only structurally intact offline secret stage and rejected both synthetic interrupted states.'
     # Prove refusal preserves both the journal AND all six secret bytes.
     # Only digests are retained in memory, never printed to CI logs.
     $stable=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
