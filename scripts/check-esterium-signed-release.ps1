@@ -34,7 +34,7 @@ $requiredDotnetFiles = @(
     'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
 )
 foreach ($relative in $requiredDotnetFiles) {
-    $runtimeFile = Join-Path $bundle ($relative.Replace('/', '\\'))
+    $runtimeFile = Join-Path $bundle ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
     if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) {
         throw 'Release refused: the pinned .NET runtime is incomplete.'
     }
