@@ -207,11 +207,10 @@ namespace Esterium.WindowsSetup
                     Array.IndexOf(children, name) < 0)
                     throw new InvalidOperationException("Entrada nao reconhecida em ProgramData.");
             }
-            string layout = File.ReadAllText(Path.Combine(productDir, "oss-data-layout.json"),
-                Encoding.UTF8);
-            if (!layout.Contains("\"phase\": \"DATA_DIRECTORIES_ONLY\"") ||
-                !layout.Contains("\"servicesInstalled\": false") ||
-                !layout.Contains("\"databaseInitialized\": false"))
+            // Use the same exact JSON schema as --inspect-oss-state.
+            // Substring checks could accept forged duplicate or extra keys.
+            if (ReadStrictStageJournal(Path.Combine(productDir, "oss-data-layout.json"))
+                != "DATA_DIRECTORIES_ONLY")
                 throw new InvalidOperationException("Marcador de fase inseguro ou modificado.");
         }
 
