@@ -266,6 +266,44 @@ namespace Esterium.WindowsSetup
             // trust stores. The customer Install button remains disabled.
         }
 
+        // The UI invokes the exact same read-only CLI as guarded CI.
+        // A recognized layout is diagnostic only: NO install or auto-repair.
+        async Task RunInspectState()
+        {
+            if (!Program.PreviewBuild || !Program.HasPayload || !IsPostgresZipPreview || working)
+                return;
+            working = true;
+            check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled =
+                stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled =
+                stageData.Enabled = stageSecrets.Enabled = inspect.Enabled = false;
+            try
+            {
+                var start = new ProcessStartInfo(Application.ExecutablePath, "--inspect-oss-state")
+                    { UseShellExecute = true, Verb = "runas" };
+                int code = await Task.Run(() => {
+                    using (var process = Process.Start(start))
+                    { process.WaitForExit(); return process.ExitCode; }
+                });
+                Log(code == 0 ?
+                    "PASS: estrutura de etapa offline reconhecida; diagnóstico SOMENTE LEITURA. " +
+                    "NÃO autoriza instalação nem recuperação automática." :
+                    "BLOQUEADO: estado ausente, parcial ou não reconhecido (código " + code +
+                    "). Nenhum dado foi corrigido; revisão manual necessária.");
+            }
+            catch (Win32Exception ex) { Log("Inspeção não iniciada (UAC): " + ex.Message); }
+            catch (Exception) { Log("BLOQUEADO: inspeção não concluída; revisão manual necessária."); }
+            finally
+            {
+                working = false;
+                check.Enabled = true;
+                plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
+                stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.HasPayload;
+                stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled =
+                    inspect.Enabled = Program.HasPayload && IsPostgresZipPreview;
+                install.Enabled = false;
+            }
+        }
+
         async Task RunStageSecrets()
         {
             if (!Program.PreviewBuild || !Program.HasPayload || !IsPostgresZipPreview || working)
@@ -273,7 +311,7 @@ namespace Esterium.WindowsSetup
             working = true;
             check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled =
                 stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled =
-                stageData.Enabled = stageSecrets.Enabled = false;
+                stageData.Enabled = stageSecrets.Enabled = inspect.Enabled = false;
             try
             {
                 if (MessageBox.Show(
@@ -305,7 +343,7 @@ namespace Esterium.WindowsSetup
                 check.Enabled = true;
                 plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
                 stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.HasPayload;
-                stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled =
+                stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = inspect.Enabled =
                     Program.HasPayload && IsPostgresZipPreview;
                 install.Enabled = false;
             }
