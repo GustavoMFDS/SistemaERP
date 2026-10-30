@@ -78,7 +78,9 @@ namespace Esterium.WindowsSetup
         // This does not authenticate the journal or authorize installation.
         private static string ReadStrictStageJournal(string journal)
         {
-            if (!File.Exists(journal) || new FileInfo(journal).Length > 4096)
+            if (!File.Exists(journal) ||
+                (File.GetAttributes(journal) & FileAttributes.ReparsePoint) != 0 ||
+                new FileInfo(journal).Length > 4096)
                 throw new InvalidOperationException("Diario de fase ausente ou grande demais.");
             string source = File.ReadAllText(journal, Encoding.UTF8);
             Dictionary<string, object> state;
