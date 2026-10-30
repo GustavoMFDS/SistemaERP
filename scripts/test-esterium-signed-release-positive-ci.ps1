@@ -16,6 +16,18 @@ try {
     [IO.Directory]::CreateDirectory($toolsDir) | Out-Null
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'web')) | Out-Null
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'migrations')) | Out-Null
+    $runtimeFiles=@(
+        'tools/dotnet/dotnet.exe',
+        'tools/dotnet/LICENSE.txt',
+        'tools/dotnet/ThirdPartyNotices.txt',
+        'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+        'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+    )
+    foreach ($relative in $runtimeFiles) {
+        $runtimeFile=Join-Path $bundle ($relative.Replace('/', '\\'))
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $runtimeFile)) | Out-Null
+        [IO.File]::WriteAllText($runtimeFile,'Synthetic runtime placeholder; never executed.')
+    }
     [IO.File]::WriteAllText((Join-Path $bundle 'web\index.html'),'<html>synthetic signed fixture</html>')
     [IO.File]::WriteAllText((Join-Path $bundle 'README_LOCAL.md'),'Synthetic disposable CI-only release.')
     [IO.File]::WriteAllText((Join-Path $bundle 'migrations\0001_fixture.up.sql'),'-- synthetic only')
