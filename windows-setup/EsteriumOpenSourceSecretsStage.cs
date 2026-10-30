@@ -82,7 +82,16 @@ namespace Esterium.WindowsSetup
                 (File.GetAttributes(journal) & FileAttributes.ReparsePoint) != 0 ||
                 new FileInfo(journal).Length > 4096)
                 throw new InvalidOperationException("Diario de fase ausente ou grande demais.");
-            string source = File.ReadAllText(journal, Encoding.UTF8);
+            byte[] raw = File.ReadAllBytes(journal);
+            if (raw.Length == 0 || raw.Length > 4096 ||
+                (raw.Length >= 3 && raw[0] == 0xef && raw[1] == 0xbb && raw[2] == 0xbf))
+                throw new InvalidOperationException("Diario com codificacao inesperada.");
+            string source;
+            try { source = new UTF8Encoding(false, true).GetString(raw); }
+            catch (DecoderFallbackException)
+            {
+                throw new InvalidOperationException("Diario com bytes UTF-8 invalidos.");
+            }
             Dictionary<string, object> state;
             try
             {
@@ -130,6 +139,19 @@ namespace Esterium.WindowsSetup
                 !Object.Equals(state["backupsConfigured"], false) ||
                 (offline && !Object.Equals(state["secretsGenerated"], true)))
                 throw new InvalidOperationException("Marcadores de fase inconsistentes.");
+            // These two journal formats are generated ONLY by this native EXE.
+            // Reject any byte-distinct rewrite, including order, whitespace,
+            // BOM and Unicode/escaping differences. Not a signature or MAC.
+            string canonical = "{\r\n" +
+                "  \"schemaVersion\": 1,\r\n" +
+                "  \"phase\": \"" + phase + "\",\r\n" +
+                (offline ? "  \"secretsGenerated\": true,\r\n" : "") +
+                "  \"databaseInitialized\": false,\r\n" +
+                "  \"servicesInstalled\": false,\r\n" +
+                "  \"backupsConfigured\": false\r\n" +
+                "}\r\n";
+            if (!String.Equals(source, canonical, StringComparison.Ordinal))
+                throw new InvalidOperationException("Diario reformatado ou alterado; revisao manual.");
             return phase;
         }
 
