@@ -36,6 +36,22 @@ namespace Esterium.WindowsSetup
                 catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.Exit(5); }
                 return;
             }
+            if (args.Length > 0 && args[0] == "--inspect-oss-state")
+            {
+                try
+                {
+                    string phase = Installer.InspectOpenSourceStageReadOnly();
+                    Console.WriteLine("STAGE_INSPECTION: " + phase);
+                    Environment.Exit(0);
+                }
+                catch (Exception)
+                {
+                    // No filesystem paths, metadata or secret data on error.
+                    Console.Error.WriteLine("STAGE_INSPECTION: BLOQUEADO; revisar estado nativo manualmente.");
+                    Environment.Exit(5);
+                }
+                return;
+            }
             if (args.Length > 0 && args[0] == "--stage-oss-secrets")
             {
                 try { Installer.StageOpenSourceSecrets(); Environment.Exit(0); }
