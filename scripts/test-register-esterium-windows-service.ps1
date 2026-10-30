@@ -41,6 +41,18 @@ try {
     [IO.Directory]::CreateDirectory($web) | Out-Null
     [IO.Directory]::CreateDirectory($secrets) | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'esterium-server.exe'), 'synthetic-not-executable')
+    $runtimeFiles = @(
+        'tools/dotnet/dotnet.exe',
+        'tools/dotnet/LICENSE.txt',
+        'tools/dotnet/ThirdPartyNotices.txt',
+        'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+        'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+    )
+    foreach ($relative in $runtimeFiles) {
+        $runtimeFile = Join-Path $bundle ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $runtimeFile)) | Out-Null
+        [IO.File]::WriteAllText($runtimeFile, 'Synthetic runtime placeholder; never executed.')
+    }
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'tools')) | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-pg-tls-certgen.exe'), 'synthetic-CLI-never-executed')
