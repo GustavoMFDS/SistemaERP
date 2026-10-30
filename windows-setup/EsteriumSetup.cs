@@ -112,7 +112,7 @@ namespace Esterium.WindowsSetup
     {
         readonly Dictionary<string, TextBox> inputs = new Dictionary<string, TextBox>();
         readonly TextBox output = new TextBox();
-        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button(), preflight = new Button(), stagePostgres = new Button(), stageData = new Button(), stageSecrets = new Button();
+        readonly Button check = new Button(), plan = new Button(), install = new Button(), stageFiles = new Button(), stageVendors = new Button(), preflight = new Button(), stagePostgres = new Button(), stageData = new Button(), stageSecrets = new Button(), inspect = new Button();
         string staging;
         bool working;
         bool ownsStaging;
@@ -171,14 +171,18 @@ namespace Esterium.WindowsSetup
             stageSecrets.Text = "Preparar credenciais offline (não instala)";
             stageSecrets.AutoSize = true;
             stageSecrets.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
+            inspect.Text = "Inspecionar estado (somente leitura)";
+            inspect.AutoSize = true;
+            inspect.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
             actions.Controls.Add(stagePostgres); actions.Controls.Add(stageData);
-            actions.Controls.Add(stageSecrets); actions.Controls.Add(install);
+            actions.Controls.Add(stageSecrets); actions.Controls.Add(inspect); actions.Controls.Add(install);
             table.Controls.Add(actions, 0, 9); table.SetColumnSpan(actions, 2);
             var warning = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
                 Text = Program.PreviewBuild ?
                        "Preparar arquivos copia o ERP e Preparar dependências copia os binários de fornecedores " +
                        "para pastas protegidas. O ZIP oficial usa SHA-256 fixado; o EXE EDB usa assinatura. " +
                        "A etapa ZIP PostgreSQL extrai somente os binários. NÃO cria banco, serviços ou HTTPS. " +
+                       "Inspecionar estado apenas verifica a estrutura; não repara nem retoma a instalação. " +
                        "Nunca repita uma etapa que falhou sem diagnóstico." :
                        "A instalação altera serviços Windows. Em caso de falha parcial, NÃO repita a instalação " +
                        "nem apague banco ou dados. O instalador nunca libera automaticamente vendas." };
@@ -197,6 +201,7 @@ namespace Esterium.WindowsSetup
             stagePostgres.Click += async (s, e) => await RunStagePostgresBinaries();
             stageData.Click += async (s, e) => await RunStageDataFolders();
             stageSecrets.Click += async (s, e) => await RunStageSecrets();
+            inspect.Click += async (s, e) => await RunInspectState();
             Log(Program.PreviewBuild ?
                 (IsPostgresZipPreview ? "Prévia ZIP verificada: não executa serviços nem plano legado EDB. Instalar bloqueado." :
                  "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado.") :
