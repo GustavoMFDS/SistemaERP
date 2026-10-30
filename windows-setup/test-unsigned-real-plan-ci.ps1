@@ -45,6 +45,79 @@ function DownloadPinned([string]$url,[string]$file,[string]$expected) {
         }
     }
 }
+# Intentionally tamper the CI runner's OWN native journal; restore byte-for-byte.
+# This must NEVER be used on a customer machine or unknown ProgramData files.
+function Test-CIOnlyStrictJournalRejection([string]$Exe,[string]$Journal,[string]$ExpectedPhase) {
+    if(-not $PostgresBinaryZip -or
+       $env:ESTERIUM_NATIVE_DATA_DISPOSABLE_CI -ne '1' -or
+       $env:GITHUB_ACTIONS -ne 'true' -or
+       $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+       $Journal -cne (Join-Path $env:ProgramData 'Esterium\oss-data-layout.json') -or
+       -not(Test-Path -LiteralPath $Journal -PathType Leaf) -or
+       ((Get-Item -LiteralPath $Journal -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+        throw 'Strict JSON journal injection permitted ONLY for the known disposable native Windows CI file.'
+    }
+    $bytes=[IO.File]::ReadAllBytes($Journal)
+    $original=[Text.UTF8Encoding]::new($false).GetString($bytes)
+    $baseline=(Get-FileHash -LiteralPath $Journal -Algorithm SHA256).Hash
+    if(-not $original.Contains('"phase": "'+$ExpectedPhase+'"') -or
+       -not $original.Contains('"databaseInitialized": false') -or
+       -not $original.Contains('"backupsConfigured": false')){
+        throw 'Strict journal mutation requires intact known CI stage.'
+    }
+    $other=if($ExpectedPhase -ceq 'DATA_DIRECTORIES_ONLY'){'OFFLINE_SECRETS_ONLY'}else{'DATA_DIRECTORIES_ONLY'}
+    $cases=@(
+        @{Name='extra-field'; Text=$original.Replace('"schemaVersion": 1','"schemaVersion": 1, "untrustedExtra": true')},
+        @{Name='duplicate-phase'; Text=$original.Replace('"phase": "'+$ExpectedPhase+'"','"phase": "'+$ExpectedPhase+'", "phase": "'+$ExpectedPhase+'"')},
+        @{Name='contradictory-bool'; Text=$original.Replace('"databaseInitialized": false','"databaseInitialized": true')},
+        @{Name='string-not-bool'; Text=$original.Replace('"databaseInitialized": false','"databaseInitialized": "false"')},
+        @{Name='missing-required'; Text=$original.Replace('"backupsConfigured": false','"backupConfigOmitted": false')},
+        @{Name='wrong-phase'; Text=$original.Replace('"phase": "'+$ExpectedPhase+'"','"phase": "'+$other+'"')},
+        @{Name='escaped-key-alias'; Text=$original.Replace('"phase": "'+$ExpectedPhase+'"','"ph\u0061se": "'+$ExpectedPhase+'"')}
+    )
+    try{
+        foreach($case in $cases){
+            if($case.Text -ceq $original){throw ('Ineffective JSON tamper fixture: '+$case.Name)}
+            $mutatedHash=''
+            try{
+                [IO.File]::WriteAllText($Journal,$case.Text,[Text.UTF8Encoding]::new($false))
+                $mutatedHash=(Get-FileHash -LiteralPath $Journal -Algorithm SHA256).Hash
+                if($mutatedHash -ceq $baseline){throw 'Tampered journal kept original SHA-256.'}
+                $inspector=Start-Process -FilePath $Exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
+                if($null -eq $inspector){throw 'Native journal inspector process missing.'}
+                $exitCode=$inspector.ExitCode
+                $inspector.Dispose()
+                if($exitCode -ne 5){throw ('Native inspector accepted tampered journal case: '+$case.Name)}
+                if($ExpectedPhase -ceq 'DATA_DIRECTORIES_ONLY' -and $case.Name -ceq 'extra-field'){
+                    $stage=Start-Process -FilePath $Exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru -ErrorAction Stop
+                    if($null -eq $stage){throw 'Native secret stage did not start for invalid journal.'}
+                    $stageCode=$stage.ExitCode
+                    $stage.Dispose()
+                    if($stageCode -ne 5){throw 'Offline secret stage accepted unknown journal field.'}
+                    if(@(Get-ChildItem -LiteralPath (Join-Path $env:ProgramData 'Esterium\Secrets') -Force).Count){
+                        throw 'Tampered journal caused native secret creation.'
+                    }
+                }
+                if((Get-FileHash -LiteralPath $Journal -Algorithm SHA256).Hash -cne $mutatedHash){
+                    throw 'Read-only inspector changed tampered native journal.'
+                }
+            }finally{
+                # Do not overwrite a replaced/linked/unknown journal.
+                if($mutatedHash -and
+                   (Test-Path -LiteralPath $Journal -PathType Leaf) -and
+                   -not((Get-Item -LiteralPath $Journal -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+                   (Get-FileHash -LiteralPath $Journal -Algorithm SHA256).Hash -ceq $mutatedHash){
+                    [IO.File]::WriteAllBytes($Journal,$bytes)
+                }
+            }
+            if((Get-FileHash -LiteralPath $Journal -Algorithm SHA256).Hash -cne $baseline){
+                throw ('Original protected CI journal was not restored after '+$case.Name)
+            }
+        }
+    }finally{[Array]::Clear($bytes,0,$bytes.Length)}
+    Write-Output ('PASS: strict native journal schema refused 7 synthetic JSON tamper cases for '+$ExpectedPhase+'; original journal restored byte-for-byte.')
+}
+
 $edbHash=if($PostgresBinaryZip){'43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'}else{'DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'}
 $garnetHash='5CD130686AB415B13C59D36D048A6FADED81E707FFE6DA5953F98BEEB79F9F16'
 $nssmArchiveHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
@@ -333,6 +406,7 @@ if($PostgresBinaryZip){
         throw 'Staging marker falsely claims a configured PostgreSQL instance.'
     }
     $markerHash=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
+    Test-CIOnlyStrictJournalRejection -Exe $exe -Journal $marker -ExpectedPhase 'DATA_DIRECTORIES_ONLY'
     $inspectedData=Start-Process -FilePath $exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
     if($null -eq $inspectedData){throw 'Read-only stage inspection did not start.'}
     $inspectionCode=$inspectedData.ExitCode
@@ -559,6 +633,8 @@ if($PostgresBinaryZip){
        $secretMarker.backupsConfigured -ne $false){
         throw 'Offline secret journal has incorrect installation state.'
     }
+    # Reject synthetic schema corruption while preserving real offline secrets.
+    Test-CIOnlyStrictJournalRejection -Exe $exe -Journal $marker -ExpectedPhase 'OFFLINE_SECRETS_ONLY'
     # Inspect the published offline phase without reading any secret values.
     $offlineInspect=Start-Process -FilePath $exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
     if($null -eq $offlineInspect){throw 'Offline read-only inspection did not start.'}
