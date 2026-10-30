@@ -87,8 +87,13 @@ function Invoke-AdminBootstrap([bool]$expectSuccess){
         $proc.StandardInput.Close()
         if(-not $proc.WaitForExit(60000)){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue;throw 'First-admin CLI timed out.'}
         $output=$stdout.GetAwaiter().GetResult().Trim()
-        $null=$stderr.GetAwaiter().GetResult()
-        if($expectSuccess -and ($proc.ExitCode -ne 0 -or $output -cne 'PASS: first administrator created for the new company.')){throw 'First-admin CLI rejected the fresh synthetic database.'}
+        $diagnostic=$stderr.GetAwaiter().GetResult().Trim()
+        if($expectSuccess -and ($proc.ExitCode -ne 0 -or $output -cne 'PASS: first administrator created for the new company.')){
+            if($diagnostic -match '^FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+$'){
+                throw ('First-admin CLI rejected the fresh synthetic database: '+$diagnostic)
+            }
+            throw 'First-admin CLI rejected the fresh synthetic database; no safe diagnostic was returned.'
+        }
         if(-not $expectSuccess -and $proc.ExitCode -eq 0){throw 'First-admin CLI accepted a repeated setup attempt.'}
     }finally{$proc.Dispose()}
 }
@@ -250,5 +255,6 @@ try{
     foreach($entry in $oldPg.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
     $script:adminPassword=$null;$script:adminEmail=$null;$script:adminVariables=$null
 }
+
 
 
