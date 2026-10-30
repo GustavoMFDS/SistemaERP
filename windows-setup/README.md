@@ -911,3 +911,28 @@ Este comando é apenas um primeiro passo de recuperação
 limpeza automática em clientes. A nova prova depende do CI
 integrado e não substitui assinatura Authenticode,
 homologação, reboot ou instalação de produção.
+
+## Diagnóstico offline disponível na interface da prévia MIT
+
+A janela Windows da prévia MIT/ZIP agora apresenta
+**Inspecionar estado (somente leitura)**, botão separado das
+etapas de preparação e do **Instalar** (que segue bloqueado).
+Ele solicita UAC de Administrador e chama o comando nativo
+`--inspect-oss-state`, sem executar banco, alterar senhas,
+migrar, corrigir ou retomar instalações. Enquanto inspeciona,
+as ações da janela ficam indisponíveis; ao terminar, exibe
+**somente** o resultado genérico de layout reconhecido ou
+estado bloqueado que exige diagnóstico manual, nunca os
+valores das credenciais. Reconhecer a estrutura NÃO indica
+que a instalação esteja segura para ser retomada.
+
+O gate Windows também verifica que `--inspect-oss-state`
+recusa um estágio com **PostgreSQL rodando e backup protegido
+existente**, além dos cenários de diário parcial e uma
+credencial sintética parcial. Os testes conferem integridade
+do diário e backup e deixam todo o trabalho de limpeza
+exclusivamente a cargo do script temporário do runner.
+
+**Pendente CI na nova revisão.** Sem habilitar `Instalar`
+ou `-Apply`, sem merge/release ou implementação de
+recuperação automática em uma máquina de cliente.
