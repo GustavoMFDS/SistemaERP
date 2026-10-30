@@ -385,20 +385,30 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'NSSM did not register Garnet Windows service.' }
     $nssmRegistered=$true
     if($FromIntegratedStage){
+        $environmentCommand=@('set',$nssmService,'AppEnvironmentExtra')+
+            @('DOTNET_ROOT_X64='+$dotnetRuntimeDir,'DOTNET_ROOT='+$dotnetRuntimeDir)
+        & $nssmExe @environmentCommand | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'NSSM refused the private Garnet .NET runtime environment.'}
         $scmCommand=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
         $serviceAppPath=@(& $nssmExe get $nssmService AppPath 2>&1) -join ''
         $serviceParameters=@(& $nssmExe get $nssmService AppParameters 2>&1) -join ' '
         $serviceEnvironment=@(& $nssmExe get $nssmService AppEnvironmentExtra 2>&1) -join ' '
         $expectedRuntimeX64='DOTNET_ROOT_X64='+$dotnetRuntimeDir
         $expectedRuntime='DOTNET_ROOT='+$dotnetRuntimeDir
+        $appPathMatches=[String]::Equals($serviceAppPath,$garnetExe[0].FullName,[StringComparison]::OrdinalIgnoreCase)
+        $hasConfigSwitch=$serviceParameters -match '(?i)--config-import-path'
+        $hasConfigPath=$serviceParameters.IndexOf($confPath,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        $hasRuntimeX64=$serviceEnvironment.IndexOf($expectedRuntimeX64,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        $hasRuntime=$serviceEnvironment.IndexOf($expectedRuntime,[StringComparison]::OrdinalIgnoreCase) -ge 0
         if($scmCommand.Count -ne 1 -or
            $scmCommand[0].PathName -notlike ('*'+$nssmExe+'*') -or
-           $serviceAppPath -ine $garnetExe[0].FullName -or
-           $serviceParameters -notmatch '(?i)--config-import-path' -or
-           $serviceParameters.IndexOf($confPath,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-           $serviceEnvironment.IndexOf($expectedRuntimeX64,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-           $serviceEnvironment.IndexOf($expectedRuntime,[StringComparison]::OrdinalIgnoreCase) -lt 0){
-            throw 'NSSM did not persist GarnetServer.exe, its config and private .NET runtime environment.'
+           -not $appPathMatches -or -not $hasConfigSwitch -or -not $hasConfigPath -or
+           -not $hasRuntimeX64 -or -not $hasRuntime){
+            throw ('NSSM Garnet configuration mismatch: serviceCount='+$scmCommand.Count+
+                ' appPathMatches='+$appPathMatches+' configSwitch='+$hasConfigSwitch+
+                ' configPath='+$hasConfigPath+' runtimeX64='+$hasRuntimeX64+
+                ' runtime='+$hasRuntime+' appPath='+$serviceAppPath+
+                ' parameters='+$serviceParameters+' environment='+$serviceEnvironment)
         }
         Write-Output 'PASS: real Garnet SCM command uses the official apphost and bundled private .NET runtime environment.'
     }
@@ -413,10 +423,6 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'NSSM refused restricted Garnet SCM settings.' }
     }
     if($FromIntegratedStage){
-        $environmentCommand=@('set',$nssmService,'AppEnvironmentExtra')+
-            @('DOTNET_ROOT_X64='+$dotnetRuntimeDir,'DOTNET_ROOT='+$dotnetRuntimeDir)
-        & $nssmExe @environmentCommand | Out-Null
-        if($LASTEXITCODE -ne 0){throw 'NSSM refused the private Garnet .NET runtime environment.'}
         $serviceEnvironment=@(& $nssmExe get $nssmService AppEnvironmentExtra 2>&1) -join ' '
         if($serviceEnvironment.IndexOf(('DOTNET_ROOT_X64='+$dotnetRuntimeDir),[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
            $serviceEnvironment.IndexOf(('DOTNET_ROOT='+$dotnetRuntimeDir),[StringComparison]::OrdinalIgnoreCase) -lt 0){
