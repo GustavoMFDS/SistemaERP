@@ -140,4 +140,3 @@ func clear(data []byte) {
 		data[i] = 0
 	}
 }
-
