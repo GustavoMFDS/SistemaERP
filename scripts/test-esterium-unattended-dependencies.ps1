@@ -21,6 +21,18 @@ if (-not $implementation.Contains('Set-Service -Name $PostgresServiceName -Start
     -not $implementation.Contains("'Start','SERVICE_DISABLED'")) {
     throw 'Unattended dependency installer must leave PostgreSQL and Garnet disabled.'
 }
+$runtimeLaunchTokens=@(
+    '$dotnetRuntimeSource=Join-Path $PSScriptRoot ''dotnet''',
+    '$dotnetExe=Join-Path $garnetDir ''dotnet\dotnet.exe''',
+    '$appParameters=''exec --runtimeconfig "',
+    '& $serviceExe install $GarnetServiceName $dotnetExe $appParameters',
+    'GarnetServer.runtimeconfig.json'
+)
+foreach($token in $runtimeLaunchTokens){
+    if(-not $implementation.Contains($token)){
+        throw 'Garnet installer must launch through the package-local pinned .NET runtime.'
+    }
+}
 $testId=[Guid]::NewGuid().ToString('N').Substring(0,10)
 $root=Join-Path $env:RUNNER_TEMP ('esterium-install-'+$testId)
 $pg=Join-Path $root 'postgresql-16.exe'
