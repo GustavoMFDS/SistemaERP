@@ -25,6 +25,20 @@ if ($hash -cne $ExpectedManifestSHA256.ToUpperInvariant()) {
     throw 'Bundle manifest differs from the independently approved SHA-256.'
 }
 $signer = $ExpectedPublisherThumbprint.ToUpperInvariant()
+# Signed releases include the runtime required by the bundled Garnet service.
+$requiredDotnetFiles = @(
+    'tools/dotnet/dotnet.exe',
+    'tools/dotnet/LICENSE.txt',
+    'tools/dotnet/ThirdPartyNotices.txt',
+    'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+    'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+)
+foreach ($relative in $requiredDotnetFiles) {
+    $runtimeFile = Join-Path $bundle ($relative.Replace('/', '\\'))
+    if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) {
+        throw 'Release refused: the pinned .NET runtime is incomplete.'
+    }
+}
 # The complete executable and every script that can execute privileged
 # operations must be Authenticode-valid under the same approved publisher.
 $targets = @(
