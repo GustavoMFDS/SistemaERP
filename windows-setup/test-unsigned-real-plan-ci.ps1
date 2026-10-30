@@ -75,6 +75,9 @@ function Test-CIOnlyStrictJournalRejection([string]$Exe,[string]$Journal,[string
         @{Name='wrong-phase'; Text=$original.Replace('"phase": "'+$ExpectedPhase+'"','"phase": "'+$other+'"')},
         @{Name='escaped-key-alias'; Text=$original.Replace('"phase": "'+$ExpectedPhase+'"','"ph\u0061se": "'+$ExpectedPhase+'"')}
     )
+    if($ExpectedPhase -ceq 'OFFLINE_SECRETS_ONLY'){
+        $cases+=@{Name='offline-secret-flag-false'; Text=$original.Replace('"secretsGenerated": true','"secretsGenerated": false')}
+    }
     try{
         foreach($case in $cases){
             if($case.Text -ceq $original){throw ('Ineffective JSON tamper fixture: '+$case.Name)}
@@ -115,7 +118,7 @@ function Test-CIOnlyStrictJournalRejection([string]$Exe,[string]$Journal,[string
             }
         }
     }finally{[Array]::Clear($bytes,0,$bytes.Length)}
-    Write-Output ('PASS: strict native journal schema refused 7 synthetic JSON tamper cases for '+$ExpectedPhase+'; original journal restored byte-for-byte.')
+    Write-Output ('PASS: strict native journal schema refused '+$cases.Count+' synthetic JSON tamper cases for '+$ExpectedPhase+'; original journal restored byte-for-byte.')
 }
 
 $edbHash=if($PostgresBinaryZip){'43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'}else{'DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'}
