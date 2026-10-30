@@ -18,8 +18,9 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		// Do not echo database diagnostics or account fields into an install log.
-		fmt.Fprintln(os.Stderr, "FAIL: first administrator was not created; preserve the database for inspection.")
+		// run returns only fixed, input-free diagnostics. Underlying database
+		// errors are deliberately mapped before reaching this boundary.
+		fmt.Fprintf(os.Stderr, "FAIL: first administrator was not created: %s\n", err)
 		os.Exit(1)
 	}
 	fmt.Println("PASS: first administrator created for the new company.")
@@ -57,7 +58,7 @@ func run() error {
 
 	urlPath, err := filepath.Abs(*databaseURLFile)
 	if err != nil {
-		return err
+		return errors.New("database URL file path is invalid")
 	}
 	if strings.HasPrefix(urlPath, `\\`) {
 		return errors.New("database URL file must be local")
@@ -68,7 +69,7 @@ func run() error {
 	}
 	urlBytes, err := os.ReadFile(urlPath)
 	if err != nil {
-		return err
+		return errors.New("database URL file could not be read")
 	}
 	defer clear(urlBytes)
 	databaseURL := strings.TrimSpace(string(urlBytes))
@@ -100,17 +101,17 @@ func run() error {
 
 	poolConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return err
+		return errors.New("database URL options are invalid")
 	}
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
-		return err
+		return errors.New("database pool configuration is invalid")
 	}
 	defer pool.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	if err := pool.Ping(ctx); err != nil {
-		return err
+		return errors.New("database connection failed")
 	}
 	return bootstrapadmin.Create(ctx, pool, input, password)
 }
@@ -139,3 +140,4 @@ func clear(data []byte) {
 		data[i] = 0
 	}
 }
+
