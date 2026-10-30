@@ -11,7 +11,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 }
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 
-foreach ($tool in @('go', 'npm')) {
+foreach ($tool in @('go', 'npm', 'curl.exe')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         throw "Ferramenta de compilação ausente: $tool. Execute este script na máquina de build, nunca no computador da loja."
     }
@@ -63,6 +63,37 @@ if (-not (Test-Path (Join-Path $WebOut 'index.html'))) {
 }
 $toolsDir = Join-Path $OutputDir 'tools'
 New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+# Garnet 2.2.3 is framework-dependent. Embed Microsoft's pinned .NET Runtime
+# so a clean Windows installation does not depend on a preinstalled runtime.
+$dotnetVersion = '10.0.14'
+$dotnetZipSha512 = 'a176095f1db69b42c81acc60940744078d6bf2d2ac643e418342aa9c81889f4bd13e42f4621b131f9e77e4bc781ad46e375956219df9a4f979031d2a5a8d93cd'
+$dotnetZip = Join-Path ([IO.Path]::GetTempPath()) ('esterium-dotnet-runtime-' + [Guid]::NewGuid().ToString('N') + '.zip')
+try {
+    $dotnetUrl = 'https://builds.dotnet.microsoft.com/dotnet/Runtime/' + $dotnetVersion + '/dotnet-runtime-' + $dotnetVersion + '-win-x64.zip'
+    & curl.exe -fLsS --retry 2 --connect-timeout 25 --max-time 300 -o $dotnetZip $dotnetUrl
+    if ($LASTEXITCODE -ne 0) { throw 'Official .NET runtime download failed.' }
+    if ((Get-FileHash -LiteralPath $dotnetZip -Algorithm SHA512).Hash.ToLowerInvariant() -cne $dotnetZipSha512) {
+        throw 'Official .NET runtime SHA-512 mismatch.'
+    }
+    $dotnetDir = Join-Path $toolsDir 'dotnet'
+    New-Item -ItemType Directory -Path $dotnetDir -ErrorAction Stop | Out-Null
+    Expand-Archive -LiteralPath $dotnetZip -DestinationPath $dotnetDir -ErrorAction Stop
+    $dotnetExe = Join-Path $dotnetDir 'dotnet.exe'
+    $runtimeCore = Join-Path $dotnetDir ('shared\\Microsoft.NETCore.App\\' + $dotnetVersion + '\\System.Private.CoreLib.dll')
+    if (-not (Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $runtimeCore -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $dotnetDir 'ThirdPartyNotices.txt') -PathType Leaf)) {
+        throw 'Pinned .NET runtime package is incomplete or missing its notices.'
+    }
+    $runtimeList = & $dotnetExe --list-runtimes
+    if ($LASTEXITCODE -ne 0 -or -not ($runtimeList -match ('Microsoft\\.NETCore\\.App ' + [Regex]::Escape($dotnetVersion)))) {
+        throw 'Embedded .NET runtime smoke failed.'
+    }
+} finally {
+    if (Test-Path -LiteralPath $dotnetZip) {
+        Remove-Item -LiteralPath $dotnetZip -Force -ErrorAction SilentlyContinue
+    }
+}
 # Compile local certificate generation with the standard library only; the
 # Windows store receives a signed executable, never a Go toolchain or CA key.
 $oldGOOS=$env:GOOS

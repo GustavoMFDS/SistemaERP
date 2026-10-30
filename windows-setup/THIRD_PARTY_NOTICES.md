@@ -12,6 +12,7 @@ A licença MIT do repositório NÃO altera a licença dos programas de terceiros
 | Binários PostgreSQL para integração Windows | EnterpriseDB (EDB) / PostgreSQL Global Development Group | postgresql-16.15-5-windows-x64-binaries.zip | Prévia MIT integrada inclui este ZIP, não o instalador gráfico. PostgreSQL License e eventuais avisos dos outros componentes do ZIP precisam acompanhar a distribuição; inventário ainda sujeito a revisão. |
 | Instalador PostgreSQL para Windows | EnterpriseDB (EDB) | postgresql-16.15-1-windows-x64.exe | O executável de instalação é distribuído pela EDB: sua redistribuição em um pacote de terceiros requer revisão específica |
 | Garnet | microsoft/garnet | 2.2.3 | MIT; distribuir com seu LICENSE e com os avisos de terceiros de NOTICE.md |
+| .NET Runtime | Microsoft | 10.0.14 Windows x64 | MIT; archive SHA-512 pinned; preserve `LICENSE.txt` and `ThirdPartyNotices.txt` with the runtime |
 | NSSM | nssm.cc | 2.24-101-g897c7ad | Domínio público, segundo o autor; preservar a atribuição e a origem por transparência |
 
 ## Verificações e política de publicação
@@ -52,6 +53,8 @@ A licença MIT do repositório NÃO altera a licença dos programas de terceiros
   https://github.com/microsoft/garnet/blob/main/LICENSE
 * Garnet NOTICE (dependências de terceiros):
   https://github.com/microsoft/garnet/blob/main/NOTICE.md
+* .NET Runtime 10.0.14 Windows x64 release metadata:
+  https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json
 * NSSM licença/domínio público:
   https://www.nssm.cc/download
 

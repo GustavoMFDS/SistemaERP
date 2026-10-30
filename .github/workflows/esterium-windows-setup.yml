@@ -298,9 +298,14 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           & ./scripts/test-esterium-postgres-real-tls-ci.ps1 -FromIntegratedStage -RunIntegratedERPStartupSmoke
-      - uses: actions/setup-dotnet@v5
+      - name: Upload synthetic Windows login and home screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          dotnet-version: '10.0.x'
+          name: esterium-windows-lab-screens
+          path: ${{ runner.temp }}/esterium-installed-lab-evidence
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Test real Garnet TLS ACL Lua AOF NSSM from native MIT EXE vendor staging
         shell: pwsh
         timeout-minutes: 14

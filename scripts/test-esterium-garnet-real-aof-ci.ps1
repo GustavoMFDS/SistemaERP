@@ -22,6 +22,8 @@ $nssmExe=Join-Path $nssmDir 'nssm-2.24-101-g897c7ad\\win64\\nssm.exe'
 $nssmService='EstGarCI'+$id.Substring(0,12)
 $nssmRegistered=$false
 $bin=Join-Path $root 'bin'
+$dotnetRuntimeRoot=Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\tools\dotnet'
+$script:dotnetRuntimeCopy=$null
 $acl=Join-Path $root 'garnet.acl'
 $pfx=Join-Path $root 'garnet.pfx'
 $pfxPassword=Join-Path $root 'pfx.secret'
@@ -105,7 +107,52 @@ function Start-Garnet([string]$conf,[string]$phase) {
     if ($exes.Count -ne 1) { throw 'Expected exactly one GarnetServer.exe.' }
     $out=Join-Path $root ($phase+'.out.log')
     $err=Join-Path $root ($phase+'.err.log')
-    $proc=Start-Process -FilePath $exes[0].FullName -WorkingDirectory $exes[0].DirectoryName -ArgumentList @('--config-import-path',('"'+$conf+'"')) -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    if($FromIntegratedStage){
+        if($null -eq $script:dotnetRuntimeCopy){
+            $sourceRuntime=Join-Path $dotnetRuntimeRoot ''
+            $targetRuntime=Join-Path $root 'dotnet-runtime'
+            if(-not(Test-Path -LiteralPath (Join-Path $sourceRuntime 'dotnet.exe') -PathType Leaf) -or
+               (Get-Item -LiteralPath $sourceRuntime -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){
+                throw 'Integrated Garnet source has no ordinary bundled .NET runtime.'
+            }
+            Copy-Item -LiteralPath $sourceRuntime -Destination $targetRuntime -Recurse -ErrorAction Stop
+            $sourceFiles=@(Get-ChildItem -LiteralPath $sourceRuntime -Recurse -File)
+            $targetFiles=@(Get-ChildItem -LiteralPath $targetRuntime -Recurse -File)
+            if($sourceFiles.Count -eq 0 -or $sourceFiles.Count -ne $targetFiles.Count){
+                throw 'Disposable service runtime copy is incomplete.'
+            }
+            foreach($sourceFile in $sourceFiles){
+                if(($sourceFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                    throw 'Bundled .NET runtime contains a reparse point.'
+                }
+                $relative=$sourceFile.FullName.Substring($sourceRuntime.Length).TrimStart('\\')
+                $copyFile=Join-Path $targetRuntime $relative
+                if(-not(Test-Path -LiteralPath $copyFile -PathType Leaf) -or
+                   (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash -cne
+                   (Get-FileHash -LiteralPath $copyFile -Algorithm SHA256).Hash){
+                    throw 'Disposable .NET runtime copy differs from verified staged bytes.'
+                }
+            }
+            $script:dotnetRuntimeCopy=$targetRuntime
+        }
+        $dotnetExe=Join-Path $script:dotnetRuntimeCopy 'dotnet.exe'
+        $garnetDll=Join-Path $exes[0].DirectoryName 'GarnetServer.dll'
+        $runtimeConfig=Join-Path $exes[0].DirectoryName 'GarnetServer.runtimeconfig.json'
+        if(-not(Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
+           -not(Test-Path -LiteralPath $garnetDll -PathType Leaf) -or
+           -not(Test-Path -LiteralPath $runtimeConfig -PathType Leaf)){
+            throw 'Integrated Garnet requires its bundled .NET runtime and official DLL files.'
+        }
+        $runtimeList=@(& $dotnetExe --list-runtimes)
+        if($LASTEXITCODE -ne 0 -or -not($runtimeList -match 'Microsoft\\.NETCore\\.App 10\\.0\\.14')){
+            throw 'Integrated Garnet did not find the bundled .NET 10 runtime.'
+        }
+        $processArgs=@('exec','--runtimeconfig',('"'+$runtimeConfig+'"'),('"'+$garnetDll+'"'),
+            '--config-import-path',('"'+$conf+'"'))
+        $proc=Start-Process -FilePath $dotnetExe -WorkingDirectory $exes[0].DirectoryName -ArgumentList $processArgs -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    }else{
+        $proc=Start-Process -FilePath $exes[0].FullName -WorkingDirectory $exes[0].DirectoryName -ArgumentList @('--config-import-path',('"'+$conf+'"')) -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    }
     for ($attempt=0;$attempt -lt 40;$attempt++) {
         $proc.Refresh()
         if ($proc.HasExited) { break }
@@ -299,7 +346,20 @@ try {
     }
     $garnetExe=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.exe')
     if ($garnetExe.Count -ne 1) { throw 'Expected one pinned GarnetServer.exe for SCM.' }
-    & $nssmExe install $nssmService $garnetExe[0].FullName '--config-import-path' $confPath | Out-Null
+    if($FromIntegratedStage){
+        $dotnetExe=Join-Path $script:dotnetRuntimeCopy 'dotnet.exe'
+        $garnetDll=Join-Path $garnetExe[0].DirectoryName 'GarnetServer.dll'
+        $runtimeConfig=Join-Path $garnetExe[0].DirectoryName 'GarnetServer.runtimeconfig.json'
+        if(-not(Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
+           -not(Test-Path -LiteralPath $garnetDll -PathType Leaf) -or
+           -not(Test-Path -LiteralPath $runtimeConfig -PathType Leaf)){
+            throw 'Integrated Garnet service requires its bundled .NET runtime and official DLL files.'
+        }
+        $appParameters='exec --runtimeconfig "'+$runtimeConfig+'" "'+$garnetDll+'" --config-import-path "'+$confPath+'"'
+        & $nssmExe install $nssmService $dotnetExe $appParameters | Out-Null
+    }else{
+        & $nssmExe install $nssmService $garnetExe[0].FullName '--config-import-path' $confPath | Out-Null
+    }
     if ($LASTEXITCODE -ne 0) { throw 'NSSM did not register Garnet Windows service.' }
     $nssmRegistered=$true
     foreach ($cmd in @(

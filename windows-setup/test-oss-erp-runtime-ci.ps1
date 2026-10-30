@@ -218,6 +218,37 @@ try{
     $js=Invoke-WebRequest -Uri $assetUri -Method Get -SkipCertificateCheck -TimeoutSec 20
     if($js.StatusCode -ne 200 -or $js.RawContentLength -lt 10000){throw 'Installed frontend JavaScript asset failed HTTPS delivery.'}
     Assert-Login $httpPort
+    if($script:adminEmail -cne 'ci-admin@esterium.invalid' -or $script:adminPassword -notmatch '^CIonly-[0-9a-f]{32}$'){
+        throw 'Installed UI browser smoke requires the random synthetic first-admin identity.'
+    }
+    $webRoot=Join-Path (Split-Path -Parent $PSScriptRoot) 'web'
+    $evidence=Join-Path $env:RUNNER_TEMP 'esterium-installed-lab-evidence'
+    if(-not(Test-Path -LiteralPath (Join-Path $webRoot 'package.json') -PathType Leaf)){
+        throw 'Playwright source package is missing from the disposable runner.'
+    }
+    [IO.Directory]::CreateDirectory($evidence) | Out-Null
+    $browserEnv=@{}
+    foreach($key in @('ESTERIUM_INSTALLED_LAB','ESTERIUM_LAB_ADMIN_EMAIL','ESTERIUM_LAB_ADMIN_PASSWORD','ESTERIUM_LAB_EVIDENCE_DIR','E2E_BASE_URL','E2E_IGNORE_HTTPS_ERRORS')){
+        $browserEnv[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+    }
+    try{
+        $env:ESTERIUM_INSTALLED_LAB='1'
+        $env:ESTERIUM_LAB_ADMIN_EMAIL=$script:adminEmail
+        $env:ESTERIUM_LAB_ADMIN_PASSWORD=$script:adminPassword
+        $env:ESTERIUM_LAB_EVIDENCE_DIR=$evidence
+        $env:E2E_BASE_URL=$origin
+        $env:E2E_IGNORE_HTTPS_ERRORS='1'
+        Push-Location $webRoot
+        try{
+            & npx.cmd playwright install chromium
+            if($LASTEXITCODE -ne 0){throw 'Playwright Chromium installation failed in the disposable Windows lab.'}
+            & npx.cmd playwright test --config playwright.installed-lab.config.ts --project=chromium --reporter=line
+            if($LASTEXITCODE -ne 0){throw 'Playwright installed-ERP login/home browser smoke failed.'}
+        }finally{Pop-Location}
+    }finally{
+        foreach($entry in $browserEnv.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+    }
+    Write-Output 'PASS: Chromium opened the installed HTTPS ERP, logged in as the synthetic first admin and rendered the home screen.'
     Write-Output 'PASS: LocalService ERP served the compiled React shell/assets over HTTPS; synthetic admin login and auth profile passed.'
 
     Stop-Service -Name $serviceName -ErrorAction Stop
