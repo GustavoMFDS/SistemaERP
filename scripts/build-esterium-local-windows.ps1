@@ -79,14 +79,14 @@ try {
     New-Item -ItemType Directory -Path $dotnetDir -ErrorAction Stop | Out-Null
     Expand-Archive -LiteralPath $dotnetZip -DestinationPath $dotnetDir -ErrorAction Stop
     $dotnetExe = Join-Path $dotnetDir 'dotnet.exe'
-    $runtimeCore = Join-Path $dotnetDir ('shared\\Microsoft.NETCore.App\\' + $dotnetVersion + '\\System.Private.CoreLib.dll')
+    $runtimeCore = Join-Path $dotnetDir ('shared\Microsoft.NETCore.App\' + $dotnetVersion + '\System.Private.CoreLib.dll')
     if (-not (Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
         -not (Test-Path -LiteralPath $runtimeCore -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $dotnetDir 'ThirdPartyNotices.txt') -PathType Leaf)) {
         throw 'Pinned .NET runtime package is incomplete or missing its notices.'
     }
     $runtimeList = & $dotnetExe --list-runtimes
-    if ($LASTEXITCODE -ne 0 -or -not ($runtimeList -match ('Microsoft\\.NETCore\\.App ' + [Regex]::Escape($dotnetVersion)))) {
+    if ($LASTEXITCODE -ne 0 -or -not ($runtimeList -match ('Microsoft\.NETCore\.App ' + [Regex]::Escape($dotnetVersion)))) {
         throw 'Embedded .NET runtime smoke failed.'
     }
 } finally {

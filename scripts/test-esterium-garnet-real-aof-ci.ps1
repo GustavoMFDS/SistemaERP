@@ -125,7 +125,7 @@ function Start-Garnet([string]$conf,[string]$phase) {
                 if(($sourceFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
                     throw 'Bundled .NET runtime contains a reparse point.'
                 }
-                $relative=$sourceFile.FullName.Substring($sourceRuntime.Length).TrimStart('\\')
+                $relative=$sourceFile.FullName.Substring($sourceRuntime.Length).TrimStart('\')
                 $copyFile=Join-Path $targetRuntime $relative
                 if(-not(Test-Path -LiteralPath $copyFile -PathType Leaf) -or
                    (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash -cne
@@ -144,7 +144,7 @@ function Start-Garnet([string]$conf,[string]$phase) {
             throw 'Integrated Garnet requires its bundled .NET runtime and official DLL files.'
         }
         $runtimeList=@(& $dotnetExe --list-runtimes)
-        if($LASTEXITCODE -ne 0 -or -not($runtimeList -match 'Microsoft\\.NETCore\\.App 10\\.0\\.14')){
+        if($LASTEXITCODE -ne 0 -or -not($runtimeList -match 'Microsoft\.NETCore\.App 10\.0\.14')){
             throw 'Integrated Garnet did not find the bundled .NET 10 runtime.'
         }
         $processArgs=@('exec','--runtimeconfig',('"'+$runtimeConfig+'"'),('"'+$garnetDll+'"'),
