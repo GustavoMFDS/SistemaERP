@@ -367,7 +367,7 @@ try {
         $serviceAppPath=@(& $nssmExe get $nssmService AppPath 2>&1) -join ''
         $serviceParameters=@(& $nssmExe get $nssmService AppParameters 2>&1) -join ' '
         if($scmCommand.Count -ne 1 -or
-           $scmCommand[0].PathName -notlike ('*'+[IO.Path]::Combine($script:dotnetRuntimeCopy,'dotnet.exe')+'*') -or
+           $scmCommand[0].PathName -notlike ('*'+$nssmExe+'*') -or
            $serviceAppPath -cne (Join-Path $script:dotnetRuntimeCopy 'dotnet.exe') -or
            $serviceParameters -notmatch '(?i)exec --runtimeconfig' -or
            $serviceParameters -notmatch '(?i)GarnetServer\.dll' -or
@@ -376,7 +376,6 @@ try {
         }
         Write-Output 'PASS: real Garnet SCM command uses the bundled private .NET runtime, independent of global SDK/runtime discovery.'
     }
-    $nssmRegistered=$true
     foreach ($cmd in @(
         @('set',$nssmService,'ObjectName','NT AUTHORITY\NetworkService'),
         @('set',$nssmService,'Start','SERVICE_DISABLED'),
