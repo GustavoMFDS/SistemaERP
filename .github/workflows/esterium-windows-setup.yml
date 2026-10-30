@@ -232,6 +232,12 @@ jobs:
               'windows-setup/test-postgres-oss-lsa-ci.ps1',
               'scripts/test-esterium-postgres-real-tls-ci.ps1',
               'scripts/test-esterium-garnet-real-aof-ci.ps1',
+              'scripts/bootstrap-esterium-first-admin.ps1',
+              'scripts/apply-esterium-initial-schema.ps1',
+              'scripts/finish-esterium-local-first-install.ps1',
+              'scripts/build-esterium-local-windows.ps1',
+              'scripts/write-esterium-bundle-manifest.ps1',
+              'scripts/verify-esterium-bundle.ps1',
               'windows-setup/test-oss-real-erp-scm-ci.ps1',
               'windows-setup/test-oss-native-data-initdb-ci.ps1',
               'windows-setup/test-oss-offline-service-identity-ci.ps1',
@@ -429,3 +435,4 @@ jobs:
           done
           echo "PASS: required Windows checks for $EVENT_NAME all passed."
           echo "NOT A RETAIL INSTALL: customer Apply remains disabled; E2E ERP service, persistent deployment and full store restore still required."
+

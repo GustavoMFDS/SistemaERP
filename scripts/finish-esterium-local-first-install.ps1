@@ -54,7 +54,7 @@ if ($Apply) {
         throw 'Initial setup requires an independently approved manifest SHA-256 and publisher.'
     }
     # Authenticate delegated verification code BEFORE invoking it as admin.
-    foreach ($file in @('check-esterium-signed-release.ps1','verify-esterium-bundle.ps1')) {
+    foreach ($file in @('check-esterium-signed-release.ps1','verify-esterium-bundle.ps1','bootstrap-esterium-first-admin.ps1')) {
         $auth=Get-AuthenticodeSignature -LiteralPath (Join-Path $PSScriptRoot $file)
         if ($auth.Status -ne [Management.Automation.SignatureStatus]::Valid -or
             $null -eq $auth.SignerCertificate -or
@@ -148,6 +148,13 @@ $probe=@{BundleDir=$InstallDir;PostgresBin=$PostgresBin;PostgresDataDir=$Postgre
 # after a failed proof, including a failed final receipt write.
 try {
     & (Join-Path $stageTool 'register-esterium-windows-service.ps1') @registration | Out-Null
+    $adminBootstrap=@{
+        DatabaseURLFile=(Join-Path $DatabaseDestinationDir 'database-url.secret')
+        BootstrapAdminExe=(Join-Path $stageTool 'esterium-bootstrap-admin.exe')
+        TrustedPublisherThumbprint=$TrustedPublisherThumbprint
+        Apply=$true
+    }
+    & (Join-Path $stageTool 'bootstrap-esterium-first-admin.ps1') @adminBootstrap | Out-Null
     & (Join-Path $InstallDir 'tools\probe-esterium-local-first-run.ps1') @probe | Out-Null
 } catch {
     try {
@@ -165,5 +172,5 @@ try {
     }
     throw
 }
-Write-Output 'PASS: signed release, initial SQL, protected app credentials and stopped ERP service installed; database/cache probe passed.'
+Write-Output 'PASS: signed release, schema/RBAC, first admin, protected app credentials and stopped ERP service installed; database/cache probe passed.'
 Write-Output 'NOT READY: ERP not started; external restore, Windows EXE EDB installation, HTTPS client and physical pilot gates remain.'

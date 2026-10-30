@@ -32,6 +32,9 @@ $targets = @(
     (Join-Path $bundle 'tools\esterium-migrate.exe'),
     (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe')
 )
+if (Test-Path -LiteralPath (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe') -PathType Leaf) {
+    $targets += (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe')
+}
 $targets += @(Get-ChildItem -LiteralPath (Join-Path $bundle 'tools') -Filter '*.ps1' -File |
     ForEach-Object { $_.FullName })
 foreach ($file in $targets) {

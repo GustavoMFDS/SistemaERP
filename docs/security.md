@@ -47,6 +47,6 @@ Production notes:
 - Keep tenant-scoped cache keys and queries; all high-risk queries must include `tenant_id`.
 - Validate LGPD legal bases and retention periods with counsel before production launch.
 - Demo seed data requires explicit `ALLOW_DEMO_SEED=1` in psql and is blocked by startup validation in staging/production.
-- Production bootstrap must create the first administrator with an explicit tenant membership and tenant-scoped role assignment; default demo credentials are never created by the production seed.
+- Production bootstrap must use the signed first-admin CLI, which accepts only a fresh placeholder tenant and atomically creates the company identity, user, explicit tenant membership, legacy role mapping, and tenant-scoped administrator role. The production seed creates RBAC definitions only; default demo credentials and business rows are never created.
 - Validate backups and restores before production. Migration rollback should be a planned operational procedure, not improvised during an incident.
 - See `docs/deployment.md` for backup, restore, migration validation, and rollback procedures.

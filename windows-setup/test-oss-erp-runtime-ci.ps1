@@ -64,12 +64,33 @@ function Wait-ERPReady([int]$port,[int]$seconds){
 }
 function Assert-Login([int]$port){
     $uri="https://localhost:$port/api/v1/auth/login"
-    $body=@{email='admin@sistema.local';password='admin123'}|ConvertTo-Json -Compress
+    $body=@{email=$script:adminEmail;password=$script:adminPassword}|ConvertTo-Json -Compress
     $login=Invoke-RestMethod -Uri $uri -Method Post -SkipCertificateCheck -TimeoutSec 15 -ContentType 'application/json' -Body $body
     $access=[string]$login.token.access_token
     if([string]::IsNullOrWhiteSpace($access)){throw 'Synthetic first-admin login returned no access token.'}
     $me=Invoke-RestMethod -Uri "https://localhost:$port/api/v1/auth/me" -Method Get -SkipCertificateCheck -TimeoutSec 15 -Headers @{Authorization="Bearer $access"}
     if($null -eq $me){throw 'Authenticated first-admin profile was empty.'}
+}
+function Invoke-AdminBootstrap([bool]$expectSuccess){
+    $info=[Diagnostics.ProcessStartInfo]::new()
+    $info.FileName=$script:bootstrap
+    $info.Arguments='--database-url-file "'+$script:databaseURL.Replace('"','')+'" --password-stdin'
+    $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+    $info.RedirectStandardInput=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+    foreach($entry in $script:adminVariables.GetEnumerator()){$info.EnvironmentVariables[$entry.Key]=$entry.Value}
+    $proc=[Diagnostics.Process]::Start($info)
+    if($null -eq $proc){throw 'First-admin CLI could not start in the disposable Windows lab.'}
+    try{
+        $stdout=$proc.StandardOutput.ReadToEndAsync()
+        $stderr=$proc.StandardError.ReadToEndAsync()
+        $proc.StandardInput.WriteLine($script:adminPassword)
+        $proc.StandardInput.Close()
+        if(-not $proc.WaitForExit(60000)){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue;throw 'First-admin CLI timed out.'}
+        $output=$stdout.GetAwaiter().GetResult().Trim()
+        $null=$stderr.GetAwaiter().GetResult()
+        if($expectSuccess -and ($proc.ExitCode -ne 0 -or $output -cne 'PASS: first administrator created for the new company.')){throw 'First-admin CLI rejected the fresh synthetic database.'}
+        if(-not $expectSuccess -and $proc.ExitCode -eq 0){throw 'First-admin CLI accepted a repeated setup attempt.'}
+    }finally{$proc.Dispose()}
 }
 try{
     if((Get-Service -Name $serviceName -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $install) -or (Test-Path -LiteralPath $root)){throw 'Disposable lab install destination or ERP service already exists.'}
@@ -82,7 +103,7 @@ try{
     & $verify -BundleDir $source | Out-Null
     if(-not $?){throw 'Source ERP bundle integrity check failed.'}
 
-    # The demo seed is explicitly guarded and runs only against this empty CI database.
+    # Apply the same production-safe RBAC seed shipped in the verified ERP bundle.
     $dbText=[IO.File]::ReadAllText($required.database).Trim()
     $dbUri=[Uri]::new($dbText)
     if($dbUri.Scheme -cne 'postgres' -or $dbUri.Host -cne 'localhost' -or [int]$dbUri.Port -ne [int]$required.pgPort){throw 'Disposable database URL is not the verified loopback TLS endpoint.'}
@@ -102,13 +123,14 @@ try{
     $env:PGDATABASE='esterium';$env:PGSSLMODE='verify-full';$env:PGSSLROOTCERT=$query.sslrootcert
     Remove-Item Env:PGHOSTADDR -ErrorAction SilentlyContinue
     $psql=Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin\pgsql\bin\psql.exe'
-    $seed=Join-Path $env:GITHUB_WORKSPACE 'backend\seed\seed.sql'
-    if(-not(Test-Path -LiteralPath $psql -PathType Leaf) -or -not(Test-Path -LiteralPath $seed -PathType Leaf)){throw 'Pinned PostgreSQL client or guarded synthetic seed is unavailable.'}
+    $seed=Join-Path $source 'tools\seed.prod.sql'
+    $bootstrap=Join-Path $source 'tools\esterium-bootstrap-admin.exe'
+    if(-not(Test-Path -LiteralPath $psql -PathType Leaf) -or -not(Test-Path -LiteralPath $seed -PathType Leaf) -or -not(Test-Path -LiteralPath $bootstrap -PathType Leaf)){throw 'Pinned PostgreSQL client or production bootstrap tool is unavailable.'}
     $userCount=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' 'SELECT count(*) FROM users;') -join ''
     if($LASTEXITCODE -ne 0 -or $userCount.Trim() -cne '0'){throw 'First-admin CI seed requires an empty migrated application database.'}
-    & $psql '-X' '-q' '-v' 'ON_ERROR_STOP=1' '-v' 'ALLOW_DEMO_SEED=1' '-f' $seed | Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Guarded CI-only synthetic ERP seed failed.'}
-    Write-Output 'PASS: empty migrated schema received only the guarded synthetic CI tenant/admin/catalog seed.'
+    & $psql '-X' '-q' '-v' 'ON_ERROR_STOP=1' '-f' $seed | Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Production-safe role and permission seed failed.'}
+    Write-Output 'PASS: empty migrated schema received the production-safe RBAC seed; no demo account or product was inserted.'
 
     [IO.Directory]::CreateDirectory($secrets)|Out-Null
     [IO.Directory]::CreateDirectory($tls)|Out-Null
@@ -116,6 +138,25 @@ try{
     Copy-Item -LiteralPath $query.sslrootcert -Destination $pgCA -ErrorAction Stop
     $dbText=[regex]::Replace($dbText,'(?<=\?|&)sslrootcert=[^&]+','sslrootcert='+[Uri]::EscapeDataString($pgCA),1)
     [IO.File]::WriteAllText($databaseURL,$dbText+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+    $script:adminEmail='ci-admin@esterium.invalid'
+    $script:adminPassword='CIonly-'+[Guid]::NewGuid().ToString('N')
+    $script:bootstrap=$bootstrap
+    $script:databaseURL=$databaseURL
+    $script:adminVariables=@{
+        ESTERIUM_BOOTSTRAP_LEGAL_NAME='Esterium CI Synthetic LTDA'
+        ESTERIUM_BOOTSTRAP_TRADE_NAME='Esterium CI Lab'
+        ESTERIUM_BOOTSTRAP_CNPJ='00000000000191'
+        ESTERIUM_BOOTSTRAP_ADMIN_NAME='Synthetic Lab Administrator'
+        ESTERIUM_BOOTSTRAP_ADMIN_EMAIL=$script:adminEmail
+    }
+    Invoke-AdminBootstrap $true
+    Invoke-AdminBootstrap $false
+    $identityCount=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM users WHERE email='ci-admin@esterium.invalid';") -join ''
+    $demoCount=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM users WHERE email IN ('admin@sistema.local','gerente@sistema.local','caixa@sistema.local');") -join ''
+    $adminPerms=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM user_tenant_roles utr JOIN roles r ON r.id=utr.role_id WHERE r.name='admin';") -join ''
+    $auditCount=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM audit_logs WHERE action='install.first_admin.create';") -join ''
+    if($LASTEXITCODE -ne 0 -or $identityCount.Trim() -cne '1' -or $demoCount.Trim() -cne '0' -or $adminPerms.Trim() -cne '1' -or $auditCount.Trim() -cne '1'){throw 'Synthetic first-admin identity, tenant role, audit or no-demo invariant failed.'}
+    Write-Output 'PASS: first-admin CLI created one synthetic tenant admin, assigned RBAC, rejected replay and created no demo account.'
     $redisPassword=[string]$required.redisPassword
     if($redisPassword -notmatch '^ci-only-garnet-[0-9a-f]{32}$'){throw 'Garnet credential is not an isolated random CI secret.'}
     $redisText="rediss://esteriumcache:$redisPassword@localhost:$($required.redisPort)/0"
@@ -207,5 +248,7 @@ try{
         foreach($path in @($install,$root)){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue}}
     }
     foreach($entry in $oldPg.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+    $script:adminPassword=$null;$script:adminEmail=$null;$script:adminVariables=$null
 }
+
 

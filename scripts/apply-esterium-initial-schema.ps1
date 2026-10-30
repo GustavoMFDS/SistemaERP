@@ -70,6 +70,14 @@ $urlFile=Assert-Local $DatabaseURLFile $false
 $psql=Assert-Local $PsqlExe $false
 $migrator=Assert-Local $MigrateExe $false
 $folder=Assert-Local $MigrationsDir $true
+$bundleRoot=''
+if ($BundleDir) { $bundleRoot=Assert-Local $BundleDir $true }
+$productionSeed=''
+if ($bundleRoot) {
+    $productionSeed=Assert-Local (Join-Path $bundleRoot 'tools\seed.prod.sql') $false
+} else {
+    $productionSeed=Assert-Local (Join-Path $PSScriptRoot '..\backend\seed\seed.prod.sql') $false
+}
 $versions=@{}
 $ups=@(Get-ChildItem -LiteralPath $folder -File -Filter '*.up.sql')
 foreach ($file in $ups) {
@@ -187,12 +195,14 @@ try {
     $migrationURL+=((@($parts | Select-Object -Skip 1 | ForEach-Object { [Uri]::EscapeDataString($_) })) -join '/')
     $migrateArgs=('-source "'+$migrationURL+'" -database "'+$safeUrl+'" up')
     $null=Run-Child $migrator $migrateArgs $false 'initial migration'
+    $seedArgs=('-X -q -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f "'+$productionSeed+'"')
+    $null=Run-Child $psql $seedArgs $false 'production reference seed'
     $verifySQL="COPY (SELECT version::text||':'||dirty::text FROM public.schema_migrations) TO STDOUT;"
     $verifyArgs=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f -')
     $result=Run-Child $psql $verifyArgs $true 'schema version verification' $verifySQL
     if ($result -cne ($versions.Count.ToString()+':false')) {
         throw 'Migracoes iniciais nao terminaram na versao esperada ou estao dirty.'
     }
-    Write-Output 'PASS: schema inicial Esterium aplicado com migrador versionado e conta nao privilegiada.'
+    Write-Output 'PASS: schema inicial, RBAC de producao e conta SQL nao privilegiada aplicados.'
     Write-Output 'NOT READY: backup externo, servicos Windows, PDV e homologacao ainda exigem aceite.'
 } finally { $password=$null; $url=$null }

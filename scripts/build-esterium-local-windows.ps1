@@ -72,6 +72,8 @@ try {
     $env:GOARCH='amd64'
     Push-Location (Join-Path $Root 'backend')
     try {
+        & go build -trimpath -o (Join-Path $toolsDir 'esterium-bootstrap-admin.exe') ./cmd/esterium-bootstrap-admin
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar bootstrap seguro do primeiro administrador.' }
         & go build -trimpath -o (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe') ./cmd/pg-tls-certgen
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar gerador TLS PostgreSQL.' }
     } finally {
@@ -144,6 +146,8 @@ foreach ($tool in @(
 )) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool) -ErrorAction Stop
 }
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'bootstrap-esterium-first-admin.ps1') -Destination (Join-Path $toolsDir 'bootstrap-esterium-first-admin.ps1') -ErrorAction Stop
+Copy-Item -LiteralPath (Join-Path $Root 'backend/seed/seed.prod.sql') -Destination (Join-Path $toolsDir 'seed.prod.sql') -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $Root 'backend/migrations') -Destination (Join-Path $OutputDir 'migrations') -Recurse -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $Root 'docs/esterium-local-service-registration.md') -Destination (Join-Path $OutputDir 'README_LOCAL.md') -ErrorAction Stop
 & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $OutputDir

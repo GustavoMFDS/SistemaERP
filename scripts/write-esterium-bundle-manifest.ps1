@@ -60,7 +60,13 @@ $requiredTools = @(
     'README_LOCAL.md'
 )
 # A rollback helper is optional so older approved bundles remain verifiable.
-$optionalTools = @('tools/restore-esterium-app-version.ps1', 'tools/check-esterium-restore-archive.ps1')
+$optionalTools = @(
+    'tools/restore-esterium-app-version.ps1',
+    'tools/check-esterium-restore-archive.ps1',
+    'tools/bootstrap-esterium-first-admin.ps1',
+    'tools/seed.prod.sql',
+    'tools/esterium-bootstrap-admin.exe'
+)
 $items = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)
 $records = @()
 foreach ($file in $items) {

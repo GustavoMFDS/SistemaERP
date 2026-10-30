@@ -66,7 +66,13 @@ $requiredTools = @(
     'README_LOCAL.md'
 )
 # Validate it when present, but do not require it in older bundles.
-$optionalTools = @('tools/restore-esterium-app-version.ps1', 'tools/check-esterium-restore-archive.ps1')
+$optionalTools = @(
+    'tools/restore-esterium-app-version.ps1',
+    'tools/check-esterium-restore-archive.ps1',
+    'tools/bootstrap-esterium-first-admin.ps1',
+    'tools/seed.prod.sql',
+    'tools/esterium-bootstrap-admin.exe'
+)
 $seen = @{}
 foreach ($record in @($document.files)) {
     $relative = [string]$record.path
