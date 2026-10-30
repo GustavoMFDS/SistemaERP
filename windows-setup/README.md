@@ -973,3 +973,34 @@ contém campo desconhecido.
 é aplicada a computadores de clientes. Não há recuperação
 automática, reinstalação, reboot completo, merge ou release.
 O botão `Instalar` segue desabilitado na prévia MIT.
+
+## Exigência de bytes canônicos no diário nativo — CI
+
+A rodada anterior [Windows 41005413880](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41005413880)
+foi concluída com os jobs integrados e o gate em `success`;
+o [CI geral 41005413869](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41005413869)
+também passou 19/19. A prova anterior recusou sete corrupções
+do diário `DATA_DIRECTORIES_ONLY` e oito de `OFFLINE_SECRETS_ONLY`
+e restaurou o marcador original byte-a-byte no runner.
+
+O diagnóstico nativo passa a aceitar somente a codificação
+**UTF-8 sem BOM** e o formato literal canônico publicado
+pelo próprio EXE (chaves ordenadas, indentação e CRLF).
+Essa checagem é adicional ao esquema fechado das duas
+fases e recusa regravações com espaços, chaves em outra
+ordem, BOM ou bytes UTF-8 inválidos, mesmo que um
+desserializador permissivo as interpretasse.
+
+O CI descartável injeta quatro novos casos por fase:
+`whitespace-reformat`, `key-order-rewrite`, `utf8-bom`
+e `invalid-utf8`. A prova amplia-se para **11 casos na fase
+de diretórios e 12 na fase de credenciais**. As mutações
+são aplicadas só ao diário nativo do runner GitHub-hosted
+com flags CI explícitas e cada arquivo é restaurado
+byte-a-byte após recusa com código 5 e verificação de hash.
+
+**Esta revisão ainda precisa ser aprovada no CI.**
+O diagnóstico segue read-only; não equivale a
+autorização de retomada, não edita credenciais ou SQL,
+não habilita `Instalar`, não faz merge ou release e
+não recupera instalações de clientes automaticamente.
