@@ -936,3 +936,40 @@ exclusivamente a cargo do script temporário do runner.
 **Pendente CI na nova revisão.** Sem habilitar `Instalar`
 ou `-Apply`, sem merge/release ou implementação de
 recuperação automática em uma máquina de cliente.
+
+## Diário JSON: esquema fechado e testes de adulteração — CI
+
+A verificação do diário `ProgramData\Esterium\oss-data-layout.json`
+agora usa **o mesmo esquema estrito** tanto em
+`--inspect-oss-state` quanto na verificação executada antes
+de gerar as credenciais offline. A antiga checagem por
+substrings foi removida: agora são aceitas somente as
+propriedades exatas, tipos e valores da fase correspondente.
+
+- `DATA_DIRECTORIES_ONLY`: `schemaVersion = 1`, `phase`,
+  `databaseInitialized = false`, `servicesInstalled = false`,
+  `backupsConfigured = false`; a chave `secretsGenerated` não
+  pode estar presente.
+- `OFFLINE_SECRETS_ONLY`: exige as mesmas propriedades
+  com `phase` apropriada e `secretsGenerated = true`.
+
+Chaves extras, duplicadas, ausentes, com escape de nome,
+valores com tipos incorretos, marcações contraditórias,
+fase trocada, JSON ilegível, diário grande demais ou
+arquivo vinculado são bloqueados, sem avançar a instalação.
+O comando diagnóstico permanece **somente de leitura**.
+
+O teste nativo em runner Windows GitHub descartável altera
+temporariamente apenas o diário conhecido do próprio
+ambiente CI: injeta sete corrupções sintéticas na fase
+de diretórios e oito na fase de credenciais, exige que
+o EXE recuse todas (código 5), verifica que a inspeção
+não alterou os arquivos e restaura byte-a-byte o diário
+original após cada caso. Um caso também verifica que
+`--stage-oss-secrets` não cria senhas quando o diário
+contém campo desconhecido.
+
+**Nova revisão pendente de CI:** nenhuma dessas injeções
+é aplicada a computadores de clientes. Não há recuperação
+automática, reinstalação, reboot completo, merge ou release.
+O botão `Instalar` segue desabilitado na prévia MIT.
