@@ -362,6 +362,21 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { throw 'NSSM did not register Garnet Windows service.' }
     $nssmRegistered=$true
+    if($FromIntegratedStage){
+        $scmCommand=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
+        $serviceAppPath=@(& $nssmExe get $nssmService AppPath 2>&1) -join ''
+        $serviceParameters=@(& $nssmExe get $nssmService AppParameters 2>&1) -join ' '
+        if($scmCommand.Count -ne 1 -or
+           $scmCommand[0].PathName -notlike ('*'+[IO.Path]::Combine($script:dotnetRuntimeCopy,'dotnet.exe')+'*') -or
+           $serviceAppPath -cne (Join-Path $script:dotnetRuntimeCopy 'dotnet.exe') -or
+           $serviceParameters -notmatch '(?i)exec --runtimeconfig' -or
+           $serviceParameters -notmatch '(?i)GarnetServer\.dll' -or
+           $serviceParameters -notmatch '(?i)GarnetServer\.runtimeconfig\.json'){
+            throw 'NSSM did not persist the package-local .NET runtime command for Garnet.'
+        }
+        Write-Output 'PASS: real Garnet SCM command uses the bundled private .NET runtime, independent of global SDK/runtime discovery.'
+    }
+    $nssmRegistered=$true
     foreach ($cmd in @(
         @('set',$nssmService,'ObjectName','NT AUTHORITY\NetworkService'),
         @('set',$nssmService,'Start','SERVICE_DISABLED'),
