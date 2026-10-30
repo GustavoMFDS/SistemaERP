@@ -843,3 +843,33 @@ a recusa segura de uma retomada indevida, NÃO implementa recuperação
 automática de uma instalação de cliente. No produto, qualquer estado
 parcial deve ser preservado para avaliação do administrador. Não
 habilitar `Instalar`, nem fazer merge ou release de prévia sem assinatura.
+
+## Interrupção imediatamente antes da publicação atômica do diário — CI
+
+A rodada [Windows 40982262151](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40982262151)
+passou (`unsigned-preview`, `unsigned-integrated-zip-preview`,
+`oss-component-gate`), assim como o
+[CI geral 40982262187](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40982262187)
+(19/19 jobs). O log confirmou que o EXE recusou uma fase 5 com
+um único arquivo de credencial sintético parcial, preservando o diário.
+
+A próxima prova simula um ponto de falha diferente: a criação dos
+**seis** arquivos de nomes esperados em `Secrets`, mas contendo
+somente identificadores sintéticos inutilizáveis do CI, seguida por
+um arquivo `.oss-data-layout-<GUID>.json` temporário e **incompleto**
+no diretório raiz. O diário original continua em
+`DATA_DIRECTORIES_ONLY`, como seria o caso antes de `File.Replace`.
+O verdadeiro EXE MIT `--stage-oss-secrets` deve recusar retomar,
+sem adotar/substituir os seis arquivos nem o rascunho do diário,
+sem promover a fase e sem criar serviço ou banco.
+
+O teste compara os hashes originais de cada arquivo sintético e do
+diário válido, verifica ACLs protegidas e inexistência de entradas
+adicionais, e só então remove seus próprios sete arquivos sintéticos
+cujos hashes permaneçam idênticos. Uma substituição, link ou
+modificação impede a limpeza automática e reprova o teste.
+Depois, a fase 5 normal é exercitada no runner descartável.
+
+**A nova injeção ainda exige aprovação do CI.** Não é uma política
+de recuperação de cliente, não executa um reboot completo e não
+autoriza merge, release, `-Apply` ou botão `Instalar` na prévia MIT.
