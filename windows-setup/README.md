@@ -815,3 +815,31 @@ Isto apenas simula uma tentativa indevida de retomada em runner
 Windows descartável, não é política automática de recuperação
 de instalação real, não reinicia o sistema operacional e não
 habilita instalação comercial. Manter PR Draft sem merge ou release.
+
+## Falha fechada após interrupção parcial de credenciais — prova CI
+
+A execução [Windows 40973369884](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40973369884)
+concluiu com `unsigned-integrated-zip-preview` e `oss-component-gate`
+aprovados. O [CI geral 40973369890](https://github.com/GustavoMFDS/SistemaERP/actions/runs/40973369890)
+passou com 19/19 jobs. O teste confirmou que `--stage-oss-secrets`
+foi recusado enquanto um PostgreSQL descartável, o backup protegido
+e SQL gravado estavam presentes, sem alterar o diário ou os dados.
+
+A próxima prova acrescentada ao `test-unsigned-real-plan-ci.ps1`
+simula uma interrupção **antes** de a fase nativa publicar o diário
+`OFFLINE_SECRETS_ONLY`: dentro do `Secrets` inicialmente vazio do
+runner GitHub hospedado, cria apenas um arquivo `pg-super.secret`
+**sintético, incompleto e não utilizável como credencial**, com ACL
+herdada da pasta protegida. Ao executar o EXE real
+`--stage-oss-secrets`, a operação deve falhar fechado com saída 5;
+o arquivo parcial e o diário `DATA_DIRECTORIES_ONLY` devem permanecer
+byte-a-byte intactos, sem criar as cinco credenciais restantes.
+Somente o teste de CI remove **seu próprio arquivo sintético**,
+verificando o hash antes de apagar, para restabelecer a pasta vazia;
+depois executa o estágio normal e todos os testes de segredo existentes.
+
+**A nova prova ainda depende de aprovação do CI.** Ela verifica
+a recusa segura de uma retomada indevida, NÃO implementa recuperação
+automática de uma instalação de cliente. No produto, qualquer estado
+parcial deve ser preservado para avaliação do administrador. Não
+habilitar `Instalar`, nem fazer merge ou release de prévia sem assinatura.
