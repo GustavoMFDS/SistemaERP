@@ -10,6 +10,7 @@ param(
     [Parameter(Mandatory=$true)][string]$PsqlExe,
     [Parameter(Mandatory=$true)][string]$MigrateExe,
     [Parameter(Mandatory=$true)][string]$MigrationsDir,
+    [string]$DatabaseName='esterium',
     [string]$BundleDir='',
     [string]$ApprovedManifestSHA256='',
     [string]$TrustedPublisherThumbprint='',
@@ -23,6 +24,10 @@ if ($UnsignedDisposableCIFixture -and ($env:GITHUB_ACTIONS -ne 'true' -or
     $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     $env:ESTERIUM_INITIAL_MIGRATIONS_DISPOSABLE_CI -ne '1')) {
     throw 'Migracoes sem assinatura somente em Windows CI descartavel.'
+}
+if ($DatabaseName -cnotin @('esterium','esterium_first_admin_ci') -or
+    ($DatabaseName -cne 'esterium' -and -not $UnsignedDisposableCIFixture)) {
+    throw 'Only the disposable integrated first-admin fixture may use a secondary database name.'
 }
 if ($Apply -and -not $UnsignedDisposableCIFixture) {
     if ($TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$' -or
@@ -112,8 +117,9 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw 'Migracao inicial exige Administrador.'
 }
 $url=[IO.File]::ReadAllText($urlFile).TrimEnd([char]13,[char]10)
-if ($url -cnotmatch '^postgres://esterium_app:([A-Za-z0-9_-]{48,128})@localhost:([1-9][0-9]{0,4})/esterium\?sslmode=verify-full&sslrootcert=([^&]+)$') {
-    throw 'DATABASE_URL_FILE deve usar localhost, esterium_app e TLS verify-full.'
+$databasePattern=[Regex]::Escape($DatabaseName)
+if ($url -cnotmatch ('^postgres://esterium_app:([A-Za-z0-9_-]{48,128})@localhost:([1-9][0-9]{0,4})/'+$databasePattern+'\?sslmode=verify-full&sslrootcert=([^&]+)$')) {
+    throw 'DATABASE_URL_FILE deve usar o banco selecionado, localhost, esterium_app e TLS verify-full.'
 }
 $password=$Matches[1]
 $port=[int]$Matches[2]
@@ -122,7 +128,7 @@ if ($port -lt 1 -or $port -gt 65535 -or
     [IO.Path]::GetExtension($ca).ToLowerInvariant() -ne '.crt') {
     throw 'Porta ou raiz TLS PostgreSQL invalida.'
 }
-$safeUrl=('postgres://esterium_app@localhost:'+$port+'/esterium?sslmode=verify-full&sslrootcert='+[Uri]::EscapeDataString($ca)+'&search_path=public')
+$safeUrl=('postgres://esterium_app@localhost:'+$port+'/'+$DatabaseName+'?sslmode=verify-full&sslrootcert='+[Uri]::EscapeDataString($ca)+'&search_path=public')
 if ($safeUrl.Contains($password)) { throw 'A URL do migrador nao pode conter senha.' }
 function Run-Child([string]$exe,[string]$commandLine,[bool]$returnOutput,[string]$phase='readiness',[string]$sqlInput='') {
     $info=[Diagnostics.ProcessStartInfo]::new()
@@ -140,7 +146,7 @@ function Run-Child([string]$exe,[string]$commandLine,[bool]$returnOutput,[string
         $info.EnvironmentVariables.Remove($key)
     }
     $info.EnvironmentVariables['PGUSER']='esterium_app'
-    $info.EnvironmentVariables['PGDATABASE']='esterium'
+    $info.EnvironmentVariables['PGDATABASE']=$DatabaseName
     $info.EnvironmentVariables['PGHOST']='localhost'
     $info.EnvironmentVariables['PGPORT']=[string]$port
     $info.EnvironmentVariables['PGPASSWORD']=$password
@@ -180,7 +186,7 @@ function Run-Child([string]$exe,[string]$commandLine,[bool]$returnOutput,[string
 }
 try {
     $query="COPY (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE') TO STDOUT;"
-    $preflight=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f -')
+    $preflight=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d '+$DatabaseName+' -f -')
     $count=Run-Child $psql $preflight $true 'empty database preflight' $query
     if ($UnsignedDisposableCIFixture) { Write-Host ('PostgreSQL CI: public table preflight count='+$count) }
     if ($count -cne '0') { throw 'Banco esterium nao esta vazio: migracao inicial proibida.' }
@@ -195,10 +201,10 @@ try {
     $migrationURL+=((@($parts | Select-Object -Skip 1 | ForEach-Object { [Uri]::EscapeDataString($_) })) -join '/')
     $migrateArgs=('-source "'+$migrationURL+'" -database "'+$safeUrl+'" up')
     $null=Run-Child $migrator $migrateArgs $false 'initial migration'
-    $seedArgs=('-X -q -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f "'+$productionSeed+'"')
+    $seedArgs=('-X -q -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d '+$DatabaseName+' -f "'+$productionSeed+'"')
     $null=Run-Child $psql $seedArgs $false 'production reference seed'
     $verifySQL="COPY (SELECT version::text||':'||dirty::text FROM public.schema_migrations) TO STDOUT;"
-    $verifyArgs=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d esterium -f -')
+    $verifyArgs=('-X -q -t -A -v ON_ERROR_STOP=1 -h localhost -p '+$port+' -U esterium_app -d '+$DatabaseName+' -f -')
     $result=Run-Child $psql $verifyArgs $true 'schema version verification' $verifySQL
     if ($result -cne ($versions.Count.ToString()+':false')) {
         throw 'Migracoes iniciais nao terminaram na versao esperada ou estao dirty.'

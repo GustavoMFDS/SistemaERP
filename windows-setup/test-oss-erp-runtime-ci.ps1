@@ -111,6 +111,8 @@ try{
     # Apply the same production-safe RBAC seed shipped in the verified ERP bundle.
     $dbText=[IO.File]::ReadAllText($required.database).Trim()
     $dbUri=[Uri]::new($dbText)
+    $databaseName=[Uri]::UnescapeDataString($dbUri.AbsolutePath.TrimStart('/'))
+    if($databaseName -cnotin @('esterium','esterium_first_admin_ci')){throw 'Disposable database name is outside the integrated CI allowlist.'}
     if($dbUri.Scheme -cne 'postgres' -or $dbUri.Host -cne 'localhost' -or [int]$dbUri.Port -ne [int]$required.pgPort){throw 'Disposable database URL is not the verified loopback TLS endpoint.'}
     $userInfo=[Uri]::UnescapeDataString($dbUri.UserInfo)
     $separator=$userInfo.IndexOf(':')
@@ -125,7 +127,7 @@ try{
     }
     if($query.sslmode -cne 'verify-full' -or -not $query.sslrootcert -or -not(Test-Path -LiteralPath $query.sslrootcert -PathType Leaf)){throw 'Disposable ERP database URL must use verify-full TLS and a local CA.'}
     $env:PGHOST='localhost';$env:PGPORT=[string]$required.pgPort;$env:PGUSER=$pgUser;$env:PGPASSWORD=$pgPassword
-    $env:PGDATABASE='esterium';$env:PGSSLMODE='verify-full';$env:PGSSLROOTCERT=$query.sslrootcert
+    $env:PGDATABASE=$databaseName;$env:PGSSLMODE='verify-full';$env:PGSSLROOTCERT=$query.sslrootcert
     Remove-Item Env:PGHOSTADDR -ErrorAction SilentlyContinue
     $psql=Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin\pgsql\bin\psql.exe'
     $seed=Join-Path $source 'tools\seed.prod.sql'

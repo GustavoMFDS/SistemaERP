@@ -575,11 +575,50 @@ SELECT
 
     Write-Output "PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial schema version $expectedVersion and crash recovery."
     if($RunIntegratedERPStartupSmoke){
+        # Recovery tests deliberately populate the main DB. First-admin setup
+        # needs a separate migrated database with only the placeholder tenant.
+        $firstAdminDatabase='esterium_first_admin_ci'
+        $firstAdminDatabaseURLFile=Join-Path $dbInit 'database-url-first-admin.secret'
+        if(Test-Path -LiteralPath $firstAdminDatabaseURLFile){throw 'First-admin CI URL file already exists.'}
+        $savedAdminEnv=@{}
+        foreach($key in @('PGHOST','PGPORT','PGUSER','PGDATABASE','PGPASSWORD','PGSSLMODE','PGSSLROOTCERT','PGHOSTADDR')){
+            $savedAdminEnv[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+        }
+        try{
+            $env:PGHOST='localhost';$env:PGPORT=[string]$port;$env:PGUSER='postgres'
+            $env:PGDATABASE='postgres';$env:PGPASSWORD=$pass;$env:PGSSLMODE='verify-full'
+            $env:PGSSLROOTCERT=Join-Path $policy 'certificates\root.crt'
+            Remove-Item Env:PGHOSTADDR -ErrorAction SilentlyContinue
+            if((Run-Psql "SELECT count(*) FROM pg_database WHERE datname='$firstAdminDatabase'") -cne '0'){
+                throw 'Disposable first-admin database name unexpectedly exists.'
+            }
+            $null=Run-Psql "CREATE DATABASE $firstAdminDatabase OWNER esterium_app"
+            $sourceURL=[IO.File]::ReadAllText($urlFile).Trim()
+            $firstAdminURL=[regex]::Replace($sourceURL,'/esterium(?=\?sslmode=verify-full&sslrootcert=)','/'+$firstAdminDatabase,1)
+            if($firstAdminURL -eq $sourceURL){throw 'Could not derive the isolated first-admin database URL.'}
+            [IO.File]::WriteAllText($firstAdminDatabaseURLFile,$firstAdminURL+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+            & icacls.exe $firstAdminDatabaseURLFile '/inheritance:r' '/grant:r' ('*'+$runnerSID+':R') '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not protect the isolated first-admin URL file.'}
+            $firstAdminSchema=@{
+                DatabaseURLFile=$firstAdminDatabaseURLFile;PsqlExe=$psql;MigrateExe=$migrateTool
+                MigrationsDir=$migrationFolder;DatabaseName=$firstAdminDatabase
+                UnsignedDisposableCIFixture=$true;Apply=$true
+            }
+            & $schemaTool @firstAdminSchema | Out-Null
+            if(-not $?){throw 'Fresh first-admin schema migrations failed.'}
+            $env:PGUSER='esterium_app';$env:PGDATABASE=$firstAdminDatabase;$env:PGPASSWORD=$appPassword
+            $env:PGSSLMODE='verify-full';$env:PGSSLROOTCERT=Join-Path $policy 'certificates\root.crt'
+            $freshVersion=Run-Psql "SELECT version::text||':'||dirty::text FROM public.schema_migrations;"
+            if($freshVersion -cne "${expectedVersion}:false"){throw 'Fresh first-admin database migration state is invalid.'}
+            Write-Output "PASS: isolated first-admin database migrated to ${expectedVersion}; recovery fixture database remains unchanged."
+        }finally{
+            foreach($entry in $savedAdminEnv.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+        }
         $labKeys=@('ESTERIUM_CI_DATABASE_URL_FILE','ESTERIUM_CI_POSTGRES_PORT')
         $oldLab=@{}
         foreach($key in $labKeys){$oldLab[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
         try{
-            $env:ESTERIUM_CI_DATABASE_URL_FILE=$urlFile
+            $env:ESTERIUM_CI_DATABASE_URL_FILE=$firstAdminDatabaseURLFile
             $env:ESTERIUM_CI_POSTGRES_PORT=[string]$port
             & (Join-Path $PSScriptRoot 'test-esterium-garnet-real-aof-ci.ps1') -FromIntegratedStage -RunERPStartupSmoke
             if(-not $?){throw 'Integrated Garnet and ERP service runtime proof failed.'}
