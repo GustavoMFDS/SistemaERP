@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Security.AccessControl;
+using System.Web.Script.Serialization;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
@@ -47,6 +48,125 @@ namespace Esterium.WindowsSetup
                 if (id != "S-1-5-18" && id != "S-1-5-32-544")
                     throw new InvalidOperationException("Credencial acessivel por outra conta Windows.");
             }
+        }
+
+        // READ ONLY. This reports the shape of native staging, never a
+        // recovery decision or a claim that a real installation is safe.
+        // No filesystem writes, password reads, user/service modification,
+        // vendor execution or network access are allowed in this method.
+        private static void InspectProtectedEntry(string path, bool directory)
+        {
+            if ((directory && !Directory.Exists(path)) ||
+                (!directory && !File.Exists(path)) ||
+                (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException("Estado nativo parcial ou inseguro; revisao manual obrigatoria.");
+            FileSystemSecurity acl = directory ?
+                (FileSystemSecurity)Directory.GetAccessControl(path) :
+                File.GetAccessControl(path);
+            foreach (FileSystemAccessRule rule in acl.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+            {
+                if (rule.AccessControlType != AccessControlType.Allow) continue;
+                string sid = ((SecurityIdentifier)rule.IdentityReference).Value;
+                if (sid != "S-1-5-18" && sid != "S-1-5-32-544")
+                    throw new InvalidOperationException("ACL de estado nativo exige revisao manual.");
+            }
+        }
+
+        internal static string InspectOpenSourceStageReadOnly()
+        {
+            if (!Program.PreviewBuild || !Program.HasPayload || !IsPostgresZipPreview)
+                throw new InvalidOperationException("Inspecao de fase limitada a previa MIT ZIP.");
+            if (!new WindowsPrincipal(WindowsIdentity.GetCurrent())
+                .IsInRole(WindowsBuiltInRole.Administrator))
+                throw new InvalidOperationException("Inspecao das pastas protegidas exige Administrador.");
+            string root = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Esterium");
+            InspectProtectedEntry(root, true);
+            if (!Directory.GetAccessControl(root).AreAccessRulesProtected)
+                throw new InvalidOperationException("ProgramData sem ACL protegida.");
+            string[] folders = { "PostgresData", "GarnetData", "Secrets", "Backups" };
+            string[] entries = Directory.GetFileSystemEntries(root);
+            if (entries.Length != 5)
+                throw new InvalidOperationException("Estado nativo possui entradas desconhecidas.");
+            foreach (string entry in entries)
+            {
+                string name = Path.GetFileName(entry);
+                if (name != "oss-data-layout.json" && Array.IndexOf(folders, name) < 0)
+                    throw new InvalidOperationException("Estado nativo contem arquivos inesperados.");
+            }
+            foreach (string folder in folders)
+                InspectProtectedEntry(Path.Combine(root, folder), true);
+            string journal = Path.Combine(root, "oss-data-layout.json");
+            InspectProtectedEntry(journal, false);
+            Dictionary<string, object> state;
+            try
+            {
+                state = new JavaScriptSerializer()
+                    .Deserialize<Dictionary<string, object>>(File.ReadAllText(journal, Encoding.UTF8));
+            }
+            catch
+            {
+                throw new InvalidOperationException("Diario ilegivel; revisao manual obrigatoria.");
+            }
+            if (state == null || !state.ContainsKey("schemaVersion") ||
+                !(state["schemaVersion"] is int) || (int)state["schemaVersion"] != 1 ||
+                !state.ContainsKey("phase") || !(state["phase"] is string) ||
+                !state.ContainsKey("databaseInitialized") ||
+                !Object.Equals(state["databaseInitialized"], false) ||
+                !state.ContainsKey("servicesInstalled") ||
+                !Object.Equals(state["servicesInstalled"], false) ||
+                !state.ContainsKey("backupsConfigured") ||
+                !Object.Equals(state["backupsConfigured"], false))
+                throw new InvalidOperationException("Diario incompativel ou incompleto.");
+            foreach (string name in new [] { "EsteriumPostgreSQL16", "EsteriumGarnet", "EsteriumERP" })
+            {
+                using (var service = new System.ServiceProcess.ServiceController(name))
+                {
+                    try
+                    {
+                        var unused = service.Status;
+                        throw new InvalidOperationException("Servico ja existe; revisao manual obrigatoria.");
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        var native = ex.InnerException as Win32Exception;
+                        if (native == null || native.NativeErrorCode != 1060) throw;
+                    }
+                }
+            }
+            string phase = (string)state["phase"];
+            if (phase == "DATA_DIRECTORIES_ONLY")
+            {
+                // The earlier phase must have completely empty directories.
+                // That verifier also rejects a fake/altered stage marker.
+                VerifyProtectedDataLayout(root);
+                return "DATA_DIRECTORIES_ONLY";
+            }
+            if (phase != "OFFLINE_SECRETS_ONLY" ||
+                !state.ContainsKey("secretsGenerated") ||
+                !Object.Equals(state["secretsGenerated"], true))
+                throw new InvalidOperationException("Fase parcialmente publicada ou desconhecida.");
+            foreach (string name in new [] { "PostgresData", "GarnetData", "Backups" })
+            {
+                if (Directory.GetFileSystemEntries(Path.Combine(root, name)).Length != 0)
+                    throw new InvalidOperationException("Dados adicionais presentes; nao retomar automaticamente.");
+            }
+            string secrets = Path.Combine(root, "Secrets");
+            string[] known = { "pg-super.secret", "pg-service.secret", "pg-app.secret",
+                "garnet-password.secret", "jwt.secret", "metrics.secret" };
+            if (Directory.GetFileSystemEntries(secrets).Length != known.Length)
+                throw new InvalidOperationException("Numero de credenciais inesperado; revisao manual.");
+            foreach (string name in known)
+            {
+                string path = Path.Combine(secrets, name);
+                InspectProtectedEntry(path, false);
+                // Structural inspection only; do not load password values.
+                // This is NOT a cryptographic validation of the secrets.
+                long size = new FileInfo(path).Length;
+                if (size < 68 || size > 72)
+                    throw new InvalidOperationException("Credencial parcial; revisao manual obrigatoria.");
+            }
+            return "OFFLINE_SECRETS_ONLY";
         }
 
         internal static void StageOpenSourceSecrets()
