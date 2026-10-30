@@ -408,6 +408,94 @@ if($PostgresBinaryZip){
        (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $beforeInterrupted){
         throw 'Disposable interruption fixture did not restore empty pre-secret state.'
     }
+    # Simulate a later interruption: all six synthetic CI-only files exist,
+    # while an incomplete atomic journal draft was never committed.
+    # The real native EXE must NOT adopt, erase or complete either side.
+    $pendingNames=@('pg-super.secret','pg-service.secret','pg-app.secret',
+        'garnet-password.secret','jwt.secret','metrics.secret')
+    $pendingJournalDraft=Join-Path $dataRoot ('.oss-data-layout-'+[Guid]::NewGuid().ToString('N')+'.json')
+    $pendingCreated=New-Object 'System.Collections.Generic.List[string]'
+    $pendingDigests=@{}
+    $beforeJournalCrash=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
+    try{
+        if(@(Get-ChildItem -LiteralPath $interruptedDir -Force).Count -ne 0 -or
+           @(Get-ChildItem -LiteralPath $dataRoot -Force).Count -ne 5){
+            throw 'Journal interruption injection requires fresh CI-only native stage.'
+        }
+        foreach($secretName in $pendingNames){
+            $syntheticPath=Join-Path $interruptedDir $secretName
+            $syntheticBytes=[Text.UTF8Encoding]::new($false).GetBytes(
+                'DISPOSABLE-CI-UNUSABLE-JOURNAL-PENDING-'+[Guid]::NewGuid().ToString('N'))
+            try{
+                $stream=[IO.FileStream]::new($syntheticPath,[IO.FileMode]::CreateNew,
+                    [IO.FileAccess]::Write,[IO.FileShare]::None)
+                $pendingCreated.Add($syntheticPath)
+                try{$stream.Write($syntheticBytes,0,$syntheticBytes.Length);$stream.Flush($true)}
+                finally{$stream.Dispose()}
+            }finally{[Array]::Clear($syntheticBytes,0,$syntheticBytes.Length)}
+            $pendingDigests[$syntheticPath]=(Get-FileHash -LiteralPath $syntheticPath -Algorithm SHA256).Hash
+        }
+        # A deliberately incomplete *synthetic* replacement draft. The
+        # original journal must remain at DATA_DIRECTORIES_ONLY.
+        $draftBytes=[Text.UTF8Encoding]::new($false).GetBytes('{"schemaVersion":1,"phase":"OFFLINE_')
+        try{
+            $draftStream=[IO.FileStream]::new($pendingJournalDraft,[IO.FileMode]::CreateNew,
+                [IO.FileAccess]::Write,[IO.FileShare]::None)
+            $pendingCreated.Add($pendingJournalDraft)
+            try{$draftStream.Write($draftBytes,0,$draftBytes.Length);$draftStream.Flush($true)}
+            finally{$draftStream.Dispose()}
+        }finally{[Array]::Clear($draftBytes,0,$draftBytes.Length)}
+        $pendingDigests[$pendingJournalDraft]=(Get-FileHash -LiteralPath $pendingJournalDraft -Algorithm SHA256).Hash
+        foreach($syntheticPath in $pendingCreated){
+            $syntheticAcl=Get-Acl -LiteralPath $syntheticPath
+            if(@($syntheticAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) |
+                Where-Object { $_.AccessControlType -eq 'Allow' -and
+                    $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544') }).Count){
+                throw 'Synthetic pending journal or secret has an unauthorized Windows ACL.'
+            }
+        }
+        $pendingProbe=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru -ErrorAction Stop
+        if($null -eq $pendingProbe){throw 'Native journal interruption probe did not start.'}
+        $pendingCode=$pendingProbe.ExitCode
+        $pendingProbe.Dispose()
+        if($pendingCode -ne 5 -or
+           (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $beforeJournalCrash -or
+           @(Get-ChildItem -LiteralPath $interruptedDir -Force).Count -ne 6 -or
+           @(Get-ChildItem -LiteralPath $dataRoot -Force).Count -ne 6){
+            throw 'Native EXE adopted or altered a pending offline journal transition.'
+        }
+        foreach($syntheticPath in $pendingCreated){
+            if(-not(Test-Path -LiteralPath $syntheticPath -PathType Leaf) -or
+               ((Get-Item -LiteralPath $syntheticPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+               (Get-FileHash -LiteralPath $syntheticPath -Algorithm SHA256).Hash -cne $pendingDigests[$syntheticPath]){
+                throw 'Native EXE replaced or changed a synthetic pending journal/secret.'
+            }
+        }
+        $pendingOriginal=Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json -ErrorAction Stop
+        if($pendingOriginal.phase -cne 'DATA_DIRECTORIES_ONLY' -or
+           $pendingOriginal.databaseInitialized -ne $false -or
+           $pendingOriginal.servicesInstalled -ne $false){
+            throw 'Native interrupted journal unexpectedly claims a completed installation.'
+        }
+        Write-Output 'PASS: native EXE refused six synthetic pending secrets plus incomplete journal draft; original phase and all files unchanged.'
+    }finally{
+        # Only restore files created here and still matching their own CI
+        # fingerprints. Never delete a swapped or unknown object.
+        for($index=$pendingCreated.Count-1;$index -ge 0;$index--){
+            $syntheticPath=$pendingCreated[$index]
+            if($pendingDigests.ContainsKey($syntheticPath) -and
+               (Test-Path -LiteralPath $syntheticPath -PathType Leaf) -and
+               -not((Get-Item -LiteralPath $syntheticPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+               (Get-FileHash -LiteralPath $syntheticPath -Algorithm SHA256).Hash -ceq $pendingDigests[$syntheticPath]){
+                Remove-Item -LiteralPath $syntheticPath -Force -ErrorAction Stop
+            }
+        }
+    }
+    if(@(Get-ChildItem -LiteralPath $interruptedDir -Force).Count -ne 0 -or
+       @(Get-ChildItem -LiteralPath $dataRoot -Force).Count -ne 5 -or
+       (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $beforeJournalCrash){
+        throw 'CI pending-journal interruption did not restore the original native layout.'
+    }
     # PHASE 5 native MIT preview: generate real OFFLINE first-install
     # secret material with CSPRNG, no process argv/logging or installed service.
     # The preceding fixture returned ProgramData to the empty staged state.
