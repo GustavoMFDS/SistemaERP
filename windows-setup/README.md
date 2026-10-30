@@ -873,3 +873,41 @@ Depois, a fase 5 normal é exercitada no runner descartável.
 **A nova injeção ainda exige aprovação do CI.** Não é uma política
 de recuperação de cliente, não executa um reboot completo e não
 autoriza merge, release, `-Apply` ou botão `Instalar` na prévia MIT.
+
+## Leitura de estado sem retomada — comando de inspeção MIT
+
+A prévia integrada MIT/ZIP expõe agora
+`EsteriumERP-Setup-TECHNICAL-PREVIEW.exe --inspect-oss-state`
+como comando **estritamente de leitura** para operadores/admins.
+Ele não cria, altera, apaga ou restaura arquivos, não executa
+fornecedores, não cria contas, serviços, TLS, cluster, SQL ou backup
+e não libera o botão `Instalar` nem o `-Apply` comercial.
+
+A inspeção exige UAC/Administrador, a edição integrada MIT/ZIP,
+raiz `ProgramData\Esterium` com ACL protegida, entradas exatas
+e DACLs restritas a SYSTEM/Administradores. Analisa o diário JSON
+e rejeita fases desconhecidas, marcadores inconsistentes,
+links de sistema de arquivos ou serviços de cliente já presentes.
+Para `DATA_DIRECTORIES_ONLY`, exige quatro pastas vazias;
+para `OFFLINE_SECRETS_ONLY`, exige as pastas de dados/backup
+vazias e exatamente seis arquivos de credenciais com nomes e
+tamanhos esperados, sem carregar ou imprimir seus valores.
+
+Retorna código **0** e a fase encontrada apenas se o estágio
+for estruturalmente reconhecido; retorna código **5** com uma
+mensagem genérica `BLOQUEADO` se faltar algo ou houver
+vestígio parcial. **Uma fase reconhecida NÃO equivale a
+validar criptograficamente as senhas nem autoriza avançar
+com a instalação; é somente diagnóstico.**
+
+O gate Windows testa inspeção de etapa de dados vazia,
+recusa do arquivo `pg-super.secret` sintético parcial,
+recusa dos seis arquivos e rascunho JSON pendente
+e inspeção da fase offline intacta. O CI verifica que o
+diagnóstico não altera os hashes dos arquivos existentes.
+
+Este comando é apenas um primeiro passo de recuperação
+**controlada por um administrador**, sem recuperação ou
+limpeza automática em clientes. A nova prova depende do CI
+integrado e não substitui assinatura Authenticode,
+homologação, reboot ou instalação de produção.
