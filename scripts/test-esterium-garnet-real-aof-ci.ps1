@@ -9,7 +9,7 @@ if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
     throw 'Garnet real AOF smoke only supports disposable hosted Windows CI.'
 }
 if($RunERPStartupSmoke -and (-not $FromIntegratedStage -or
-   $env:ESTERIUM_CI_DATABASE_URL_FILE -notmatch 'database-url(?:-first-admin)?\.secret)){
+   $env:ESTERIUM_CI_DATABASE_URL_FILE -notmatch 'database-url(?:-first-admin)?\.secret')){
     throw 'ERP startup smoke requires the integrated PostgreSQL secret handoff.'
 }
 $id=[Guid]::NewGuid().ToString('N')
