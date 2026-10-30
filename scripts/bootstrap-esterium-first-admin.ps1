@@ -109,8 +109,11 @@ try {
         throw 'Bootstrap excedeu o limite de tempo; preserve o banco para inspecao.'
     }
     $output=$outputTask.GetAwaiter().GetResult().Trim()
-    $null=$errorTask.GetAwaiter().GetResult()
+    $errorOutput=$errorTask.GetAwaiter().GetResult().Trim()
     if ($process.ExitCode -ne 0 -or $output -cne 'PASS: first administrator created for the new company.') {
+        if ($errorOutput -match '^FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+$') {
+            throw ('Bootstrap recusado: '+$errorOutput)
+        }
         throw 'Bootstrap recusado. Preserve o banco e consulte o diagnostico protegido.'
     }
     Write-Output 'PASS: primeiro administrador criado; senha nunca foi enviada em argumento ou arquivo.'
@@ -123,3 +126,4 @@ try {
     if ($null -ne $secret) { $secret.Dispose() }
     if ($null -ne $confirm) { $confirm.Dispose() }
 }
+
