@@ -390,7 +390,7 @@ try {
         & $nssmExe @environmentCommand | Out-Null
         if($LASTEXITCODE -ne 0){throw 'NSSM refused the private Garnet .NET runtime environment.'}
         $scmCommand=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
-        $serviceAppPath=@(& $nssmExe get $nssmService AppPath 2>&1) -join ''
+        $serviceAppPath=@(& $nssmExe get $nssmService Application 2>&1) -join ''
         $serviceParameters=@(& $nssmExe get $nssmService AppParameters 2>&1) -join ' '
         $serviceEnvironment=@(& $nssmExe get $nssmService AppEnvironmentExtra 2>&1) -join ' '
         $expectedRuntimeX64='DOTNET_ROOT_X64='+$dotnetRuntimeDir
