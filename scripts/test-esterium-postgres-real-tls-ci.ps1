@@ -1,6 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param([switch]$FromIntegratedStage)
+param([switch]$FromIntegratedStage,[switch]$RunIntegratedERPStartupSmoke)
 <#
   Real PostgreSQL 16 smoke, only on disposable GitHub-hosted Windows runner.
   Downloads vendor-published SHA-256-pinned community ZIP (not EDB installer);
@@ -12,6 +12,9 @@ Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
     $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw 'Real PostgreSQL TLS verification requires disposable hosted Windows CI.'
+}
+if($RunIntegratedERPStartupSmoke -and (-not $FromIntegratedStage -or $env:ESTERIUM_SCM_DISPOSABLE_CI -ne '1' -or $env:ESTERIUM_PG_ZIP_DISPOSABLE_CI -ne '1')){
+    throw 'Integrated ERP startup smoke requires the extracted EXE and disposable Windows CI guards.'
 }
 $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-postgres-real-'+$id)
@@ -571,6 +574,19 @@ SELECT
     Write-Output 'PASS: Windows archive preflight inspected real PostgreSQL backup and rejected bad archive or binary hashes.'
 
     Write-Output "PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial schema version $expectedVersion and crash recovery."
+    if($RunIntegratedERPStartupSmoke){
+        $labKeys=@('ESTERIUM_CI_DATABASE_URL_FILE','ESTERIUM_CI_POSTGRES_PORT')
+        $oldLab=@{}
+        foreach($key in $labKeys){$oldLab[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+        try{
+            $env:ESTERIUM_CI_DATABASE_URL_FILE=$urlFile
+            $env:ESTERIUM_CI_POSTGRES_PORT=[string]$port
+            & (Join-Path $PSScriptRoot 'test-esterium-garnet-real-aof-ci.ps1') -FromIntegratedStage -RunERPStartupSmoke
+            if(-not $?){throw 'Integrated Garnet and ERP service runtime proof failed.'}
+        }finally{
+            foreach($entry in $oldLab.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+        }
+    }
 } finally {
     if ($secondStarted -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
         try { Invoke-PgCtl -argList @('-D',$secondData,'-m','immediate','-w','stop') -phase 'second cluster cleanup' }

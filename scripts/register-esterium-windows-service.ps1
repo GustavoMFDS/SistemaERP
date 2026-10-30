@@ -282,6 +282,12 @@ try {
     New-ItemProperty -Path $regPath -Name Environment -PropertyType MultiString -Value $entries -Force -ErrorAction Stop | Out-Null
     $sidResult = & $sc sidtype $serviceName unrestricted 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Could not configure restricted service SID: $sidResult" }
+    # Recover automatically after an unexpected process crash. Normal Stop-Service
+    # remains clean; a finite restart policy bounds repeated configuration failures.
+    $failureResult = & $sc failure $serviceName 'reset=' '86400' 'actions=' 'restart/5000/restart/30000/none/0' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not configure ERP service recovery: $failureResult" }
+    $failureFlagResult = & $sc failureflag $serviceName '1' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not enable ERP nonzero-exit recovery: $failureFlagResult" }
     $registrationComplete = $true
     Write-Output 'PASS: service registered with only secret file paths (not credential values).'
     Write-Output 'Service start remains manual until database/migrations, ACL and backup restoration are tested.'

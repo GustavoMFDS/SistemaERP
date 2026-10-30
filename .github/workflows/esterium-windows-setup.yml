@@ -204,7 +204,7 @@ jobs:
     # is destroyed afterward; no customer machine or database is touched.
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: windows-2025
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -234,7 +234,8 @@ jobs:
               'scripts/test-esterium-garnet-real-aof-ci.ps1',
               'windows-setup/test-oss-real-erp-scm-ci.ps1',
               'windows-setup/test-oss-native-data-initdb-ci.ps1',
-              'windows-setup/test-oss-offline-service-identity-ci.ps1')) {
+              'windows-setup/test-oss-offline-service-identity-ci.ps1',
+              'windows-setup/test-oss-erp-runtime-ci.ps1')) {
             $tokens = $null; $errors = $null
             [Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $path),[ref]$tokens,[ref]$errors) | Out-Null
             if (@($errors).Count -gt 0) { throw ('Invalid CI-only PowerShell script: '+$path) }
@@ -287,9 +288,10 @@ jobs:
         env:
           ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
           ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+          ESTERIUM_SCM_DISPOSABLE_CI: "1"
         run: |
           $ErrorActionPreference='Stop'
-          & ./scripts/test-esterium-postgres-real-tls-ci.ps1 -FromIntegratedStage
+          & ./scripts/test-esterium-postgres-real-tls-ci.ps1 -FromIntegratedStage -RunIntegratedERPStartupSmoke
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'

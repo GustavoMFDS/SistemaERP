@@ -1,12 +1,16 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param([switch]$FromIntegratedStage)
+param([switch]$FromIntegratedStage,[switch]$RunERPStartupSmoke)
 # Real Garnet smoke: disposable Windows CI, pinned upstream ZIP, no ERP data.
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
     $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw 'Garnet real AOF smoke only supports disposable hosted Windows CI.'
+}
+if($RunERPStartupSmoke -and (-not $FromIntegratedStage -or
+   $env:ESTERIUM_CI_DATABASE_URL_FILE -notmatch 'database-url\.secret$')){
+    throw 'ERP startup smoke requires the integrated PostgreSQL secret handoff.'
 }
 $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-garnet-aof-'+$id)
@@ -136,6 +140,9 @@ try {
     [IO.File]::WriteAllText($pfxPassword,('ci-only-pfx-'+$id))
     $cert=New-SelfSignedCertificate -DnsName localhost -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(3) -ErrorAction Stop
     $thumbprint=$cert.Thumbprint
+    $garnetPublicCert=Join-Path $root 'garnet-server.cer'
+    Export-Certificate -Cert $cert -FilePath $garnetPublicCert -ErrorAction Stop | Out-Null
+    Protect-Fixture $garnetPublicCert $true
     $secure=ConvertTo-SecureString ([IO.File]::ReadAllText($pfxPassword)) -AsPlainText -Force
     Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $secure -ErrorAction Stop | Out-Null
     foreach ($file in @($acl,$pfx,$pfxPassword)) { Protect-Fixture $file $true }
@@ -340,6 +347,21 @@ try {
         $serviceConnection.reader.Dispose()
         $serviceConnection.ssl.Dispose()
         $serviceConnection.tcp.Dispose()
+    }
+    if($RunERPStartupSmoke){
+        $labKeys=@('ESTERIUM_CI_GARNET_PASSWORD','ESTERIUM_CI_GARNET_CERT_FILE','ESTERIUM_CI_GARNET_PORT','ESTERIUM_CI_GARNET_SERVICE')
+        $oldLab=@{}
+        foreach($key in $labKeys){$oldLab[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+        try{
+            $env:ESTERIUM_CI_GARNET_PASSWORD=$password
+            $env:ESTERIUM_CI_GARNET_CERT_FILE=$garnetPublicCert
+            $env:ESTERIUM_CI_GARNET_PORT=[string]$port
+            $env:ESTERIUM_CI_GARNET_SERVICE=$nssmService
+            & (Join-Path $PSScriptRoot '..\windows-setup\test-oss-erp-runtime-ci.ps1')
+            if(-not $?){throw 'Live ERP service start, login or dependency restart smoke failed.'}
+        }finally{
+            foreach($entry in $oldLab.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+        }
     }
     Stop-Service -Name $nssmService -ErrorAction Stop
     (Get-Service -Name $nssmService).WaitForStatus(
