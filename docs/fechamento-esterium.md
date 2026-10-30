@@ -60,3 +60,9 @@ Issue aberta não prova ausência de código. Conferi corpo e código atual; nã
 
 O fechamento local inclui código, relatório e evidências reproduzíveis. A missão global ainda exige CI final verde em #212, execução do fluxo completo de instalação e recuperação em Windows descartável, revisão das PRs, aceite manual das telas/fluxos e provas físicas/fiscais autorizadas. Até lá, não declarar “ERP pronto para produção”. PRs #212 e #213 seguem separadas, Draft e sem merge.
 
+## Atualização 30/10/2026 — auditoria de LF da PR #213
+
+- O compare de `main` até o head documental `b9191ad7e2d993f9e1a0f34669635eed40ec9e5d` mostrou apenas oito arquivos esperados, com patches funcionais pequenos; sem regravação integral por fim de linha. Ícones são binários.
+- Os quatro arquivos de texto existentes alterados (`.github/workflows/ci.yml`, `web/package.json`, `web/package-lock.json` e `web/src/App.tsx`) têm LF na base e no head, sem CRLF. O validador novo também usa LF. Normalizei para LF o único terminador CRLF no fim deste relatório.
+- CI do head anterior `b9191ad7e2d993f9e1a0f34669635eed40ec9e5d`: 19/19 jobs aprovados ([run 41128410265](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41128410265)), incluindo frontend. Esta atualização documental inicia uma nova rodada de CI; aguardando conclusão antes de declarar o head atual verde.
+- Nesta cópia local, `npm run test:assets` passou. `npm ci` repetiu o erro interno do npm (“Exit handler never called!”); por isso lint/build locais não puderam iniciar sem `eslint`/`tsc`. A validação correspondente do head remoto anterior passou no CI.
