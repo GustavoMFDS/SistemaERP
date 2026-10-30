@@ -269,6 +269,20 @@ try {
     # The EXE must fail CLOSED: no regenerated secrets or journal advance,
     # no clobbered SQL, no modified backup and no service interruption.
     $archiveHash=(Get-FileHash -LiteralPath $ciArchive -Algorithm SHA256).Hash
+    # Inspection is never an implicit resume: refuse while a real CI-only
+    # cluster is active and a backup exists, without touching either.
+    $activeInspect=Start-Process -FilePath $exe -ArgumentList '--inspect-oss-state' -Wait -PassThru -ErrorAction Stop
+    if($null -eq $activeInspect){throw 'Read-only live-data inspection did not launch.'}
+    $activeInspectCode=$activeInspect.ExitCode
+    $activeInspect.Dispose()
+    if($activeInspectCode -ne 5){
+        throw 'Native inspector wrongly recognized offline staging with active SQL and backup.'
+    }
+    if((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $journalHash -or
+       (Get-FileHash -LiteralPath $ciArchive -Algorithm SHA256).Hash -cne $archiveHash){
+        throw 'Read-only inspection changed the live-stage journal or protected backup.'
+    }
+    Write-Output 'PASS: read-only native inspector refused active SQL/backup without altering protected state.'
     $resume=Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru -ErrorAction Stop
     if($null -eq $resume){throw 'Native offline resume probe did not return a process.'}
     $resumeCode=$resume.ExitCode
