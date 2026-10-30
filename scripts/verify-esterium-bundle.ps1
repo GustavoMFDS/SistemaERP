@@ -82,7 +82,7 @@ foreach ($record in @($document.files)) {
         throw 'Unexpected migration path in manifest.'
     }
     $insideDotnetRuntime = $relative.StartsWith('tools/dotnet/',[StringComparison]::Ordinal)
-    if ($insideDotnetRuntime -and $relative -notmatch '^tools/dotnet/(dotnet\.exe|LICENSE\.txt|ThirdPartyNotices\.txt|host/fxr/10\.0\.14/[^/]+\.(dll|json|exe|pdb)|shared/Microsoft\.NETCore\.App/10\.0\.14/[^/]+\.(dll|json|exe|xml|pdb|dat))$') {
+    if ($insideDotnetRuntime -and $relative -notmatch '^tools/dotnet/(dotnet\.exe|LICENSE\.txt|ThirdPartyNotices\.txt|host/fxr/10\.0\.14/(\.version|[^/]+\.(dll|json|exe|pdb))|shared/Microsoft\.NETCore\.App/10\.0\.14/(\.version|[^/]+\.(dll|json|exe|xml|pdb|dat)))$') {
         throw "Unexpected embedded .NET runtime path: $relative"
     }
     if ($relative -ne 'esterium-server.exe' -and
