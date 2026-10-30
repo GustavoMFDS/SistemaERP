@@ -8,6 +8,7 @@ using System.Web.Script.Serialization;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -72,6 +73,64 @@ namespace Esterium.WindowsSetup
             }
         }
 
+        // Fail-closed schema for the TWO preview-only native journal phases.
+        // No string Contains checks or permissive unknown/duplicate keys.
+        // This does not authenticate the journal or authorize installation.
+        private static string ReadStrictStageJournal(string journal)
+        {
+            if (!File.Exists(journal) || new FileInfo(journal).Length > 4096)
+                throw new InvalidOperationException("Diario de fase ausente ou grande demais.");
+            string source = File.ReadAllText(journal, Encoding.UTF8);
+            Dictionary<string, object> state;
+            try
+            {
+                state = new JavaScriptSerializer()
+                    .Deserialize<Dictionary<string, object>>(source);
+            }
+            catch
+            {
+                throw new InvalidOperationException("Diario ilegivel; revisao manual obrigatoria.");
+            }
+            object phaseValue;
+            if (state == null || !state.TryGetValue("phase", out phaseValue) ||
+                !(phaseValue is string))
+                throw new InvalidOperationException("Fase do diario ausente ou invalida.");
+            string phase = (string)phaseValue;
+            bool offline = phase == "OFFLINE_SECRETS_ONLY";
+            if (!offline && phase != "DATA_DIRECTORIES_ONLY")
+                throw new InvalidOperationException("Fase do diario desconhecida.");
+            string[] expected = offline ?
+                new [] { "schemaVersion", "phase", "secretsGenerated", "databaseInitialized",
+                    "servicesInstalled", "backupsConfigured" } :
+                new [] { "schemaVersion", "phase", "databaseInitialized",
+                    "servicesInstalled", "backupsConfigured" };
+            if (state.Count != expected.Length)
+                throw new InvalidOperationException("Diario com propriedades inesperadas.");
+            foreach (string key in expected)
+                if (!state.ContainsKey(key))
+                    throw new InvalidOperationException("Propriedade obrigatoria ausente do diario.");
+            // Detect duplicates, escaped key aliases and nested/unrecognized
+            // JSON key tokens even if the deserializer collapses duplicates.
+            var keys = Regex.Matches(source, @"""(?<key>[A-Za-z][A-Za-z0-9]*)""\s*:",
+                RegexOptions.CultureInvariant);
+            if (keys.Count != expected.Length)
+                throw new InvalidOperationException("Diario com chaves duplicadas ou ocultas.");
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match token in keys)
+            {
+                string key = token.Groups["key"].Value;
+                if (Array.IndexOf(expected, key) < 0 || !seen.Add(key))
+                    throw new InvalidOperationException("Diario com chaves desconhecidas ou repetidas.");
+            }
+            if (!(state["schemaVersion"] is int) || (int)state["schemaVersion"] != 1 ||
+                !Object.Equals(state["databaseInitialized"], false) ||
+                !Object.Equals(state["servicesInstalled"], false) ||
+                !Object.Equals(state["backupsConfigured"], false) ||
+                (offline && !Object.Equals(state["secretsGenerated"], true)))
+                throw new InvalidOperationException("Marcadores de fase inconsistentes.");
+            return phase;
+        }
+
         internal static string InspectOpenSourceStageReadOnly()
         {
             if (!Program.PreviewBuild || !Program.HasPayload || !IsPostgresZipPreview)
@@ -98,26 +157,7 @@ namespace Esterium.WindowsSetup
                 InspectProtectedEntry(Path.Combine(root, folder), true);
             string journal = Path.Combine(root, "oss-data-layout.json");
             InspectProtectedEntry(journal, false);
-            Dictionary<string, object> state;
-            try
-            {
-                state = new JavaScriptSerializer()
-                    .Deserialize<Dictionary<string, object>>(File.ReadAllText(journal, Encoding.UTF8));
-            }
-            catch
-            {
-                throw new InvalidOperationException("Diario ilegivel; revisao manual obrigatoria.");
-            }
-            if (state == null || !state.ContainsKey("schemaVersion") ||
-                !(state["schemaVersion"] is int) || (int)state["schemaVersion"] != 1 ||
-                !state.ContainsKey("phase") || !(state["phase"] is string) ||
-                !state.ContainsKey("databaseInitialized") ||
-                !Object.Equals(state["databaseInitialized"], false) ||
-                !state.ContainsKey("servicesInstalled") ||
-                !Object.Equals(state["servicesInstalled"], false) ||
-                !state.ContainsKey("backupsConfigured") ||
-                !Object.Equals(state["backupsConfigured"], false))
-                throw new InvalidOperationException("Diario incompativel ou incompleto.");
+            string phase = ReadStrictStageJournal(journal);
             foreach (string name in new [] { "EsteriumPostgreSQL16", "EsteriumGarnet", "EsteriumERP" })
             {
                 using (var service = new System.ServiceProcess.ServiceController(name))
@@ -134,7 +174,6 @@ namespace Esterium.WindowsSetup
                     }
                 }
             }
-            string phase = (string)state["phase"];
             if (phase == "DATA_DIRECTORIES_ONLY")
             {
                 // The earlier phase must have completely empty directories.
@@ -142,9 +181,7 @@ namespace Esterium.WindowsSetup
                 VerifyProtectedDataLayout(root);
                 return "DATA_DIRECTORIES_ONLY";
             }
-            if (phase != "OFFLINE_SECRETS_ONLY" ||
-                !state.ContainsKey("secretsGenerated") ||
-                !Object.Equals(state["secretsGenerated"], true))
+            if (phase != "OFFLINE_SECRETS_ONLY")
                 throw new InvalidOperationException("Fase parcialmente publicada ou desconhecida.");
             foreach (string name in new [] { "PostgresData", "GarnetData", "Backups" })
             {
