@@ -102,6 +102,24 @@ function Open-Redis {
         throw
     }
 }
+function Assert-PrivateDotnetRuntime([int]$workerPid,[string]$phase) {
+    if(-not $FromIntegratedStage){return}
+    $expectedCoreClr=Join-Path $script:dotnetRuntimeCopy 'shared\Microsoft.NETCore.App\10.0.14\coreclr.dll'
+    if(-not(Test-Path -LiteralPath $expectedCoreClr -PathType Leaf)){
+        throw 'Private .NET runtime does not contain the pinned CoreCLR library.'
+    }
+    $loadedCoreClr=@(Get-Process -Id $workerPid -Module -ErrorAction Stop |
+        Where-Object {$_.ModuleName -ieq 'coreclr.dll'})
+    if($loadedCoreClr.Count -ne 1){
+        throw ('Could not prove the '+$phase+' Garnet process loaded the private CoreCLR.')
+    }
+    $actualCoreClr=[IO.Path]::GetFullPath([string]$loadedCoreClr[0].FileName)
+    $expectedCoreClr=[IO.Path]::GetFullPath($expectedCoreClr)
+    if(-not [String]::Equals($actualCoreClr,$expectedCoreClr,[StringComparison]::OrdinalIgnoreCase)){
+        throw ('The '+$phase+' Garnet process loaded CoreCLR outside the pinned private runtime.')
+    }
+    Write-Output ('PASS: '+$phase+' Garnet process loaded CoreCLR from the pinned private runtime.')
+}
 function Start-Garnet([string]$conf,[string]$phase) {
     $exes=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.exe')
     if ($exes.Count -ne 1) { throw 'Expected exactly one GarnetServer.exe.' }
@@ -136,22 +154,29 @@ function Start-Garnet([string]$conf,[string]$phase) {
             $script:dotnetRuntimeCopy=$targetRuntime
         }
         $dotnetExe=Join-Path $script:dotnetRuntimeCopy 'dotnet.exe'
-        $garnetDll=Join-Path $exes[0].DirectoryName 'GarnetServer.dll'
-        $runtimeConfig=Join-Path $exes[0].DirectoryName 'GarnetServer.runtimeconfig.json'
+        $expectedCoreClr=Join-Path $script:dotnetRuntimeCopy 'shared\Microsoft.NETCore.App\10.0.14\coreclr.dll'
+        $apphostExists=Test-Path -LiteralPath $exes[0].FullName -PathType Leaf
         $dotnetExists=Test-Path -LiteralPath $dotnetExe -PathType Leaf
-        $garnetExists=Test-Path -LiteralPath $garnetDll -PathType Leaf
-        $runtimeConfigExists=Test-Path -LiteralPath $runtimeConfig -PathType Leaf
-        if(-not $dotnetExists -or -not $garnetExists -or -not $runtimeConfigExists){
+        $coreClrExists=Test-Path -LiteralPath $expectedCoreClr -PathType Leaf
+        if(-not $apphostExists -or -not $dotnetExists -or -not $coreClrExists){
             $candidates=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($bin.Length).TrimStart('\\') })
-            throw ('Integrated Garnet requires its bundled .NET runtime and official DLL files. dotnet='+$dotnetExists+' dll='+$garnetExists+' runtimeconfig='+$runtimeConfigExists+' appDir='+$exes[0].DirectoryName+' candidates='+($candidates -join ','))
+            throw ('Integrated Garnet requires GarnetServer.exe and its bundled .NET runtime. apphost='+$apphostExists+' dotnet='+$dotnetExists+' coreclr='+$coreClrExists+' appDir='+$exes[0].DirectoryName+' candidates='+($candidates -join ','))
         }
         $runtimeList=@(& $dotnetExe --list-runtimes)
         if($LASTEXITCODE -ne 0 -or -not($runtimeList -match 'Microsoft\.NETCore\.App 10\.0\.14')){
             throw 'Integrated Garnet did not find the bundled .NET 10 runtime.'
         }
-        $processArgs=@('exec','--runtimeconfig',('"'+$runtimeConfig+'"'),('"'+$garnetDll+'"'),
-            '--config-import-path',('"'+$conf+'"'))
-        $proc=Start-Process -FilePath $dotnetExe -WorkingDirectory $exes[0].DirectoryName -ArgumentList $processArgs -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+        $processArgs=@('--config-import-path',('"'+$conf+'"'))
+        $oldDotnetRootX64=[Environment]::GetEnvironmentVariable('DOTNET_ROOT_X64','Process')
+        $oldDotnetRoot=[Environment]::GetEnvironmentVariable('DOTNET_ROOT','Process')
+        try{
+            [Environment]::SetEnvironmentVariable('DOTNET_ROOT_X64',$script:dotnetRuntimeCopy,'Process')
+            [Environment]::SetEnvironmentVariable('DOTNET_ROOT',$script:dotnetRuntimeCopy,'Process')
+            $proc=Start-Process -FilePath $exes[0].FullName -WorkingDirectory $exes[0].DirectoryName -ArgumentList $processArgs -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+        }finally{
+            [Environment]::SetEnvironmentVariable('DOTNET_ROOT_X64',$oldDotnetRootX64,'Process')
+            [Environment]::SetEnvironmentVariable('DOTNET_ROOT',$oldDotnetRoot,'Process')
+        }
     }else{
         $proc=Start-Process -FilePath $exes[0].FullName -WorkingDirectory $exes[0].DirectoryName -ArgumentList @('--config-import-path',('"'+$conf+'"')) -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
     }
@@ -244,6 +269,7 @@ try {
     }
     Expand-Archive -LiteralPath $zip -DestinationPath $bin -ErrorAction Stop
     $server=Start-Garnet $fresh 'fresh'
+    Assert-PrivateDotnetRuntime -workerPid $server.Id -phase 'console'
     $connection=Open-Redis
     try {
         Assert-RedisDenied $connection.ssl $connection.reader @('PING')
@@ -265,6 +291,7 @@ try {
     $server.WaitForExit()
     $server=$null
     $server=Start-Garnet $confPath 'recovered'
+    Assert-PrivateDotnetRuntime -workerPid $server.Id -phase 'recovered console'
     $connection=Open-Redis
     try {
         if ((Send-Redis $connection.ssl $connection.reader @('AUTH','esteriumcache',$password)) -ne 'OK') {
@@ -349,17 +376,10 @@ try {
     $garnetExe=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.exe')
     if ($garnetExe.Count -ne 1) { throw 'Expected one pinned GarnetServer.exe for SCM.' }
     if($FromIntegratedStage){
-        $dotnetExe=Join-Path $script:dotnetRuntimeCopy 'dotnet.exe'
-        $garnetDll=Join-Path $garnetExe[0].DirectoryName 'GarnetServer.dll'
-        $runtimeConfig=Join-Path $garnetExe[0].DirectoryName 'GarnetServer.runtimeconfig.json'
-        if(-not(Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
-           -not(Test-Path -LiteralPath $garnetDll -PathType Leaf) -or
-           -not(Test-Path -LiteralPath $runtimeConfig -PathType Leaf)){
-            throw 'Integrated Garnet service requires its bundled .NET runtime and official DLL files.'
-        }
-        $appParameters='exec --runtimeconfig "'+$runtimeConfig+'" "'+$garnetDll+'" --config-import-path "'+$confPath+'"'
-        & $nssmExe install $nssmService $dotnetExe $appParameters | Out-Null
-    }else{
+        $dotnetRuntimeDir=[IO.Path]::GetFullPath($script:dotnetRuntimeCopy)
+        $appParameters='--config-import-path "'+$confPath+'"'
+        & $nssmExe install $nssmService $garnetExe[0].FullName $appParameters | Out-Null
+        }else{
         & $nssmExe install $nssmService $garnetExe[0].FullName '--config-import-path' $confPath | Out-Null
     }
     if ($LASTEXITCODE -ne 0) { throw 'NSSM did not register Garnet Windows service.' }
@@ -368,15 +388,19 @@ try {
         $scmCommand=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
         $serviceAppPath=@(& $nssmExe get $nssmService AppPath 2>&1) -join ''
         $serviceParameters=@(& $nssmExe get $nssmService AppParameters 2>&1) -join ' '
+        $serviceEnvironment=@(& $nssmExe get $nssmService AppEnvironmentExtra 2>&1) -join ' '
+        $expectedRuntimeX64='DOTNET_ROOT_X64='+$dotnetRuntimeDir
+        $expectedRuntime='DOTNET_ROOT='+$dotnetRuntimeDir
         if($scmCommand.Count -ne 1 -or
            $scmCommand[0].PathName -notlike ('*'+$nssmExe+'*') -or
-           $serviceAppPath -cne (Join-Path $script:dotnetRuntimeCopy 'dotnet.exe') -or
-           $serviceParameters -notmatch '(?i)exec --runtimeconfig' -or
-           $serviceParameters -notmatch '(?i)GarnetServer\.dll' -or
-           $serviceParameters -notmatch '(?i)GarnetServer\.runtimeconfig\.json'){
-            throw 'NSSM did not persist the package-local .NET runtime command for Garnet.'
+           $serviceAppPath -ine $garnetExe[0].FullName -or
+           $serviceParameters -notmatch '(?i)--config-import-path' -or
+           $serviceParameters.IndexOf($confPath,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+           $serviceEnvironment.IndexOf($expectedRuntimeX64,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+           $serviceEnvironment.IndexOf($expectedRuntime,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+            throw 'NSSM did not persist GarnetServer.exe, its config and private .NET runtime environment.'
         }
-        Write-Output 'PASS: real Garnet SCM command uses the bundled private .NET runtime, independent of global SDK/runtime discovery.'
+        Write-Output 'PASS: real Garnet SCM command uses the official apphost and bundled private .NET runtime environment.'
     }
     foreach ($cmd in @(
         @('set',$nssmService,'ObjectName','NT AUTHORITY\NetworkService'),
@@ -387,6 +411,17 @@ try {
     )) {
         & $nssmExe @cmd | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'NSSM refused restricted Garnet SCM settings.' }
+    }
+    if($FromIntegratedStage){
+        $environmentCommand=@('set',$nssmService,'AppEnvironmentExtra')+
+            @('DOTNET_ROOT_X64='+$dotnetRuntimeDir,'DOTNET_ROOT='+$dotnetRuntimeDir)
+        & $nssmExe @environmentCommand | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'NSSM refused the private Garnet .NET runtime environment.'}
+        $serviceEnvironment=@(& $nssmExe get $nssmService AppEnvironmentExtra 2>&1) -join ' '
+        if($serviceEnvironment.IndexOf(('DOTNET_ROOT_X64='+$dotnetRuntimeDir),[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+           $serviceEnvironment.IndexOf(('DOTNET_ROOT='+$dotnetRuntimeDir),[StringComparison]::OrdinalIgnoreCase) -lt 0){
+            throw 'NSSM did not retain both private .NET runtime root variables.'
+        }
     }
     $scm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
     if ($scm.Count -ne 1 -or $scm[0].StartMode -cne 'Disabled' -or
@@ -410,6 +445,16 @@ try {
         Start-Sleep -Milliseconds 800
     }
     if (-not $ready) { throw 'NSSM Garnet service did not expose local TLS on its expected port.' }
+    if($FromIntegratedStage){
+        $serviceScm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
+        $garnetWorkers=@(Get-CimInstance Win32_Process -Filter "Name='GarnetServer.exe'" -ErrorAction Stop |
+            Where-Object {$_.ParentProcessId -eq [int]$serviceScm[0].ProcessId -and
+                [String]::Equals([string]$_.ExecutablePath,$garnetExe[0].FullName,[StringComparison]::OrdinalIgnoreCase)})
+        if($serviceScm.Count -ne 1 -or $garnetWorkers.Count -ne 1){
+            throw 'Could not identify the real Garnet apphost child of the NSSM Windows service.'
+        }
+        Assert-PrivateDotnetRuntime -workerPid ([int]$garnetWorkers[0].ProcessId) -phase 'NSSM service'
+    }
     $serviceConnection=Open-Redis
     try {
         Assert-RedisDenied $serviceConnection.ssl $serviceConnection.reader @('PING')
