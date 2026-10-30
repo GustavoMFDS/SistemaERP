@@ -83,7 +83,7 @@ foreach ($record in @($document.files)) {
     }
     $insideDotnetRuntime = $relative.StartsWith('tools/dotnet/',[StringComparison]::Ordinal)
     if ($insideDotnetRuntime -and $relative -notmatch '^tools/dotnet/(dotnet\.exe|LICENSE\.txt|ThirdPartyNotices\.txt|host/fxr/10\.0\.14/[^/]+\.(dll|json|exe|pdb)|shared/Microsoft\.NETCore\.App/10\.0\.14/[^/]+\.(dll|json|exe|xml|pdb|dat))$') {
-        throw 'Unexpected embedded .NET runtime path.'
+        throw "Unexpected embedded .NET runtime path: $relative"
     }
     if ($relative -ne 'esterium-server.exe' -and
         -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
