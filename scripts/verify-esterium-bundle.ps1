@@ -63,11 +63,6 @@ $requiredTools = @(
     'tools/apply-esterium-initial-schema.ps1',
     'tools/esterium-migrate.exe',
     'tools/esterium-pg-tls-certgen.exe',
-    'tools/dotnet/dotnet.exe',
-    'tools/dotnet/LICENSE.txt',
-    'tools/dotnet/ThirdPartyNotices.txt',
-    'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
-    'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll',
     'README_LOCAL.md'
 )
 # Validate it when present, but do not require it in older bundles.
@@ -136,6 +131,21 @@ if (-not $seen.ContainsKey('esterium-server.exe') -or -not $seen.ContainsKey('we
 foreach ($needed in $requiredTools) {
     if (-not $seen.ContainsKey($needed)) {
         throw "Required installer helper missing: $needed"
+    }
+}
+$dotnetRequiredFiles = @(
+    'tools/dotnet/dotnet.exe',
+    'tools/dotnet/LICENSE.txt',
+    'tools/dotnet/ThirdPartyNotices.txt',
+    'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+    'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+)
+$dotnetRoot = Join-Path $root 'tools\dotnet'
+if (Test-Path -LiteralPath $dotnetRoot -PathType Container) {
+    foreach ($needed in $dotnetRequiredFiles) {
+        if (-not $seen.ContainsKey($needed)) {
+            throw "Embedded .NET runtime file is missing: $needed"
+        }
     }
 }
 $migrations = @($seen.Keys | Where-Object { $_ -match '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$' })
