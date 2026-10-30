@@ -82,8 +82,9 @@ try {
     $runtimeCore = Join-Path $dotnetDir ('shared\Microsoft.NETCore.App\' + $dotnetVersion + '\System.Private.CoreLib.dll')
     if (-not (Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
         -not (Test-Path -LiteralPath $runtimeCore -PathType Leaf) -or
-        -not (Test-Path -LiteralPath (Join-Path $dotnetDir 'ThirdPartyNotices.txt') -PathType Leaf)) {
-        throw 'Pinned .NET runtime package is incomplete or missing its notices.'
+        -not (Test-Path -LiteralPath (Join-Path $dotnetDir 'ThirdPartyNotices.txt') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $dotnetDir 'LICENSE.txt') -PathType Leaf)) {
+        throw 'Pinned .NET runtime package is incomplete or missing its license/notices.'
     }
     $runtimeList = & $dotnetExe --list-runtimes
     if ($LASTEXITCODE -ne 0 -or -not ($runtimeList -match ('Microsoft\.NETCore\.App ' + [Regex]::Escape($dotnetVersion)))) {
