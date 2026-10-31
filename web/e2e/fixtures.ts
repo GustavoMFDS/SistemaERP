@@ -10,11 +10,12 @@ import { test as base, expect } from '@playwright/test'
 async function cleanupOpenCashSessions(
   request: import('@playwright/test').APIRequestContext,
 ): Promise<void> {
-  const loginResponse = await request.post('/api/v1/auth/login', {
+  const apiBaseUrl = (process.env.E2E_API_BASE_URL ?? 'http://127.0.0.1:8080').replace(/\/+$/, '')
+  const loginResponse = await request.post(apiBaseUrl + '/api/v1/auth/login', {
     data: { email: 'admin@sistema.local', password: 'admin123' },
   })
   if (!loginResponse.ok()) {
-    throw new Error('E2E cash cleanup login failed (' + loginResponse.status() + ').')
+    throw new Error('E2E cash cleanup login failed (' + loginResponse.status() + ') at ' + loginResponse.url() + '.')
   }
 
   const login = (await loginResponse.json()) as {
@@ -25,7 +26,7 @@ async function cleanupOpenCashSessions(
   const headers = { Authorization: 'Bearer ' + accessToken }
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const currentResponse = await request.get('/api/v1/cash/sessions/current', { headers })
+    const currentResponse = await request.get(apiBaseUrl + '/api/v1/cash/sessions/current', { headers })
     if (currentResponse.status() === 404) return
     if (!currentResponse.ok()) {
       throw new Error(
@@ -39,7 +40,7 @@ async function cleanupOpenCashSessions(
     }
 
     const closeResponse = await request.post(
-      '/api/v1/cash/sessions/' + encodeURIComponent(current.id) + '/close',
+      apiBaseUrl + '/api/v1/cash/sessions/' + encodeURIComponent(current.id) + '/close',
       {
         headers,
         data: { closing_amount: 0, notes: 'Playwright E2E fixture cleanup' },
