@@ -175,7 +175,7 @@ try {
         } elseif ($failure.Exception.Message -match '^(First-run probe required local item is missing: [A-Za-z0-9._-]{1,128}\\.)$') {
             $safeDetail=$Matches[1]
         # Disposable CI may show short text-only errors, never paths or credentials.
-        } elseif ($failure.Exception.Message -match '^[A-Za-z0-9 ,.;:()''-]{1,180}$' -and
+        } elseif ($failure.Exception.Message -match '^[A-Za-z0-9 ,.;:()-]{1,180}$' -and
             $failure.Exception.Message -notmatch '(?i)(password|secret|token|credential|bearer|https?://|[\\/]|[A-Z]:)') {
             $safeDetail=$failure.Exception.Message
         }
