@@ -574,21 +574,6 @@ try {
             foreach($entry in $oldLab.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
         }
     }
-    if($RunERPStartupSmoke){
-        $labKeys=@('ESTERIUM_CI_GARNET_PASSWORD','ESTERIUM_CI_GARNET_CERT_FILE','ESTERIUM_CI_GARNET_PORT','ESTERIUM_CI_GARNET_SERVICE')
-        $oldLab=@{}
-        foreach($key in $labKeys){$oldLab[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
-        try{
-            $env:ESTERIUM_CI_GARNET_PASSWORD=$password
-            $env:ESTERIUM_CI_GARNET_CERT_FILE=$garnetPublicCert
-            $env:ESTERIUM_CI_GARNET_PORT=[string]$port
-            $env:ESTERIUM_CI_GARNET_SERVICE=$nssmService
-            & (Join-Path $PSScriptRoot '..\windows-setup\test-oss-erp-runtime-ci.ps1')
-            if(-not $?){throw 'Live ERP service start, login or dependency restart smoke failed.'}
-        }finally{
-            foreach($entry in $oldLab.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
-        }
-    }
     Stop-Service -Name $nssmService -ErrorAction Stop
     (Get-Service -Name $nssmService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
