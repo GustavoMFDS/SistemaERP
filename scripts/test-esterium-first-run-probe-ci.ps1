@@ -159,7 +159,7 @@ $denied=''
 try {
     & $coordinator -SourceBundleDir $env:RUNNER_TEMP -AllowedOrigin 'http://localhost:8080' | Out-Null
 } catch { $denied=$_.Exception.Message }
-if ($denied -notmatch 'valid HTTPS origin') {
+if ($denied -notmatch '(?i)(valid HTTPS origin|origem HTTPS)') {
     throw 'Combined installer allowed insecure/origin-ambiguous local settings.'
 }
 $code=[IO.File]::ReadAllText($coordinator)
