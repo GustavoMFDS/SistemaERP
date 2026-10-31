@@ -44,15 +44,21 @@ $text=[IO.File]::ReadAllText($probe)
 if ($text.Contains([string]::Concat("'OriginalPostgresql-'",'+','$PostgresServiceName'))) {
     throw 'First-run probe may collapse PostgreSQL config filenames.'
 }
+if ($text.Contains('-LiteralPath $config -Algorithm SHA256')) {
+    throw 'Readiness receipt references an undefined PostgreSQL config variable.'
+}
 foreach ($required in @('finally {','-StartupType Disabled','--check-dependencies',
     'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership',
     'First-run probe required local item is missing:','GetFileName($missingCursor)','TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar','$missing=$missing -replace',
     'function Write-CIDiagnosticStage','CI diagnostic: first-run stage - ',
+    '$postgresConf=Assert-Local','$pgHbaConf=Assert-Local',
+    '-PostgresqlConf $postgresConf -PgHbaConf $pgHbaConf',
+    'postgresqlConfigSHA256=(Get-FileHash -LiteralPath $postgresConf',
     'create receipt directory','create receipt staging folder','secure receipt folder',
     'hash receipt metadata','serialize receipt metadata','write receipt file','secure receipt file',
     'check receipt collision','commit receipt',
     'CI diagnostic: first-run failed after - ','CI diagnostic: first-run dependency cleanup failed.',
-    'verify dependencies stopped and disabled','write protected readiness receipt','restore ERP manual startup',
+    'verify dependencies stopped and disabled','restore ERP manual startup',
     '$probeStage=','disable ERP service','start dependency services',
     'verify dependency ownership','run ERP dependency preflight','$probeFailed=$true',
     '$probeFailureStage=$probeStage','First-run probe failed at stage: {0}.',
