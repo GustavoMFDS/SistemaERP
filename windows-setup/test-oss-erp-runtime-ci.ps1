@@ -503,13 +503,19 @@ try{
 
     $depName=[string]$required.redisService
     if(-not(Get-Service -Name $depName -ErrorAction SilentlyContinue)){throw 'Expected disposable Garnet Windows service disappeared before recovery test.'}
+    # SCM will not stop Garnet while its declared ERP dependent is running.
+    # Stop the ERP service first, restart Garnet, then recover ERP in order.
+    Stop-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
     Stop-Service -Name $depName -ErrorAction Stop
     (Get-Service -Name $depName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
     Start-Service -Name $depName -ErrorAction Stop
     (Get-Service -Name $depName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
+    Start-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(30))
     Wait-ERPReady $httpPort 75
     Assert-Login $httpPort
-    Write-Output 'PASS: ERP reconnected after real Garnet service restart; readiness and login recovered.'
+    Write-Output 'PASS: ERP service recovered after a real Garnet service restart; readiness and login returned.'
 
     Stop-Service -Name $serviceName -ErrorAction Stop
     (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
