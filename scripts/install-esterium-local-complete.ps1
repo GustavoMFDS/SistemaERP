@@ -172,6 +172,8 @@ try {
         $safeDetail=''
         if ($failure.Exception.Message -match '^(?:Bootstrap recusado: )?(FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+)$') {
             $safeDetail=$Matches[1]
+        } elseif ($failure.Exception.Message -match '^(First-run probe required local item is missing: [A-Za-z0-9._-]{1,128}\.)$') {
+            $safeDetail=$Matches[1]
         }
         $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
         if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
