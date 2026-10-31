@@ -92,7 +92,15 @@ function Assert-Local([string]$path,[bool]$directory) {
     $full=[IO.Path]::GetFullPath($path)
     $cursor=$full
     while ($cursor) {
-        $item=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        try {
+            $item=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        } catch [Management.Automation.ItemNotFoundException] {
+            $missing=[IO.Path]::GetFileName($cursor)
+            if ($missing -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') {
+                $missing='ancestor'
+            }
+            throw ('First-run probe required local item is missing: {0}.' -f $missing)
+        }
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw 'First-run probe forbids junctions or symbolic links.'
         }
