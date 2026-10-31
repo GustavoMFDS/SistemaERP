@@ -159,6 +159,18 @@ try {
 try {
     & $finish @finishArgs | Out-Null
 } catch {
+    if ($env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -eq '1' -and
+        $env:GITHUB_ACTIONS -eq 'true' -and
+        $env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+        $failure=$_
+        $failureFile='unknown'
+        if (-not [string]::IsNullOrWhiteSpace($failure.InvocationInfo.ScriptName)) {
+            $failureFile=[IO.Path]::GetFileName($failure.InvocationInfo.ScriptName)
+        }
+        $failureLine=[int]$failure.InvocationInfo.ScriptLineNumber
+        $failureType=$failure.Exception.GetType().FullName
+        throw ('Instalacao inicial do ERP interrompida; preserve o banco e nao repetir Apply. [CI diagnostic: {0} at {1}:{2}]' -f $failureType,$failureFile,$failureLine)
+    }
     throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
 }
 Write-Output 'PASS: instalacao inicial assinada; migracoes/admin/HTTPS/servicos/atalho e health foram ativados.'
