@@ -1,0 +1,524 @@
+name: Esterium Windows Setup EXE
+on:
+  workflow_dispatch:
+    inputs:
+      run_experimental_edb_install:
+        description: 'Run known-flaky real EDB unattended installer experiment (disposable CI only)'
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - 'windows-setup/**'
+      - 'scripts/test-esterium-postgres-real-tls-ci.ps1'
+      - 'scripts/test-esterium-garnet-real-aof-ci.ps1'
+      - 'scripts/apply-esterium-initial-schema.ps1'
+      - 'scripts/bootstrap-esterium-first-admin.ps1'
+      - 'scripts/activate-esterium-local-first-install.ps1'
+      - 'scripts/repair-esterium-local-install.ps1'
+      - 'scripts/uninstall-esterium-local-app.ps1'
+      - 'scripts/build-esterium-local-windows.ps1'
+      - 'scripts/finish-esterium-local-first-install.ps1'
+      - 'scripts/install-esterium-local-complete.ps1'
+      - 'scripts/install-esterium-local-dependencies.ps1'
+      - 'scripts/probe-esterium-local-first-run.ps1'
+      - 'scripts/register-esterium-windows-service.ps1'
+      - 'backend/cmd/esterium-bootstrap-admin/**'
+      - 'backend/internal/bootstrapadmin/**'
+      - 'backend/internal/config/**'
+      - 'backend/seed/seed.prod.sql'
+      - 'backend/migrations/**'
+      - 'web/package.json'
+      - 'web/package-lock.json'
+      - 'web/src/**'
+      - 'web/playwright.installed-lab.config.ts'
+      - 'web/smoke/**'
+      - '.github/workflows/esterium-windows-setup.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'windows-setup/**'
+      - '.github/workflows/esterium-windows-setup.yml'
+
+permissions:
+  contents: read
+
+# The integrated Windows job downloads/builds hundreds of MB. Cancel superseded
+# PR runs only; preserve explicitly dispatched/manual validation runs.
+concurrency:
+  group: esterium-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unsigned-preview:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build UI executable (no payload, no release)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir "$env:GITHUB_WORKSPACE\release-preview"
+          $exe = "$env:GITHUB_WORKSPACE\release-preview\EsteriumERP-Setup.exe"
+          if (-not (Test-Path $exe)) { throw 'Missing Setup EXE' }
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\release-preview\LICENSE.txt") -or
+              -not (Test-Path "$env:GITHUB_WORKSPACE\release-preview\THIRD_PARTY_NOTICES.md")) {
+            throw 'Unsigned MIT preview must ship its copyright and vendor notices'
+          }
+          $test = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($test.ExitCode -ne 0) { throw 'Bootstrap self-test failed' }
+          $payload = Start-Process -FilePath $exe -ArgumentList '--has-payload' -Wait -PassThru
+          if ($payload.ExitCode -ne 2) { throw 'Unsigned preview must NOT have embedded payload' }
+          $pins = Start-Process -FilePath $exe -ArgumentList '--has-preview-approvals' -Wait -PassThru
+          if ($pins.ExitCode -ne 2) { throw 'Empty preview must not advertise approved vendor digests' }
+          $retail = Start-Process -FilePath $exe -ArgumentList '--is-retail-build' -Wait -PassThru
+          if ($retail.ExitCode -ne 3) { throw 'Unsigned preview must permanently block installation' }
+          $fresh = Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
+          if ($fresh.ExitCode -ne 5) {throw 'Empty preview must not claim Windows installation readiness'}
+          $pg = Start-Process -FilePath $exe -ArgumentList '--stage-oss-postgres' -Wait -PassThru
+          if ($pg.ExitCode -ne 5) {throw 'Empty preview must reject PostgreSQL extraction'}
+          $audit = Start-Process -FilePath $exe -ArgumentList '--audit-oss-postgres' -Wait -PassThru
+          if ($audit.ExitCode -ne 5) {throw 'Empty preview must reject PostgreSQL audit'}
+          $layout = Start-Process -FilePath $exe -ArgumentList '--stage-oss-data' -Wait -PassThru
+          if ($layout.ExitCode -ne 5) {throw 'Empty preview must reject data directory preparation'}
+          $secrets = Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru
+          if ($secrets.ExitCode -ne 5) {throw 'Empty preview must reject secret generation'}
+          if ((Get-AuthenticodeSignature $exe).Status -eq 'Valid') {
+            throw 'Preview unexpectedly signed; do not publish as commercial release'
+          }
+      - name: Reject incomplete packaging inputs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rejected = $false
+          try {
+            & .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir "$env:RUNNER_TEMP\must-not-exist" -ExpectedPostgresSHA256 ('A' * 64)
+          } catch { $rejected = $true }
+          if (-not $rejected) { throw 'Builder accepted incomplete vendor input' }
+          if (Test-Path "$env:RUNNER_TEMP\must-not-exist") { throw 'Rejected build created output' }
+      - name: Inspect synthetic embedded ZIP; reject tampered hash
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'esterium-synthetic-embed'
+          foreach ($name in @('erp\web','erp\tools','vendor')) {
+            New-Item -ItemType Directory -Path (Join-Path $dir ('payload\'+$name)) -Force | Out-Null
+          }
+          $files = @('erp\bundle-manifest.json','erp\esterium-server.exe','erp\web\index.html',
+                     'erp\tools\install-esterium-local-complete.ps1',
+                     'vendor\postgresql.exe','vendor\garnet.zip','vendor\nssm.exe')
+          foreach ($file in $files) {
+            Set-Content -LiteralPath (Join-Path (Join-Path $dir 'payload') $file) -Value "SYNTHETIC CI ONLY $file" -Encoding Ascii
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = Join-Path $dir 'payload.zip'
+          [IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $dir 'payload'),$zip)
+          $exe = Join-Path $dir 'test-preview.exe'
+          $approvalFile = Join-Path $dir 'preview-approvals.json'
+          '{"manifest":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","pgSigner":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}' | Set-Content -LiteralPath $approvalFile -Encoding UTF8
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64/v4.0.30319/csc.exe'
+          & $csc /nologo /target:winexe /platform:x64 /define:ESTERIUM_PREVIEW /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Web.Extensions.dll /r:System.ServiceProcess.dll /r:System.Management.dll ("/out:" + $exe) ("/resource:" + $zip + ",Esterium.Payload") ("/resource:" + $approvalFile + ",Esterium.PreviewApprovals") .\windows-setup\EsteriumSetup.cs .\windows-setup\EsteriumOpenSourceStage.cs .\windows-setup\EsteriumOpenSourceVendors.cs .\windows-setup\EsteriumOpenSourcePreflight.cs .\windows-setup\EsteriumPostgresZipMode.cs .\windows-setup\EsteriumOpenSourcePostgresStage.cs .\windows-setup\EsteriumOpenSourcePostgresAudit.cs .\windows-setup\EsteriumOpenSourceDataStage.cs .\windows-setup\EsteriumOpenSourceSecretsStage.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic resource build failed' }
+          $probe = Start-Process -FilePath $exe -ArgumentList '--is-retail-build' -Wait -PassThru
+          if ($probe.ExitCode -ne 3) { throw 'Synthetic preview unexpectedly installable' }
+          # Synthetic untrusted ZIP must be refused before touching Program Files.
+          $stage = Start-Process -FilePath $exe -ArgumentList '--stage-oss-files' -Wait -PassThru
+          if ($stage.ExitCode -ne 5) { throw 'Synthetic untrusted payload was accepted for staging' }
+          $vendorStage = Start-Process -FilePath $exe -ArgumentList '--stage-oss-vendors' -Wait -PassThru
+          if ($vendorStage.ExitCode -ne 5) { throw 'Synthetic untrusted vendor payload was accepted' }
+          $fresh = Start-Process -FilePath $exe -ArgumentList '--preflight-oss' -Wait -PassThru
+          if ($fresh.ExitCode -ne 5) { throw 'Synthetic untrusted payload was accepted by fresh-host preflight' }
+          $pg = Start-Process -FilePath $exe -ArgumentList '--stage-oss-postgres' -Wait -PassThru
+          if ($pg.ExitCode -ne 5) { throw 'Synthetic untrusted payload was accepted for PostgreSQL extraction' }
+          $audit = Start-Process -FilePath $exe -ArgumentList '--audit-oss-postgres' -Wait -PassThru
+          if ($audit.ExitCode -ne 5) {throw 'Synthetic untrusted payload was accepted by PostgreSQL audit'}
+          $layout = Start-Process -FilePath $exe -ArgumentList '--stage-oss-data' -Wait -PassThru
+          if ($layout.ExitCode -ne 5) {throw 'Synthetic untrusted payload was accepted for ProgramData stage'}
+          $secrets = Start-Process -FilePath $exe -ArgumentList '--stage-oss-secrets' -Wait -PassThru
+          if ($secrets.ExitCode -ne 5) {throw 'Synthetic untrusted payload was accepted for offline secrets'}
+          $meta = Start-Process -FilePath $exe -ArgumentList '--has-preview-approvals' -Wait -PassThru
+          if ($meta.ExitCode -ne 0) { throw 'Preview approval metadata was not embedded' }
+          $manifest = [Reflection.Assembly]::LoadFrom($exe).GetManifestResourceStream('Esterium.PreviewApprovals')
+          if ($null -eq $manifest) { throw 'Preview approval resource missing' }
+          $manifest.Dispose()
+          $checks = @{Exe=$exe;
+            ExpectedManifestSHA256=(Get-FileHash (Join-Path $dir 'payload\erp\bundle-manifest.json') -Algorithm SHA256).Hash;
+            ExpectedPostgresSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\postgresql.exe') -Algorithm SHA256).Hash;
+            ExpectedGarnetSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\garnet.zip') -Algorithm SHA256).Hash;
+            ExpectedNssmSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\nssm.exe') -Algorithm SHA256).Hash}
+          & .\windows-setup\test-embedded-preview.ps1 @checks
+          $rejected = $false
+          $checks.ExpectedGarnetSHA256 = ('A' * 64)
+          try {
+            & .\windows-setup\test-embedded-preview.ps1 @checks | Out-Null
+          } catch { $rejected = $true }
+          if (-not $rejected) { throw 'Tampered vendor digest was accepted' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Esterium-Windows-Setup-UNSIGNED-TECHNICAL-PREVIEW
+          path: release-preview/*
+          retention-days: 7
+
+  unsigned-real-readonly-plan:
+    # Manual CI only: build ERP, verify vendor origin and stage native files.
+    # Final step installs REAL EDB on a unique disposable GitHub runner,
+    # and forcibly disables/stops its CI-only service. Never a customer host.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_experimental_edb_install == true
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Verify unsigned staging then install real EDB on disposable Windows ONLY
+        shell: powershell
+        env:
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_REAL_EDB_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm install --global npm@11.6.1
+          if ($LASTEXITCODE -ne 0) { throw 'npm toolchain unavailable' }
+          & .\windows-setup\test-unsigned-real-plan-ci.ps1
+
+  postgresql-oss-binaries-smoke:
+    # Preferred integration path: EDB's officially offered binary ZIP for
+    # software vendors. Manual CI: verify independently pinned SHA-256,
+    # ZIP paths, extracted executable versions. NO installation or services.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse ZIP, initdb and Windows service CI scripts before any download
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('windows-setup/test-postgres-oss-binaries-ci.ps1',
+              'windows-setup/test-postgres-oss-initdb-ci.ps1',
+              'windows-setup/test-postgres-oss-service-ci.ps1',
+              'windows-setup/test-postgres-oss-lsa-ci.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $path),[ref]$tokens,[ref]$errors) | Out-Null
+            if (@($errors).Count -gt 0) { throw ('PowerShell parse error in '+$path) }
+          }
+      - name: Verify official EDB Windows 16.15 binary ZIP, no installation
+        shell: powershell
+        env:
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\windows-setup\test-postgres-oss-binaries-ci.ps1
+
+  unsigned-integrated-zip-preview:
+    # Regress the protected extraction with the REAL upstream ZIP on PR
+    # as well as manual workflow dispatch. The disposable Windows runner
+    # is destroyed afterward; no customer machine or database is touched.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Restore untrusted upstream PostgreSQL ZIP cache (always rehash)
+        id: pg-zip-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vendor-cache/postgresql-16.15-5-windows-x64-binaries.zip
+          key: esterium-postgresql-edb-16.15-5-43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281
+      - name: Parse guarded native ZIP and disposable PostgreSQL test scripts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('windows-setup/test-unsigned-real-plan-ci.ps1',
+              'windows-setup/test-postgres-oss-initdb-ci.ps1',
+              'windows-setup/test-postgres-oss-service-ci.ps1',
+              'windows-setup/test-postgres-oss-lsa-ci.ps1',
+              'scripts/test-esterium-postgres-real-tls-ci.ps1',
+              'scripts/test-esterium-garnet-real-aof-ci.ps1',
+              'scripts/bootstrap-esterium-first-admin.ps1',
+              'scripts/apply-esterium-initial-schema.ps1',
+              'scripts/activate-esterium-local-first-install.ps1',
+              'scripts/repair-esterium-local-install.ps1',
+              'scripts/uninstall-esterium-local-app.ps1',
+              'scripts/finish-esterium-local-first-install.ps1',
+              'scripts/probe-esterium-local-first-run.ps1',
+              'scripts/register-esterium-windows-service.ps1',
+              'scripts/build-esterium-local-windows.ps1',
+              'scripts/write-esterium-bundle-manifest.ps1',
+              'scripts/verify-esterium-bundle.ps1',
+              'windows-setup/test-oss-real-erp-scm-ci.ps1',
+              'windows-setup/test-oss-native-data-initdb-ci.ps1',
+              'windows-setup/test-oss-offline-service-identity-ci.ps1',
+              'windows-setup/test-oss-erp-runtime-ci.ps1')) {
+            $tokens = $null; $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $path),[ref]$tokens,[ref]$errors) | Out-Null
+            if (@($errors).Count -gt 0) { throw ('Invalid CI-only PowerShell script: '+$path) }
+          }
+      - name: Integrated MIT EXE staging and PostgreSQL initdb/SQL/backup on disposable CI
+        shell: powershell
+        env:
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+          ESTERIUM_NATIVE_DATA_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm install --global npm@11.6.1
+          if ($LASTEXITCODE -ne 0) { throw 'npm tooling unavailable' }
+          & .\windows-setup\test-unsigned-real-plan-ci.ps1 -PostgresBinaryZip
+      - name: Save SHA-256-verified PostgreSQL ZIP for future disposable CI
+        if: success() && steps.pg-zip-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .vendor-cache/postgresql-16.15-5-windows-x64-binaries.zip
+          key: esterium-postgresql-edb-16.15-5-43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281
+      - name: Build offline PostgreSQL TLS certificate generator for integrated ZIP test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location backend
+          try {
+            go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
+            if ($LASTEXITCODE -ne 0) { throw 'Offline TLS certificate generator build failed.' }
+          } finally { Pop-Location }
+      - name: Build pinned Windows migration CLI for integrated ZIP test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $previous=$env:GOBIN
+          $dir=Join-Path $env:RUNNER_TEMP ('esterium-integrated-migrator-'+[Guid]::NewGuid().ToString('N'))
+          [IO.Directory]::CreateDirectory($dir) | Out-Null
+          try {
+            $env:GOBIN=$dir
+            Push-Location backend
+            try {
+              go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+              if ($LASTEXITCODE -ne 0) { throw 'Pinned migrator build failed.' }
+            } finally { Pop-Location }
+            Copy-Item -LiteralPath (Join-Path $dir 'migrate.exe') -Destination ./scripts/esterium-migrate.exe -ErrorAction Stop
+          } finally { $env:GOBIN=$previous }
+      - name: Test TLS SCRAM real ERP migrations and recovery from EXE-staged ZIP
+        shell: pwsh
+        timeout-minutes: 55
+        env:
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+          ESTERIUM_SCM_DISPOSABLE_CI: "1"
+          ESTERIUM_FINAL_ACTIVATION_DISPOSABLE_CI: "1"
+          ESTERIUM_REPAIR_DISPOSABLE_CI: "1"
+          ESTERIUM_UNINSTALL_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./scripts/test-esterium-postgres-real-tls-ci.ps1 -FromIntegratedStage -RunIntegratedERPStartupSmoke
+      - name: Upload synthetic Windows HTTPS/browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esterium-windows-lab-screens
+          path: ${{ runner.temp }}/esterium-installed-lab-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test real Garnet TLS ACL Lua AOF NSSM from native MIT EXE vendor staging
+        shell: pwsh
+        timeout-minutes: 14
+        env:
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./scripts/test-esterium-garnet-real-aof-ci.ps1 -FromIntegratedStage
+      - name: Register real unsigned ERP bundle as stopped Windows service (CI only)
+        shell: powershell
+        timeout-minutes: 12
+        env:
+          ESTERIUM_SCM_DISPOSABLE_CI: "1"
+          ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
+          ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\windows-setup\test-oss-real-erp-scm-ci.ps1
+
+  garnet-oss-real-tls-aof-smoke:
+    # Reuse the existing CI proof: actual Garnet TLS+ACL+Lua+AOF recovery,
+    # then NSSM as NETWORK SERVICE, disabled at rest. Ephemeral runner only.
+    # No ERP/customer database or sales/fiscal services are touched.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore vendor NSSM cache (must match pinned SHA-256)
+        id: nssm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
+          key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
+      - name: Prove real Garnet TLS, ACL, Lua, AOF crash recovery and NSSM SCM
+        shell: pwsh
+        run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
+      - name: Save verified NSSM cache only after successful service test
+        if: success() && steps.nssm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
+          key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
+
+  postgres-oss-tls-schema-smoke:
+    # Reuse the existing first-install PostgreSQL TLS/schema E2E test.
+    # It creates a fresh ephemeral PG16.15-5 cluster and checks TLS
+    # verify-full/SCRAM, restricted ERP SQL role, migrations and recovery.
+    # No real store Windows service is touched.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - name: Build offline PostgreSQL TLS generator for isolated CI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location backend
+          try {
+            go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
+            if ($LASTEXITCODE -ne 0) { throw 'Offline PostgreSQL TLS helper build failed.' }
+          } finally { Pop-Location }
+      - name: Build pinned Windows SQL migrator for isolated CI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $previous=$env:GOBIN
+          $dir=Join-Path $env:RUNNER_TEMP ('esterium-migrate-'+[Guid]::NewGuid().ToString('N'))
+          [IO.Directory]::CreateDirectory($dir) | Out-Null
+          try {
+            $env:GOBIN=$dir
+            Push-Location backend
+            try {
+              go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+              if ($LASTEXITCODE -ne 0) { throw 'Pinned migrator build failed.' }
+            } finally { Pop-Location }
+            Copy-Item -LiteralPath (Join-Path $dir 'migrate.exe') -Destination ./scripts/esterium-migrate.exe -ErrorAction Stop
+          } finally { $env:GOBIN=$previous }
+      - name: Verify pinned 16.15-5 ZIP, PostgreSQL TLS/SCRAM, schema, recovery
+        shell: pwsh
+        timeout-minutes: 18
+        run: ./scripts/test-esterium-postgres-real-tls-ci.ps1
+
+  complete-first-install-lab:
+    # Exercise the real first-install coordinator only on a fresh hosted VM.
+    # Its temporary code-signing certificate and customer data are synthetic.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 180
+    env:
+      ESTERIUM_FULL_INSTALL_DISPOSABLE_CI: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Parse guarded full-install lab before any machine changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:GITHUB_WORKSPACE 'windows-setup/test-complete-install-lab-ci.ps1'
+          $tokens = $null
+          $errors = $null
+          [Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -gt 0) { throw 'Invalid complete-install disposable CI script.' }
+      - name: Install, browse, repair, and conservatively uninstall on disposable Windows
+        shell: pwsh
+        timeout-minutes: 165
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\windows-setup\test-complete-install-lab-ci.ps1
+      - name: Upload real-service HTTPS browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esterium-complete-install-browser-evidence
+          path: ${{ runner.temp }}/esterium-full-install-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+
+  oss-component-gate:
+    # IMPORTANT: This is a COMPONENT TEST GATE, NOT approval of a retail
+    # or customer install. Production Apply remains disabled in MIT preview.
+    if: always()
+    needs:
+      - unsigned-preview
+      - postgresql-oss-binaries-smoke
+      - garnet-oss-real-tls-aof-smoke
+      - postgres-oss-tls-schema-smoke
+      - unsigned-integrated-zip-preview
+      - complete-first-install-lab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail closed unless EVERY required Windows installation check passed
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          UI: ${{ needs.unsigned-preview.result }}
+          POSTGRES_BIN: ${{ needs.postgresql-oss-binaries-smoke.result }}
+          POSTGRES_TLS_SCHEMA: ${{ needs.postgres-oss-tls-schema-smoke.result }}
+          GARNET_TLS_AOF: ${{ needs.garnet-oss-real-tls-aof-smoke.result }}
+          COMBINED_EXE: ${{ needs.unsigned-integrated-zip-preview.result }}
+          FULL_INSTALL: ${{ needs.complete-first-install-lab.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # PRs run the actual unsigned EXE staging + PostgreSQL TLS/schema
+            # and Garnet integration on a disposable Windows runner. Manual
+            # dispatch additionally requires all independent component jobs.
+            checks="UI COMBINED_EXE FULL_INSTALL"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            # Main-branch pushes run the preview build; manual-only component jobs are skipped.
+            checks="UI"
+          else
+            checks="UI POSTGRES_BIN POSTGRES_TLS_SCHEMA GARNET_TLS_AOF COMBINED_EXE FULL_INSTALL"
+          fi
+          for check in $checks; do
+            value="${!check}"
+            printf '%s: %s\n' "$check" "$value"
+            if [ "$value" != "success" ]; then
+              echo "::error::Unsigned component checks are incomplete or failed: $check"
+              exit 1
+            fi
+          done
+          echo "PASS: required Windows checks for $EVENT_NAME all passed."
+          echo "NOT A RETAIL INSTALL: signed-path Apply ran only on a disposable hosted Windows runner with a temporary test certificate and synthetic data; customer signing, OS reboot, physical LAN, external restore, real fiscal transmission, peripherals and accounting acceptance remain."
+
+

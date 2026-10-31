@@ -15,6 +15,7 @@ param(
     [string]$ListenAddress = '127.0.0.1:8080',
     [string]$TLSCertFile = '',
     [string]$TLSKeyFile = '',
+    [string]$TrustedRemoteAddress = '',
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'EsteriumERP'),
     [switch]$PlanOnly,
     [string]$ApprovedManifestSHA256 = '',
@@ -35,12 +36,12 @@ $serviceName = 'EsteriumERP'
 $origin = $null
 if (-not [Uri]::TryCreate($AllowedOrigin, [UriKind]::Absolute, [ref]$origin) -or
     $origin.Scheme -ne 'https' -or $origin.UserInfo -ne '' -or [string]::IsNullOrWhiteSpace($origin.Host) -or
-    $origin.Host -in @('localhost', '127.0.0.1', '::1') -or
     $origin.AbsolutePath -ne '/' -or $origin.Query -ne '' -or $origin.Fragment -ne '') {
-    throw 'AllowedOrigin must be an actual HTTPS origin for this installation (not localhost).'
+    throw 'AllowedOrigin must be a root HTTPS origin.'
 }
-# Only a well-formed IP/localhost listener is accepted by this initial
-# installer. Exposing 0.0.0.0, :: or a LAN IP without TLS is forbidden.
+# LAN mode binds all IPv4 interfaces only with HTTPS and an explicit private
+# CIDR. The separate activation step installs the matching scoped firewall
+# rule before it changes service startup or starts ERP.
 $uri = $null
 $targetAddress = if ($ListenAddress.StartsWith(':')) {
     "http://0.0.0.0$ListenAddress"
@@ -60,10 +61,48 @@ if (-not ($isLocalhost -or $isIP) -or
     throw 'ListenAddress must use localhost or an IP address and an explicit port.'
 }
 $isLoopback = $isLocalhost -or ($isIP -and [Net.IPAddress]::IsLoopback($ip))
+$originIsLoopback = $origin.Host -in @('localhost', '127.0.0.1', '::1')
+if ($originIsLoopback -and -not $isLoopback) {
+    throw 'A localhost AllowedOrigin may only be used with a loopback listener.'
+}
+$isWildcard = $uri.Host -eq '0.0.0.0'
+if (-not $isLoopback -and -not $isWildcard) {
+    throw 'Only loopback or 0.0.0.0 may be used; LAN exposure must pass through the scoped firewall activation.'
+}
+$remoteParts=$TrustedRemoteAddress -split '/',2
+if ($isWildcard) {
+    $remoteIP=$null
+    if ($remoteParts.Count -ne 2 -or $remoteParts[1] -notmatch '^\d{1,2}$' -or
+        -not [Net.IPAddress]::TryParse($remoteParts[0],[ref]$remoteIP) -or
+        $remoteIP.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
+        throw 'LAN listener requires one IPv4 CIDR firewall scope.'
+    }
+    $prefix=[int]$remoteParts[1]
+    $octets=$remoteIP.GetAddressBytes()
+    $isPrivate=($octets[0] -eq 10) -or
+        ($octets[0] -eq 172 -and $octets[1] -ge 16 -and $octets[1] -le 31) -or
+        ($octets[0] -eq 192 -and $octets[1] -eq 168)
+    $allowLoopback=$UnsignedDisposableCIFixture -and $octets[0] -eq 127
+    if ($prefix -lt 1 -or $prefix -gt 32 -or
+        ($isPrivate -and $prefix -lt 16) -or (-not $isPrivate -and -not $allowLoopback)) {
+        throw 'LAN firewall scope must be a private IPv4 CIDR /16 or narrower.'
+    }
+    for ($bit=$prefix; $bit -lt 32; $bit++) {
+        $byte=[int][Math]::Floor($bit/8)
+        $mask=1 -shl (7-($bit%8))
+        if (($octets[$byte] -band $mask) -ne 0) { throw 'Firewall CIDR must use a canonical network address.' }
+    }
+} elseif (-not [string]::IsNullOrWhiteSpace($TrustedRemoteAddress)) {
+    throw 'Loopback-only service registration must not request a LAN firewall scope.'
+}
 $hasTLSCert = -not [string]::IsNullOrWhiteSpace($TLSCertFile)
 $hasTLSKey = -not [string]::IsNullOrWhiteSpace($TLSKeyFile)
 if ($hasTLSCert -ne $hasTLSKey) {
     throw 'TLSCertFile and TLSKeyFile must both be supplied for LAN HTTPS.'
+}
+if ($hasTLSCert -and (($origin.IsDefaultPort -and $uri.Port -ne 443) -or
+    (-not $origin.IsDefaultPort -and $uri.Port -ne $origin.Port))) {
+    throw 'HTTPS AllowedOrigin port must match the direct TLS listener port.'
 }
 if (-not $isLoopback -and -not $hasTLSCert) {
     throw 'Non-loopback LAN listeners require an external TLS certificate and private key.'
@@ -282,6 +321,12 @@ try {
     New-ItemProperty -Path $regPath -Name Environment -PropertyType MultiString -Value $entries -Force -ErrorAction Stop | Out-Null
     $sidResult = & $sc sidtype $serviceName unrestricted 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Could not configure restricted service SID: $sidResult" }
+    # Recover automatically after an unexpected process crash. Normal Stop-Service
+    # remains clean; a finite restart policy bounds repeated configuration failures.
+    $failureResult = & $sc failure $serviceName 'reset=' '86400' 'actions=' 'restart/5000/restart/30000/none/0' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not configure ERP service recovery: $failureResult" }
+    $failureFlagResult = & $sc failureflag $serviceName '1' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not enable ERP nonzero-exit recovery: $failureFlagResult" }
     $registrationComplete = $true
     Write-Output 'PASS: service registered with only secret file paths (not credential values).'
     Write-Output 'Service start remains manual until database/migrations, ACL and backup restoration are tested.'

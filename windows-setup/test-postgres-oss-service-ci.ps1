@@ -1,0 +1,279 @@
+#requires -Version 5.1
+<#
+  Register a real initialized PostgreSQL ZIP-based Windows service, DISABLED
+  AND STOPPED, as ephemeral non-admin account. No passwords on command line.
+  GitHub-hosted disposable Windows CI ONLY. Never start the service.
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory=$true)][string]$VerifiedPgRoot,
+    [Parameter(Mandatory=$true)][string]$DataDir,
+    [Parameter(Mandatory=$true)][pscredential]$ServiceCredential,
+    [switch]$ExerciseLoopback,
+    [switch]$FromIntegratedStage,
+    [switch]$ProgramDataLayout,
+    [switch]$NativeDataLayout
+)
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
+    $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:ESTERIUM_PG_ZIP_DISPOSABLE_CI -ne '1') {
+    throw 'Service registration test requires disposable GitHub-hosted Windows CI.'
+}
+$principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'CI registration requires Administrator.'
+}
+$temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+$pgDir=[IO.Path]::GetFullPath($VerifiedPgRoot).TrimEnd('\')
+$data=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+$approvedIntegratedRoot=Join-Path (Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin') 'pgsql'
+if ($NativeDataLayout) {
+    if (-not $FromIntegratedStage -or $ProgramDataLayout -or
+        $env:ESTERIUM_NATIVE_DATA_DISPOSABLE_CI -ne '1') {
+        throw 'Native protected data test is restricted to the isolated integrated Windows CI.'
+    }
+}
+$approvedData=$data.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase)
+if($ProgramDataLayout){
+    if(-not $FromIntegratedStage) {throw 'ProgramData CI service test needs the pinned native EXE stage.'}
+    $ciRoot=Split-Path -Parent $data
+    $ciParent=[IO.Path]::GetFullPath((Split-Path -Parent $ciRoot)).TrimEnd('\')
+    if($ciParent -cne ([IO.Path]::GetFullPath($env:ProgramData).TrimEnd('\')) -or
+       (Split-Path -Leaf $ciRoot) -cnotmatch '^EsteriumOpenSourceCITest-[a-f0-9]{32}$' -or
+       (Split-Path -Leaf $data) -cne 'cluster' -or
+       -not(Test-Path -LiteralPath $ciRoot -PathType Container)) {
+        throw 'CI ProgramData cluster must be in a unique explicitly approved disposable folder.'
+    }
+    $approvedData=$true
+}
+if ($NativeDataLayout) {
+    $expectedNativeData=Join-Path $env:ProgramData 'Esterium\PostgresData\cluster'
+    $marker=Join-Path $env:ProgramData 'Esterium\oss-data-layout.json'
+    if ($data -cne $expectedNativeData -or
+        -not (Test-Path -LiteralPath $marker -PathType Leaf) -or
+        ((Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json).phase -cne 'DATA_DIRECTORIES_ONLY')) {
+        throw 'Native CI service may only use the exact empty-layout stage prepared by the EXE.'
+    }
+    $approvedData=$true
+}
+$trustedSource=if($FromIntegratedStage){
+    ($env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -eq '1' -and
+     $pgDir -ceq $approvedIntegratedRoot)
+}else{
+    $pgDir.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase)
+}
+if (-not $trustedSource -or
+    -not $approvedData -or
+    $pgDir.Contains('"') -or $data.Contains('"') -or
+    -not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_ctl.exe') -PathType Leaf) -or
+    -not (Test-Path -LiteralPath (Join-Path $data 'PG_VERSION') -PathType Leaf) -or
+    ([IO.File]::ReadAllText((Join-Path $data 'PG_VERSION'))).Trim() -cne '16') {
+    throw 'Registration requires pinned PG16 ZIP and fresh initialized cluster.'
+}
+if ($ServiceCredential.UserName -notmatch '^[A-Za-z0-9_-]+\\epg[0-9a-f]{12}$') {
+    throw 'Unexpected account; refuse non-ephemeral service identity.'
+}
+$name='EsteriumCIPG'+[Guid]::NewGuid().ToString('N').Substring(0,12)
+if ($null -ne (Get-Service -Name $name -ErrorAction SilentlyContinue)) {
+    throw 'Selected CI service name already exists.'
+}
+$binary=Join-Path $pgDir 'bin\pg_ctl.exe'
+$command='"'+$binary+'" runservice -N "'+$name+'" -D "'+$data+'" -w'
+$created=$false
+$logonRightGranted=$false
+$ciAccountSid=''
+$started=$false
+$port=0
+$oldPgPassword=$env:PGPASSWORD
+if ($ExerciseLoopback) {
+    $ciLocalName=$ServiceCredential.UserName.Split('\')[-1]
+    $ciUser=Get-LocalUser -Name $ciLocalName -ErrorAction Stop
+    if ($ciLocalName -cnotmatch '^epg[0-9a-f]{12}$' -or $null -eq $ciUser.SID) {
+        throw 'Service-logon right must be assigned only to a new ephemeral CI account.'
+    }
+    $ciAccountSid=[string]$ciUser.SID.Value
+}
+if ($ExerciseLoopback) {
+    # Select an ephemeral loopback-only port; PostgreSQL config is confined to
+    # a verified CI-only test cluster, never the store's data directory.
+    $portProbe=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
+    try {
+        $portProbe.Start()
+        $port=[int]$portProbe.LocalEndpoint.Port
+    } finally { $portProbe.Stop() }
+    if ($port -lt 1024) {throw 'Unexpected PostgreSQL test port.'}
+    $conf=Join-Path $data 'postgresql.conf'
+    if (-not (Test-Path -LiteralPath $conf -PathType Leaf)) {throw 'Missing PostgreSQL config.'}
+    Add-Content -LiteralPath $conf -Value ("listen_addresses = '127.0.0.1'"+[Environment]::NewLine+"port = "+$port+[Environment]::NewLine) -Encoding Ascii
+}
+try {
+    if ($ExerciseLoopback) {
+        & (Join-Path $PSScriptRoot 'test-postgres-oss-lsa-ci.ps1') -Action Grant -Sid $ciAccountSid
+        $logonRightGranted=$true
+    }
+    New-Service -Name $name -BinaryPathName $command -Credential $ServiceCredential -StartupType Disabled -DisplayName ('Esterium disposable PG16 '+$name) -ErrorAction Stop | Out-Null
+    $created=$true
+    $entry=@(Get-CimInstance Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop)
+    if ($entry.Count -ne 1) { throw 'PostgreSQL service missing from SCM.' }
+    $identity=$ServiceCredential.UserName
+    $expectedLocal='.\'+($identity.Split('\')[-1])
+    if ($entry[0].StartMode -cne 'Disabled' -or $entry[0].State -cne 'Stopped' -or
+        [int]$entry[0].ProcessId -ne 0 -or
+        $entry[0].StartName -notin @($identity,$expectedLocal) -or
+        $entry[0].PathName -cne $command) {
+        throw 'SCM registration has unexpected identity, executable or state.'
+    }
+    if ($ExerciseLoopback) {
+        Set-Service -Name $name -StartupType Manual -ErrorAction Stop
+        # WMI/CIM StartService exposes actionable numeric Win32 return codes
+        # (15 = account lacks service-logon right or supplied credential
+        # rejected), unlike the generic Start-Service error text.
+        $serviceRecord=Get-CimInstance -ClassName Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop
+        $startResult=Invoke-CimMethod -InputObject $serviceRecord -MethodName StartService -ErrorAction Stop
+        if ([int]$startResult.ReturnValue -ne 0) {
+            throw ('Disposable PostgreSQL SCM start failed, numeric Win32 code '+$startResult.ReturnValue)
+        }
+        $started=$true
+        $svc=Get-Service -Name $name -ErrorAction Stop
+        $svc.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(50))
+        $health=@(& (Join-Path $pgDir 'bin\pg_isready.exe') '-h' '127.0.0.1' '-p' ([string]$port) '-d' 'postgres' 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Windows PostgreSQL service failed loopback readiness probe.'}
+        # The same CSPRNG secret is supplied to initdb's postgres superuser
+        # through a restricted pwfile. Supply it to psql via environment only.
+        # Neither command-line arguments nor CI logs contain the secret.
+        $env:PGPASSWORD=$ServiceCredential.GetNetworkCredential().Password
+        $sql=@(& (Join-Path $pgDir 'bin\psql.exe') '-X' '-w' '-A' '-t' '-h' '127.0.0.1' '-p' ([string]$port) '-U' 'postgres' '-d' 'postgres' '-c' 'SELECT 1' 2>&1)
+        if ($LASTEXITCODE -ne 0 -or ($sql -join '').Trim() -cne '1') {
+            throw 'Authenticated local SQL query failed in disposable PostgreSQL service.'
+        }
+        # Separate throwaway database with a tiny deterministic record.
+        # Exercise real pg_dump -Fc and pg_restore against this live local
+        # PostgreSQL service; never read or touch an ERP/customer database.
+        $probeDb='esterium_ci_recovery'
+        $psql=Join-Path $pgDir 'bin\psql.exe'
+        $dump=Join-Path $pgDir 'bin\pg_dump.exe'
+        $restore=Join-Path $pgDir 'bin\pg_restore.exe'
+        $backup=if($NativeDataLayout){
+            Join-Path $env:ProgramData 'Esterium\Backups\disposable-recovery.dump'
+        }else{
+            Join-Path (Split-Path -Parent $data) 'disposable-recovery.dump'
+        }
+        if (-not (Test-Path -LiteralPath $dump -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $restore -PathType Leaf) -or
+            (Test-Path -LiteralPath $backup)) {
+            throw 'Backup tooling missing or previous CI backup unexpectedly exists.'
+        }
+        $create=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('CREATE DATABASE '+$probeDb) 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'CI-only PostgreSQL recovery database could not be created.'}
+        $createTable=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d $probeDb -c 'CREATE TABLE ci_recovery_probe (id integer primary key, note text not null)' 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'CI-only PostgreSQL recovery table creation failed.'}
+        $insert=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d $probeDb -c "INSERT INTO ci_recovery_probe(id,note) VALUES (42,'esterium_ci_marker')" 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'CI-only PostgreSQL recovery fixture insert failed.'}
+        $dumpResult=@(& $dump -w -h 127.0.0.1 -p $port -U postgres -d $probeDb -Fc -f $backup 2>&1)
+        if ($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $backup -PathType Leaf) -or
+            (Get-Item -LiteralPath $backup).Length -lt 128) {
+            throw 'A real pg_dump -Fc backup failed in disposable Windows CI.'
+        }
+        $drop=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('DROP DATABASE '+$probeDb) 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Could not drop only the ephemeral recovery test database.'}
+        $recreate=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('CREATE DATABASE '+$probeDb) 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Could not recreate disposable recovery database.'}
+        $restoreResult=@(& $restore -w -h 127.0.0.1 -p $port -U postgres -d $probeDb --exit-on-error $backup 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Real pg_restore of ephemeral PostgreSQL backup failed.'}
+        $restored=@(& $psql -X -w -q -A -t -h 127.0.0.1 -p $port -U postgres -d $probeDb -c 'SELECT note FROM ci_recovery_probe WHERE id=42' 2>&1)
+        if ($LASTEXITCODE -ne 0 -or ($restored -join '').Trim() -cne 'esterium_ci_marker') {
+            throw 'Restored database contents differ from original recovery fixture.'
+        }
+        $cleanupDatabase=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('DROP DATABASE '+$probeDb) 2>&1)
+        if ($LASTEXITCODE -ne 0) {throw 'Test recovery database was not cleaned up.'}
+        Write-Output 'PASS: pg_dump custom-format backup, drop, pg_restore and verified SQL data on disposable Windows.'
+        if($NativeDataLayout) {
+            # Persist a second fixture through an actual SCM stop/start; pg_dump
+            # recovery alone does not prove on-disk data survives restart.
+            $restartDb='esterium_ci_restart'
+            $createRestart=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('CREATE DATABASE '+$restartDb) 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'Could not create throwaway service-restart database.'}
+            $writeRestart=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d $restartDb -c "CREATE TABLE ci_restart_probe (id integer primary key, note text not null); INSERT INTO ci_restart_probe VALUES (53, 'survived_scm_restart')" 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'Could not commit durable restart fixture.'}
+        }
+        Write-Output 'PASS: isolated PostgreSQL service started on 127.0.0.1 and answered authenticated SQL SELECT 1.'
+        Stop-Service -Name $name -ErrorAction Stop
+        (Get-Service -Name $name).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
+        $started=$false
+        Set-Service -Name $name -StartupType Disabled -ErrorAction Stop
+        if (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -ne 0) {
+            throw 'PostgreSQL loopback listener remained after controlled stop.'
+        }
+        if($NativeDataLayout) {
+            # Same PostgreSQL service, data directory and NON-ADMIN identity.
+            # No operating-system reboot; this is a real SCM restart test.
+            Set-Service -Name $name -StartupType Manual -ErrorAction Stop
+            $record=Get-CimInstance -ClassName Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop
+            $restartResult=Invoke-CimMethod -InputObject $record -MethodName StartService -ErrorAction Stop
+            if([int]$restartResult.ReturnValue -ne 0){
+                throw ('PostgreSQL SCM restart failed, code '+$restartResult.ReturnValue)
+            }
+            $started=$true
+            (Get-Service -Name $name).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(50))
+            $reloaded=@(& $psql -X -w -q -A -t -h 127.0.0.1 -p $port -U postgres -d $restartDb -c 'SELECT note FROM ci_restart_probe WHERE id = 53' 2>&1)
+            if($LASTEXITCODE -ne 0 -or ($reloaded -join '').Trim() -cne 'survived_scm_restart'){
+                throw 'Durable PostgreSQL data did not survive an actual Windows SCM stop/start.'
+            }
+            $now=Get-CimInstance -ClassName Win32_Service -Filter ("Name='"+$name+"'") -ErrorAction Stop
+            # SCM may normalize COMPUTER\\user to .\\user and Windows account
+            # names are case-insensitive. Use the same accepted local-account
+            # spellings as at initial registration, but also require the same
+            # ephemeral SID and a running service process after restart.
+            $restartUser=Get-LocalUser -Name $ciLocalName -ErrorAction Stop
+            if($now.StartName -notin @($identity,$expectedLocal) -or
+               [int]$now.ProcessId -le 0 -or
+               [string]$restartUser.SID.Value -cne $ciAccountSid){
+                throw 'PostgreSQL SCM restart changed the non-admin Windows identity.'
+            }
+            $dropRestart=@(& $psql -X -w -q -h 127.0.0.1 -p $port -U postgres -d postgres -c ('DROP DATABASE '+$restartDb) 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'Could not remove disposable restart DB.'}
+            Stop-Service -Name $name -ErrorAction Stop
+            (Get-Service -Name $name).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
+            $started=$false
+            Set-Service -Name $name -StartupType Disabled -ErrorAction Stop
+            if(@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -ne 0){
+                throw 'PostgreSQL listener survived final service stop after restart.'
+            }
+            Write-Output 'PASS: PostgreSQL persisted committed SQL through REAL Windows SCM stop/start using same non-admin account.'
+            Write-Output 'PASS: restarted service disabled/stopped and restart probe database deleted.'
+        }
+        $env:PGPASSWORD=$oldPgPassword
+        Write-Output 'PASS: PostgreSQL service safely stopped/disabled; loopback port no longer listening.'
+    }
+    Write-Output 'PASS: PostgreSQL 16 Windows service registered for isolated NON-ADMIN CI identity.'
+    Write-Output 'PASS: SCM binary from verified ZIP, service disabled/stopped, no process started.'
+} finally {
+    $env:PGPASSWORD=$oldPgPassword
+    if ($created) {
+        try {
+            $existing=Get-Service -Name $name -ErrorAction SilentlyContinue
+            if ($null -ne $existing -and $existing.Status -ne 'Stopped') {
+                Stop-Service -Name $name -Force -ErrorAction Stop
+                (Get-Service -Name $name).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
+            }
+            Set-Service -Name $name -StartupType Disabled -ErrorAction Stop
+        } catch {
+            throw 'Disposable PostgreSQL service could not be stopped/disabled; do not reuse runner.'
+        }
+        & sc.exe delete $name | Out-Null
+        if ($LASTEXITCODE -ne 0) {throw 'Ephemeral CI service cannot be deregistered.'}
+        for ($attempt=0;$attempt -lt 10;$attempt++) {
+            if ($null -eq (Get-Service -Name $name -ErrorAction SilentlyContinue)) {break}
+            Start-Sleep -Milliseconds 500
+        }
+        if ($null -ne (Get-Service -Name $name -ErrorAction SilentlyContinue)) {
+            throw 'Ephemeral CI service persisted after cleanup.'
+        }
+        Write-Output 'PASS: CI test service deregistered; account cleanup remains with initdb test.'
+    }
+    if ($logonRightGranted) {
+        & (Join-Path $PSScriptRoot 'test-postgres-oss-lsa-ci.ps1') -Action Revoke -Sid $ciAccountSid
+    }
+}

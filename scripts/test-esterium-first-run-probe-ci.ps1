@@ -8,6 +8,7 @@ if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
     throw 'First-run probe safety test requires disposable Windows CI.'
 }
 $probe=Join-Path $PSScriptRoot 'probe-esterium-local-first-run.ps1'
+$activation=Join-Path $PSScriptRoot 'activate-esterium-local-first-install.ps1'
 $tokens=$null
 $parseErrors=$null
 [void][Management.Automation.Language.Parser]::ParseFile(
@@ -16,7 +17,14 @@ if (@($parseErrors).Count -gt 0) {
     throw ('First-run runtime probe PowerShell parser errors: '+
         (@($parseErrors | Select-Object -ExpandProperty Message) -join '; '))
 }
-$opts=@{BundleDir=$env:RUNNER_TEMP;Apply=$true}
+$opts=@{
+    BundleDir=$env:RUNNER_TEMP
+    AllowedOrigin='https://esterium.ci.invalid:8443'
+    ListenAddress='127.0.0.1:8443'
+    TLSCertFile=(Join-Path $env:RUNNER_TEMP 'synthetic-erp-cert.pem')
+    TLSKeyFile=(Join-Path $env:RUNNER_TEMP 'synthetic-erp-key.pem')
+    Apply=$true
+}
 $denied=''
 try { & $probe @opts | Out-Null }
 catch { $denied=$_.Exception.Message }
@@ -35,12 +43,48 @@ if ($denied -notmatch '(not signed by approved publisher|cannot be trusted)') {
 $text=[IO.File]::ReadAllText($probe)
 foreach ($required in @('finally {','-StartupType Disabled','--check-dependencies',
     'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership',
+    'First-run probe required local item is missing:','GetFileName($missingCursor)','TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar',
     'backupRestoreApproved=$false','automaticStartupApproved=$false','probe-result.json',
     "Set-Service -Name 'EsteriumERP' -StartupType Disabled")) {
     if (-not $text.Contains($required)) {
         throw 'First-run probe lost a required fail-closed security contract.'
     }
 }
+$parseErrors=$null
+[void][Management.Automation.Language.Parser]::ParseFile($activation,[ref]$tokens,[ref]$parseErrors)
+if (@($parseErrors).Count -gt 0) {
+    throw ('Final HTTPS activation parser errors: '+(@($parseErrors | Select-Object -ExpandProperty Message) -join '; '))
+}
+$activationText=[IO.File]::ReadAllText($activation)
+foreach ($required in @('ESTERIUM_FINAL_ACTIVATION_DISPOSABLE_CI','TrustedRemoteAddress',
+    'Get-NetFirewallProfile','New-NetFirewallRule','Get-NetFirewallApplicationFilter',
+    'WaitForStatus','Move-Item -LiteralPath $staging -Destination $activationPath',
+    'automaticStartupApproved=$true','fiscalEmissionApproved=$false')) {
+    if (-not $activationText.Contains($required)) {
+        throw 'Final activation lost a required HTTPS/firewall/startup contract.'
+    }
+}
+$repair=Join-Path $PSScriptRoot 'repair-esterium-local-install.ps1'
+$uninstall=Join-Path $PSScriptRoot 'uninstall-esterium-local-app.ps1'
+foreach($path in @($repair,$uninstall)){
+    $parseErrors=$null
+    [void][Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$parseErrors)
+    if(@($parseErrors).Count -gt 0){
+        throw ('Repair/uninstall PowerShell parser error: '+$path+' '+(@($parseErrors|Select-Object -ExpandProperty Message)-join '; '))
+    }
+}
+$repairText=[IO.File]::ReadAllText($repair)
+foreach($required in @('ESTERIUM_REPAIR_DISPOSABLE_CI','ConfirmRepair','bundle-manifest.json',
+    'Get-NetFirewallRule','/health/ready','backupRestoreApproved -cne $false')){
+    if(-not $repairText.Contains($required)){throw 'Assisted repair lost its signed/receipt/health/non-fiscal guard.'}
+}
+$uninstallText=[IO.File]::ReadAllText($uninstall)
+foreach($required in @('ESTERIUM_UNINSTALL_DISPOSABLE_CI','ConfirmUninstall',
+    'unregister-esterium-windows-service.ps1','Move-Item -LiteralPath $sourceDir',
+    'Remove-Item -LiteralPath $install -Recurse -Force','ProgramData','backups stay intact')){
+    if(-not $uninstallText.Contains($required)){throw 'Conservative uninstall lost its confirmation/data-preservation guard.'}
+}
+Write-Output 'PASS: assisted repair and conservative uninstall parse and retain signed receipt, HTTPS, confirmation and data-preservation gates.'
 # SQL coordinator must reject unsigned entry points before starting SQL.
 $sqlTool=Join-Path $PSScriptRoot 'bootstrap-esterium-local-schema.ps1'
 $parseErrors=$null
@@ -116,19 +160,33 @@ $denied=''
 try {
     & $coordinator -SourceBundleDir $env:RUNNER_TEMP -AllowedOrigin 'http://localhost:8080' | Out-Null
 } catch { $denied=$_.Exception.Message }
-if ($denied -notmatch 'valid HTTPS origin') {
+if ($denied -notmatch '(?i)(valid (?:root )?HTTPS origin|origem HTTPS)') {
     throw 'Combined installer allowed insecure/origin-ambiguous local settings.'
 }
 $code=[IO.File]::ReadAllText($coordinator)
 foreach ($required in @('stage-esterium-approved-windows-release.ps1',
     'bootstrap-esterium-local-schema.ps1','register-esterium-windows-service.ps1',
-    'probe-esterium-local-first-run.ps1','provision-esterium-app-secrets.ps1',
+    'probe-esterium-local-first-run.ps1','activate-esterium-local-first-install.ps1',
+    'provision-esterium-app-secrets.ps1',
     "Set-Service -Name 'EsteriumERP' -StartupType Disabled")) {
     if (-not $code.Contains($required)) {
         throw 'Combined installer lost an essential signed first-install step.'
     }
 }
-Write-Output 'PASS: combined first-install coordinator parses, blocks bad publisher/origin and retains expected safe ordering.'
+$probeStart=$code.IndexOf('$probe=@{')
+$probeEnd=$code.IndexOf("`n# No registered", $probeStart)
+if ($probeStart -lt 0 -or $probeEnd -le $probeStart) {
+    throw 'Combined installer probe argument block is missing or malformed.'
+}
+$probeArguments=$code.Substring($probeStart,$probeEnd-$probeStart)
+foreach ($required in @('AllowedOrigin=$AllowedOrigin','ListenAddress=$ListenAddress',
+    'TLSCertFile=$TLSCertFile','TLSKeyFile=$TLSKeyFile',
+    'TrustedRemoteAddress=$TrustedRemoteAddress')) {
+    if (-not $probeArguments.Contains($required)) {
+        throw 'Combined installer failed to pass approved HTTPS inputs to the first-run probe.'
+    }
+}
+Write-Output 'PASS: combined first-install coordinator parses, blocks bad publisher/origin and passes approved HTTPS inputs to the probe.'
 # Combined entry point must be signed, safely deny bad approvals and retain
 # the non-mutating PLAN before either vendor or ERP initialization.
 $one=Join-Path $PSScriptRoot 'install-esterium-local-complete.ps1'
@@ -156,7 +214,7 @@ $fakeRoot=Join-Path $env:RUNNER_TEMP ('esterium-first-install-entry-'+[Guid]::Ne
 $fakeTools=Join-Path $fakeRoot 'tools'
 [IO.Directory]::CreateDirectory($fakeTools) | Out-Null
 try {
-    foreach ($file in @('install-esterium-local-complete.ps1',
+    foreach ($file in @('activate-esterium-local-first-install.ps1','install-esterium-local-complete.ps1',
                         'setup-esterium-local-dependencies.ps1',
                         'finish-esterium-local-first-install.ps1')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $fakeTools -ErrorAction Stop
@@ -164,7 +222,7 @@ try {
     $fakeEntry=Join-Path $fakeTools 'install-esterium-local-complete.ps1'
     $args=@{
         SourceBundleDir=$fakeRoot
-        AllowedOrigin='https://esterium.ci.invalid'
+        AllowedOrigin='https://esterium.ci.invalid:8443'
         PostgresInstaller=(Join-Path $fakeRoot 'postgres.exe')
         ExpectedPostgresSHA256=('0'*64)
         ExpectedPostgresPublisherThumbprint=('0'*40)
@@ -194,14 +252,14 @@ try {
     if ($denied -notmatch 'origem HTTPS aprovada') {
         throw 'One-command setup accepted an insecure browser origin.'
     }
-    $args.AllowedOrigin='https://esterium.ci.invalid'
+    $args.AllowedOrigin='https://esterium.ci.invalid:8443'
     $args.GarnetPort=5432
     $denied=''
     try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
     if ($denied -notmatch 'precisam ser distintas') {
         throw 'One-command setup accepted conflicting database/cache ports.'
     }
-    if (@(Get-ChildItem -LiteralPath $fakeTools -File).Count -ne 3) {
+    if (@(Get-ChildItem -LiteralPath $fakeTools -File).Count -ne 4) {
         throw 'One-command negative tests mutated disposable source tools.'
     }
 } finally {

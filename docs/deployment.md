@@ -59,15 +59,11 @@ The demo seed is intentionally guarded and should run only through the local Doc
 
 ## Production seed
 
-Use `backend/seed/seed.prod.sql` only for production-safe reference data. It does not create default users or passwords.
+After the fresh schema migrations, apply `backend/seed/seed.prod.sql` with the least-privileged `esterium_app` role over verified TLS. It creates only the `admin`, `manager`, and `cashier` roles, permission definitions, and role-permission links. It never creates a company, account, password, or demo business data.
 
-Create the first production admin through a controlled bootstrap procedure:
+The signed Windows bundle includes `tools/bootstrap-esterium-first-admin.ps1` and `tools/esterium-bootstrap-admin.exe`. The setup flow prompts for the store's legal identity, CNPJ, administrator identity, and a new password; password entry is hidden and passed to the CLI through standard input. The CLI validates the CNPJ and password, hashes the password with bcrypt, then creates the company identity and first admin in one serializable transaction. It accepts only the single placeholder tenant from a fresh migrated database with no users, memberships, or business rows, and refuses repeat setup. It also takes an advisory transaction lock so competing setup processes cannot both create an owner.
 
-1. Generate a strong temporary password outside source control.
-2. Generate a bcrypt hash using an approved operational tool.
-3. Insert the user, tenant membership, and tenant-scoped admin role in a controlled maintenance window.
-4. Force password change at first login when that product flow exists.
-5. Record the bootstrap in an operational audit ticket without storing the password.
+Keep `FISCAL_PROVIDER=disabled` and sales disabled while performing local setup. This initial admin path does not activate NFC-e/SEFAZ, configure bank or payment credentials, or certify a store for a pilot.
 
 ## Backup
 

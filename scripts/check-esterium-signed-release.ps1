@@ -25,6 +25,20 @@ if ($hash -cne $ExpectedManifestSHA256.ToUpperInvariant()) {
     throw 'Bundle manifest differs from the independently approved SHA-256.'
 }
 $signer = $ExpectedPublisherThumbprint.ToUpperInvariant()
+# Signed releases include the runtime required by the bundled Garnet service.
+$requiredDotnetFiles = @(
+    'tools/dotnet/dotnet.exe',
+    'tools/dotnet/LICENSE.txt',
+    'tools/dotnet/ThirdPartyNotices.txt',
+    'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+    'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+)
+foreach ($relative in $requiredDotnetFiles) {
+    $runtimeFile = Join-Path $bundle ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+    if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) {
+        throw 'Release refused: the pinned .NET runtime is incomplete.'
+    }
+}
 # The complete executable and every script that can execute privileged
 # operations must be Authenticode-valid under the same approved publisher.
 $targets = @(
@@ -32,6 +46,9 @@ $targets = @(
     (Join-Path $bundle 'tools\esterium-migrate.exe'),
     (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe')
 )
+if (Test-Path -LiteralPath (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe') -PathType Leaf) {
+    $targets += (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe')
+}
 $targets += @(Get-ChildItem -LiteralPath (Join-Path $bundle 'tools') -Filter '*.ps1' -File |
     ForEach-Object { $_.FullName })
 foreach ($file in $targets) {

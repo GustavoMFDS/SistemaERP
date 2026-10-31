@@ -41,9 +41,23 @@ try {
     [IO.Directory]::CreateDirectory($web) | Out-Null
     [IO.Directory]::CreateDirectory($secrets) | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'esterium-server.exe'), 'synthetic-not-executable')
+    $runtimeFiles = @(
+        'tools/dotnet/dotnet.exe',
+        'tools/dotnet/LICENSE.txt',
+        'tools/dotnet/ThirdPartyNotices.txt',
+        'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+        'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+    )
+    foreach ($relative in $runtimeFiles) {
+        $runtimeFile = Join-Path $bundle ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $runtimeFile)) | Out-Null
+        [IO.File]::WriteAllText($runtimeFile, 'Synthetic runtime placeholder; never executed.')
+    }
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'tools')) | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-pg-tls-certgen.exe'), 'synthetic-CLI-never-executed')
+    [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-bootstrap-admin.exe'), 'synthetic-CLI-never-executed')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $bundle 'tools\\seed.prod.sql')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), 'synthetic-html')
     $migrationDir = Join-Path $bundle 'migrations'
     [IO.Directory]::CreateDirectory($migrationDir) | Out-Null
@@ -90,9 +104,13 @@ try {
         'bootstrap-esterium-local-schema.ps1',
         'stage-esterium-approved-windows-release.ps1',
         'probe-esterium-local-first-run.ps1',
+        'activate-esterium-local-first-install.ps1',
+    'repair-esterium-local-install.ps1',
+    'uninstall-esterium-local-app.ps1',
         'finish-esterium-local-first-install.ps1',
         'install-esterium-local-complete.ps1',
-        'apply-esterium-initial-schema.ps1'
+        'apply-esterium-initial-schema.ps1',
+        'bootstrap-esterium-first-admin.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $bundleTools $tool)
     }
@@ -298,6 +316,8 @@ try {
     catch { $listenerUserinfoRejected = $_.Exception.Message -match 'ListenAddress' }
     if (-not $listenerUserinfoRejected) { throw 'Listener userinfo was not rejected.' }
     $args.ListenAddress = '0.0.0.0:8443'
+    $args.AllowedOrigin = 'https://esterium.loja.example:8443'
+    $args.TrustedRemoteAddress = '192.168.10.0/24'
     $lanRejected = $false
     try { & $installer @args | Out-Null }
     catch { $lanRejected = $_.Exception.Message -match 'LAN listeners require' }
@@ -315,6 +335,7 @@ try {
         throw 'LAN HTTPS plan failed or created installation files.'
     }
     $args.ListenAddress = '127.0.0.1:8080'
+    $args.TrustedRemoteAddress = ''
     $args.Remove('TLSCertFile')
     $args.Remove('TLSKeyFile')
     New-Item -ItemType Directory -Path $install -ErrorAction Stop | Out-Null

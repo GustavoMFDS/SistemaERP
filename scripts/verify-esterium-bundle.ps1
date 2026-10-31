@@ -58,15 +58,24 @@ $requiredTools = @(
     'tools/bootstrap-esterium-local-schema.ps1',
     'tools/stage-esterium-approved-windows-release.ps1',
     'tools/probe-esterium-local-first-run.ps1',
+    'tools/activate-esterium-local-first-install.ps1',
+    'tools/repair-esterium-local-install.ps1',
+    'tools/uninstall-esterium-local-app.ps1',
     'tools/finish-esterium-local-first-install.ps1',
     'tools/install-esterium-local-complete.ps1',
     'tools/apply-esterium-initial-schema.ps1',
+    'tools/bootstrap-esterium-first-admin.ps1',
+    'tools/seed.prod.sql',
+    'tools/esterium-bootstrap-admin.exe',
     'tools/esterium-migrate.exe',
     'tools/esterium-pg-tls-certgen.exe',
     'README_LOCAL.md'
 )
 # Validate it when present, but do not require it in older bundles.
-$optionalTools = @('tools/restore-esterium-app-version.ps1', 'tools/check-esterium-restore-archive.ps1')
+$optionalTools = @(
+    'tools/restore-esterium-app-version.ps1',
+    'tools/check-esterium-restore-archive.ps1'
+)
 $seen = @{}
 foreach ($record in @($document.files)) {
     $relative = [string]$record.path
@@ -75,11 +84,16 @@ foreach ($record in @($document.files)) {
         $relative -notmatch '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$') {
         throw 'Unexpected migration path in manifest.'
     }
+    $insideDotnetRuntime = $relative.StartsWith('tools/dotnet/',[StringComparison]::Ordinal)
+    if ($insideDotnetRuntime -and $relative -notmatch '^tools/dotnet/(dotnet\.exe|LICENSE\.txt|ThirdPartyNotices\.txt|host/fxr/10\.0\.14/(\.version|[^/]+\.(dll|json|exe|pdb))|shared/Microsoft\.NETCore\.App/10\.0\.14/(\.version|[^/]+\.(dll|json|exe|xml|pdb|dat)))$') {
+        throw "Unexpected embedded .NET runtime path: $relative"
+    }
     if ($relative -ne 'esterium-server.exe' -and
         -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
         -not $relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
         -not ($requiredTools -contains $relative) -and
-        -not ($optionalTools -contains $relative)) {
+        -not ($optionalTools -contains $relative) -and
+        -not $insideDotnetRuntime) {
         throw 'Unexpected manifest path.'
     }
     if ($relative.Contains('\') -or $relative.Contains(':') -or
@@ -120,6 +134,21 @@ if (-not $seen.ContainsKey('esterium-server.exe') -or -not $seen.ContainsKey('we
 foreach ($needed in $requiredTools) {
     if (-not $seen.ContainsKey($needed)) {
         throw "Required installer helper missing: $needed"
+    }
+}
+$dotnetRequiredFiles = @(
+    'tools/dotnet/dotnet.exe',
+    'tools/dotnet/LICENSE.txt',
+    'tools/dotnet/ThirdPartyNotices.txt',
+    'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+    'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+)
+$dotnetRoot = Join-Path $root 'tools\dotnet'
+if (Test-Path -LiteralPath $dotnetRoot -PathType Container) {
+    foreach ($needed in $dotnetRequiredFiles) {
+        if (-not $seen.ContainsKey($needed)) {
+            throw "Embedded .NET runtime file is missing: $needed"
+        }
     }
 }
 $migrations = @($seen.Keys | Where-Object { $_ -match '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$' })

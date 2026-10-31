@@ -14,6 +14,11 @@ param(
     [string]$PostgresOptionsDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
     [string]$GarnetConfigDir=(Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
     [string]$ReadinessReceiptDir=(Join-Path $env:ProgramData 'Esterium\FirstRunReadiness'),
+    [string]$AllowedOrigin='https://localhost:8080',
+    [string]$ListenAddress='127.0.0.1:8080',
+    [string]$TLSCertFile='',
+    [string]$TLSKeyFile='',
+    [string]$TrustedRemoteAddress='',
     [string]$PostgresServiceName='EsteriumPostgreSQL16',
     [string]$PostgresServiceAccount='esterium_pgsvc',
     [string]$GarnetServiceName='EsteriumGarnet',
@@ -26,8 +31,28 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'First-run readiness requires Windows.' }
-if ($PostgresPort -in @($GarnetPort,8080) -or $GarnetPort -eq 8080) {
+if ($PostgresPort -eq $GarnetPort) {
     throw 'Database and cache ports must be distinct from ERP.'
+}
+$origin=$null
+if (-not [Uri]::TryCreate($AllowedOrigin,[UriKind]::Absolute,[ref]$origin) -or
+    $origin.Scheme -cne 'https' -or $origin.AbsolutePath -ne '/' -or
+    $origin.UserInfo -ne '' -or $origin.Query -ne '' -or $origin.Fragment -ne '') {
+    throw 'First-run probe requires the configured root HTTPS origin.'
+}
+$listenerParts=$ListenAddress -split ':',2
+if ($listenerParts.Count -ne 2 -or $listenerParts[1] -notmatch '^\d{1,5}$' -or
+    $listenerParts[0] -notin @('0.0.0.0','127.0.0.1') -or
+    [int]$listenerParts[1] -in @($PostgresPort,$GarnetPort)) {
+    throw 'First-run probe requires loopback or firewall-scoped HTTPS on a distinct port.'
+}
+$originPort=if ($origin.IsDefaultPort) { 443 } else { $origin.Port }
+if ($originPort -ne [int]$listenerParts[1]) { throw 'AllowedOrigin port must match the ERP HTTPS listener.' }
+if ($listenerParts[0] -eq '0.0.0.0' -and [string]::IsNullOrWhiteSpace($TrustedRemoteAddress)) {
+    throw 'LAN HTTPS probe requires an explicit private CIDR for the firewall.'
+}
+if ([string]::IsNullOrWhiteSpace($TLSCertFile) -or [string]::IsNullOrWhiteSpace($TLSKeyFile)) {
+    throw 'First-run probe requires staged HTTPS certificate and private key files.'
 }
 foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
     if ($name -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{2,63}$' -or $name -eq 'EsteriumERP') {
@@ -67,7 +92,16 @@ function Assert-Local([string]$path,[bool]$directory) {
     $full=[IO.Path]::GetFullPath($path)
     $cursor=$full
     while ($cursor) {
-        $item=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        try {
+            $item=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        } catch [Management.Automation.ItemNotFoundException] {
+            $missingCursor=$cursor.TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar))
+            $missing=[IO.Path]::GetFileName($missingCursor)
+            if ($missing -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') {
+                $missing='ancestor'
+            }
+            throw ('First-run probe required local item is missing: {0}.' -f $missing)
+        }
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw 'First-run probe forbids junctions or symbolic links.'
         }
@@ -190,15 +224,22 @@ foreach ($entry in @((Get-ItemProperty -LiteralPath $registry -Name Environment 
 foreach ($key in @('APP_ENV','FISCAL_PROVIDER','NFCE_SEFAZ_PRODUCTION_ENABLED',
     'NFCE_SEFAZ_HOMOLOGATION_ENABLED','DATABASE_URL_FILE','REDIS_URL_FILE',
     'REDIS_CA_CERT_FILE','JWT_SECRET_FILE','METRICS_BEARER_TOKEN_FILE',
-    'ESTERIUM_MIGRATIONS_DIR','ESTERIUM_WEB_DIR','HTTP_ADDR','APP_PUBLIC_URL')) {
+    'ESTERIUM_MIGRATIONS_DIR','ESTERIUM_WEB_DIR','HTTP_ADDR','APP_PUBLIC_URL',
+    'CORS_ALLOWED_ORIGINS','ESTERIUM_TLS_CERT_FILE','ESTERIUM_TLS_KEY_FILE')) {
     if ([string]::IsNullOrWhiteSpace($serviceEnv[$key])) { throw 'ERP runtime setting missing.' }
 }
 if ($serviceEnv['APP_ENV'] -cne 'prod' -or
     $serviceEnv['FISCAL_PROVIDER'] -cne 'disabled' -or
     $serviceEnv['NFCE_SEFAZ_PRODUCTION_ENABLED'] -cne 'false' -or
     $serviceEnv['NFCE_SEFAZ_HOMOLOGATION_ENABLED'] -cne 'false' -or
-    $serviceEnv['HTTP_ADDR'] -cne '127.0.0.1:8080') {
-    throw 'ERP must remain loopback-only with fiscal transmission disabled.'
+    $serviceEnv['HTTP_ADDR'] -cne $ListenAddress -or
+    $serviceEnv['APP_PUBLIC_URL'] -cne $origin.GetLeftPart([UriPartial]::Authority) -or
+    $serviceEnv['CORS_ALLOWED_ORIGINS'] -cne $origin.GetLeftPart([UriPartial]::Authority) -or
+    -not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_TLS_CERT_FILE']),
+        [IO.Path]::GetFullPath($TLSCertFile),[StringComparison]::OrdinalIgnoreCase) -or
+    -not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_TLS_KEY_FILE']),
+        [IO.Path]::GetFullPath($TLSKeyFile),[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'ERP HTTPS/origin configuration differs from the approved install inputs or fiscal traffic is enabled.'
 }
 if (-not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_WEB_DIR']),
     (Join-Path $bundle 'web'),[StringComparison]::OrdinalIgnoreCase) -or
@@ -207,7 +248,7 @@ if (-not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_WEB_DIR']
     throw 'ERP must use frontend and migrations from installed approved release.'
 }
 foreach ($key in @('DATABASE_URL_FILE','REDIS_URL_FILE','REDIS_CA_CERT_FILE',
-    'JWT_SECRET_FILE','METRICS_BEARER_TOKEN_FILE')) {
+    'JWT_SECRET_FILE','METRICS_BEARER_TOKEN_FILE','ESTERIUM_TLS_CERT_FILE','ESTERIUM_TLS_KEY_FILE')) {
     $file=Assert-Local $serviceEnv[$key] $false
     $hasLocalService=$false
     foreach ($ace in (Get-Acl -LiteralPath $file).Access) {
@@ -224,7 +265,7 @@ foreach ($key in @('DATABASE_URL_FILE','REDIS_URL_FILE','REDIS_CA_CERT_FILE',
     if (-not $hasLocalService) { throw 'ERP service must read its own protected file.' }
 }
 if (-not $Apply) {
-    Write-Output 'PLAN: installed TLS/SQL, Garnet AOF, SCM identities and protected ERP secret paths were checked.'
+    Write-Output 'PLAN: installed HTTPS/SQL, Garnet AOF, SCM identities and protected ERP secret paths were checked.'
     Write-Output 'PLAN: signed Apply will temporarily start PostgreSQL/Garnet and run --check-dependencies without serving HTTP.'
     Write-Output 'PLAN: PostgreSQL and Garnet will be stopped/disabled after the probe, including on failure.'
     Write-Output 'NOT ENABLED: no automatic startup, customer data or fiscal authorization.'

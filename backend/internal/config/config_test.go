@@ -95,6 +95,21 @@ func TestValidateAllowsDevelopmentLocalhostCORS(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsHTTPSLocalhostCORSOnlyOnLoopbackBind(t *testing.T) {
+	cfg := validProdConfig()
+	cfg.HTTPAddr = "127.0.0.1:8443"
+	cfg.CORSAllowedOrigins = []string{"https://localhost:8443"}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected HTTPS localhost CORS on loopback-only listener: %v", err)
+	}
+
+	cfg.HTTPAddr = "0.0.0.0:8443"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "localhost origins") {
+		t.Fatalf("expected HTTPS localhost CORS rejection on LAN listener, got %v", err)
+	}
+}
+
 func TestValidateRejectsDisabledRedisInProd(t *testing.T) {
 	cfg := validProdConfig()
 	cfg.DisableRedis = true

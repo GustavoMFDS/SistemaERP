@@ -26,9 +26,9 @@ func (h *CashHandler) CurrentSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
-	session, err := h.svc.CurrentSession(r.Context(), au.TenantID)
+	session, expectedCash, err := h.svc.CurrentSessionWithExpectedCash(r.Context(), au.TenantID)
 	if err != nil {
-		if errors.Is(err, common.ErrNotFound) {
+		if errors.Is(err, common.ErrNotFound) || errors.Is(err, common.ErrCashSessionClosed) {
 			writeError(w, r, http.StatusNotFound, "not_found", "nenhuma sessao de caixa aberta", nil)
 			return
 		}
@@ -41,6 +41,7 @@ func (h *CashHandler) CurrentSession(w http.ResponseWriter, r *http.Request) {
 		"opened_by_user_id": session.OpenedByUserID,
 		"status":            session.Status,
 		"opening_amount":    session.OpeningAmount,
+		"expected_cash":     expectedCash,
 	})
 }
 

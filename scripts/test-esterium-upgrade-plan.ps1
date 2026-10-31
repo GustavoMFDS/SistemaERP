@@ -75,14 +75,20 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         'bootstrap-esterium-local-schema.ps1',
         'stage-esterium-approved-windows-release.ps1',
         'probe-esterium-local-first-run.ps1',
+        'activate-esterium-local-first-install.ps1',
+        'repair-esterium-local-install.ps1',
+        'uninstall-esterium-local-app.ps1',
         'finish-esterium-local-first-install.ps1',
         'install-esterium-local-complete.ps1',
-        'apply-esterium-initial-schema.ps1'
+        'apply-esterium-initial-schema.ps1',
+        'bootstrap-esterium-first-admin.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $path 'tools') -ErrorAction Stop
     }
     [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-migrate.exe'), 'synthetic migrate stub never executed')
     [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-pg-tls-certgen.exe'), 'synthetic migrate stub never executed')
+    [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-bootstrap-admin.exe'), 'synthetic admin bootstrap stub never executed')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $path 'tools\seed.prod.sql')
     for ($i = 1; $i -le $migrationCount; $i++) {
         $prefix = '{0:d4}_ci_fixture' -f $i
         foreach ($direction in @('up', 'down')) {
