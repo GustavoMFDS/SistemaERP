@@ -34,7 +34,9 @@ $runtimeLaunchTokens=@(
     'AppEnvironmentExtra',
     'DOTNET_ROOT_X64=',
     'DOTNET_ROOT=',
-    'DOTNET_MULTILEVEL_LOOKUP=0'
+    'DOTNET_MULTILEVEL_LOOKUP=0',
+    '$garnetServiceRegistryPath="HKLM:\SYSTEM\CurrentControlSet\Services\$GarnetServiceName"',
+    '-Name ''Environment'' -PropertyType MultiString'
 )
 foreach($token in $runtimeLaunchTokens){
     if(-not $implementation.Contains($token)){
@@ -53,7 +55,9 @@ $runtimeLaunchTokens=@(
     'DOTNET_ROOT_X64=',
     'AppEnvironmentExtra',
     'DOTNET_ROOT=',
-    'DOTNET_MULTILEVEL_LOOKUP=0'
+    'DOTNET_MULTILEVEL_LOOKUP=0',
+    '$garnetServiceRegistryPath="HKLM:\SYSTEM\CurrentControlSet\Services\$GarnetServiceName"',
+    '-Name ''Environment'' -PropertyType MultiString'
 )
 foreach($token in $runtimeLaunchTokens){
     if(-not $implementation.Contains($token)){
