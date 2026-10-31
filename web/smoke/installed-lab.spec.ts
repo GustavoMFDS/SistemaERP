@@ -2,6 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
+const rateLimitWindowWaitedProjects = new Set<string>()
+
 const screens = [
   ['/login', 'Bem-vindo de volta'],
   ['/accept-invite', 'Ativar acesso à loja'],
@@ -76,6 +78,13 @@ async function loginApi(page: Page, email: string, password: string): Promise<st
 }
 
 async function loginUi(page: Page): Promise<void> {
+  const projectName = test.info().project.name
+  if (projectName !== 'chromium' && !rateLimitWindowWaitedProjects.has(projectName)) {
+    // The installed service keeps its production login limits; let the one-minute window expire before another browser project reuses the seeded admin.
+    rateLimitWindowWaitedProjects.add(projectName)
+    test.info().setTimeout(180_000)
+    await page.waitForTimeout(65_000)
+  }
   const email = process.env.ESTERIUM_LAB_ADMIN_EMAIL ?? ''
   const password = process.env.ESTERIUM_LAB_ADMIN_PASSWORD ?? ''
   expect(process.env.ESTERIUM_INSTALLED_LAB).toBe('1')
@@ -249,7 +258,7 @@ test('installed mobile and desktop navigation, attention alerts, and sale confir
   }
 })
 
-test('installed ERP completes real synthetic retail operations and a two-terminal stock race', async ({ page, browser, browserName }) => {
+test('installed ERP completes synthetic retail operations with fiscal generation disabled and a two-terminal stock race', async ({ page, browser, browserName }) => {
   test.skip(test.info().project.name !== 'chromium', 'business write smoke runs once on Chromium')
   expect(browserName).toBe('chromium')
   const email = process.env.ESTERIUM_LAB_ADMIN_EMAIL ?? ''
@@ -394,26 +403,10 @@ test('installed ERP completes real synthetic retail operations and a two-termina
     expect(saleReplay.id).toBe(sale.id)
     expect(saleReplay.replayed).toBe(true)
 
-    const invoice = expectBody<{ invoice_id: string; xml_file_id: string }>(
-      await browserApi(page, '/api/v1/fiscal/nfe/xml', adminToken, {
-        method: 'POST', body: { sale_id: sale.id },
-      }), 'local synthetic invoice XML generation',
-    )
-    expect(invoice.invoice_id).not.toBe('')
-    const xmlList = expectBody<{ items: Array<{ id: string; invoice_id: string }> }>(
-      await browserApi(page, '/api/v1/fiscal/nfe/xml?limit=200&offset=0', adminToken), 'local XML list',
-    )
-    expect(xmlList.items.some((item) => item.id === invoice.xml_file_id && item.invoice_id === invoice.invoice_id)).toBe(true)
-    const xmlDownload = await browserApi(page, `/api/v1/fiscal/nfe/xml/${invoice.xml_file_id}/download`, adminToken)
-    expect(xmlDownload.status, `preview XML download: ${xmlDownload.text}`).toBe(200)
-    expect(String(xmlDownload.body)).toContain('<NFe')
-    expect(String(xmlDownload.body)).toContain('PREVIEW NFC-e 65 NAO FISCAL / NAO TRANSMITIR')
-    const parsedXML = await page.evaluate((xml) => {
-      const document = new DOMParser().parseFromString(xml, 'application/xml')
-      return { root: document.documentElement.localName, parserError: document.querySelector('parsererror')?.textContent ?? '' }
-    }, String(xmlDownload.body))
-    expect(parsedXML.root).toBe('NFe')
-    expect(parsedXML.parserError).toBe('')
+    const fiscalGeneration = await browserApi(page, '/api/v1/fiscal/nfe/xml', adminToken, {
+      method: 'POST', body: { sale_id: sale.id },
+    })
+    expect(fiscalGeneration.status, 'Fiscal generation must stay disabled in the installed CI service').toBe(405)
 
     const saleDetail = expectBody<{
       items: Array<{ id: string }>
