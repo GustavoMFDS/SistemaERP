@@ -77,3 +77,25 @@ O fechamento de código e validação automatizada desta rodada foi concluído: 
 - Passaram parada/início do ERP, recuperação de falha forçada, reinício de Garnet, reparo com bytes de segredo/TLS preservados e desinstalação que removeu apenas aplicativo/serviço/firewall/atalho, arquivando recibos e preservando serviços de dependência, segredos e dados SQL.
 - A suíte de Garnet validou TLS, ACL, Lua atômico, AOF após falha e NSSM. A transmissão SEFAZ permaneceu desligada; foram usados ambiente e dados sintéticos.
 - Na execução Windows, os jobs manuais independentes foram ignorados por serem disparados só manualmente; o job de integração e o job da prévia foram aprovados. Não se fez instalação em máquina de cliente. Authenticode, revisão jurídica, aceite manual, rede física/backup externo e homologação fiscal continuam pendentes.
+
+
+## Atualização 31/10/2026 — revalidação técnica dos PRs
+
+### PR #212 — head `971f0a7be40cb609bfa6dae69db1e58bb631b812`
+
+- CI geral aprovou **19/19 jobs** ([run 41225927554](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41225927554)); `go test ./...`, `go vet ./...`, build, lint, integração e audit passaram.
+- Playwright passou **162/162 duas vezes no mesmo SHA**; a segunda execução do job E2E foi concluída com sucesso no run acima. A fixture exige `E2E_DISPOSABLE_DATABASE=1`, restringe a API a loopback, consulta `expected_cash` sob lock e fecha no valor reconciliado. O teste sintético confirmou abertura de R$ 25 + venda em dinheiro de R$ 10 = saldo esperado R$ 35, com diferença zero no teardown.
+- Windows integrado aprovou no runner descartável ([run 41225927628](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41225927628)): PostgreSQL ZIP do próprio EXE, initdb não administrativo, TLS verify-full/SCRAM, schema v52, restore em cluster independente, primeiro admin sintético, ERP LocalService/HTTPS, Garnet TLS/ACL/AOF/NSSM, recuperação, reparo e desinstalação.
+- Telas 18/19 passaram em Chromium, Firefox e Chromium mobile; as 17 telas abriram em Chromium/Firefox, sem overflow horizontal. Capturas estão no artefato `esterium-windows-lab-screens` do run Windows, válido até 07/11/2026.
+- A issue #160 segue aberta: isolamento seguro e duas execuções ficaram cobertos; o primeiro teste que deixa sessão aberta ainda não foi identificado e o aceite da issue não foi registrado.
+
+### PR #213 — código no head `ac112b36bdc205da024cfa611b0ee5776e498463`
+
+- CI aprovou **19/19 jobs** no [run 41223453520](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41223453520); E2E: 161/161. Esta referência valida o código antes desta atualização documental.
+- `npm audit --audit-level=moderate` reportou 0 vulnerabilidades. `govulncheck` reportou 0 vulnerabilidades alcançáveis; manteve 7 achados em dependências e 1 módulo não chamado. O lock fixa `minimatch 11.0.1` (corrige [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)); Tailwind permanece 3.x.
+
+### Issues e limites
+
+As issues #24, #28, #29, #32, #33, #35, #36, #43, #52, #160 e #194 seguem abertas; nenhuma foi fechada ou comentada. Testes sintéticos não substituem aceite manual de todas as telas, homologação SEFAZ, Pix/TEF, periféricos ou contabilidade.
+
+Ambos os PRs permanecem Draft e separados. Não houve merge, release, instalação em máquina de cliente ou reinício completo do Windows como sistema operacional em máquina real. Permanecem revisão jurídica de redistribuição, assinatura/proveniência Authenticode, validação física em dois PCs com LAN/backup/reboot e credenciais/homologação fiscal reais. A prévia não está pronta para produção.
