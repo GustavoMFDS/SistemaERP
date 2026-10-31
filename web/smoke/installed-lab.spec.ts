@@ -77,8 +77,26 @@ async function loginUi(page: Page): Promise<void> {
   await page.goto('/login')
   await page.getByLabel(/E-mail/).fill(email)
   await page.getByLabel('Senha', { exact: true }).fill(password)
+  const loginResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST' && response.url().endsWith('/api/v1/auth/login'),
+  )
   await page.getByRole('button', { name: 'Entrar', exact: true }).click()
-  await expect(page).toHaveURL(/\/home$/)
+  const loginResponse = await loginResponsePromise
+  let loginErrorCode = 'none'
+  if (loginResponse.status() !== 200) {
+    const body: unknown = await loginResponse.json().catch(() => null)
+    if (typeof body === 'object' && body !== null && 'code' in body) {
+      loginErrorCode = String(body.code)
+    }
+  }
+  expect(loginResponse.status(), `Installed UI login response: ${loginErrorCode}`).toBe(200)
+  try {
+    await expect(page).toHaveURL(/\/home$/)
+  } catch (error) {
+    const loginAlert = await page.getByRole('alert').textContent().catch(() => '')
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Installed UI login did not reach home (HTTP ${loginResponse.status()}, URL ${page.url()}, alert ${loginAlert || '(none)'}): ${message}`)
+  }
   await expect(page.getByRole('heading', { name: 'O ritmo da loja' })).toBeVisible()
 }
 
