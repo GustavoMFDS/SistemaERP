@@ -1,7 +1,7 @@
 # Fechamento da missão — Esterium ERP
 
-**Atualizado:** 30/10/2026  
-**Estado:** PR #213 permanece Draft, CI 19/19 verde; PR #212 permanece Draft, com bootstrap do primeiro administrador e novo CI Windows em validação. Sem merge ou liberação comercial.
+**Atualizado:** 31/10/2026  
+**Estado:** PR #212 permanece Draft; CI geral (19/19) e integração Windows completa passaram no head `53f869fd9ea5908ca23a61d9173f2085604a3f7c`. PR #213 permanece Draft. Sem merge ou liberação comercial.
 
 Este relatório registra o estado da cópia em `D:\ERP` e as verificações executadas nesta sessão. Ele não declara o ERP pronto para produção.
 
@@ -11,7 +11,7 @@ Este relatório registra o estado da cópia em `D:\ERP` e as verificações exec
 - A pasta `.git` está somente para leitura nesta sessão. Não contornei o bloqueio nem alterei permissões. Atualizações remotas autorizadas foram feitas pela API do GitHub nas branches das PRs; nenhum commit foi feito localmente.
 - Os resultados locais foram organizados fora do repositório. O laboratório usou apenas serviços temporários em loopback, certificado/CA descartáveis e banco de teste nomeado. Os serviços foram encerrados e o banco descartado.
 - Não alterei serviços do Windows, arquivo `hosts`, banco real ou instalação do usuário.
-- PR #212: head `f2aa3542ac4dc42e7182138da196d01066e84eb0`, Draft, aberta e sem merge. CI executa em runner GitHub Windows descartável; nenhuma instalação foi feita no computador de trabalho. Não assinei nem publiquei release.
+- PR #212: head `53f869fd9ea5908ca23a61d9173f2085604a3f7c`, aberta, Draft e sem merge. CI geral passou em 19/19 jobs ([run 41220100576](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41220100576)); a validação integrada Windows passou ([run 41220100486](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41220100486)), somente em runner descartável. Nenhuma instalação foi feita no computador de trabalho; não houve assinatura nem release.
 
 ## Trabalho concluído nesta cópia
 
@@ -58,7 +58,7 @@ Issue aberta não prova ausência de código. Conferi corpo e código atual; nã
 
 ## Critério de conclusão
 
-O fechamento local inclui código, relatório e evidências reproduzíveis. A missão global ainda exige CI final verde em #212, execução do fluxo completo de instalação e recuperação em Windows descartável, revisão das PRs, aceite manual das telas/fluxos e provas físicas/fiscais autorizadas. Até lá, não declarar “ERP pronto para produção”. PRs #212 e #213 seguem separadas, Draft e sem merge.
+O fechamento de código e validação automatizada desta rodada foi concluído: CI geral #212 19/19 e fluxo integrado Windows passaram em runner descartável. A execução cobriu instalação ZIP do EXE, TLS/SCRAM, migrações, backup/restauração, recuperação de serviços, telas em Chromium/Firefox, reparo e desinstalação com preservação de segredos e dados. Isso não equivale a homologação de produção. Permanecem necessários: assinatura Authenticode e proveniência do publicador, revisão jurídica das licenças/redistribuição, aceite manual das telas e dos fluxos, validação em dois computadores físicos com reinício/LAN/backup externo, e homologação fiscal com certificado e credenciais reais. Pix/TEF, periféricos e aceite contábil também dependem do ambiente e responsáveis do cliente. Não declarar “ERP pronto para produção”. PRs #212 e #213 continuam separadas, Draft e sem merge; o EXE completo não será distribuído.
 
 ## Atualização 30/10/2026 — auditoria de LF da PR #213
 
@@ -66,3 +66,14 @@ O fechamento local inclui código, relatório e evidências reproduzíveis. A mi
 - Os quatro arquivos de texto existentes alterados (`.github/workflows/ci.yml`, `web/package.json`, `web/package-lock.json` e `web/src/App.tsx`) têm LF na base e no head, sem CRLF. O validador novo também usa LF. Normalizei para LF o único terminador CRLF no fim deste relatório.
 - CI do head anterior `b9191ad7e2d993f9e1a0f34669635eed40ec9e5d`: 19/19 jobs aprovados ([run 41128410265](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41128410265)), incluindo frontend. Esta atualização documental inicia uma nova rodada de CI; aguardando conclusão antes de declarar o head atual verde.
 - Nesta cópia local, `npm run test:assets` passou. `npm ci` repetiu o erro interno do npm (“Exit handler never called!”); por isso lint/build locais não puderam iniciar sem `eslint`/`tsc`. A validação correspondente do head remoto anterior passou no CI.
+
+
+## Atualização 31/10/2026 — CI integrado e reparo seguro aprovados
+
+- A PR #212 recebeu o commit `53f869fd9ea5908ca23a61d9173f2085604a3f7c`. Os scripts de reparo e desinstalação passaram a aceitar a representação canônica do Windows para um único IPv4 `/32` (por exemplo, `127.0.0.1/32` armazenado como `127.0.0.1`). Endereços múltiplos ou outro escopo continuam recusados.
+- **CI geral aprovada, 19/19 jobs:** [run 41220100576](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41220100576).
+- **Validação do Setup EXE integrada aprovada:** [run 41220100486](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41220100486). O teste usou PostgreSQL ZIP extraído do EXE em runner efêmero; validou TLS verify-full/SCRAM, migração até a versão 52, restauração de backup em cluster independente e conta ERP sem privilégios administrativos.
+- O primeiro administrador sintético foi criado sem conta ou catálogo de demonstração. O serviço ERP LocalService serviu a aplicação React por HTTPS; login sintético e perfil passaram. As 17 telas abriram em Chromium e Firefox; a matriz móvel não teve overflow horizontal.
+- Passaram parada/início do ERP, recuperação de falha forçada, reinício de Garnet, reparo com bytes de segredo/TLS preservados e desinstalação que removeu apenas aplicativo/serviço/firewall/atalho, arquivando recibos e preservando serviços de dependência, segredos e dados SQL.
+- A suíte de Garnet validou TLS, ACL, Lua atômico, AOF após falha e NSSM. A transmissão SEFAZ permaneceu desligada; foram usados ambiente e dados sintéticos.
+- Na execução Windows, os jobs manuais independentes foram ignorados por serem disparados só manualmente; o job de integração e o job da prévia foram aprovados. Não se fez instalação em máquina de cliente. Authenticode, revisão jurídica, aceite manual, rede física/backup externo e homologação fiscal continuam pendentes.
