@@ -318,7 +318,7 @@ try{
     Set-Service -Name 'EsteriumERP' -StartupType Automatic -ErrorAction Stop
     if($isLan){
         New-NetFirewallRule -Name $firewallName -DisplayName 'Esterium ERP HTTPS' `
-            -Description 'Esterium first-install rule; private LAN CIDR only.' -Group 'Esterium ERP' `
+            -Description 'Esterium install; private LAN CIDR only.' -Group 'Esterium ERP' `
             -Direction Inbound -Action Allow -Enabled True -Profile Domain,Private `
             -Protocol TCP -LocalPort $port -RemoteAddress $canonicalRemote -Program $expectedBinary | Out-Null
         $ruleCreated=$true
