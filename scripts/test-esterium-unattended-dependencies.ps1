@@ -28,40 +28,20 @@ $runtimeLaunchTokens=@(
     'GarnetServer.runtimeconfig.json',
     'GarnetServer.deps.json',
     '$frameworkDependent=$false',
-    '$serviceApplication=$dotnetExe',
-    '$serviceApplication=$garnetExe',
-    '& $serviceExe install $GarnetServiceName $serviceApplication $appParameters',
-    'AppEnvironmentExtra',
-    'DOTNET_ROOT_X64=',
-    'DOTNET_ROOT=',
-    'DOTNET_MULTILEVEL_LOOKUP=0',
-    '$garnetServiceRegistryPath="HKLM:\SYSTEM\CurrentControlSet\Services\$GarnetServiceName"',
-    '-Name ''Environment'' -PropertyType MultiString'
+    '$launchExecutable=$dotnetExe',
+    '$launchExecutable=$garnetExe',
+    '$launcherScript=Join-Path $garnetDir ''esterium-garnet-launcher.ps1''',
+    '$serviceApplication=Join-Path $env:WINDIR',
+    'WindowsPowerShell',
+    '$env:DOTNET_ROOT_X64 = ',
+    '$env:DOTNET_ROOT = ',
+    '$env:DOTNET_MULTILEVEL_LOOKUP = ',
+    '[Text.UTF8Encoding]::new($true)',
+    '& $serviceExe install $GarnetServiceName $serviceApplication $appParameters'
 )
 foreach($token in $runtimeLaunchTokens){
     if(-not $implementation.Contains($token)){
-        throw 'Garnet installer must launch through the package-local pinned .NET runtime.'
-    }
-}
-$runtimeLaunchTokens=@(
-    '$dotnetRuntimeSource=Join-Path $PSScriptRoot ''dotnet''',
-    '$dotnetRuntimeDir=Join-Path $garnetDir ''dotnet''',
-    '$garnetServerDll=Join-Path $garnetDir $relativeAssembly',
-    'GarnetServer.runtimeconfig.json',
-    'GarnetServer.deps.json',
-    '$frameworkDependent=$false',
-    '$serviceApplication=$garnetExe',
-    '& $serviceExe install $GarnetServiceName $serviceApplication $appParameters',
-    'DOTNET_ROOT_X64=',
-    'AppEnvironmentExtra',
-    'DOTNET_ROOT=',
-    'DOTNET_MULTILEVEL_LOOKUP=0',
-    '$garnetServiceRegistryPath="HKLM:\SYSTEM\CurrentControlSet\Services\$GarnetServiceName"',
-    '-Name ''Environment'' -PropertyType MultiString'
-)
-foreach($token in $runtimeLaunchTokens){
-    if(-not $implementation.Contains($token)){
-        throw 'Garnet installer must select the private host or apphost and pin the package-local .NET runtime.'
+        throw 'Garnet installer must launch through a PowerShell wrapper that sets the pinned package-local .NET runtime.'
     }
 }
 $testId=[Guid]::NewGuid().ToString('N').Substring(0,10)
