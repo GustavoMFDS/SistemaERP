@@ -176,7 +176,7 @@ try {
         # short ASCII message with no credential terms or path syntax.
         $safeException=$failure.Exception
         for ($depth=0; $null -ne $safeException -and $depth -lt 6; $depth++) {
-            $safeMessage=([string]$safeException.Message).Replace([char]39,'')
+            $safeMessage=([string]$safeException.Message).Replace([string][char]39,'')
             if ($safeMessage -match '^[A-Za-z0-9 ,.;:()-]{1,180}$' -and
                 $safeMessage -notmatch '(?i)(password|secret|token|credential|bearer)' -and
                 $safeMessage -notmatch '[A-Z]:') {
