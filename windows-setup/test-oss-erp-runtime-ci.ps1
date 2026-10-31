@@ -72,6 +72,17 @@ function ConvertTo-Pem([string]$label,[byte[]]$bytes){
     })
     return "-----BEGIN $label-----`n$($chunks -join "`n")`n-----END $label-----`n"
 }
+
+function Test-FirewallRemoteScope([string[]]$Actual,[string]$Expected){
+    if($Actual.Count -ne 1){return $false}
+    $observed=[string]$Actual[0]
+    if([string]::Equals($observed,$Expected,[StringComparison]::OrdinalIgnoreCase)){return $true}
+    $slash=$Expected.LastIndexOf('/')
+    if($slash -gt 0 -and $Expected.Substring($slash+1) -ceq '32'){
+        return [string]::Equals($observed,$Expected.Substring(0,$slash),[StringComparison]::OrdinalIgnoreCase)
+    }
+    return $false
+}
 function Wait-ERPReady([int]$port,[int]$seconds){
     $uri="https://$labHost`:$port/health/ready"
     for($attempt=0;$attempt -lt $seconds;$attempt++){
@@ -367,8 +378,8 @@ try{
     $firewall=@(Get-NetFirewallRule -Name $activationRuleName -PolicyStore ActiveStore -ErrorAction Stop)
     if($firewall.Count -ne 1){throw 'Disposable activation did not create exactly one managed firewall rule.'}
     $remoteFilter=$firewall[0] | Get-NetFirewallAddressFilter
-    if(@($remoteFilter.RemoteAddress).Count -ne 1 -or
-       [string]$remoteFilter.RemoteAddress[0] -ne '127.0.0.1/32' -or -not(Test-Path -LiteralPath $shortcutPath -PathType Leaf)){
+    if(-not (Test-FirewallRemoteScope -Actual @($remoteFilter.RemoteAddress) -Expected '127.0.0.1/32') -or
+       -not(Test-Path -LiteralPath $shortcutPath -PathType Leaf)){
         throw 'LAN firewall scope or all-users Start Menu shortcut was not installed.'
     }
     Wait-ERPReady $httpPort 75
@@ -492,8 +503,8 @@ try{
     $repairedAddress=@($repairedRule[0] | Get-NetFirewallAddressFilter)
     if($repairedScm.StartMode -cne 'Auto' -or $repairedScm.State -cne 'Running' -or
        $repairedDependencies -notcontains 'EsteriumPostgreSQL16' -or $repairedDependencies -notcontains $depName -or
-       $repairedRule.Count -ne 1 -or @($repairedAddress[0].RemoteAddress).Count -ne 1 -or
-       [string]$repairedAddress[0].RemoteAddress[0] -ne '127.0.0.1/32' -or
+       $repairedRule.Count -ne 1 -or
+       -not(Test-FirewallRemoteScope -Actual @($repairedAddress[0].RemoteAddress) -Expected '127.0.0.1/32') -or
        -not(Test-Path -LiteralPath $shortcutPath -PathType Leaf)){
         throw 'Assisted repair did not restore the exact ERP service dependencies, loopback-only firewall rule and shortcut.'
     }
