@@ -24,11 +24,14 @@ if (-not $implementation.Contains('Set-Service -Name $PostgresServiceName -Start
 $runtimeLaunchTokens=@(
     '$dotnetRuntimeSource=Join-Path $PSScriptRoot ''dotnet''',
     '$dotnetRuntimeDir=Join-Path $garnetDir ''dotnet''',
-    '$appParameters=''--config-import-path "',
-    '& $serviceExe install $GarnetServiceName $garnetExe $appParameters',
+    '$garnetServerDll=Join-Path $garnetDir $relativeAssembly',
+    'GarnetServer.runtimeconfig.json',
+    'GarnetServer.deps.json',
+    '& $serviceExe install $GarnetServiceName $dotnetExe $appParameters',
     'AppEnvironmentExtra',
     'DOTNET_ROOT_X64=',
-    'DOTNET_ROOT='
+    'DOTNET_ROOT=',
+    'DOTNET_MULTILEVEL_LOOKUP=0'
 )
 foreach($token in $runtimeLaunchTokens){
     if(-not $implementation.Contains($token)){
@@ -55,6 +58,9 @@ try {
     [IO.File]::WriteAllText($pg,'fake EDB installer never executed')
     [IO.File]::WriteAllText($wrapper,'fake NSSM never executed')
     [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.exe'),'fake Garnet server never executed')
+    [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.dll'),'fake Garnet assembly never executed')
+    [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.runtimeconfig.json'),'{}')
+    [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.deps.json'),'{}')
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::CreateFromDirectory($unpacked,$garnet)
     $optionsText=@(
