@@ -362,12 +362,518 @@ try{
     $garnetScm=Get-CimInstance Win32_Service -Filter "Name='$($required.redisService)'" -ErrorAction Stop
     $expectedPgAccount=[string]$required.pgAccount
     $pgAccount=@(Get-LocalUser -Name $expectedPgAccount -ErrorAction SilentlyContinue)
+    $expectedPgSid=if($pgAccount.Count -eq 1){[string]$pgAccount[0].SID.Value}else{''}
     $pgAdminMembership=@(Get-LocalGroupMember -Group 'Administrators' -ErrorAction Stop |
         Where-Object {$pgAccount.Count -eq 1 -and $_.SID.Value -ceq [string]$pgAccount[0].SID.Value})
-    $expectedPgNames=@($expectedPgAccount,'.\'+$expectedPgAccount,($env:COMPUTERNAME+'\'+$expectedPgAccount))
-    if($expectedPgAccount -cnotmatch '^epg[0-9a-f]{12}$' -or $pgAccount.Count -ne 1 -or
-       $pgAdminMembership.Count -ne 0 -or $pgScm.StartName -notin $expectedPgNames){
-        throw 'Integrated PostgreSQL service is not running under its unique non-admin Windows identity.'
+    $serviceStartName=([string]$pgScm.StartName).Trim()
+    $startNameCandidates=@($serviceStartName)
+    if($serviceStartName -match '^\.(?:\\|/)(?<localName>[^\\/]+)
+    $dependencies=@((Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName" -Name DependOnService -ErrorAction Stop).DependOnService)
+    if($scm.StartMode -cne 'Auto' -or $scm.State -cne 'Running' -or
+       $pgScm.StartMode -cne 'Auto' -or $garnetScm.StartMode -cne 'Auto' -or
+       $dependencies -notcontains 'EsteriumPostgreSQL16' -or $dependencies -notcontains ([string]$required.redisService)){
+        throw 'Activation did not configure automatic startup and service dependency ordering.'
+    }
+    $firewall=@(Get-NetFirewallRule -Name $activationRuleName -PolicyStore ActiveStore -ErrorAction Stop)
+    if($firewall.Count -ne 1){throw 'Disposable activation did not create exactly one managed firewall rule.'}
+    $remoteFilter=$firewall[0] | Get-NetFirewallAddressFilter
+    if(-not (Test-FirewallRemoteScope -Actual @($remoteFilter.RemoteAddress) -Expected '127.0.0.1/32') -or
+       -not(Test-Path -LiteralPath $shortcutPath -PathType Leaf)){
+        throw 'LAN firewall scope or all-users Start Menu shortcut was not installed.'
+    }
+    Wait-ERPReady $httpPort 75
+    $homeResponse=Invoke-WebRequest -Uri "$origin/" -Method Get -TimeoutSec 15
+    if($homeResponse.StatusCode -ne 200 -or $homeResponse.Content -notmatch '(?i)<div\s+id=["'']root["'']'){throw 'Installed HTTPS origin did not serve the compiled React application shell.'}
+    $asset=[regex]::Match($homeResponse.Content,'(?i)src=["'']([^"'']+\.js(?:\?[^"'']*)?)["'']')
+    if(-not $asset.Success){throw 'Compiled React JavaScript asset is missing from local index.html.'}
+    $assetPath=$asset.Groups[1].Value
+    if($assetPath.StartsWith('/')){$assetUri=$origin+$assetPath}else{$assetUri=$origin+'/'+$assetPath}
+    $js=Invoke-WebRequest -Uri $assetUri -Method Get -TimeoutSec 20
+    if($js.StatusCode -ne 200 -or $js.RawContentLength -lt 10000){throw 'Installed frontend JavaScript asset failed HTTPS delivery.'}
+    Assert-Login $httpPort
+    Write-Output 'PASS: LocalService ERP served the compiled React shell/assets over HTTPS; synthetic admin login and auth profile passed.'
+
+    # First-install activation and its initial HTTPS readiness run with the
+    # production-safe fiscal-disabled configuration. Only after that proof,
+    # this disposable synthetic tenant switches to dev + local MVP XML so the
+    # real fiscal API can be exercised without any SEFAZ transmission.
+    $serviceEnvironment=@($serviceEnvironment | Where-Object {$_ -cnotmatch '^(?:APP_ENV|FISCAL_PROVIDER)='})+
+        @('APP_ENV=dev','FISCAL_PROVIDER=mvp')
+    Set-ItemProperty -LiteralPath $serviceRegistry -Name Environment -Value $serviceEnvironment -ErrorAction Stop
+    $registeredEnvironment=@((Get-ItemProperty -LiteralPath $serviceRegistry -Name Environment -ErrorAction Stop).Environment)
+    if(@($registeredEnvironment | Where-Object {$_ -ceq 'APP_ENV=dev'}).Count -ne 1 -or
+       @($registeredEnvironment | Where-Object {$_ -ceq 'FISCAL_PROVIDER=mvp'}).Count -ne 1 -or
+       @($registeredEnvironment | Where-Object {$_ -match '^NFCE_SEFAZ_(?:PRODUCTION|HOMOLOGATION)_ENABLED=true$'}).Count -ne 0){
+        throw 'Disposable local XML provider override or SEFAZ-disabled assertions failed.'
+    }
+    Restart-Service -Name $serviceName -Force -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(30))
+    Wait-ERPReady $httpPort 60
+    Assert-Login $httpPort
+    Write-Output 'PASS: disposable CI switched the installed service to dev + local XML provider; SEFAZ transmission stayed disabled.'
+
+    if($script:adminEmail -cne 'ci-admin@esterium.invalid' -or $script:adminPassword -notmatch '^CIonly-[0-9a-f]{32}$'){
+        throw 'Installed browser smoke requires the random synthetic first-admin identity.'
+    }
+    $webRoot=Join-Path (Split-Path -Parent $PSScriptRoot) 'web'
+    $evidence=Join-Path $env:RUNNER_TEMP 'esterium-installed-lab-evidence'
+    if(-not(Test-Path -LiteralPath (Join-Path $webRoot 'package.json') -PathType Leaf) -or
+       -not(Test-Path -LiteralPath (Join-Path $webRoot 'node_modules\@playwright\test') -PathType Container)){
+        throw 'Playwright package must be installed by the verified frontend build before the real ERP smoke.'
+    }
+    [IO.Directory]::CreateDirectory($evidence) | Out-Null
+    $browserEnv=@{}
+    foreach($key in @('ESTERIUM_INSTALLED_LAB','ESTERIUM_LAB_ADMIN_EMAIL','ESTERIUM_LAB_ADMIN_PASSWORD','ESTERIUM_LAB_EVIDENCE_DIR','E2E_BASE_URL','E2E_IGNORE_HTTPS_ERRORS')){
+        $browserEnv[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+    }
+    try{
+        $env:ESTERIUM_INSTALLED_LAB='1'
+        $env:ESTERIUM_LAB_ADMIN_EMAIL=$script:adminEmail
+        $env:ESTERIUM_LAB_ADMIN_PASSWORD=$script:adminPassword
+        $env:ESTERIUM_LAB_EVIDENCE_DIR=$evidence
+        $env:E2E_BASE_URL=$origin
+        $env:E2E_IGNORE_HTTPS_ERRORS='0'
+        Push-Location $webRoot
+        try{
+            & npx.cmd playwright install chromium firefox
+            if($LASTEXITCODE -ne 0){throw 'Playwright Chromium/Firefox installation failed in the disposable Windows lab.'}
+            & npx.cmd playwright test --config playwright.installed-lab.config.ts `
+                --project=chromium --project=firefox --project=chromium-mobile --reporter=line
+            if($LASTEXITCODE -ne 0){throw 'Installed ERP route, mobile or real synthetic business Playwright smoke failed.'}
+        }finally{Pop-Location}
+    }finally{
+        foreach($entry in $browserEnv.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+    }
+    Write-Output 'PASS: Installed HTTPS ERP login and all 17 screens were opened in Chromium and Firefox with system trust enabled.'
+    Write-Output 'PASS: Chromium mobile route matrix had no horizontal overflow; real synthetic catalog, procurement, cash, sale, return, finance, fiscal XML and two-terminal race passed.'
+
+    Stop-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
+    Start-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(30))
+    Wait-ERPReady $httpPort 60
+    Assert-Login $httpPort
+    Write-Output 'PASS: ERP service stop/start returned to HTTPS-ready state and login remained usable.'
+
+    $svc=Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
+    if([int]$svc.ProcessId -le 0){throw 'SCM did not expose a live ERP service process for failure recovery test.'}
+    Stop-Process -Id ([int]$svc.ProcessId) -Force -ErrorAction Stop
+    Wait-ERPReady $httpPort 75
+    Assert-Login $httpPort
+    Write-Output 'PASS: forced ERP process failure recovered through Windows SCM restart policy; HTTPS and login returned.'
+
+    $depName=[string]$required.redisService
+    if(-not(Get-Service -Name $depName -ErrorAction SilentlyContinue)){throw 'Expected disposable Garnet Windows service disappeared before recovery test.'}
+    Stop-Service -Name $depName -ErrorAction Stop
+    (Get-Service -Name $depName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+    Start-Service -Name $depName -ErrorAction Stop
+    (Get-Service -Name $depName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
+    Wait-ERPReady $httpPort 75
+    Assert-Login $httpPort
+    Write-Output 'PASS: ERP reconnected after real Garnet service restart; readiness and login recovered.'
+
+    Stop-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
+    Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
+    if((Get-Item -LiteralPath $serviceRegistry -ErrorAction Stop).GetValueNames() -contains 'DependOnService'){
+        Remove-ItemProperty -LiteralPath $serviceRegistry -Name DependOnService -ErrorAction Stop
+    }
+    Remove-NetFirewallRule -Name $activationRuleName -ErrorAction Stop
+    $activationRuleCreated=$false
+    Remove-Item -LiteralPath $shortcutPath -Force -ErrorAction Stop
+    $activationShortcutCreated=$false
+    $protectedFiles=@(Get-ChildItem -LiteralPath $secrets -Recurse -File)+@(Get-ChildItem -LiteralPath $tls -Recurse -File)
+    $protectedHashes=@{}
+    foreach($file in $protectedFiles){$protectedHashes[$file.FullName]=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash}
+    $repair=Join-Path $source 'tools\repair-esterium-local-install.ps1'
+    if(-not(Test-Path -LiteralPath $repair -PathType Leaf)){throw 'Assisted repair helper is missing from the verified bundle.'}
+    $oldRepairGate=$env:ESTERIUM_REPAIR_DISPOSABLE_CI
+    try{
+        $env:ESTERIUM_REPAIR_DISPOSABLE_CI='1'
+        & $repair -InstallDir $install -ActivationReceiptDir $activationReceiptDir `
+            -PostgresServiceName 'EsteriumPostgreSQL16' -GarnetServiceName $depName `
+            -ApprovedManifestSHA256 $manifestHash -UnsignedDisposableCIFixture `
+            -Apply -ConfirmRepair | Out-Null
+        if(-not $?){throw 'Assisted repair helper returned a failure code.'}
+    }finally{$env:ESTERIUM_REPAIR_DISPOSABLE_CI=$oldRepairGate}
+    $repairedScm=Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
+    $repairedDependencies=@((Get-ItemProperty -LiteralPath $serviceRegistry -Name DependOnService -ErrorAction Stop).DependOnService)
+    $repairedRule=@(Get-NetFirewallRule -Name $activationRuleName -PolicyStore ActiveStore -ErrorAction Stop)
+    $repairedAddress=@($repairedRule[0] | Get-NetFirewallAddressFilter)
+    if($repairedScm.StartMode -cne 'Auto' -or $repairedScm.State -cne 'Running' -or
+       $repairedDependencies -notcontains 'EsteriumPostgreSQL16' -or $repairedDependencies -notcontains $depName -or
+       $repairedRule.Count -ne 1 -or
+       -not(Test-FirewallRemoteScope -Actual @($repairedAddress[0].RemoteAddress) -Expected '127.0.0.1/32') -or
+       -not(Test-Path -LiteralPath $shortcutPath -PathType Leaf)){
+        throw 'Assisted repair did not restore the exact ERP service dependencies, loopback-only firewall rule and shortcut.'
+    }
+    Wait-ERPReady $httpPort 75
+    Assert-Login $httpPort
+    foreach($path in $protectedHashes.Keys){
+        if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $protectedHashes[$path]){
+            throw 'Assisted repair modified an application secret or TLS file.'
+        }
+    }
+    Write-Output 'PASS: repair restored only ERP SCM policy, HTTPS firewall, shortcut and service health; secret/TLS bytes were unchanged.'
+
+    Stop-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
+    $uninstall=Join-Path $source 'tools\uninstall-esterium-local-app.ps1'
+    if(-not(Test-Path -LiteralPath $uninstall -PathType Leaf)){throw 'Conservative uninstall helper is missing from the verified bundle.'}
+    $archive=Join-Path $root 'Uninstalled'
+    $oldUninstallGate=$env:ESTERIUM_UNINSTALL_DISPOSABLE_CI
+    try{
+        $env:ESTERIUM_UNINSTALL_DISPOSABLE_CI='1'
+        & $uninstall -InstallDir $install -ActivationReceiptDir $activationReceiptDir `
+            -ReadinessReceiptDir $readinessReceiptDir -ReceiptArchiveDir $archive `
+            -ApprovedManifestSHA256 $manifestHash -UnsignedDisposableCIFixture `
+            -Apply -ConfirmUninstall | Out-Null
+        if(-not $?){throw 'Conservative uninstall helper returned a failure code.'}
+    }finally{$env:ESTERIUM_UNINSTALL_DISPOSABLE_CI=$oldUninstallGate}
+    $uninstalledService=@(Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue)
+    if($uninstalledService.Count -ne 0 -or (Test-Path -LiteralPath $install) -or
+       @(Get-NetFirewallRule -Name $activationRuleName -ErrorAction SilentlyContinue).Count -ne 0 -or
+       (Test-Path -LiteralPath $shortcutPath) -or
+       -not(Test-Path -LiteralPath $archive -PathType Container)){
+        throw 'Uninstall left the ERP app/service/firewall/shortcut behind or failed to archive its receipts.'
+    }
+    if(-not(Get-Service -Name 'EsteriumPostgreSQL16' -ErrorAction SilentlyContinue) -or
+       -not(Get-Service -Name $depName -ErrorAction SilentlyContinue) -or
+       (Get-Service -Name 'EsteriumPostgreSQL16').Status -ne 'Running' -or
+       (Get-Service -Name $depName).Status -ne 'Running'){
+        throw 'Conservative uninstall changed or removed a PostgreSQL/Garnet dependency service.'
+    }
+    foreach($path in $protectedHashes.Keys){
+        if(-not(Test-Path -LiteralPath $path -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $protectedHashes[$path]){
+            throw 'Conservative uninstall removed or changed protected ProgramData secrets/TLS material.'
+        }
+    }
+    $remainingAdmin=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM users WHERE email='ci-admin@esterium.invalid';") -join ''
+    if($LASTEXITCODE -ne 0 -or $remainingAdmin.Trim() -cne '1'){
+        throw 'Conservative uninstall changed the synthetic PostgreSQL application data.'
+    }
+    Write-Output 'PASS: uninstall removed only the ERP app/service/firewall/shortcut, archived receipts and preserved dependency services, ProgramData secrets and SQL data.'
+}finally{
+    if($activationRuleCreated){
+        try{Remove-NetFirewallRule -Name $activationRuleName -ErrorAction Stop}catch{Write-Warning 'Could not remove the owned synthetic CI firewall rule.'}
+    }
+    if($activationShortcutCreated -and (Test-Path -LiteralPath $shortcutPath)){
+        try{Remove-Item -LiteralPath $shortcutPath -Force -ErrorAction Stop}catch{Write-Warning 'Could not remove the owned synthetic CI Start Menu shortcut.'}
+    }
+    if($serverTrustAdded -and $serverTrustThumbprint){
+        try{
+            $rootStore=[Security.Cryptography.X509Certificates.X509Store]::new(
+                [Security.Cryptography.X509Certificates.StoreName]::Root,
+                [Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+            $rootStore.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            foreach($cert in @($rootStore.Certificates | Where-Object {$_.Thumbprint -eq $serverTrustThumbprint})){
+                $rootStore.Remove($cert);$cert.Dispose()
+            }
+            $rootStore.Close()
+        }catch{Write-Warning 'Could not remove the owned synthetic CI HTTPS root certificate.'}
+    }
+    if($hostsEdited -and $null -ne $hostsOriginalBytes -and $null -ne $hostsAppendedBytes){
+        try{
+            $currentHosts=[IO.File]::ReadAllBytes($hostsPath)
+            $matchesOwnedAppend=$currentHosts.Length -eq ($hostsOriginalBytes.Length+$hostsAppendedBytes.Length)
+            if($matchesOwnedAppend){
+                for($i=0;$i -lt $hostsOriginalBytes.Length;$i++){
+                    if($currentHosts[$i] -ne $hostsOriginalBytes[$i]){$matchesOwnedAppend=$false;break}
+                }
+            }
+            if($matchesOwnedAppend){
+                for($i=0;$i -lt $hostsAppendedBytes.Length;$i++){
+                    if($currentHosts[$hostsOriginalBytes.Length+$i] -ne $hostsAppendedBytes[$i]){$matchesOwnedAppend=$false;break}
+                }
+            }
+            if($matchesOwnedAppend){
+                [IO.File]::WriteAllBytes($hostsPath,$hostsOriginalBytes)
+                & ipconfig.exe '/flushdns' | Out-Null
+            }else{Write-Warning 'Disposable CI hosts file changed outside the owned appended entry; preserving current file for runner disposal.'}
+        }catch{Write-Warning 'Could not safely remove the owned synthetic CI host alias.'}
+    }
+    $service=Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+    if($null -ne $service -and $service.PathName -like ('*'+[IO.Path]::Combine($install,'esterium-server.exe')+'*')){
+        if($service.State -ne 'Stopped'){try{Stop-Service -Name $serviceName -Force -ErrorAction Stop}catch{Write-Warning 'ERP CI cleanup could not stop its owned service.'}}
+        try{Set-Service -Name $serviceName -StartupType Disabled -ErrorAction Stop}catch{Write-Warning 'ERP CI cleanup could not disable its owned service.'}
+        & sc.exe delete $serviceName | Out-Null
+        for($i=0;$i -lt 30;$i++){if(-not(Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){break};Start-Sleep -Milliseconds 500}
+    }
+    if(-not(Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){
+        foreach($path in @($install,$root)){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue}}
+    }
+    foreach($entry in $oldPg.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+    $script:adminPassword=$null;$script:adminEmail=$null;$script:adminVariables=$null
+}
+
+
+
+){
+        $startNameCandidates+=($env:COMPUTERNAME+'\'+$Matches.localName)
+    }elseif($serviceStartName -notmatch '[\\/]'){
+        $startNameCandidates+=($env:COMPUTERNAME+'\'+$serviceStartName)
+    }
+    $servicePgSid=''
+    $pgIdentityMatches=$false
+    foreach($candidate in @($startNameCandidates | Select-Object -Unique)){
+        try{
+            $servicePgSid=[string]([Security.Principal.NTAccount]::new($candidate).Translate(
+                [Security.Principal.SecurityIdentifier]).Value)
+            if($expectedPgSid -ne '' -and $servicePgSid -ceq $expectedPgSid){
+                $pgIdentityMatches=$true
+                break
+            }
+        }catch{
+            $servicePgSid=''
+        }
+    }
+    if($expectedPgAccount -cnotmatch '^epg[0-9a-f]{12}
+    $dependencies=@((Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName" -Name DependOnService -ErrorAction Stop).DependOnService)
+    if($scm.StartMode -cne 'Auto' -or $scm.State -cne 'Running' -or
+       $pgScm.StartMode -cne 'Auto' -or $garnetScm.StartMode -cne 'Auto' -or
+       $dependencies -notcontains 'EsteriumPostgreSQL16' -or $dependencies -notcontains ([string]$required.redisService)){
+        throw 'Activation did not configure automatic startup and service dependency ordering.'
+    }
+    $firewall=@(Get-NetFirewallRule -Name $activationRuleName -PolicyStore ActiveStore -ErrorAction Stop)
+    if($firewall.Count -ne 1){throw 'Disposable activation did not create exactly one managed firewall rule.'}
+    $remoteFilter=$firewall[0] | Get-NetFirewallAddressFilter
+    if(-not (Test-FirewallRemoteScope -Actual @($remoteFilter.RemoteAddress) -Expected '127.0.0.1/32') -or
+       -not(Test-Path -LiteralPath $shortcutPath -PathType Leaf)){
+        throw 'LAN firewall scope or all-users Start Menu shortcut was not installed.'
+    }
+    Wait-ERPReady $httpPort 75
+    $homeResponse=Invoke-WebRequest -Uri "$origin/" -Method Get -TimeoutSec 15
+    if($homeResponse.StatusCode -ne 200 -or $homeResponse.Content -notmatch '(?i)<div\s+id=["'']root["'']'){throw 'Installed HTTPS origin did not serve the compiled React application shell.'}
+    $asset=[regex]::Match($homeResponse.Content,'(?i)src=["'']([^"'']+\.js(?:\?[^"'']*)?)["'']')
+    if(-not $asset.Success){throw 'Compiled React JavaScript asset is missing from local index.html.'}
+    $assetPath=$asset.Groups[1].Value
+    if($assetPath.StartsWith('/')){$assetUri=$origin+$assetPath}else{$assetUri=$origin+'/'+$assetPath}
+    $js=Invoke-WebRequest -Uri $assetUri -Method Get -TimeoutSec 20
+    if($js.StatusCode -ne 200 -or $js.RawContentLength -lt 10000){throw 'Installed frontend JavaScript asset failed HTTPS delivery.'}
+    Assert-Login $httpPort
+    Write-Output 'PASS: LocalService ERP served the compiled React shell/assets over HTTPS; synthetic admin login and auth profile passed.'
+
+    # First-install activation and its initial HTTPS readiness run with the
+    # production-safe fiscal-disabled configuration. Only after that proof,
+    # this disposable synthetic tenant switches to dev + local MVP XML so the
+    # real fiscal API can be exercised without any SEFAZ transmission.
+    $serviceEnvironment=@($serviceEnvironment | Where-Object {$_ -cnotmatch '^(?:APP_ENV|FISCAL_PROVIDER)='})+
+        @('APP_ENV=dev','FISCAL_PROVIDER=mvp')
+    Set-ItemProperty -LiteralPath $serviceRegistry -Name Environment -Value $serviceEnvironment -ErrorAction Stop
+    $registeredEnvironment=@((Get-ItemProperty -LiteralPath $serviceRegistry -Name Environment -ErrorAction Stop).Environment)
+    if(@($registeredEnvironment | Where-Object {$_ -ceq 'APP_ENV=dev'}).Count -ne 1 -or
+       @($registeredEnvironment | Where-Object {$_ -ceq 'FISCAL_PROVIDER=mvp'}).Count -ne 1 -or
+       @($registeredEnvironment | Where-Object {$_ -match '^NFCE_SEFAZ_(?:PRODUCTION|HOMOLOGATION)_ENABLED=true$'}).Count -ne 0){
+        throw 'Disposable local XML provider override or SEFAZ-disabled assertions failed.'
+    }
+    Restart-Service -Name $serviceName -Force -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(30))
+    Wait-ERPReady $httpPort 60
+    Assert-Login $httpPort
+    Write-Output 'PASS: disposable CI switched the installed service to dev + local XML provider; SEFAZ transmission stayed disabled.'
+
+    if($script:adminEmail -cne 'ci-admin@esterium.invalid' -or $script:adminPassword -notmatch '^CIonly-[0-9a-f]{32}$'){
+        throw 'Installed browser smoke requires the random synthetic first-admin identity.'
+    }
+    $webRoot=Join-Path (Split-Path -Parent $PSScriptRoot) 'web'
+    $evidence=Join-Path $env:RUNNER_TEMP 'esterium-installed-lab-evidence'
+    if(-not(Test-Path -LiteralPath (Join-Path $webRoot 'package.json') -PathType Leaf) -or
+       -not(Test-Path -LiteralPath (Join-Path $webRoot 'node_modules\@playwright\test') -PathType Container)){
+        throw 'Playwright package must be installed by the verified frontend build before the real ERP smoke.'
+    }
+    [IO.Directory]::CreateDirectory($evidence) | Out-Null
+    $browserEnv=@{}
+    foreach($key in @('ESTERIUM_INSTALLED_LAB','ESTERIUM_LAB_ADMIN_EMAIL','ESTERIUM_LAB_ADMIN_PASSWORD','ESTERIUM_LAB_EVIDENCE_DIR','E2E_BASE_URL','E2E_IGNORE_HTTPS_ERRORS')){
+        $browserEnv[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+    }
+    try{
+        $env:ESTERIUM_INSTALLED_LAB='1'
+        $env:ESTERIUM_LAB_ADMIN_EMAIL=$script:adminEmail
+        $env:ESTERIUM_LAB_ADMIN_PASSWORD=$script:adminPassword
+        $env:ESTERIUM_LAB_EVIDENCE_DIR=$evidence
+        $env:E2E_BASE_URL=$origin
+        $env:E2E_IGNORE_HTTPS_ERRORS='0'
+        Push-Location $webRoot
+        try{
+            & npx.cmd playwright install chromium firefox
+            if($LASTEXITCODE -ne 0){throw 'Playwright Chromium/Firefox installation failed in the disposable Windows lab.'}
+            & npx.cmd playwright test --config playwright.installed-lab.config.ts `
+                --project=chromium --project=firefox --project=chromium-mobile --reporter=line
+            if($LASTEXITCODE -ne 0){throw 'Installed ERP route, mobile or real synthetic business Playwright smoke failed.'}
+        }finally{Pop-Location}
+    }finally{
+        foreach($entry in $browserEnv.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+    }
+    Write-Output 'PASS: Installed HTTPS ERP login and all 17 screens were opened in Chromium and Firefox with system trust enabled.'
+    Write-Output 'PASS: Chromium mobile route matrix had no horizontal overflow; real synthetic catalog, procurement, cash, sale, return, finance, fiscal XML and two-terminal race passed.'
+
+    Stop-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
+    Start-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(30))
+    Wait-ERPReady $httpPort 60
+    Assert-Login $httpPort
+    Write-Output 'PASS: ERP service stop/start returned to HTTPS-ready state and login remained usable.'
+
+    $svc=Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
+    if([int]$svc.ProcessId -le 0){throw 'SCM did not expose a live ERP service process for failure recovery test.'}
+    Stop-Process -Id ([int]$svc.ProcessId) -Force -ErrorAction Stop
+    Wait-ERPReady $httpPort 75
+    Assert-Login $httpPort
+    Write-Output 'PASS: forced ERP process failure recovered through Windows SCM restart policy; HTTPS and login returned.'
+
+    $depName=[string]$required.redisService
+    if(-not(Get-Service -Name $depName -ErrorAction SilentlyContinue)){throw 'Expected disposable Garnet Windows service disappeared before recovery test.'}
+    Stop-Service -Name $depName -ErrorAction Stop
+    (Get-Service -Name $depName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+    Start-Service -Name $depName -ErrorAction Stop
+    (Get-Service -Name $depName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
+    Wait-ERPReady $httpPort 75
+    Assert-Login $httpPort
+    Write-Output 'PASS: ERP reconnected after real Garnet service restart; readiness and login recovered.'
+
+    Stop-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
+    Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
+    if((Get-Item -LiteralPath $serviceRegistry -ErrorAction Stop).GetValueNames() -contains 'DependOnService'){
+        Remove-ItemProperty -LiteralPath $serviceRegistry -Name DependOnService -ErrorAction Stop
+    }
+    Remove-NetFirewallRule -Name $activationRuleName -ErrorAction Stop
+    $activationRuleCreated=$false
+    Remove-Item -LiteralPath $shortcutPath -Force -ErrorAction Stop
+    $activationShortcutCreated=$false
+    $protectedFiles=@(Get-ChildItem -LiteralPath $secrets -Recurse -File)+@(Get-ChildItem -LiteralPath $tls -Recurse -File)
+    $protectedHashes=@{}
+    foreach($file in $protectedFiles){$protectedHashes[$file.FullName]=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash}
+    $repair=Join-Path $source 'tools\repair-esterium-local-install.ps1'
+    if(-not(Test-Path -LiteralPath $repair -PathType Leaf)){throw 'Assisted repair helper is missing from the verified bundle.'}
+    $oldRepairGate=$env:ESTERIUM_REPAIR_DISPOSABLE_CI
+    try{
+        $env:ESTERIUM_REPAIR_DISPOSABLE_CI='1'
+        & $repair -InstallDir $install -ActivationReceiptDir $activationReceiptDir `
+            -PostgresServiceName 'EsteriumPostgreSQL16' -GarnetServiceName $depName `
+            -ApprovedManifestSHA256 $manifestHash -UnsignedDisposableCIFixture `
+            -Apply -ConfirmRepair | Out-Null
+        if(-not $?){throw 'Assisted repair helper returned a failure code.'}
+    }finally{$env:ESTERIUM_REPAIR_DISPOSABLE_CI=$oldRepairGate}
+    $repairedScm=Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
+    $repairedDependencies=@((Get-ItemProperty -LiteralPath $serviceRegistry -Name DependOnService -ErrorAction Stop).DependOnService)
+    $repairedRule=@(Get-NetFirewallRule -Name $activationRuleName -PolicyStore ActiveStore -ErrorAction Stop)
+    $repairedAddress=@($repairedRule[0] | Get-NetFirewallAddressFilter)
+    if($repairedScm.StartMode -cne 'Auto' -or $repairedScm.State -cne 'Running' -or
+       $repairedDependencies -notcontains 'EsteriumPostgreSQL16' -or $repairedDependencies -notcontains $depName -or
+       $repairedRule.Count -ne 1 -or
+       -not(Test-FirewallRemoteScope -Actual @($repairedAddress[0].RemoteAddress) -Expected '127.0.0.1/32') -or
+       -not(Test-Path -LiteralPath $shortcutPath -PathType Leaf)){
+        throw 'Assisted repair did not restore the exact ERP service dependencies, loopback-only firewall rule and shortcut.'
+    }
+    Wait-ERPReady $httpPort 75
+    Assert-Login $httpPort
+    foreach($path in $protectedHashes.Keys){
+        if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $protectedHashes[$path]){
+            throw 'Assisted repair modified an application secret or TLS file.'
+        }
+    }
+    Write-Output 'PASS: repair restored only ERP SCM policy, HTTPS firewall, shortcut and service health; secret/TLS bytes were unchanged.'
+
+    Stop-Service -Name $serviceName -ErrorAction Stop
+    (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
+    $uninstall=Join-Path $source 'tools\uninstall-esterium-local-app.ps1'
+    if(-not(Test-Path -LiteralPath $uninstall -PathType Leaf)){throw 'Conservative uninstall helper is missing from the verified bundle.'}
+    $archive=Join-Path $root 'Uninstalled'
+    $oldUninstallGate=$env:ESTERIUM_UNINSTALL_DISPOSABLE_CI
+    try{
+        $env:ESTERIUM_UNINSTALL_DISPOSABLE_CI='1'
+        & $uninstall -InstallDir $install -ActivationReceiptDir $activationReceiptDir `
+            -ReadinessReceiptDir $readinessReceiptDir -ReceiptArchiveDir $archive `
+            -ApprovedManifestSHA256 $manifestHash -UnsignedDisposableCIFixture `
+            -Apply -ConfirmUninstall | Out-Null
+        if(-not $?){throw 'Conservative uninstall helper returned a failure code.'}
+    }finally{$env:ESTERIUM_UNINSTALL_DISPOSABLE_CI=$oldUninstallGate}
+    $uninstalledService=@(Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue)
+    if($uninstalledService.Count -ne 0 -or (Test-Path -LiteralPath $install) -or
+       @(Get-NetFirewallRule -Name $activationRuleName -ErrorAction SilentlyContinue).Count -ne 0 -or
+       (Test-Path -LiteralPath $shortcutPath) -or
+       -not(Test-Path -LiteralPath $archive -PathType Container)){
+        throw 'Uninstall left the ERP app/service/firewall/shortcut behind or failed to archive its receipts.'
+    }
+    if(-not(Get-Service -Name 'EsteriumPostgreSQL16' -ErrorAction SilentlyContinue) -or
+       -not(Get-Service -Name $depName -ErrorAction SilentlyContinue) -or
+       (Get-Service -Name 'EsteriumPostgreSQL16').Status -ne 'Running' -or
+       (Get-Service -Name $depName).Status -ne 'Running'){
+        throw 'Conservative uninstall changed or removed a PostgreSQL/Garnet dependency service.'
+    }
+    foreach($path in $protectedHashes.Keys){
+        if(-not(Test-Path -LiteralPath $path -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $protectedHashes[$path]){
+            throw 'Conservative uninstall removed or changed protected ProgramData secrets/TLS material.'
+        }
+    }
+    $remainingAdmin=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM users WHERE email='ci-admin@esterium.invalid';") -join ''
+    if($LASTEXITCODE -ne 0 -or $remainingAdmin.Trim() -cne '1'){
+        throw 'Conservative uninstall changed the synthetic PostgreSQL application data.'
+    }
+    Write-Output 'PASS: uninstall removed only the ERP app/service/firewall/shortcut, archived receipts and preserved dependency services, ProgramData secrets and SQL data.'
+}finally{
+    if($activationRuleCreated){
+        try{Remove-NetFirewallRule -Name $activationRuleName -ErrorAction Stop}catch{Write-Warning 'Could not remove the owned synthetic CI firewall rule.'}
+    }
+    if($activationShortcutCreated -and (Test-Path -LiteralPath $shortcutPath)){
+        try{Remove-Item -LiteralPath $shortcutPath -Force -ErrorAction Stop}catch{Write-Warning 'Could not remove the owned synthetic CI Start Menu shortcut.'}
+    }
+    if($serverTrustAdded -and $serverTrustThumbprint){
+        try{
+            $rootStore=[Security.Cryptography.X509Certificates.X509Store]::new(
+                [Security.Cryptography.X509Certificates.StoreName]::Root,
+                [Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+            $rootStore.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            foreach($cert in @($rootStore.Certificates | Where-Object {$_.Thumbprint -eq $serverTrustThumbprint})){
+                $rootStore.Remove($cert);$cert.Dispose()
+            }
+            $rootStore.Close()
+        }catch{Write-Warning 'Could not remove the owned synthetic CI HTTPS root certificate.'}
+    }
+    if($hostsEdited -and $null -ne $hostsOriginalBytes -and $null -ne $hostsAppendedBytes){
+        try{
+            $currentHosts=[IO.File]::ReadAllBytes($hostsPath)
+            $matchesOwnedAppend=$currentHosts.Length -eq ($hostsOriginalBytes.Length+$hostsAppendedBytes.Length)
+            if($matchesOwnedAppend){
+                for($i=0;$i -lt $hostsOriginalBytes.Length;$i++){
+                    if($currentHosts[$i] -ne $hostsOriginalBytes[$i]){$matchesOwnedAppend=$false;break}
+                }
+            }
+            if($matchesOwnedAppend){
+                for($i=0;$i -lt $hostsAppendedBytes.Length;$i++){
+                    if($currentHosts[$hostsOriginalBytes.Length+$i] -ne $hostsAppendedBytes[$i]){$matchesOwnedAppend=$false;break}
+                }
+            }
+            if($matchesOwnedAppend){
+                [IO.File]::WriteAllBytes($hostsPath,$hostsOriginalBytes)
+                & ipconfig.exe '/flushdns' | Out-Null
+            }else{Write-Warning 'Disposable CI hosts file changed outside the owned appended entry; preserving current file for runner disposal.'}
+        }catch{Write-Warning 'Could not safely remove the owned synthetic CI host alias.'}
+    }
+    $service=Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+    if($null -ne $service -and $service.PathName -like ('*'+[IO.Path]::Combine($install,'esterium-server.exe')+'*')){
+        if($service.State -ne 'Stopped'){try{Stop-Service -Name $serviceName -Force -ErrorAction Stop}catch{Write-Warning 'ERP CI cleanup could not stop its owned service.'}}
+        try{Set-Service -Name $serviceName -StartupType Disabled -ErrorAction Stop}catch{Write-Warning 'ERP CI cleanup could not disable its owned service.'}
+        & sc.exe delete $serviceName | Out-Null
+        for($i=0;$i -lt 30;$i++){if(-not(Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){break};Start-Sleep -Milliseconds 500}
+    }
+    if(-not(Get-Service -Name $serviceName -ErrorAction SilentlyContinue)){
+        foreach($path in @($install,$root)){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue}}
+    }
+    foreach($entry in $oldPg.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+    $script:adminPassword=$null;$script:adminEmail=$null;$script:adminVariables=$null
+}
+
+
+
+ -or $pgAccount.Count -ne 1 -or
+       $pgAdminMembership.Count -ne 0 -or -not $pgIdentityMatches){
+        throw ('Integrated PostgreSQL service identity mismatch (StartName={0}; expectedLocalAccount={1}; localAccountFound={2}; nonAdmin={3}; identityMatches={4}).' -f
+            $serviceStartName,$expectedPgAccount,($pgAccount.Count -eq 1),($pgAdminMembership.Count -eq 0),$pgIdentityMatches)
     }
     $dependencies=@((Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName" -Name DependOnService -ErrorAction Stop).DependOnService)
     if($scm.StartMode -cne 'Auto' -or $scm.State -cne 'Running' -or
