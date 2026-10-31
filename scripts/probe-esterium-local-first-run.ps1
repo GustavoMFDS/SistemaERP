@@ -171,8 +171,15 @@ if ($proof.Count -ne 3 -or $proof[0].Trim() -cne 'ESTERIUM_FRESH_POSTGRES_16' -o
     -not ([IO.File]::ReadAllText($receipt)).StartsWith('TLS_POLICY_STAGED_NEVER_STARTED')) {
     throw 'Staged PostgreSQL TLS first-install proof is missing or inconsistent.'
 }
-foreach ($name in @('OriginalPostgresql-'+$PostgresServiceName+'.conf',
-                    'OriginalPgHba-'+$PostgresServiceName+'.conf')) {
+$originalConfigNames=@(
+    "OriginalPostgresql-$PostgresServiceName.conf"
+    "OriginalPgHba-$PostgresServiceName.conf"
+)
+if ($originalConfigNames.Count -ne 2 -or
+    $originalConfigNames[0] -ceq $originalConfigNames[1]) {
+    throw 'First-run PostgreSQL TLS original config filenames collapsed.'
+}
+foreach ($name in $originalConfigNames) {
     $null=Assert-Local (Join-Path $options $name) $false
 }
 & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf (Join-Path $data 'postgresql.conf') -PgHbaConf (Join-Path $data 'pg_hba.conf') | Out-Null
