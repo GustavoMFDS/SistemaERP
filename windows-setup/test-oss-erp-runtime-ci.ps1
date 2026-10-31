@@ -428,17 +428,17 @@ try{
     })+@(
         'APP_ENV=dev',
         'FISCAL_PROVIDER=mvp',
-        'RATE_LIMIT_LOGIN_PER_MINUTE=60',
-        'RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE=60',
-        'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=60',
-        'RATE_LIMIT_REFRESH_PER_MINUTE=60'
+        'RATE_LIMIT_LOGIN_PER_MINUTE=1000',
+        'RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE=1000',
+        'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=1000',
+        'RATE_LIMIT_REFRESH_PER_MINUTE=1000'
     )
     Set-ItemProperty -LiteralPath $serviceRegistry -Name Environment -Value $serviceEnvironment -ErrorAction Stop
     $registeredEnvironment=@((Get-ItemProperty -LiteralPath $serviceRegistry -Name Environment -ErrorAction Stop).Environment)
-    if(@($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_PER_MINUTE=60'}).Count -ne 1 -or
-       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE=60'}).Count -ne 1 -or
-       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=60'}).Count -ne 1 -or
-       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_REFRESH_PER_MINUTE=60'}).Count -ne 1){
+    if(@($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_PER_MINUTE=1000'}).Count -ne 1 -or
+       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE=1000'}).Count -ne 1 -or
+       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=1000'}).Count -ne 1 -or
+       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_REFRESH_PER_MINUTE=1000'}).Count -ne 1){
         throw 'Disposable CI authentication rate-limit overrides were not installed.'
     }
     if(@($registeredEnvironment | Where-Object {$_ -ceq 'APP_ENV=dev'}).Count -ne 1 -or
