@@ -124,6 +124,93 @@ test('installed mobile routes remain usable without horizontal overflow', async 
   }
 })
 
+test('installed navigation, attention alerts, and sale confirmation messages work with real services', async ({ page }) => {
+  test.skip(test.info().project.name !== 'chromium', 'screen 18-19 confirmation smoke runs once on Chromium')
+  await loginUi(page)
+  const evidenceDir = process.env.ESTERIUM_LAB_EVIDENCE_DIR ?? ''
+  expect(evidenceDir).not.toBe('')
+  mkdirSync(evidenceDir, { recursive: true })
+
+  const navigation = page.getByRole('navigation', { name: 'Navegação principal' })
+  await expect(navigation).toBeVisible()
+  await navigation.getByText('Mais áreas do sistema', { exact: true }).click()
+  await expect(navigation.getByRole('link', { name: 'Financeiro' })).toBeVisible()
+  await expect(navigation.getByRole('link', { name: 'Relatórios' })).toBeVisible()
+  await expect(navigation.getByRole('link', { name: 'Fiscal' })).toBeVisible()
+
+  const attention = page.getByRole('region', { name: 'Central de atenção' })
+  await expect(attention.getByText('Avisos reais das áreas que você tem permissão para consultar.')).toBeVisible()
+  await attention.getByRole('button', { name: 'Atualizar avisos' }).click()
+  await expect(attention.getByRole('button', { name: 'Atualizar avisos' })).toBeEnabled()
+  await expect(attention.getByText(
+    /Nenhuma pendência encontrada|venda\(s\) com obrigação fiscal pendente|Não foi possível verificar todas as áreas/,
+  )).toBeVisible()
+  await page.screenshot({
+    path: join(evidenceDir, 'installed-screen-18-navigation-alerts.png'),
+    fullPage: true,
+  })
+
+  const adminToken = await loginApi(
+    page,
+    process.env.ESTERIUM_LAB_ADMIN_EMAIL ?? '',
+    process.env.ESTERIUM_LAB_ADMIN_PASSWORD ?? '',
+  )
+  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 14)
+  const productName = `Synthetic confirmation ${suffix}`
+  const product = expectBody<{ id: string }>(await browserApi(page, '/api/v1/products', adminToken, {
+    method: 'POST', body: {
+      category_id: null, sku: `CI-SCREEN-${suffix}`, barcode: null, name: productName,
+      description: 'Synthetic installed-lab confirmation product', unit: 'UN', ncm: '00000000', cost_price: 3,
+      price_cash: 10, promo_price: null, min_stock: 0, active: true,
+    },
+  }), 'screen 19 synthetic product create')
+  expectBody<JsonRecord>(await browserApi(page, '/api/v1/inventory/adjust', adminToken, {
+    method: 'POST',
+    body: { product_id: product.id, delta: 1, reason: 'Synthetic confirmation screen stock', type: 'adjustment' },
+  }), 'screen 19 opening stock')
+  const cash = expectBody<{ id: string }>(await browserApi(page, '/api/v1/cash/sessions/open', adminToken, {
+    method: 'POST', body: { opening_amount: 0, notes: 'Synthetic screen 19 confirmation' },
+  }), 'screen 19 cash session')
+  let openSessionId = cash.id
+  try {
+    await page.getByRole('link', { name: 'PDV', exact: true }).click()
+    await expect(page.getByText('Caixa pronto para atender.')).toBeVisible()
+    await page.getByLabel('Busca rápida por nome ou código').fill(productName)
+    await page.getByRole('button', { name: `Adicionar ${productName} à venda` }).click()
+    await page.getByLabel('Valor recebido em dinheiro (R$)').fill('10')
+    await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Finalizar venda' }).click()
+
+    const completed = page.getByRole('dialog', { name: 'Venda concluída' })
+    await expect(completed).toBeVisible()
+    await expect(completed.getByText(/Pagamento registrado\. Total: R\$\s*10,00/)).toBeVisible()
+    await expect(completed.getByText('A autorização da nota fiscal, quando necessária, é conferida separadamente.')).toBeVisible()
+    await completed.getByRole('button', { name: 'Continuar no caixa' }).click()
+    await expect(page.getByRole('status').filter({
+      hasText: 'Obrigação fiscal registrada. A emissão só é concluída após autorização fiscal.',
+    })).toBeVisible()
+    await page.screenshot({
+      path: join(evidenceDir, 'installed-screen-19-sale-confirmation.png'),
+      fullPage: true,
+    })
+
+    expectBody<JsonRecord>(await browserApi(page, `/api/v1/cash/sessions/${openSessionId}/close`, adminToken, {
+      method: 'POST', body: { closing_amount: 10, notes: 'Synthetic screen 19 confirmation close' },
+    }), 'screen 19 cash close')
+    openSessionId = ''
+  } finally {
+    if (openSessionId) {
+      try {
+        await browserApi(page, `/api/v1/cash/sessions/${openSessionId}/close`, adminToken, {
+          method: 'POST', body: { closing_amount: 10, notes: 'Synthetic screen 19 cleanup' },
+        })
+      } catch {
+        // Preserve the primary assertion if the test fails before cleanup.
+      }
+    }
+  }
+})
+
 test('installed ERP completes real synthetic retail operations and a two-terminal stock race', async ({ page, browser, browserName }) => {
   test.skip(test.info().project.name !== 'chromium', 'business write smoke runs once on Chromium')
   expect(browserName).toBe('chromium')
