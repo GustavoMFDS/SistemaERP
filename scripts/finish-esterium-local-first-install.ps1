@@ -230,7 +230,9 @@ $registration=@{
 }
 $probe=@{BundleDir=$InstallDir;PostgresBin=$PostgresBin;PostgresDataDir=$PostgresDataDir;
     PostgresOptionsDir=$PostgresOptionsDir;PostgresTlsPolicyDir=$PostgresTlsPolicyDir;
-    GarnetConfigDir=$GarnetConfigDir;PostgresServiceName=$PostgresServiceName;
+    GarnetConfigDir=$GarnetConfigDir;AllowedOrigin=$AllowedOrigin;ListenAddress=$ListenAddress;
+    TLSCertFile=$TLSCertFile;TLSKeyFile=$TLSKeyFile;TrustedRemoteAddress=$TrustedRemoteAddress;
+    PostgresServiceName=$PostgresServiceName;
     PostgresServiceAccount=$PostgresServiceAccount;GarnetServiceName=$GarnetServiceName;
     PostgresPort=$PostgresPort;GarnetPort=$GarnetPort;
     ApprovedManifestSHA256=$ApprovedManifestSHA256;

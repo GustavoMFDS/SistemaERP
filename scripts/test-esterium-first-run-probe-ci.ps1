@@ -172,7 +172,20 @@ foreach ($required in @('stage-esterium-approved-windows-release.ps1',
         throw 'Combined installer lost an essential signed first-install step.'
     }
 }
-Write-Output 'PASS: combined first-install coordinator parses, blocks bad publisher/origin and retains expected safe ordering.'
+$probeStart=$code.IndexOf('$probe=@{')
+$probeEnd=$code.IndexOf("`n# No registered", $probeStart)
+if ($probeStart -lt 0 -or $probeEnd -le $probeStart) {
+    throw 'Combined installer probe argument block is missing or malformed.'
+}
+$probeArguments=$code.Substring($probeStart,$probeEnd-$probeStart)
+foreach ($required in @('AllowedOrigin=$AllowedOrigin','ListenAddress=$ListenAddress',
+    'TLSCertFile=$TLSCertFile','TLSKeyFile=$TLSKeyFile',
+    'TrustedRemoteAddress=$TrustedRemoteAddress')) {
+    if (-not $probeArguments.Contains($required)) {
+        throw 'Combined installer failed to pass approved HTTPS inputs to the first-run probe.'
+    }
+}
+Write-Output 'PASS: combined first-install coordinator parses, blocks bad publisher/origin and passes approved HTTPS inputs to the probe.'
 # Combined entry point must be signed, safely deny bad approvals and retain
 # the non-mutating PLAN before either vendor or ERP initialization.
 $one=Join-Path $PSScriptRoot 'install-esterium-local-complete.ps1'
