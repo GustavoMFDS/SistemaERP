@@ -245,7 +245,7 @@ try {
     if ($denied -notmatch 'precisam ser distintas') {
         throw 'One-command setup accepted conflicting database/cache ports.'
     }
-    if (@(Get-ChildItem -LiteralPath $fakeTools -File).Count -ne 3) {
+    if (@(Get-ChildItem -LiteralPath $fakeTools -File).Count -ne 4) {
         throw 'One-command negative tests mutated disposable source tools.'
     }
 } finally {
