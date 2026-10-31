@@ -74,7 +74,7 @@ $requiredTools = @(
 # Validate it when present, but do not require it in older bundles.
 $optionalTools = @(
     'tools/restore-esterium-app-version.ps1',
-    'tools/check-esterium-restore-archive.ps1',
+    'tools/check-esterium-restore-archive.ps1'
 )
 $seen = @{}
 foreach ($record in @($document.files)) {

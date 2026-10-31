@@ -68,7 +68,7 @@ $requiredTools = @(
 # A rollback helper is optional so older approved bundles remain verifiable.
 $optionalTools = @(
     'tools/restore-esterium-app-version.ps1',
-    'tools/check-esterium-restore-archive.ps1',
+    'tools/check-esterium-restore-archive.ps1'
 )
 $items = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)
 $records = @()
