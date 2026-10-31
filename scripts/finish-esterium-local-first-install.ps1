@@ -245,7 +245,33 @@ try {
         TrustedPublisherThumbprint=$TrustedPublisherThumbprint
         Apply=$true
     }
-    & (Join-Path $stageTool 'bootstrap-esterium-first-admin.ps1') @adminBootstrap | Out-Null
+    # SQL bootstrap deliberately leaves PostgreSQL disabled/stopped. Start it only
+    # while creating the one-time administrator, then restore the fail-closed
+    # state required by the dependency probe before it temporarily starts services.
+    try {
+        Set-Service -Name $PostgresServiceName -StartupType Manual -ErrorAction Stop
+        Start-Service -Name $PostgresServiceName -ErrorAction Stop
+        (Get-Service -Name $PostgresServiceName -ErrorAction Stop).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(90))
+        & (Join-Path $stageTool 'bootstrap-esterium-first-admin.ps1') @adminBootstrap | Out-Null
+    } finally {
+        try {
+            $postgres=Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue
+            if ($null -ne $postgres -and $postgres.Status -ne 'Stopped') {
+                Stop-Service -Name $PostgresServiceName -Force -ErrorAction Stop
+                (Get-Service -Name $PostgresServiceName -ErrorAction Stop).WaitForStatus(
+                    [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+            }
+            Set-Service -Name $PostgresServiceName -StartupType Disabled -ErrorAction Stop
+            $postgresState=Get-CimInstance Win32_Service -Filter ("Name='{0}'" -f $PostgresServiceName) -ErrorAction Stop
+            if ($null -eq $postgresState -or $postgresState.State -cne 'Stopped' -or
+                $postgresState.StartMode -cne 'Disabled' -or [int]$postgresState.ProcessId -ne 0) {
+                throw 'PostgreSQL did not return to its required stopped/disabled state.'
+            }
+        } catch {
+            throw 'First-admin bootstrap could not verify PostgreSQL stopped and disabled; manual intervention required.'
+        }
+    }
     & (Join-Path $InstallDir 'tools\probe-esterium-local-first-run.ps1') @probe | Out-Null
     $activation=@{
         BundleDir=$InstallDir;AllowedOrigin=$AllowedOrigin;ListenAddress=$ListenAddress
