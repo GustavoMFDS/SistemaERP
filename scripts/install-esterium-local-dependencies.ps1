@@ -434,6 +434,17 @@ try {
     $servers=@(Get-ChildItem -LiteralPath $stage -Recurse -Filter 'GarnetServer.exe' -File)
     if ($servers.Count -ne 1) { throw 'Pacote exige exatamente um GarnetServer.exe.' }
     $relative=$servers[0].FullName.Substring($stage.Length).TrimStart('\')
+    $serverAssemblies=@(Get-ChildItem -LiteralPath $stage -Recurse -Filter 'GarnetServer.dll' -File)
+    if ($serverAssemblies.Count -ne 1 -or
+        -not [String]::Equals($serverAssemblies[0].DirectoryName,$servers[0].DirectoryName,[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Pacote Garnet exige GarnetServer.dll ao lado do apphost.'
+    }
+    foreach ($required in @('GarnetServer.runtimeconfig.json','GarnetServer.deps.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $servers[0].DirectoryName $required) -PathType Leaf)) {
+            throw ('Pacote Garnet não contém '+$required+' ao lado da assembly.')
+        }
+    }
+    $relativeAssembly=$serverAssemblies[0].FullName.Substring($stage.Length).TrimStart('\')
     $stagedWrapper=Join-Path $stage 'esterium-service-wrapper.exe'
     Copy-Item -LiteralPath $wrapper -Destination $stagedWrapper -ErrorAction Stop
     $dotnetStage=Join-Path $stage 'dotnet'
@@ -475,13 +486,17 @@ try {
     $published=$true
     $serviceExe=Join-Path $garnetDir 'esterium-service-wrapper.exe'
     $garnetExe=Join-Path $garnetDir $relative
+    $garnetServerDll=Join-Path $garnetDir $relativeAssembly
     $dotnetRuntimeDir=Join-Path $garnetDir 'dotnet'
     $dotnetExe=Join-Path $dotnetRuntimeDir 'dotnet.exe'
     if (-not (Test-Path -LiteralPath $garnetExe -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $garnetServerDll -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $garnetServerDll) 'GarnetServer.runtimeconfig.json') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $garnetServerDll) 'GarnetServer.deps.json') -PathType Leaf) -or
         -not (Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $dotnetRuntimeDir 'host\fxr\10.0.14\hostfxr.dll') -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $dotnetRuntimeDir 'shared\Microsoft.NETCore.App\10.0.14\coreclr.dll') -PathType Leaf)) {
-        throw 'Garnet apphost ou runtime .NET privado ausente.'
+        throw 'Garnet assembly ou runtime .NET privado ausente.'
     }
     if ((Get-FileHash -LiteralPath $serviceExe -Algorithm SHA256).Hash -cne $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
         throw 'Wrapper instalado difere do SHA aprovado.'
@@ -489,14 +504,17 @@ try {
     if ($null -ne (Get-Service -Name $GarnetServiceName -ErrorAction SilentlyContinue)) {
         throw 'Serviço Garnet apareceu durante a instalação.'
     }
-    $appParameters='--config-import-path "'+$configPath+'"'
-    & $serviceExe install $GarnetServiceName $garnetExe $appParameters | Out-Null
+    # Invoke the bundled dotnet host explicitly. NSSM's environment variables
+    # alone did not make a framework-dependent apphost select this runtime on
+    # the disposable Windows runner when another shared runtime was installed.
+    $appParameters='"'+$garnetServerDll+'" --config-import-path "'+$configPath+'"'
+    & $serviceExe install $GarnetServiceName $dotnetExe $appParameters | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'NSSM não registrou Garnet.' }
     $created=$true
     foreach ($command in @(
         @('set',$GarnetServiceName,'ObjectName','NT AUTHORITY\NetworkService'),
         @('set',$GarnetServiceName,'Start','SERVICE_DISABLED'),
-        @('set',$GarnetServiceName,'AppDirectory',(Split-Path -Parent $garnetExe)),
+        @('set',$GarnetServiceName,'AppDirectory',(Split-Path -Parent $garnetServerDll)),
         @('set',$GarnetServiceName,'AppExit','Default','Restart'),
         @('set',$GarnetServiceName,'AppRestartDelay','5000')
     )) {
@@ -504,7 +522,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao restringir o serviço Garnet.' }
     }
     $environmentCommand=@('set',$GarnetServiceName,'AppEnvironmentExtra')+
-        @('DOTNET_ROOT_X64='+$dotnetRuntimeDir,'DOTNET_ROOT='+$dotnetRuntimeDir)
+        @('DOTNET_ROOT_X64='+$dotnetRuntimeDir,'DOTNET_ROOT='+$dotnetRuntimeDir,'DOTNET_MULTILEVEL_LOOKUP=0')
     & $serviceExe @environmentCommand | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao apontar Garnet para o runtime .NET privado.' }
     $service=Get-CimInstance -ClassName Win32_Service -Filter "Name='$GarnetServiceName'"
