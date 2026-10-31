@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { cashTest as test, expect } from './fixtures'
 
 async function login(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login')

@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { cashTest as test, expect } from './fixtures'
 
 test('devolução aplica a regra registrada na venda, mesmo depois de editar o produto', async ({ page }) => {
   await page.goto('/login')
