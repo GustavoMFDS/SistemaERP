@@ -170,12 +170,16 @@ try {
         $failureLine=[int]$failure.InvocationInfo.ScriptLineNumber
         $failureType=$failure.Exception.GetType().FullName
         $safeDetail=''
-        # PowerShell often wraps a useful leaf error in a RuntimeException with
+        $probeStagePattern='First-run probe failed at stage: (disable ERP service|start dependency services|verify dependency ownership|run ERP dependency preflight)[.]'
+        if ($failure.Exception.Message -match $probeStagePattern) {
+            $safeDetail='First-run probe failed at stage: '+$Matches[1]+'.'
+        }
+                # PowerShell often wraps a useful leaf error in a RuntimeException with
         # path/line context. Inspect a bounded chain, but emit only a complete
         # Disposable CI may show short text-only errors, never paths or credentials.
         # short ASCII message with no credential terms or path syntax.
         $safeException=$failure.Exception
-        for ($depth=0; $null -ne $safeException -and $depth -lt 6; $depth++) {
+        for ($depth=0; $null -ne $safeException -and $depth -lt 6 -and [string]::IsNullOrWhiteSpace($safeDetail); $depth++) {
             $safeMessage=([string]$safeException.Message).Replace([string][char]39,'')
             if ($safeMessage -match '^[A-Za-z0-9 ,.;:()-]{1,180}$' -and
                 $safeMessage -notmatch '(?i)(password|secret|token|credential|bearer)' -and
