@@ -7,10 +7,39 @@ import { test as base, expect } from '@playwright/test'
  * runner to assert the dialog is shown, hidden, and repeated correctly.
  */
 
+function disposableE2EApiBaseUrl(): string {
+  if (process.env.E2E_DISPOSABLE_DATABASE !== '1') {
+    throw new Error('E2E cash cleanup requires E2E_DISPOSABLE_DATABASE=1.')
+  }
+
+  const configuredUrl = process.env.E2E_API_BASE_URL ?? 'http://127.0.0.1:8080'
+  let parsed: URL
+  try {
+    parsed = new URL(configuredUrl)
+  } catch {
+    throw new Error('E2E cash cleanup requires a valid loopback API URL.')
+  }
+
+  const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]'])
+  if (
+    parsed.protocol !== 'http:' ||
+    !loopbackHosts.has(parsed.hostname) ||
+    parsed.pathname !== '/' ||
+    parsed.search !== '' ||
+    parsed.hash !== '' ||
+    parsed.username !== '' ||
+    parsed.password !== ''
+  ) {
+    throw new Error('E2E cash cleanup is limited to a loopback API on an explicitly disposable database.')
+  }
+
+  return parsed.origin
+}
+
 async function cleanupOpenCashSessions(
   request: import('@playwright/test').APIRequestContext,
 ): Promise<void> {
-  const apiBaseUrl = (process.env.E2E_API_BASE_URL ?? 'http://127.0.0.1:8080').replace(/\/+$/, '')
+  const apiBaseUrl = disposableE2EApiBaseUrl()
   const loginResponse = await request.post(apiBaseUrl + '/api/v1/auth/login', {
     data: { email: 'admin@sistema.local', password: 'admin123' },
   })
@@ -34,20 +63,32 @@ async function cleanupOpenCashSessions(
       )
     }
 
-    const current = (await currentResponse.json()) as { id?: string; status?: string }
+    const current = (await currentResponse.json()) as {
+      id?: string
+      status?: string
+      expected_cash?: number
+    }
     if (current.status !== 'open' || !current.id) {
       throw new Error('E2E cash cleanup received an invalid open-session response.')
+    }
+    const expectedCash = current.expected_cash
+    if (typeof expectedCash !== 'number' || !Number.isFinite(expectedCash) || expectedCash < 0) {
+      throw new Error('E2E cash cleanup received no valid expected cash balance.')
     }
 
     const closeResponse = await request.post(
       apiBaseUrl + '/api/v1/cash/sessions/' + encodeURIComponent(current.id) + '/close',
       {
         headers,
-        data: { closing_amount: 0, notes: 'Playwright E2E fixture cleanup' },
+        data: { closing_amount: expectedCash, notes: 'Playwright E2E fixture cleanup' },
       },
     )
     if (!closeResponse.ok()) {
       throw new Error('E2E cash cleanup close failed (' + closeResponse.status() + ').')
+    }
+    const closeResult = (await closeResponse.json()) as { closing_difference?: number }
+    if (typeof closeResult.closing_difference !== 'number' || closeResult.closing_difference !== 0) {
+      throw new Error('E2E cash cleanup closed a session with a non-zero cash difference.')
     }
   }
 
