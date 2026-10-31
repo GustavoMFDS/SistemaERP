@@ -10,9 +10,6 @@ if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
 $probe=Join-Path $PSScriptRoot 'probe-esterium-local-first-run.ps1'
 $activation=Join-Path $PSScriptRoot 'activate-esterium-local-first-install.ps1'
 $tokens=$null
-if ($text.Contains([string]::Concat("'OriginalPostgresql-'",'+','$PostgresServiceName'))) {
-    throw 'First-run probe may collapse PostgreSQL config filenames.'
-}
 $parseErrors=$null
 [void][Management.Automation.Language.Parser]::ParseFile(
     $probe,[ref]$tokens,[ref]$parseErrors)
@@ -44,6 +41,9 @@ if ($denied -notmatch '(not signed by approved publisher|cannot be trusted)') {
 }
 # Retain a static rule to catch accidental removal of the safety finalizer.
 $text=[IO.File]::ReadAllText($probe)
+if ($text.Contains([string]::Concat("'OriginalPostgresql-'",'+','$PostgresServiceName'))) {
+    throw 'First-run probe may collapse PostgreSQL config filenames.'
+}
 foreach ($required in @('finally {','-StartupType Disabled','--check-dependencies',
     'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership',
     'First-run probe required local item is missing:','GetFileName($missingCursor)','TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar','$missing=$missing -replace',
