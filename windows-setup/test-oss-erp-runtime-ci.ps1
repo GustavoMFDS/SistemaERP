@@ -419,24 +419,26 @@ try{
     # production-safe fiscal-disabled configuration. Only after that proof,
     # this disposable synthetic tenant switches to dev + local MVP XML so the
     # real fiscal API can be exercised without any SEFAZ transmission.
-    # Several synthetic logins occur in this disposable browser/runtime proof.
-    # Keep the safe first boot at repository defaults; raise limits only for the
-    # temporary dev + local XML service used by this CI test.
+    # Synthetic logins and protected-route reloads exercise refresh rotation in
+    # this disposable browser/runtime proof. Keep safe first boot at repository
+    # defaults; raise limits only for the temporary dev + local XML CI service.
     $serviceEnvironment=@($serviceEnvironment | Where-Object {
-        $_ -cnotmatch '^(?:APP_ENV|FISCAL_PROVIDER|RATE_LIMIT_LOGIN_PER_MINUTE|RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE|RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE)='
+        $_ -cnotmatch '^(?:APP_ENV|FISCAL_PROVIDER|RATE_LIMIT_LOGIN_PER_MINUTE|RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE|RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE|RATE_LIMIT_REFRESH_PER_MINUTE)='
     })+@(
         'APP_ENV=dev',
         'FISCAL_PROVIDER=mvp',
         'RATE_LIMIT_LOGIN_PER_MINUTE=60',
         'RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE=60',
-        'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=60'
+        'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=60',
+        'RATE_LIMIT_REFRESH_PER_MINUTE=60'
     )
     Set-ItemProperty -LiteralPath $serviceRegistry -Name Environment -Value $serviceEnvironment -ErrorAction Stop
     $registeredEnvironment=@((Get-ItemProperty -LiteralPath $serviceRegistry -Name Environment -ErrorAction Stop).Environment)
     if(@($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_PER_MINUTE=60'}).Count -ne 1 -or
        @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE=60'}).Count -ne 1 -or
-       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=60'}).Count -ne 1){
-        throw 'Disposable CI login rate-limit overrides were not installed.'
+       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=60'}).Count -ne 1 -or
+       @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_REFRESH_PER_MINUTE=60'}).Count -ne 1){
+        throw 'Disposable CI authentication rate-limit overrides were not installed.'
     }
     if(@($registeredEnvironment | Where-Object {$_ -ceq 'APP_ENV=dev'}).Count -ne 1 -or
        @($registeredEnvironment | Where-Object {$_ -ceq 'FISCAL_PROVIDER=mvp'}).Count -ne 1 -or
