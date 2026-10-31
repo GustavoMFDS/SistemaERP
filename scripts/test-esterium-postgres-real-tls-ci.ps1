@@ -803,14 +803,37 @@ SELECT
            $runningPg[0].StartMode -cne 'Manual' -or [int]$runningPg[0].ProcessId -le 0){
             throw 'PostgreSQL SCM service did not reach its expected running state.'
         }
-        $pgProcesses=@(Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" -ErrorAction Stop |
-            Where-Object {[String]::Equals([string]$_.ExecutablePath,(Join-Path $bin 'postgres.exe'),[StringComparison]::OrdinalIgnoreCase)})
-        if($pgProcesses.Count -lt 1){throw 'No PostgreSQL server process was found under the real SCM service.'}
+        # Isolate the postmaster PID recorded in this exact data directory.
+        # The independent restore cluster uses the same staged postgres.exe and
+        # remains running for the comparison, so an executable-path-only scan
+        # would also include its runner-owned processes.
+        $postmasterPidPath=Join-Path $data 'postmaster.pid'
+        if(-not(Test-Path -LiteralPath $postmasterPidPath -PathType Leaf)){
+            throw 'PostgreSQL service did not create its expected postmaster PID file.'
+        }
+        $postmasterPidText=([string](Get-Content -LiteralPath $postmasterPidPath -TotalCount 1)).Trim()
+        $expectedPostmasterPid=0
+        if(-not[int]::TryParse($postmasterPidText,[ref]$expectedPostmasterPid) -or $expectedPostmasterPid -le 0){
+            throw 'PostgreSQL service postmaster PID file is invalid.'
+        }
+        $pgProcesses=@(Get-CimInstance Win32_Process -Filter "ProcessId=$expectedPostmasterPid" -ErrorAction Stop |
+            Where-Object {
+                [String]::Equals([string]$_.Name,'postgres.exe',[StringComparison]::OrdinalIgnoreCase) -and
+                [String]::Equals([string]$_.ExecutablePath,(Join-Path $bin 'postgres.exe'),[StringComparison]::OrdinalIgnoreCase)
+            })
+        if($pgProcesses.Count -ne 1){
+            throw 'PostgreSQL postmaster PID does not identify one server from the verified staged binary.'
+        }
         foreach($process in $pgProcesses){
             $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
-            if([int]$owner.ReturnValue -ne 0 -or $owner.User -cne $pgServiceAccountName -or
-               $owner.Domain -cne $env:COMPUTERNAME){
-                throw 'PostgreSQL server process is not running under its dedicated non-admin Windows account.'
+            $ownerMatches=[int]$owner.ReturnValue -eq 0 -and
+                [String]::Equals([string]$owner.User,$pgServiceAccountName,[StringComparison]::OrdinalIgnoreCase) -and
+                [String]::Equals([string]$owner.Domain,[string]$env:COMPUTERNAME,[StringComparison]::OrdinalIgnoreCase)
+            Write-Host ('PostgreSQL CI postmaster identity: PID=['+$process.ProcessId+'], OwnerResult=['+
+                $owner.ReturnValue+'], User=['+$owner.User+'], Domain=['+$owner.Domain+'], ExpectedUser=['+
+                $pgServiceAccountName+'], ExpectedDomain=['+$env:COMPUTERNAME+'], Match=['+$ownerMatches+']')
+            if(-not $ownerMatches){
+                throw 'PostgreSQL postmaster is not running under its dedicated non-admin Windows account.'
             }
         }
         if((Run-Psql 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()') -cne 't' -or
