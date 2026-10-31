@@ -542,6 +542,18 @@ try {
         @('DOTNET_ROOT_X64='+$dotnetRuntimeDir,'DOTNET_ROOT='+$dotnetRuntimeDir,'DOTNET_MULTILEVEL_LOOKUP=0')
     & $serviceExe @environmentCommand | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao apontar Garnet para o runtime .NET privado.' }
+    $garnetServiceRegistryPath="HKLM:\SYSTEM\CurrentControlSet\Services\$GarnetServiceName"
+    $dotnetServiceEnvironment=@(
+        'DOTNET_ROOT_X64='+$dotnetRuntimeDir,
+        'DOTNET_ROOT='+$dotnetRuntimeDir,
+        'DOTNET_MULTILEVEL_LOOKUP=0'
+    )
+    New-ItemProperty -Path $garnetServiceRegistryPath -Name 'Environment' -PropertyType MultiString -Value $dotnetServiceEnvironment -Force -ErrorAction Stop | Out-Null
+    $registeredServiceEnvironment=@((Get-ItemProperty -Path $garnetServiceRegistryPath -Name 'Environment' -ErrorAction Stop).Environment)
+    if(@($registeredServiceEnvironment).Count -ne $dotnetServiceEnvironment.Count -or
+       @($dotnetServiceEnvironment | Where-Object {$registeredServiceEnvironment -notcontains $_}).Count -ne 0){
+        throw 'Garnet SCM environment does not pin the package-local .NET runtime.'
+    }
     $service=Get-CimInstance -ClassName Win32_Service -Filter "Name='$GarnetServiceName'"
     if ($null -eq $service -or
         $service.StartName -notin @('NT AUTHORITY\NetworkService','NT AUTHORITY\NETWORK SERVICE') -or
