@@ -444,6 +444,18 @@ try {
             @('DOTNET_ROOT_X64='+$dotnetRuntimeDir,'DOTNET_ROOT='+$dotnetRuntimeDir,'DOTNET_MULTILEVEL_LOOKUP=0')
         & $nssmExe @environmentCommand | Out-Null
         if($LASTEXITCODE -ne 0){throw 'NSSM refused the private Garnet .NET runtime environment.'}
+        $garnetServiceRegistryPath="HKLM:\SYSTEM\CurrentControlSet\Services\$nssmService"
+        $dotnetServiceEnvironment=@(
+            'DOTNET_ROOT_X64='+$dotnetRuntimeDir,
+            'DOTNET_ROOT='+$dotnetRuntimeDir,
+            'DOTNET_MULTILEVEL_LOOKUP=0'
+        )
+        New-ItemProperty -Path $garnetServiceRegistryPath -Name 'Environment' -PropertyType MultiString -Value $dotnetServiceEnvironment -Force -ErrorAction Stop | Out-Null
+        $registeredServiceEnvironment=@((Get-ItemProperty -Path $garnetServiceRegistryPath -Name 'Environment' -ErrorAction Stop).Environment)
+        if(@($registeredServiceEnvironment).Count -ne $dotnetServiceEnvironment.Count -or
+           @($dotnetServiceEnvironment | Where-Object {$registeredServiceEnvironment -notcontains $_}).Count -ne 0){
+            throw 'Garnet SCM environment does not pin the private .NET runtime.'
+        }
         $scmCommand=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
         $serviceAppPath=@(& $nssmExe get $nssmService Application 2>&1) -join ''
         $serviceParameters=@(& $nssmExe get $nssmService AppParameters 2>&1) -join ' '
