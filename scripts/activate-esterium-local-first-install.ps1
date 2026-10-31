@@ -69,6 +69,19 @@ if(-not $isLan -and -not [string]::IsNullOrWhiteSpace($TrustedRemoteAddress)){
     throw 'A loopback-only listener must not request a LAN firewall rule.'
 }
 
+function Test-FirewallRemoteScope([string[]]$Actual,[string]$Expected){
+    if($Actual.Count -ne 1){return $false}
+    $observed=[string]$Actual[0]
+    if([string]::Equals($observed,$Expected,[StringComparison]::OrdinalIgnoreCase)){return $true}
+    # Windows Firewall may normalize a single-host /32 to the bare IPv4
+    # address when returning its filter. Treat only that exact host as equal.
+    $slash=$Expected.LastIndexOf('/')
+    if($slash -gt 0 -and $Expected.Substring($slash+1) -ceq '32'){
+        return [string]::Equals($observed,$Expected.Substring(0,$slash),[StringComparison]::OrdinalIgnoreCase)
+    }
+    return $false
+}
+
 function ConvertTo-TrustedIPv4Network([string]$value,[bool]$allowLoopback){
     if($value -notmatch '^([^/]+)/([0-9]{1,2})$'){throw 'Firewall scope must be one canonical IPv4 CIDR.'}
     $address=$null
@@ -353,11 +366,14 @@ try{
         $portFilter=$rule[0] | Get-NetFirewallPortFilter
         $addressFilter=$rule[0] | Get-NetFirewallAddressFilter
         $applicationFilter=$rule[0] | Get-NetFirewallApplicationFilter
-        if([string]$portFilter.Protocol -ne 'TCP' -or
-           (@($portFilter.LocalPort).Count -ne 1 -or [string]$portFilter.LocalPort -ne [string]$port) -or
-           (@($addressFilter.RemoteAddress).Count -ne 1 -or [string]$addressFilter.RemoteAddress[0] -ne $canonicalRemote) -or
-           -not [string]::Equals([string]$applicationFilter.Program,$expectedBinary,[StringComparison]::OrdinalIgnoreCase)){
-            throw 'Windows Firewall rule does not match the HTTPS port, approved CIDR and ERP executable.'
+        $protocolMatches=[string]$portFilter.Protocol -in @('TCP','6')
+        $portValues=@($portFilter.LocalPort)
+        $portMatches=$portValues.Count -eq 1 -and [string]$portValues[0] -eq [string]$port
+        $scopeMatches=Test-FirewallRemoteScope -Actual @($addressFilter.RemoteAddress) -Expected $canonicalRemote
+        $programMatches=[string]::Equals([string]$applicationFilter.Program,$expectedBinary,[StringComparison]::OrdinalIgnoreCase)
+        if(-not $protocolMatches -or -not $portMatches -or -not $scopeMatches -or -not $programMatches){
+            throw ('Windows Firewall rule verification failed (TCP={0}; port={1}; CIDR={2}; executable={3}).' -f
+                $protocolMatches,$portMatches,$scopeMatches,$programMatches)
         }
     }
     $urlContent="[InternetShortcut]`r`nURL=$expectedOrigin`r`n"
