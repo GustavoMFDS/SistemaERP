@@ -57,6 +57,14 @@ function expectBody<T>(result: ApiResult, label: string): T {
   return result.body as T
 }
 
+async function assertNoHorizontalOverflow(page: Page, label: string): Promise<void> {
+  const widths = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }))
+  expect(widths.content, `${label} overflows ${widths.viewport}px viewport`).toBeLessThanOrEqual(widths.viewport + 1)
+}
+
 async function loginApi(page: Page, email: string, password: string): Promise<string> {
   const result = await browserApi(page, '/api/v1/auth/login', '', {
     method: 'POST', body: { email, password },
@@ -134,24 +142,22 @@ test('installed mobile routes remain usable without horizontal overflow', async 
   for (const [path, heading] of screens) {
     await page.goto(path)
     await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible()
-    const widths = await page.evaluate(() => ({
-      viewport: document.documentElement.clientWidth,
-      content: document.documentElement.scrollWidth,
-    }))
-    expect(widths.content, `${path} overflows ${widths.viewport}px viewport`).toBeLessThanOrEqual(widths.viewport + 1)
+    await assertNoHorizontalOverflow(page, path)
   }
 })
 
-test('installed navigation, attention alerts, and sale confirmation messages work with real services', async ({ page }) => {
-  test.skip(test.info().project.name !== 'chromium', 'screen 18-19 confirmation smoke runs once on Chromium')
+test('installed mobile and desktop navigation, attention alerts, and sale confirmation messages work with real services', async ({ page }) => {
+  test.skip(!['chromium', 'chromium-mobile'].includes(test.info().project.name), 'screen 18-19 confirmation smoke runs on Chromium desktop and mobile')
   await loginUi(page)
   const fiscalReminder = page.getByRole('dialog', { name: 'Sua configuração fiscal ainda não está concluída' })
   await expect(fiscalReminder).toBeVisible()
+  await assertNoHorizontalOverflow(page, 'screen 18 fiscal reminder')
+  const projectName = test.info().project.name
   const evidenceDir = process.env.ESTERIUM_LAB_EVIDENCE_DIR ?? ''
   expect(evidenceDir).not.toBe('')
   mkdirSync(evidenceDir, { recursive: true })
   await page.screenshot({
-    path: join(evidenceDir, 'installed-screen-18-fiscal-reminder.png'),
+    path: join(evidenceDir, `installed-screen-18-fiscal-reminder-${projectName}.png`),
     fullPage: true,
   })
   await fiscalReminder.getByRole('button', { name: 'Agora não' }).click()
@@ -171,8 +177,9 @@ test('installed navigation, attention alerts, and sale confirmation messages wor
   await expect(attention.getByText(
     /Nenhuma pendência encontrada|obrigação fiscal pendente|Contas vencidas em aberto|produto\(s\) em reposição|Cópia de segurança/,
   )).toBeVisible()
+  await assertNoHorizontalOverflow(page, 'screen 18 navigation and attention alerts')
   await page.screenshot({
-    path: join(evidenceDir, 'installed-screen-18-navigation-alerts.png'),
+    path: join(evidenceDir, `installed-screen-18-navigation-alerts-${projectName}.png`),
     fullPage: true,
   })
 
@@ -212,14 +219,16 @@ test('installed navigation, attention alerts, and sale confirmation messages wor
 
     const completed = page.getByRole('dialog', { name: 'Venda concluída' })
     await expect(completed).toBeVisible()
+    await assertNoHorizontalOverflow(page, 'screen 19 sale confirmation')
     await expect(completed.getByText(/Pagamento registrado\. Total: R\$\s*10,00/)).toBeVisible()
     await expect(completed.getByText('A autorização da nota fiscal, quando necessária, é conferida separadamente.')).toBeVisible()
     await completed.getByRole('button', { name: 'Continuar no caixa' }).click()
     await expect(page.getByRole('status').filter({
       hasText: 'Obrigação fiscal registrada. A emissão só é concluída após autorização fiscal.',
     })).toBeVisible()
+    await assertNoHorizontalOverflow(page, 'screen 19 post-sale status')
     await page.screenshot({
-      path: join(evidenceDir, 'installed-screen-19-sale-confirmation.png'),
+      path: join(evidenceDir, `installed-screen-19-sale-confirmation-${projectName}.png`),
       fullPage: true,
     })
 
