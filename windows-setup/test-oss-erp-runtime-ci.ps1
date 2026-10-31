@@ -253,7 +253,7 @@ try{
         try{$serialRng.GetBytes($serial);$serial[0]=$serial[0] -band 0x7f;if(@($serial|Where-Object {$_ -ne 0}).Count -eq 0){$serial[15]=1}}
         finally{$serialRng.Dispose()}
         $leafCert=$leafRequest.Create($rootCert,$now.AddMinutes(-5),$now.AddDays(2),$serial)
-        $leafWithKey=$leafCert.CopyWithPrivateKey($leafKey)
+        $leafWithKey=[Security.Cryptography.X509Certificates.RSACertificateExtensions]::CopyWithPrivateKey($leafCert,$leafKey)
         $serverCertPem=ConvertTo-Pem 'CERTIFICATE' $leafWithKey.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert)
         $rootCertPem=ConvertTo-Pem 'CERTIFICATE' $rootCert.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert)
         $privateKeyBytes=$leafKey.ExportPkcs8PrivateKey()
