@@ -172,6 +172,7 @@ try {
         $safeDetail=''
         # PowerShell often wraps a useful leaf error in a RuntimeException with
         # path/line context. Inspect a bounded chain, but emit only a complete
+        # Disposable CI may show short text-only errors, never paths or credentials.
         # short ASCII message with no credential terms or path syntax.
         $safeException=$failure.Exception
         for ($depth=0; $null -ne $safeException -and $depth -lt 6; $depth++) {
