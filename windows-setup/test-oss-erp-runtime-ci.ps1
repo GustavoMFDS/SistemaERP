@@ -569,6 +569,9 @@ try{
         throw 'Assisted repair did not restore the exact ERP service dependencies, loopback-only firewall rule and shortcut.'
     }
     Wait-ERPReady $httpPort 75
+    # Redis keeps the synthetic browser login counters for a one-minute window.
+    # Let those controlled-CI keys expire before proving the restored safe limits.
+    Start-Sleep -Seconds 61
     Assert-Login $httpPort
     foreach($path in $protectedHashes.Keys){
         if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $protectedHashes[$path]){
