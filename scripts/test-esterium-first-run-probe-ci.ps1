@@ -216,7 +216,7 @@ foreach ($part in @('setup-esterium-local-dependencies.ps1',
     }
 }
 foreach ($part in @('Disposable CI may show short text-only errors, never paths or credentials.',
-    '^[A-Za-z0-9 ,.;:()''-]{1,180}$',
+    '^[A-Za-z0-9 ,.;:()-]{1,180}$',
     '(?i)(password|secret|token|credential|bearer|https?://|[\\/]|[A-Z]:)')) {
     if (-not $entryText.Contains($part)) {
         throw 'One-command installer diagnostics must not expose paths or credentials.'
