@@ -284,14 +284,29 @@ if (-not [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsI
     throw 'Elevated Windows administrator is required.'
 }
 $success=$false
+function Write-CIDiagnosticStage {
+    param([Parameter(Mandatory=$true)]
+        [ValidateSet('disable ERP service','start dependency services',
+            'verify dependency ownership','run ERP dependency preflight',
+            'verify dependencies stopped and disabled','write protected readiness receipt',
+            'restore ERP manual startup')]
+        [string]$Stage)
+    if ($env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -eq '1' -and
+        $env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+        Write-Host ('CI diagnostic: first-run stage - '+$Stage)
+    }
+}
+
 $probeFailed=$false
 $probeFailureStage=''
 $probeStage='disable ERP service'
+Write-CIDiagnosticStage $probeStage
 try {
     # Disallow an external SCM trigger from starting ERP while dependencies
     # are temporarily alive. On a failed probe ERP remains Disabled.
     Set-Service -Name 'EsteriumERP' -StartupType Disabled -ErrorAction Stop
     $probeStage='start dependency services'
+    Write-CIDiagnosticStage $probeStage
     foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
         Set-Service -Name $name -StartupType Manual -ErrorAction Stop
         Start-Service -Name $name -ErrorAction Stop
@@ -299,8 +314,10 @@ try {
             [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
     }
     $probeStage='verify dependency ownership'
+    Write-CIDiagnosticStage $probeStage
     & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -RequireServiceOwnership | Out-Null
     $probeStage='run ERP dependency preflight'
+    Write-CIDiagnosticStage $probeStage
     $process=[Diagnostics.ProcessStartInfo]::new()
     $process.FileName=Assert-Local (Join-Path $bundle 'esterium-server.exe') $false
     $process.Arguments='--check-dependencies'
@@ -333,6 +350,7 @@ try {
 } catch {
     $probeFailed=$true
     $probeFailureStage=$probeStage
+    Write-Host ('CI diagnostic: first-run failed after - '+$probeStage)
 } finally {
     # Always attempt BOTH services, even when the first stop command fails.
     # Retain a hard failure if any process is still running or auto-start
@@ -357,6 +375,7 @@ try {
         } catch { $cleanupFailures+=('unverifiable-state:'+ $name) }
     }
     if ($cleanupFailures.Count -gt 0) {
+        Write-Host 'CI diagnostic: first-run dependency cleanup failed.'
         throw 'Probe cleanup could not confirm BOTH dependencies stopped and disabled; manual intervention required.'
     }
 }
@@ -364,6 +383,8 @@ if ($probeFailed) {
     throw ('First-run probe failed at stage: {0}.' -f $probeFailureStage)
 }
 if (-not $success) { throw 'Runtime probe did not pass.' }
+$probeStage='verify dependencies stopped and disabled'
+Write-CIDiagnosticStage $probeStage
 foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
     $state=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
     if ($state.StartMode -cne 'Disabled' -or $state.State -cne 'Stopped' -or [int]$state.ProcessId -ne 0) {
@@ -372,6 +393,8 @@ foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
 }
 # Only a completed, successful probe produces a one-time audit receipt.
 # It deliberately does NOT authorize automatic ERP startup or fiscal traffic.
+$probeStage='write protected readiness receipt'
+Write-CIDiagnosticStage $probeStage
 $receiptParent=Split-Path -Parent $receiptTarget
 [IO.Directory]::CreateDirectory($receiptParent) | Out-Null
 $staging=Join-Path $receiptParent ('.esterium-first-run-'+[Guid]::NewGuid().ToString('N'))
@@ -413,6 +436,8 @@ try {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+$probeStage='restore ERP manual startup'
+Write-CIDiagnosticStage $probeStage
 Set-Service -Name 'EsteriumERP' -StartupType Manual -ErrorAction Stop
 Write-Output 'PASS: PostgreSQL schema and Garnet TLS/ACL/Lua verified by real ERP preflight.'
 Write-Output 'NOT ENABLED: dependencies stopped/disabled, ERP remains stopped/manual; backup restoration and release approval are still required.'
