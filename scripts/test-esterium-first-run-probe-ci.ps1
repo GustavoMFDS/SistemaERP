@@ -47,6 +47,9 @@ if ($text.Contains([string]::Concat("'OriginalPostgresql-'",'+','$PostgresServic
 foreach ($required in @('finally {','-StartupType Disabled','--check-dependencies',
     'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership',
     'First-run probe required local item is missing:','GetFileName($missingCursor)','TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar','$missing=$missing -replace',
+    '$probeStage=','disable ERP service','start dependency services',
+    'verify dependency ownership','run ERP dependency preflight','$probeFailed=$true',
+    '$probeFailureStage=$probeStage','First-run probe failed at stage: {0}.',
     'OriginalPostgresql-$PostgresServiceName.conf','OriginalPgHba-$PostgresServiceName.conf',
     '$originalConfigNames.Count -ne 2','First-run PostgreSQL TLS original config filenames collapsed.',
     'backupRestoreApproved=$false','automaticStartupApproved=$false','probe-result.json',
@@ -216,6 +219,7 @@ foreach ($part in @('setup-esterium-local-dependencies.ps1',
     }
 }
 foreach ($part in @('Disposable CI may show short text-only errors, never paths or credentials.',
+    '$probeStagePattern=','First-run probe failed at stage: ',
     '$safeException=$failure.Exception',
     '$safeException=$safeException.InnerException',
     '.Replace([string][char]39,'''')',
