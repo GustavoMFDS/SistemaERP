@@ -17,7 +17,14 @@ if (@($parseErrors).Count -gt 0) {
     throw ('First-run runtime probe PowerShell parser errors: '+
         (@($parseErrors | Select-Object -ExpandProperty Message) -join '; '))
 }
-$opts=@{BundleDir=$env:RUNNER_TEMP;Apply=$true}
+$opts=@{
+    BundleDir=$env:RUNNER_TEMP
+    AllowedOrigin='https://esterium.ci.invalid:8443'
+    ListenAddress='127.0.0.1:8443'
+    TLSCertFile=(Join-Path $env:RUNNER_TEMP 'synthetic-erp-cert.pem')
+    TLSKeyFile=(Join-Path $env:RUNNER_TEMP 'synthetic-erp-key.pem')
+    Apply=$true
+}
 $denied=''
 try { & $probe @opts | Out-Null }
 catch { $denied=$_.Exception.Message }
