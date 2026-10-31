@@ -65,15 +65,18 @@ export const test = base.extend({
   },
 })
 
-export const cashTest = test.extend({
-  page: async ({ page, request }, runScenario) => {
-    await cleanupOpenCashSessions(request)
-    try {
-      await runScenario(page)
-    } finally {
+export const cashTest = test.extend<{ cashSessionCleanup: void }>({
+  cashSessionCleanup: [
+    async ({ request }, use) => {
       await cleanupOpenCashSessions(request)
-    }
-  },
+      try {
+        await use()
+      } finally {
+        await cleanupOpenCashSessions(request)
+      }
+    },
+    { auto: true },
+  ],
 })
 
 export { expect }
