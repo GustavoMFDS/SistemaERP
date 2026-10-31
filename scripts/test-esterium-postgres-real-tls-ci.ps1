@@ -695,15 +695,24 @@ SELECT
             throw ('Expected one disposable PostgreSQL SCM entry; observed '+$registeredPg.Count+'.')
         }
         $pgObserved=$registeredPg[0]
-        $pgObservedStartName=[string]$pgObserved.StartName
-        $expectedPgServiceStartNames=@('.\'+[string]$serviceUser.Name,($env:COMPUTERNAME+'\'+[string]$serviceUser.Name))
-        $pgIdentityMatches=$false
-        foreach($expectedStartName in $expectedPgServiceStartNames){
-            if([String]::Equals($pgObservedStartName,[string]$expectedStartName,[StringComparison]::OrdinalIgnoreCase)){
-                $pgIdentityMatches=$true
-                break
-            }
+        $pgObservedStartName=([string]$pgObserved.StartName).Trim()
+        $pgObservedAuthority=''
+        $pgObservedAccountName=''
+        $pgObservedSeparator=$pgObservedStartName.LastIndexOf([char]92)
+        if($pgObservedSeparator -gt 0 -and $pgObservedSeparator -lt ($pgObservedStartName.Length-1)){
+            $pgObservedAuthority=$pgObservedStartName.Substring(0,$pgObservedSeparator)
+            $pgObservedAccountName=$pgObservedStartName.Substring($pgObservedSeparator+1)
         }
+        $expectedPgAccountName=[string]$serviceUser.Name
+        $pgAuthorityMatches=[String]::Equals($pgObservedAuthority,'.',[StringComparison]::OrdinalIgnoreCase) -or
+            [String]::Equals($pgObservedAuthority,[string]$env:COMPUTERNAME,[StringComparison]::OrdinalIgnoreCase)
+        $pgAccountNameMatches=[String]::Equals($pgObservedAccountName,$expectedPgAccountName,[StringComparison]::OrdinalIgnoreCase)
+        $pgObservedAccountSid=''
+        if($pgAuthorityMatches -and $pgAccountNameMatches){
+            $pgLocalAccount=Get-LocalUser -Name $pgObservedAccountName -ErrorAction SilentlyContinue
+            if($null -ne $pgLocalAccount){$pgObservedAccountSid=[string]$pgLocalAccount.SID.Value}
+        }
+        $pgIdentityMatches=$pgObservedAccountSid -ceq $pgServiceAccountSid
         $pgModeMatches=[String]::Equals([string]$pgObserved.StartMode,'Disabled',[StringComparison]::OrdinalIgnoreCase)
         $pgStateMatches=[String]::Equals([string]$pgObserved.State,'Stopped',[StringComparison]::OrdinalIgnoreCase)
         $pgProcessMatches=([int]$pgObserved.ProcessId -eq 0)
@@ -714,7 +723,7 @@ SELECT
         if(-not $pgStateMatches){$pgMetadataFailures+='state'}
         if(-not $pgProcessMatches){$pgMetadataFailures+='process ID'}
         if(-not $pgPathMatches){$pgMetadataFailures+='binary/cluster path'}
-        Write-Host ('PostgreSQL SCM observation: StartName=[{0}], ExpectedStartNames=[{1}], AccountSID=[{2}], IdentityMatch=[{3}], ModeOK=[{4}], StateOK=[{5}], PIDOK=[{6}], PathOK=[{7}]' -f $pgObservedStartName,($expectedPgServiceStartNames -join ';'),$pgServiceAccountSid,$pgIdentityMatches,$pgModeMatches,$pgStateMatches,$pgProcessMatches,$pgPathMatches)
+        Write-Host ('PostgreSQL SCM observation: StartName=['+$pgObservedStartName+'], Authority=['+$pgObservedAuthority+'], Account=['+$pgObservedAccountName+'], ObservedSID=['+$pgObservedAccountSid+'], ExpectedSID=['+$pgServiceAccountSid+'], IdentityMatch=['+$pgIdentityMatches+'], ModeOK=['+$pgModeMatches+'], StateOK=['+$pgStateMatches+'], PIDOK=['+$pgProcessMatches+'], PathOK=['+$pgPathMatches+']')
         if($pgMetadataFailures.Count -gt 0){
             throw ('PostgreSQL SCM metadata mismatch: '+($pgMetadataFailures -join ', ')+'.')
         }
