@@ -18,6 +18,16 @@ param(
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+function Test-ExactFirewallRemoteScope([string[]]$Actual,[string]$Expected){
+    if($Actual.Count -ne 1){return $false}
+    $observed=[string]$Actual[0]
+    if([string]::Equals($observed,$Expected,[StringComparison]::OrdinalIgnoreCase)){return $true}
+    $slash=$Expected.LastIndexOf('/')
+    if($slash -gt 0 -and $Expected.Substring($slash+1) -ceq '32'){
+        return [string]::Equals($observed,$Expected.Substring(0,$slash),[StringComparison]::OrdinalIgnoreCase)
+    }
+    return $false
+}
 if($env:OS -ne 'Windows_NT'){throw 'Esterium uninstall requires Windows.'}
 if($UnsignedDisposableCIFixture -and (
    $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
@@ -90,7 +100,7 @@ if($firewall.Count -eq 1){
        $firewall[0].Direction -ne 'Inbound' -or [string]$firewall[0].Profile -notmatch 'Domain' -or
        [string]$firewall[0].Profile -notmatch 'Private' -or [string]$ports.Protocol -ne 'TCP' -or
        [string]$ports.LocalPort -ne [string]$receipt.httpsPort -or
-       [string]$addresses.RemoteAddress -ne [string]$receipt.trustedRemoteAddress -or
+       -not (Test-ExactFirewallRemoteScope -Actual @($addresses.RemoteAddress) -Expected ([string]$receipt.trustedRemoteAddress)) -or
        -not [string]::Equals([string]$app.Program,(Join-Path $install 'esterium-server.exe'),[StringComparison]::OrdinalIgnoreCase)){
         throw 'Managed firewall rule was changed; uninstall refuses to remove a rule with a different scope.'
     }

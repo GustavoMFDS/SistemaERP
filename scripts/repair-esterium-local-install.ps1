@@ -18,6 +18,16 @@ param(
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+function Test-ExactFirewallRemoteScope([string[]]$Actual,[string]$Expected){
+    if($Actual.Count -ne 1){return $false}
+    $observed=[string]$Actual[0]
+    if([string]::Equals($observed,$Expected,[StringComparison]::OrdinalIgnoreCase)){return $true}
+    $slash=$Expected.LastIndexOf('/')
+    if($slash -gt 0 -and $Expected.Substring($slash+1) -ceq '32'){
+        return [string]::Equals($observed,$Expected.Substring(0,$slash),[StringComparison]::OrdinalIgnoreCase)
+    }
+    return $false
+}
 if($env:OS -ne 'Windows_NT'){throw 'Esterium repair requires Windows.'}
 if($UnsignedDisposableCIFixture -and (
    $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
@@ -178,7 +188,7 @@ if($rule.Count -eq 1){
        $rule[0].Direction -ne 'Inbound' -or [string]$rule[0].Profile -notmatch 'Domain' -or
        [string]$rule[0].Profile -notmatch 'Private' -or [string]$ports.Protocol -ne 'TCP' -or
        [string]$ports.LocalPort -ne [string]$receipt.httpsPort -or
-       [string]$addresses.RemoteAddress -ne [string]$receipt.trustedRemoteAddress -or
+       -not (Test-ExactFirewallRemoteScope -Actual @($addresses.RemoteAddress) -Expected ([string]$receipt.trustedRemoteAddress)) -or
        -not [string]::Equals([string]$app.Program,$expectedBinary,[StringComparison]::OrdinalIgnoreCase)){
         throw 'Existing managed firewall rule was changed; it will not be overwritten.'
     }
