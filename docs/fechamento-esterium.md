@@ -124,3 +124,13 @@ Reboot real em Windows limpo, validação física em dois PCs/LAN, restore exter
 
 Reboot real em Windows limpo, validação física em dois PCs/LAN, restore externo independente, assinatura comercial Authenticode e proveniência do editor, revisão jurídica dos fornecedores, transmissão SEFAZ real, Pix/TEF, periféricos, aceite contábil e aceite do responsável pela issue #160 seguem pendentes. A issue #160 permanece aberta: a origem histórica da primeira sessão vazada não foi identificada.
 
+
+## Atualização 31/10/2026 — correção da lista PostgreSQL na PR #212
+
+- Na instalação completa do head `307134c2ebcfd1b11b27f1d6cc33e0fa501a2e77`, o probe recebeu um único caminho combinado, `OriginalPostgresql-EsteriumPostgreSQL16.conf_OriginalPgHba-EsteriumPostgreSQL16.conf`, devido à expressão PowerShell que montava os dois nomes. A causa foi reproduzida.
+- O head `61d26f0b6b76d58f1ff0d853bde5bc90ea781b39` separa as duas entradas e testa que existam exatamente duas; o teste estático também rejeita a expressão anterior. Os dois scripts passaram pelo parser PowerShell local.
+- No head anterior, CI geral passou 19/19 e E2E passou duas vezes (162 passaram, 6 ignorados por execução). No run Windows `41239727820`, a prévia ZIP passou instalação, TLS/SCRAM, migrations, recuperação, navegador, cooldown, reparo e desinstalação conservadora; a instalação completa falhou somente ao encontrar o caminho combinado.
+- Para o novo head, a prévia unsigned já passou no run Windows `41241089612`. Os jobs de instalação completa e ZIP ainda estão em execução; o CI geral `41241089597` também permanece em execução na última consulta. A correção aguarda validação integrada.
+- PR #213 antes desta atualização documental estava no head `853788f08a79e39f4d4a213f2096b11bc70cd556`; seu CI `41240481987` ainda aguardava o smoke do instalador PostgreSQL EDB 16.15. Esta alteração inicia nova validação documental.
+- PRs #212 e #213 seguem abertas e Draft. Sem merge, release, instalação em cliente ou ativação fiscal/comercial.
+
