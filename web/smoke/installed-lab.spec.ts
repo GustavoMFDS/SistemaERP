@@ -143,7 +143,7 @@ test('installed navigation, attention alerts, and sale confirmation messages wor
   await attention.getByRole('button', { name: 'Atualizar avisos' }).click()
   await expect(attention.getByRole('button', { name: 'Atualizar avisos' })).toBeEnabled()
   await expect(attention.getByText(
-    /Nenhuma pendência encontrada|venda\(s\) com obrigação fiscal pendente|Não foi possível verificar todas as áreas/,
+    /Nenhuma pendência encontrada|obrigação fiscal pendente|Contas vencidas em aberto|produto\(s\) em reposição|Cópia de segurança/,
   )).toBeVisible()
   await page.screenshot({
     path: join(evidenceDir, 'installed-screen-18-navigation-alerts.png'),
