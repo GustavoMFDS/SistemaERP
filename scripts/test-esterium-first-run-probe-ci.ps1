@@ -215,6 +215,13 @@ foreach ($part in @('setup-esterium-local-dependencies.ps1',
         throw 'Single-command installer lost a required fail-closed operation.'
     }
 }
+foreach ($part in @('Disposable CI may show short text-only errors, never paths or credentials.',
+    '^[A-Za-z0-9 ,.;:()''-]{1,180}$',
+    '(?i)(password|secret|token|credential|bearer|https?://|[\\/]|[A-Z]:)')) {
+    if (-not $entryText.Contains($part)) {
+        throw 'One-command installer diagnostics must not expose paths or credentials.'
+    }
+}
 $fakeRoot=Join-Path $env:RUNNER_TEMP ('esterium-first-install-entry-'+[Guid]::NewGuid().ToString('N'))
 $fakeTools=Join-Path $fakeRoot 'tools'
 [IO.Directory]::CreateDirectory($fakeTools) | Out-Null
