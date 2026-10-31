@@ -117,9 +117,11 @@ function Assert-InstalledServices {
         }
     }
 }
-function Register-LabCertificateTrust([string]$Thumbprint) {
+function Register-LabCertificateTrust([string]$Thumbprint, [switch]$CodePublisher) {
     $source = 'Cert:\LocalMachine\My\' + $Thumbprint
-    foreach ($store in @('Cert:\LocalMachine\Root', 'Cert:\LocalMachine\TrustedPublisher')) {
+    $stores = @('Cert:\LocalMachine\Root')
+    if ($CodePublisher) { $stores += 'Cert:\LocalMachine\TrustedPublisher' }
+    foreach ($store in $stores) {
         if (-not (Test-Path -LiteralPath ($store + '\' + $Thumbprint))) { Copy-Item -LiteralPath $source -Destination $store -ErrorAction Stop | Out-Null }
     }
 }
@@ -153,7 +155,7 @@ try {
 
     $signer = New-SelfSignedCertificate -Type CodeSigningCert -Subject ('CN=Esterium Disposable CI Signer ' + [Guid]::NewGuid().ToString('N')) -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(14)
     $signerThumbprint = $signer.Thumbprint.ToUpperInvariant()
-    Register-LabCertificateTrust $signerThumbprint
+    Register-LabCertificateTrust $signerThumbprint -CodePublisher
     $httpsCertificate = New-SelfSignedCertificate -Type SSLServerAuthentication -DnsName $labHost -FriendlyName 'Esterium disposable CI HTTPS only' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(14)
     $httpsThumbprint = $httpsCertificate.Thumbprint.ToUpperInvariant()
     Register-LabCertificateTrust $httpsThumbprint
@@ -356,6 +358,7 @@ try {
 }
 finally {
     Remove-Item Function:\global:Read-Host -Force -ErrorAction SilentlyContinue
+    Remove-Variable LabPromptValues,LabAdminEmail,LabAdminPassword -Scope Global -Force -ErrorAction SilentlyContinue
     foreach ($serviceName in @('EsteriumERP', 'EsteriumGarnet', 'EsteriumPostgreSQL16')) {
         try {
             $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue

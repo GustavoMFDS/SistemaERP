@@ -504,6 +504,9 @@ jobs:
             # and Garnet integration on a disposable Windows runner. Manual
             # dispatch additionally requires all independent component jobs.
             checks="UI COMBINED_EXE FULL_INSTALL"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            # Main-branch pushes run the preview build; manual-only component jobs are skipped.
+            checks="UI"
           else
             checks="UI POSTGRES_BIN POSTGRES_TLS_SCHEMA GARNET_TLS_AOF COMBINED_EXE FULL_INSTALL"
           fi
