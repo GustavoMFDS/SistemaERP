@@ -2045,6 +2045,8 @@ jobs:
     runs-on: ubuntu-latest
     # Never leave a pre-browser API readiness step holding a runner indefinitely.
     timeout-minutes: 25
+    env:
+      E2E_DISPOSABLE_DATABASE: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
