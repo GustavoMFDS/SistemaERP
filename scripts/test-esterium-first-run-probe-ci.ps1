@@ -218,7 +218,7 @@ foreach ($part in @('setup-esterium-local-dependencies.ps1',
 foreach ($part in @('Disposable CI may show short text-only errors, never paths or credentials.',
     '$safeException=$failure.Exception',
     '$safeException=$safeException.InnerException',
-    '.Replace([char]39,'''')',
+    '.Replace([string][char]39,'''')',
     '^[A-Za-z0-9 ,.;:()-]{1,180}$',
     '(?i)(password|secret|token|credential|bearer)',
     '[A-Z]:')) {
