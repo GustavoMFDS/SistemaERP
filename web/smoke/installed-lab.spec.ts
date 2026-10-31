@@ -176,7 +176,7 @@ test('installed mobile and desktop navigation, attention alerts, and sale confir
   await expect(attention.getByRole('button', { name: 'Atualizar avisos' })).toBeEnabled()
   await expect(attention.getByText(
     /Nenhuma pendência encontrada|obrigação fiscal pendente|Contas vencidas em aberto|produto\(s\) em reposição|Cópia de segurança/,
-  )).toBeVisible()
+  ).first()).toBeVisible()
   await assertNoHorizontalOverflow(page, 'screen 18 navigation and attention alerts')
   await page.screenshot({
     path: join(evidenceDir, `installed-screen-18-navigation-alerts-${projectName}.png`),
