@@ -216,7 +216,74 @@ foreach ($part in @('setup-esterium-local-dependencies.ps1',
     }
 }
 foreach ($part in @('Disposable CI may show short text-only errors, never paths or credentials.',
-    '^[A-Za-z0-9 ,.;:()-]{1,180}$',
+    '$safeException=$failure.Exception',
+    '$safeException=$safeException.InnerException',
+    '.Replace([char]39,'''')',
+    '^[A-Za-z0-9 ,.;:()-]{1,180}
+    if (-not $entryText.Contains($part)) {
+        throw 'One-command installer diagnostics must not expose paths or credentials.'
+    }
+}
+$fakeRoot=Join-Path $env:RUNNER_TEMP ('esterium-first-install-entry-'+[Guid]::NewGuid().ToString('N'))
+$fakeTools=Join-Path $fakeRoot 'tools'
+[IO.Directory]::CreateDirectory($fakeTools) | Out-Null
+try {
+    foreach ($file in @('activate-esterium-local-first-install.ps1','install-esterium-local-complete.ps1',
+                        'setup-esterium-local-dependencies.ps1',
+                        'finish-esterium-local-first-install.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $fakeTools -ErrorAction Stop
+    }
+    $fakeEntry=Join-Path $fakeTools 'install-esterium-local-complete.ps1'
+    $args=@{
+        SourceBundleDir=$fakeRoot
+        AllowedOrigin='https://esterium.ci.invalid:8443'
+        PostgresInstaller=(Join-Path $fakeRoot 'postgres.exe')
+        ExpectedPostgresSHA256=('0'*64)
+        ExpectedPostgresPublisherThumbprint=('0'*40)
+        GarnetPackage=(Join-Path $fakeRoot 'garnet.zip')
+        ExpectedGarnetSHA256=('0'*64)
+        ServiceWrapperExe=(Join-Path $fakeRoot 'nssm.exe')
+        ExpectedServiceWrapperSHA256=('0'*64)
+        ApprovedManifestSHA256=('0'*64)
+        TrustedPublisherThumbprint=('0'*40)
+        Apply=$true
+    }
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'sem assinatura do editor aprovado') {
+        throw 'One-command setup did not refuse an untrusted publisher before side effects.'
+    }
+    $args.ApprovedManifestSHA256=''
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'manifesto e editor aprovados independentemente') {
+        throw 'One-command setup accepted missing release approval.'
+    }
+    $args.Apply=$false
+    $args.AllowedOrigin='http://localhost:8080'
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'origem HTTPS aprovada') {
+        throw 'One-command setup accepted an insecure browser origin.'
+    }
+    $args.AllowedOrigin='https://esterium.ci.invalid:8443'
+    $args.GarnetPort=5432
+    $denied=''
+    try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
+    if ($denied -notmatch 'precisam ser distintas') {
+        throw 'One-command setup accepted conflicting database/cache ports.'
+    }
+    if (@(Get-ChildItem -LiteralPath $fakeTools -File).Count -ne 4) {
+        throw 'One-command negative tests mutated disposable source tools.'
+    }
+} finally {
+    Remove-Item -LiteralPath $fakeRoot -Recurse -Force -ErrorAction Stop
+}
+Write-Output 'PASS: single-command installer parses and refuses unsigned Apply, missing approval and unsafe origin/ports.'
+
+Write-Output 'PASS: first-run runtime probe parses and refuses unsigned Apply before touching Windows services.'
+Write-Output 'NOT EXECUTED: genuine signed EDB/NSSM SCM startup remains a vendor pilot gate.'
+,
     '(?i)(password|secret|token|credential|bearer|https?://|[\\/]|[A-Z]:)')) {
     if (-not $entryText.Contains($part)) {
         throw 'One-command installer diagnostics must not expose paths or credentials.'
