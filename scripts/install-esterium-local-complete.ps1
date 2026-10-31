@@ -169,7 +169,19 @@ try {
         }
         $failureLine=[int]$failure.InvocationInfo.ScriptLineNumber
         $failureType=$failure.Exception.GetType().FullName
-        throw ('Instalacao inicial do ERP interrompida; preserve o banco e nao repetir Apply. [CI diagnostic: {0} at {1}:{2}]' -f $failureType,$failureFile,$failureLine)
+        $safeDetail=''
+        if ($failure.Exception.Message -match '^(?:Bootstrap recusado: )?(FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+)
+    }
+    throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
+}
+Write-Output 'PASS: instalacao inicial assinada; migracoes/admin/HTTPS/servicos/atalho e health foram ativados.'
+Write-Output 'FISCAL permanece desativado; backup externo, EDB EXE, terminais fisicos e piloto comercial continuam independentes.'
+) {
+            $safeDetail=$Matches[1]
+        }
+        $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
+        if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
+        throw ('Instalacao inicial do ERP interrompida; preserve o banco e nao repetir Apply. [CI diagnostic: {0}]' -f $diagnostic)
     }
     throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
 }
