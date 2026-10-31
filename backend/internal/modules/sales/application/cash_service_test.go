@@ -100,7 +100,7 @@ func TestCurrentSessionWithExpectedCashIncludesCashMovementsOnly(t *testing.T) {
 			"cash": platform.NewMoneyCents(1000),
 			"pix":  platform.NewMoneyCents(5000),
 		},
-		supply:    platform.NewMoneyCents(300),
+		supply:     platform.NewMoneyCents(300),
 		withdrawal: platform.NewMoneyCents(50),
 	}
 	service := NewCashService(fakeUOW{}, repo, nil, nil, nil, nil)
