@@ -428,6 +428,10 @@ try {
            $serviceEnvironment.IndexOf(('DOTNET_ROOT='+$dotnetRuntimeDir),[StringComparison]::OrdinalIgnoreCase) -lt 0){
             throw 'NSSM did not retain both private .NET runtime root variables.'
         }
+        & icacls.exe $script:dotnetRuntimeCopy '/grant:r' '*S-1-5-20:(OI)(CI)RX' '/T' '/C' | Out-Null
+        if($LASTEXITCODE -ne 0){
+            throw 'Could not grant the disposable NetworkService account read access to the private Garnet runtime.'
+        }
     }
     $scm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
     if ($scm.Count -ne 1 -or $scm[0].StartMode -cne 'Disabled' -or
