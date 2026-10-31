@@ -438,7 +438,8 @@ try{
        @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_PER_MINUTE=60'}).Count -ne 1 -or
        @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IDENTIFIER_PER_MINUTE=60'}).Count -ne 1 -or
        @($registeredEnvironment | Where-Object {$_ -ceq 'RATE_LIMIT_LOGIN_IP_IDENTIFIER_PER_MINUTE=60'}).Count -ne 1 -or
-       @($registeredEnvironment | Where-Object {$_ -match '^NFCE_SEFAZ_(?:PRODUCTION|HOMOLOGATION)_ENABLED=true
+       @($registeredEnvironment | Where-Object {$_ -match '^NFCE_SEFAZ_(?:PRODUCTION|HOMOLOGATION)_ENABLED=true$''}).Count -ne 0){
+        throw 'Disposable local XML provider override or SEFAZ-disabled assertions failed.'
     }
     Restart-Service -Name $serviceName -Force -ErrorAction Stop
     (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(30))
