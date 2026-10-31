@@ -488,7 +488,10 @@ try{
 
     Stop-Service -Name $serviceName -ErrorAction Stop
     (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
-    Start-Service -Name $serviceName -ErrorAction Stop
+    $recoveryService=Get-Service -Name $serviceName -ErrorAction Stop
+    if($recoveryService.Status -eq [ServiceProcess.ServiceControllerStatus]::Stopped){
+        Start-Service -Name $serviceName -ErrorAction Stop
+    }
     (Get-Service -Name $serviceName).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(30))
     Wait-ERPReady $httpPort 60
     Assert-Login $httpPort
