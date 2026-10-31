@@ -692,9 +692,14 @@ SELECT
         $pgServiceCredential=$null
         $registeredPg=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop)
         $expectedPgNames=@($serviceCredentialName,'.\'+$pgServiceAccountName,($env:COMPUTERNAME+'\'+$pgServiceAccountName))
-        if($registeredPg.Count -ne 1 -or $registeredPg[0].StartName -notin $expectedPgNames -or
-           $registeredPg[0].StartMode -cne 'Disabled' -or $registeredPg[0].State -cne 'Stopped' -or
-           [int]$registeredPg[0].ProcessId -ne 0 -or $registeredPg[0].PathName -cne $expectedPgServiceCommand){
+        if($registeredPg.Count -ne 1){
+            throw ('Expected one disposable PostgreSQL SCM entry; observed '+$registeredPg.Count+'.')
+        }
+        $pgObserved=$registeredPg[0]
+        Write-Host ('PostgreSQL SCM observation: StartName=[{0}], StartMode=[{1}], State=[{2}], ProcessId=[{3}], PathName=[{4}], ExpectedPath=[{5}]' -f $pgObserved.StartName,$pgObserved.StartMode,$pgObserved.State,$pgObserved.ProcessId,$pgObserved.PathName,$expectedPgServiceCommand)
+        if($pgObserved.StartName -notin $expectedPgNames -or
+           $pgObserved.StartMode -cne 'Disabled' -or $pgObserved.State -cne 'Stopped' -or
+           [int]$pgObserved.ProcessId -ne 0 -or $pgObserved.PathName -cne $expectedPgServiceCommand){
             throw 'PostgreSQL SCM entry did not retain the dedicated non-admin identity or isolated cluster path.'
         }
         Write-Host 'PostgreSQL CI: switching isolated TLS cluster from pg_ctl to restricted-account SCM service.'
