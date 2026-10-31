@@ -170,13 +170,7 @@ try {
         $failureLine=[int]$failure.InvocationInfo.ScriptLineNumber
         $failureType=$failure.Exception.GetType().FullName
         $safeDetail=''
-        if ($failure.Exception.Message -match '^(?:Bootstrap recusado: )?(FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+)
-    }
-    throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
-}
-Write-Output 'PASS: instalacao inicial assinada; migracoes/admin/HTTPS/servicos/atalho e health foram ativados.'
-Write-Output 'FISCAL permanece desativado; backup externo, EDB EXE, terminais fisicos e piloto comercial continuam independentes.'
-) {
+        if ($failure.Exception.Message -match '^(?:Bootstrap recusado: )?(FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+)$') {
             $safeDetail=$Matches[1]
         }
         $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
