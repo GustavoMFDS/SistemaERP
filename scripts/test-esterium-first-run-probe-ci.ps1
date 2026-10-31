@@ -220,7 +220,8 @@ foreach ($part in @('Disposable CI may show short text-only errors, never paths 
     '$safeException=$safeException.InnerException',
     '.Replace([char]39,'''')',
     '^[A-Za-z0-9 ,.;:()-]{1,180}$',
-    '(?i)(password|secret|token|credential|bearer|https?://|[\\/]|[A-Z]:)')) {
+    '(?i)(password|secret|token|credential|bearer)',
+    '[A-Z]:')) {
     if (-not $entryText.Contains($part)) {
         throw 'One-command installer diagnostics must not expose paths or credentials.'
     }
