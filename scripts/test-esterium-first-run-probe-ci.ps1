@@ -43,7 +43,7 @@ if ($denied -notmatch '(not signed by approved publisher|cannot be trusted)') {
 $text=[IO.File]::ReadAllText($probe)
 foreach ($required in @('finally {','-StartupType Disabled','--check-dependencies',
     'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership',
-    'First-run probe required local item is missing:','GetFileName($cursor)',
+    'First-run probe required local item is missing:','GetFileName($missingCursor)','TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar',
     'backupRestoreApproved=$false','automaticStartupApproved=$false','probe-result.json',
     "Set-Service -Name 'EsteriumERP' -StartupType Disabled")) {
     if (-not $text.Contains($required)) {
