@@ -111,14 +111,14 @@ Ambos os PRs permanecem Draft e separados. Não houve merge, release, instalaç�
 
 Reboot real em Windows limpo, validação física em dois PCs/LAN, restore externo independente, assinatura comercial Authenticode e proveniência do editor, revisão jurídica dos fornecedores, transmissão SEFAZ real, Pix/TEF, periféricos, aceite contábil e aceite do responsável pela issue #160 seguem pendentes. A issue #160 permanece aberta: não foi identificada a origem histórica da primeira sessão vazada.
 
-### Atualização de CI posterior — head #212 `ce1ed41fc85eded7d94264f12acf52a0646420a0`
+### Atualização de CI posterior — head atual #212 `307134c2ebcfd1b11b27f1d6cc33e0fa501a2e77`
 
-- O parser do probe e do teste estático passou no runner Windows; a simulação local confirmou a extração segura do item ausente com separador final.
-- CI geral: 18/19 jobs aprovados. O smoke EDB 16.15 ainda está em andamento ([run 41238198595](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238198595)).
-- E2E no SHA atual: 162 passaram e 6 foram ignorados. Uma segunda execução no mesmo SHA ainda será feita após o CI concluir. O head anterior `f209b98967f6dabbfb328488ccfc7dda8810fbf9` já passou duas vezes com o mesmo resultado.
-- A validação integrada Windows está ativa ([run 41238198614](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238198614)). No head anterior, o diagnóstico apontou um caminho com separador final; o novo código remove o separador antes de relatar o nome.
-- A instalação só será considerada aprovada após instalação completa, navegação HTTPS, reinício das dependências, reparo e desinstalação conservadora.
-- Nenhum serviço ou dado do Windows local foi alterado. Não houve instalação em cliente, merge, release, venda ou ativação fiscal.
+- PR #213, head documental `daa59c8e802e62e5242f284b37bb3ff80955ec6f`: CI **19/19 aprovado** ([run 41238882782](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238882782)).
+- PR #212, head anterior `ce1ed41fc85eded7d94264f12acf52a0646420a0`: CI **19/19 aprovado** ([run 41238198595](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238198595)); duas execuções E2E no mesmo SHA passaram com 162 testes e 6 ignorados.
+- A bancada integrada anterior ([run 41238198614](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238198614)) falhou: probe reportou `ancestor` para item ausente; o ciclo ZIP chegou à navegação e recuperação de serviços, mas o login final recebeu HTTP 429 pelo limite de uma janela.
+- O head atual `307134c2ebcfd1b11b27f1d6cc33e0fa501a2e77` normaliza caracteres inseguros do nome do item e aguarda 61 segundos para expirar os contadores Redis do navegador antes do login final. Parser local dos três scripts passou.
+- CI e bancada integrada do head atual ainda pendentes. Só contar como aprovado após o fluxo integrado completo terminar.
+- Sem alteração de serviço ou dado no Windows local; sem instalação em cliente, merge, release, venda ou ativação fiscal.
 
 ### Bloqueios externos mantidos
 
