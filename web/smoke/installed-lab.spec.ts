@@ -180,14 +180,17 @@ test('installed navigation, attention alerts, and sale confirmation messages wor
     method: 'POST', body: { opening_amount: 0, notes: 'Synthetic screen 19 confirmation' },
   }), 'screen 19 cash session')
   let openSessionId = cash.id
+  let closingAmount = 0
   try {
     await page.getByRole('link', { name: 'PDV', exact: true }).click()
     await expect(page.getByText('Caixa pronto para atender.')).toBeVisible()
     await page.getByLabel('Busca rápida por nome ou código').fill(productName)
     await page.getByRole('button', { name: `Adicionar ${productName} à venda` }).click()
+    await page.getByLabel('Forma de pagamento').selectOption('cash')
     await page.getByLabel('Valor recebido em dinheiro (R$)').fill('10')
     await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeEnabled()
     await page.getByRole('button', { name: 'Finalizar venda' }).click()
+    closingAmount = 10
 
     const completed = page.getByRole('dialog', { name: 'Venda concluída' })
     await expect(completed).toBeVisible()
@@ -208,13 +211,13 @@ test('installed navigation, attention alerts, and sale confirmation messages wor
     openSessionId = ''
   } finally {
     if (openSessionId) {
-      try {
+      expectBody<JsonRecord>(
         await browserApi(page, `/api/v1/cash/sessions/${openSessionId}/close`, adminToken, {
-          method: 'POST', body: { closing_amount: 10, notes: 'Synthetic screen 19 cleanup' },
-        })
-      } catch {
-        // Preserve the primary assertion if the test fails before cleanup.
-      }
+          method: 'POST', body: { closing_amount: closingAmount, notes: 'Synthetic screen 19 cleanup' },
+        }),
+        'screen 19 cash cleanup',
+      )
+      openSessionId = ''
     }
   }
 })
