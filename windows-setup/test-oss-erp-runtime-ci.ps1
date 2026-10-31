@@ -119,6 +119,12 @@ function Invoke-AdminBootstrap([bool]$expectSuccess){
         if(-not $expectSuccess -and $proc.ExitCode -eq 0){throw 'First-admin CLI accepted a repeated setup attempt.'}
     }finally{$proc.Dispose()}
 }
+function Get-PsqlScalar([string]$name,[string]$query){
+    $lines=@(& $script:psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' $query 2>$null)
+    $exitCode=$LASTEXITCODE
+    if($exitCode -ne 0){throw "First-admin invariant query failed: $name (psql exit code $exitCode)."}
+    return (($lines -join '').Trim())
+}
 try{
     if((Get-Service -Name $serviceName -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $install) -or (Test-Path -LiteralPath $root)){throw 'Disposable lab install destination or ERP service already exists.'}
     $verify=Join-Path $source 'tools\verify-esterium-bundle.ps1'
@@ -150,6 +156,7 @@ try{
     $env:PGDATABASE='esterium';$env:PGSSLMODE='verify-full';$env:PGSSLROOTCERT=$query.sslrootcert
     Remove-Item Env:PGHOSTADDR -ErrorAction SilentlyContinue
     $psql=Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin\pgsql\bin\psql.exe'
+    $script:psql=$psql
     $seed=Join-Path $source 'tools\seed.prod.sql'
     $bootstrap=Join-Path $source 'tools\esterium-bootstrap-admin.exe'
     if(-not(Test-Path -LiteralPath $psql -PathType Leaf) -or -not(Test-Path -LiteralPath $seed -PathType Leaf) -or -not(Test-Path -LiteralPath $bootstrap -PathType Leaf)){throw 'Pinned PostgreSQL client or production bootstrap tool is unavailable.'}
@@ -178,11 +185,12 @@ try{
     }
     Invoke-AdminBootstrap $true
     Invoke-AdminBootstrap $false
-    $identityCount=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM users WHERE email='ci-admin@esterium.invalid';") -join ''
-    $demoCount=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM users WHERE email IN ('admin@sistema.local','gerente@sistema.local','caixa@sistema.local');") -join ''
-    $adminPerms=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM user_tenant_roles utr JOIN roles r ON r.id=utr.role_id WHERE r.name='admin';") -join ''
-    $auditCount=@(& $psql '-X' '-q' '-t' '-A' '-v' 'ON_ERROR_STOP=1' '-c' "SELECT count(*) FROM audit_logs WHERE action='install.first_admin.create';") -join ''
-    if($LASTEXITCODE -ne 0 -or $identityCount.Trim() -cne '1' -or $demoCount.Trim() -cne '0' -or $adminPerms.Trim() -cne '1' -or $auditCount.Trim() -cne '1'){throw 'Synthetic first-admin identity, tenant role, audit or no-demo invariant failed.'}
+    $identityCount=Get-PsqlScalar 'synthetic identity' "SELECT count(*) FROM users WHERE email='ci-admin@esterium.invalid';"
+    $demoCount=Get-PsqlScalar 'no-demo invariant' "SELECT count(*) FROM users WHERE email IN ('admin@sistema.local','gerente@sistema.local','caixa@sistema.local');"
+    $adminPerms=Get-PsqlScalar 'tenant admin role' "SELECT count(*) FROM user_tenant_roles utr JOIN roles r ON r.id=utr.role_id JOIN users u ON u.id=utr.user_id WHERE r.name='admin' AND u.email='ci-admin@esterium.invalid';"
+    $auditCount=Get-PsqlScalar 'first-admin audit event' "SELECT count(*) FROM audit_logs al JOIN users u ON u.id=al.actor_user_id WHERE al.action='install.first_admin.create' AND u.email='ci-admin@esterium.invalid';"
+    Write-Output ("First-admin invariant counts: identity={0}, demo={1}, tenantAdmin={2}, audit={3}" -f $identityCount,$demoCount,$adminPerms,$auditCount)
+    if($identityCount -cne '1' -or $demoCount -cne '0' -or $adminPerms -cne '1' -or $auditCount -cne '1'){throw ("Synthetic first-admin invariant failed: identity={0}, demo={1}, tenantAdmin={2}, audit={3}." -f $identityCount,$demoCount,$adminPerms,$auditCount)}
     Write-Output 'PASS: first-admin CLI created one synthetic tenant admin, assigned RBAC, rejected replay and created no demo account.'
     $redisPassword=[string]$required.redisPassword
     if($redisPassword -notmatch '^ci-only-garnet-[0-9a-f]{32}$'){throw 'Garnet credential is not an isolated random CI secret.'}
