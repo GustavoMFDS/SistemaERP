@@ -2104,6 +2104,7 @@ jobs:
         working-directory: web
         run: |
           npm install --global npm@11.6.1
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           npm ci
           npm audit --omit=dev --audit-level=high
       - name: Generate remediated frontend lockfile
