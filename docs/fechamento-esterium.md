@@ -113,12 +113,12 @@ Reboot real em Windows limpo, validação física em dois PCs/LAN, restore exter
 
 ### Atualização de CI posterior — head atual #212 `307134c2ebcfd1b11b27f1d6cc33e0fa501a2e77`
 
-- PR #213, head documental `daa59c8e802e62e5242f284b37bb3ff80955ec6f`: CI **19/19 aprovado** ([run 41238882782](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238882782)).
-- PR #212, head anterior `ce1ed41fc85eded7d94264f12acf52a0646420a0`: CI **19/19 aprovado** ([run 41238198595](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238198595)); duas execuções E2E no mesmo SHA passaram com 162 testes e 6 ignorados.
-- A bancada integrada anterior ([run 41238198614](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238198614)) falhou: probe reportou `ancestor` para item ausente; o ciclo ZIP chegou à navegação e recuperação de serviços, mas o login final recebeu HTTP 429 pelo limite de uma janela.
-- O head atual `307134c2ebcfd1b11b27f1d6cc33e0fa501a2e77` normaliza caracteres inseguros do nome do item e aguarda 61 segundos para expirar os contadores Redis do navegador antes do login final. Parser local dos três scripts passou.
-- CI e bancada integrada do head atual ainda pendentes. Só contar como aprovado após o fluxo integrado completo terminar.
-- Sem alteração de serviço ou dado no Windows local; sem instalação em cliente, merge, release, venda ou ativação fiscal.
+- PR #212 CI geral: **19/19 jobs aprovados**, incluindo EDB 16.15 ([run 41239727842](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41239727842)).
+- E2E no head atual passou: 162 testes e 6 ignorados; a segunda execução no mesmo SHA está em andamento.
+- A bancada integrada ainda está em execução ([run 41239727820](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41239727820)). A execução do head anterior falhou com diagnóstico `ancestor` e HTTP 429 no login final; o head atual normaliza o nome seguro e aguarda a janela Redis antes da verificação final.
+- Parser local dos três scripts alterados passou. Não declarar a instalação integrada aprovada até terminar instalação, navegação HTTPS, recuperação, reparo e desinstalação.
+- PR #213 head documental atual `1289e03c891fa192d1656ee40773f562d84a8b49`: CI em execução ([run 41239760021](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41239760021)).
+- Sem alteração no Windows local, instalação em cliente, merge, release ou ativação fiscal.
 
 ### Bloqueios externos mantidos
 
