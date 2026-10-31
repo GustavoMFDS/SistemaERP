@@ -512,19 +512,31 @@ try {
     if ($null -ne (Get-Service -Name $GarnetServiceName -ErrorAction SilentlyContinue)) {
         throw 'Serviço Garnet apareceu durante a instalação.'
     }
+    $launchExecutable=$garnetExe
+    $launchArguments=@('--config-import-path',$configPath)
     if($frameworkDependent){
-        # Explicit private host prevents a different globally installed runtime
-        # from satisfying the framework-dependent Garnet assembly.
-        $serviceApplication=$dotnetExe
-        $appParameters='"'+$garnetServerDll+'" --config-import-path "'+$configPath+'"'
-        $appDirectory=Split-Path -Parent $garnetServerDll
-    }else{
-        # Some upstream ReadyToRun ZIPs ship an apphost without its managed
-        # assembly metadata. The tested apphost reads DOTNET_ROOT at startup.
-        $serviceApplication=$garnetExe
-        $appParameters='--config-import-path "'+$configPath+'"'
-        $appDirectory=Split-Path -Parent $garnetExe
+        $launchExecutable=$dotnetExe
+        $launchArguments=@($garnetServerDll,'--config-import-path',$configPath)
     }
+    $quotePowerShellLiteral={param([string]$value) "'"+$value.Replace("'","''")+"'"}
+    $launcherArgumentText=(@($launchArguments | ForEach-Object {& $quotePowerShellLiteral ([string]$_)}) -join ',')
+    $launcherLines=@(
+        '$ErrorActionPreference = ''Stop''',
+        '$env:DOTNET_ROOT_X64 = '+(& $quotePowerShellLiteral $dotnetRuntimeDir),
+        '$env:DOTNET_ROOT = '+(& $quotePowerShellLiteral $dotnetRuntimeDir),
+        '$env:DOTNET_MULTILEVEL_LOOKUP = ''0''',
+        '$launchArguments = @('+$launcherArgumentText+')',
+        '& '+(& $quotePowerShellLiteral $launchExecutable)+' @launchArguments',
+        'exit $LASTEXITCODE'
+    )
+    $launcherScript=Join-Path $garnetDir 'esterium-garnet-launcher.ps1'
+    [IO.File]::WriteAllText($launcherScript,(($launcherLines -join [Environment]::NewLine)+[Environment]::NewLine),[Text.UTF8Encoding]::new($true))
+    $serviceApplication=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if(-not (Test-Path -LiteralPath $serviceApplication -PathType Leaf)){
+        throw 'Windows PowerShell launcher is unavailable for the private Garnet runtime.'
+    }
+    $appParameters='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$launcherScript+'"'
+    $appDirectory=$garnetDir
     & $serviceExe install $GarnetServiceName $serviceApplication $appParameters | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'NSSM não registrou Garnet.' }
     $created=$true
@@ -537,22 +549,6 @@ try {
     )) {
         & $serviceExe @command | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao restringir o serviço Garnet.' }
-    }
-    $environmentCommand=@('set',$GarnetServiceName,'AppEnvironmentExtra')+
-        @('DOTNET_ROOT_X64='+$dotnetRuntimeDir,'DOTNET_ROOT='+$dotnetRuntimeDir,'DOTNET_MULTILEVEL_LOOKUP=0')
-    & $serviceExe @environmentCommand | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao apontar Garnet para o runtime .NET privado.' }
-    $garnetServiceRegistryPath="HKLM:\SYSTEM\CurrentControlSet\Services\$GarnetServiceName"
-    $dotnetServiceEnvironment=@(
-        'DOTNET_ROOT_X64='+$dotnetRuntimeDir,
-        'DOTNET_ROOT='+$dotnetRuntimeDir,
-        'DOTNET_MULTILEVEL_LOOKUP=0'
-    )
-    New-ItemProperty -Path $garnetServiceRegistryPath -Name 'Environment' -PropertyType MultiString -Value $dotnetServiceEnvironment -Force -ErrorAction Stop | Out-Null
-    $registeredServiceEnvironment=@((Get-ItemProperty -Path $garnetServiceRegistryPath -Name 'Environment' -ErrorAction Stop).Environment)
-    if(@($registeredServiceEnvironment).Count -ne $dotnetServiceEnvironment.Count -or
-       @($dotnetServiceEnvironment | Where-Object {$registeredServiceEnvironment -notcontains $_}).Count -ne 0){
-        throw 'Garnet SCM environment does not pin the package-local .NET runtime.'
     }
     $service=Get-CimInstance -ClassName Win32_Service -Filter "Name='$GarnetServiceName'"
     if ($null -eq $service -or
