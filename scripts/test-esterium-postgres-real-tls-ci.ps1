@@ -646,7 +646,7 @@ SELECT
         }
         $pgServicePasswordSecure=ConvertTo-SecureString $servicePassword -AsPlainText -Force
         $servicePassword=$null
-        $serviceUser=New-LocalUser -Name $pgServiceAccountName -Password $pgServicePasswordSecure -Description 'Disposable integrated Esterium PostgreSQL service' -AccountNeverExpires -PasswordNeverExpires -UserMayNotChangePassword -ErrorAction Stop
+        $serviceUser=New-LocalUser -Name $pgServiceAccountName -Password $pgServicePasswordSecure -Description 'Esterium PostgreSQL CI service' -AccountNeverExpires -PasswordNeverExpires -UserMayNotChangePassword -ErrorAction Stop
         if($null -eq $serviceUser -or $null -eq $serviceUser.SID){
             throw 'Could not create the disposable non-admin PostgreSQL service identity.'
         }
