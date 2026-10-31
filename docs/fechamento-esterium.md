@@ -115,6 +115,6 @@ Reboot real em Windows limpo, validação física em dois PCs/LAN, restore exter
 
 - CI geral aprovou **19/19 jobs** ([run 41235325267](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41235325267)); E2E da primeira execução: 162 passaram e 6 ficaram ignorados.
 - A repetição solicitada do job E2E no mesmo SHA está ativa. Uma tentativa anterior em outro SHA foi cancelada após novo commit; ela não conta para o requisito da issue #160.
-- O job integrado Windows do head atual está ativo ([run 41235325297](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41235325297]). O último erro identificado era ausência de argumentos HTTPS na chamada do probe; commit `14ff5102` passa os campos e adiciona guarda estática. Resultado final ainda pendente.
+- O job integrado Windows do head atual está ativo ([run 41235325297](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41235325297). O último erro identificado era ausência de argumentos HTTPS na chamada do probe; commit `14ff5102` passa os campos e adiciona guarda estática. Resultado final ainda pendente.
 - Continuam bloqueios externos listados acima; nenhuma aprovação comercial decorre do CI.
 
