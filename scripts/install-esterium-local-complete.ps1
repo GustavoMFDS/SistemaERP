@@ -17,6 +17,10 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedGarnetSHA256,
     [Parameter(Mandatory=$true)][string]$ServiceWrapperExe,
     [Parameter(Mandatory=$true)][string]$ExpectedServiceWrapperSHA256,
+    [string]$ListenAddress='0.0.0.0:8443',
+    [string]$TLSCertFile='',
+    [string]$TLSKeyFile='',
+    [string]$TrustedRemoteAddress='',
     [string]$ApprovedManifestSHA256='',
     [string]$TrustedPublisherThumbprint='',
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
@@ -37,13 +41,25 @@ if ($SyntheticPlanCIFixture -and ($Apply -or $env:GITHUB_ACTIONS -ne 'true' -or
 if ($PostgresPort -in @($GarnetPort,8080) -or $GarnetPort -eq 8080) {
     throw 'Portas da aplicacao, PostgreSQL e Garnet precisam ser distintas.'
 }
+$listenerParts=$ListenAddress -split ':',2
+if ($listenerParts.Count -ne 2 -or $listenerParts[1] -notmatch '^\d{1,5}$' -or
+    $listenerParts[0] -notin @('0.0.0.0','127.0.0.1') -or
+    [int]$listenerParts[1] -in @($PostgresPort,$GarnetPort)) {
+    throw 'ListenAddress deve ser loopback/LAN HTTPS em porta distinta das dependencias.'
+}
 $origin=$null
 if (-not [Uri]::TryCreate($AllowedOrigin,[UriKind]::Absolute,[ref]$origin) -or
     $origin.Scheme -cne 'https' -or $origin.UserInfo -ne '' -or
     [string]::IsNullOrWhiteSpace($origin.Host) -or
     $origin.AbsolutePath -ne '/' -or $origin.Query -ne '' -or
-    $origin.Fragment -ne '' -or $origin.Host -in @('localhost','127.0.0.1','::1')) {
+    $origin.Fragment -ne '') {
     throw 'Instalacao exige origem HTTPS aprovada para o navegador da loja.'
+}
+$originPort=if ($origin.IsDefaultPort) { 443 } else { $origin.Port }
+if ($originPort -ne [int]$listenerParts[1]) { throw 'AllowedOrigin port must match the ERP HTTPS listener.' }
+$originIsLoopback=$origin.Host -in @('localhost','127.0.0.1','::1')
+if ($originIsLoopback -and $listenerParts[0] -ne '127.0.0.1') {
+    throw 'AllowedOrigin localhost so pode ser usado com ListenAddress loopback.'
 }
 if (-not [IO.Path]::IsPathRooted($SourceBundleDir) -or $SourceBundleDir.StartsWith('\\')) {
     throw 'O pacote aprovado precisa estar em disco local, nao em rede.'
@@ -54,7 +70,8 @@ if (-not (Test-Path -LiteralPath $source -PathType Container)) {
 }
 $setup=Join-Path $PSScriptRoot 'setup-esterium-local-dependencies.ps1'
 $finish=Join-Path $PSScriptRoot 'finish-esterium-local-first-install.ps1'
-foreach ($helper in @($setup,$finish)) {
+$activation=Join-Path $PSScriptRoot 'activate-esterium-local-first-install.ps1'
+foreach ($helper in @($setup,$finish,$activation)) {
     if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) {
         throw 'Instalador incompleto: falta etapa obrigatoria.'
     }
@@ -72,7 +89,7 @@ if ($Apply) {
     }
     # Authorize this coordinator and both privileged delegates before PLAN
     # or execution. Each delegate will independently recheck its own helpers.
-    foreach ($path in @($PSCommandPath,$setup,$finish)) {
+    foreach ($path in @($PSCommandPath,$setup,$finish,$activation)) {
         $signature=Get-AuthenticodeSignature -LiteralPath $path
         if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
             $null -eq $signature.SignerCertificate -or
@@ -80,6 +97,15 @@ if ($Apply) {
               $TrustedPublisherThumbprint.ToUpperInvariant()) {
             throw 'Instalador completo sem assinatura do editor aprovado.'
         }
+    }
+    if ([string]::IsNullOrWhiteSpace($TLSCertFile) -or [string]::IsNullOrWhiteSpace($TLSKeyFile)) {
+        throw 'Apply exige certificado HTTPS confiavel e chave privada para o servico da loja.'
+    }
+    if ($listenerParts[0] -eq '0.0.0.0' -and [string]::IsNullOrWhiteSpace($TrustedRemoteAddress)) {
+        throw 'Acesso LAN exige um CIDR privado explicito para a regra de firewall.'
+    }
+    if ($listenerParts[0] -eq '127.0.0.1' -and -not [string]::IsNullOrWhiteSpace($TrustedRemoteAddress)) {
+        throw 'Acesso loopback nao deve abrir uma regra de firewall LAN.'
     }
 }
 $setupArgs=@{
@@ -100,6 +126,10 @@ if ($SyntheticPlanCIFixture) { $setupArgs.SyntheticPlanCIFixture=$true }
 $finishArgs=@{
     SourceBundleDir=$source
     AllowedOrigin=$AllowedOrigin
+    ListenAddress=$ListenAddress
+    TLSCertFile=$TLSCertFile
+    TLSKeyFile=$TLSKeyFile
+    TrustedRemoteAddress=$TrustedRemoteAddress
     PostgresPort=$PostgresPort
     GarnetPort=$GarnetPort
     ApprovedManifestSHA256=$ApprovedManifestSHA256
@@ -131,5 +161,5 @@ try {
 } catch {
     throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
 }
-Write-Output 'PASS: instalacao inicial assinada e verificada, com dependencias/ERP ainda bloqueados para venda.'
-Write-Output 'NOT READY: exige teste real EDB/NSSM, HTTPS dos terminais, backup restaurado, piloto fisico e autorizacao comercial.'
+Write-Output 'PASS: instalacao inicial assinada; migracoes/admin/HTTPS/servicos/atalho e health foram ativados.'
+Write-Output 'FISCAL permanece desativado; backup externo, EDB EXE, terminais fisicos e piloto comercial continuam independentes.'

@@ -12,6 +12,27 @@ on:
       - 'windows-setup/**'
       - 'scripts/test-esterium-postgres-real-tls-ci.ps1'
       - 'scripts/test-esterium-garnet-real-aof-ci.ps1'
+      - 'scripts/apply-esterium-initial-schema.ps1'
+      - 'scripts/bootstrap-esterium-first-admin.ps1'
+      - 'scripts/activate-esterium-local-first-install.ps1'
+      - 'scripts/repair-esterium-local-install.ps1'
+      - 'scripts/uninstall-esterium-local-app.ps1'
+      - 'scripts/build-esterium-local-windows.ps1'
+      - 'scripts/finish-esterium-local-first-install.ps1'
+      - 'scripts/install-esterium-local-complete.ps1'
+      - 'scripts/install-esterium-local-dependencies.ps1'
+      - 'scripts/probe-esterium-local-first-run.ps1'
+      - 'scripts/register-esterium-windows-service.ps1'
+      - 'backend/cmd/esterium-bootstrap-admin/**'
+      - 'backend/internal/bootstrapadmin/**'
+      - 'backend/internal/config/**'
+      - 'backend/seed/seed.prod.sql'
+      - 'backend/migrations/**'
+      - 'web/package.json'
+      - 'web/package-lock.json'
+      - 'web/src/**'
+      - 'web/playwright.installed-lab.config.ts'
+      - 'web/smoke/**'
       - '.github/workflows/esterium-windows-setup.yml'
   push:
     branches: [main]
@@ -234,7 +255,12 @@ jobs:
               'scripts/test-esterium-garnet-real-aof-ci.ps1',
               'scripts/bootstrap-esterium-first-admin.ps1',
               'scripts/apply-esterium-initial-schema.ps1',
+              'scripts/activate-esterium-local-first-install.ps1',
+              'scripts/repair-esterium-local-install.ps1',
+              'scripts/uninstall-esterium-local-app.ps1',
               'scripts/finish-esterium-local-first-install.ps1',
+              'scripts/probe-esterium-local-first-run.ps1',
+              'scripts/register-esterium-windows-service.ps1',
               'scripts/build-esterium-local-windows.ps1',
               'scripts/write-esterium-bundle-manifest.ps1',
               'scripts/verify-esterium-bundle.ps1',
@@ -295,10 +321,13 @@ jobs:
           ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI: "1"
           ESTERIUM_PG_ZIP_DISPOSABLE_CI: "1"
           ESTERIUM_SCM_DISPOSABLE_CI: "1"
+          ESTERIUM_FINAL_ACTIVATION_DISPOSABLE_CI: "1"
+          ESTERIUM_REPAIR_DISPOSABLE_CI: "1"
+          ESTERIUM_UNINSTALL_DISPOSABLE_CI: "1"
         run: |
           $ErrorActionPreference='Stop'
           & ./scripts/test-esterium-postgres-real-tls-ci.ps1 -FromIntegratedStage -RunIntegratedERPStartupSmoke
-      - name: Upload synthetic Windows login and home screenshots
+      - name: Upload synthetic Windows HTTPS/browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -306,6 +335,9 @@ jobs:
           path: ${{ runner.temp }}/esterium-installed-lab-evidence
           if-no-files-found: ignore
           retention-days: 7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
       - name: Test real Garnet TLS ACL Lua AOF NSSM from native MIT EXE vendor staging
         shell: pwsh
         timeout-minutes: 14
@@ -440,4 +472,5 @@ jobs:
           done
           echo "PASS: required Windows checks for $EVENT_NAME all passed."
           echo "NOT A RETAIL INSTALL: customer Apply remains disabled; E2E ERP service, persistent deployment and full store restore still required."
+
 

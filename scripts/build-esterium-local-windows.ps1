@@ -172,6 +172,9 @@ foreach ($tool in @(
     'bootstrap-esterium-local-schema.ps1',
     'stage-esterium-approved-windows-release.ps1',
     'probe-esterium-local-first-run.ps1',
+    'activate-esterium-local-first-install.ps1',
+    'repair-esterium-local-install.ps1',
+    'uninstall-esterium-local-app.ps1',
     'finish-esterium-local-first-install.ps1',
     'install-esterium-local-complete.ps1',
     'apply-esterium-initial-schema.ps1'
@@ -184,5 +187,5 @@ Copy-Item -LiteralPath (Join-Path $Root 'backend/migrations') -Destination (Join
 Copy-Item -LiteralPath (Join-Path $Root 'docs/esterium-local-service-registration.md') -Destination (Join-Path $OutputDir 'README_LOCAL.md') -ErrorAction Stop
 & (Join-Path $PSScriptRoot 'write-esterium-bundle-manifest.ps1') -BundleDir $OutputDir
 & (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1') -BundleDir $OutputDir
-Write-Host "Bundle L0 gerado em $OutputDir"
-Write-Host "Este pacote não é instalador: PostgreSQL/Redis, segredos, serviço Windows, HTTPS LAN e backup externo ainda precisam ser configurados."
+Write-Host "Bundle ERP verificado em $OutputDir"
+Write-Host "Este build gera os arquivos do ERP e os helpers da instalação assinada; não executa a instalação nem inclui o pacote PostgreSQL/Garnet."

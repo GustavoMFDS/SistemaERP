@@ -75,6 +75,9 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         'bootstrap-esterium-local-schema.ps1',
         'stage-esterium-approved-windows-release.ps1',
         'probe-esterium-local-first-run.ps1',
+        'activate-esterium-local-first-install.ps1',
+        'repair-esterium-local-install.ps1',
+        'uninstall-esterium-local-app.ps1',
         'finish-esterium-local-first-install.ps1',
         'install-esterium-local-complete.ps1',
         'apply-esterium-initial-schema.ps1'

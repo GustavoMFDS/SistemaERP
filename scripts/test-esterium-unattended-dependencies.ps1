@@ -38,6 +38,25 @@ foreach($token in $runtimeLaunchTokens){
         throw 'Garnet installer must launch through the package-local pinned .NET runtime.'
     }
 }
+$runtimeLaunchTokens=@(
+    '$dotnetRuntimeSource=Join-Path $PSScriptRoot ''dotnet''',
+    '$dotnetRuntimeDir=Join-Path $garnetDir ''dotnet''',
+    '$garnetServerDll=Join-Path $garnetDir $relativeAssembly',
+    'GarnetServer.runtimeconfig.json',
+    'GarnetServer.deps.json',
+    '$frameworkDependent=$false',
+    '$serviceApplication=$garnetExe',
+    '& $serviceExe install $GarnetServiceName $serviceApplication $appParameters',
+    'DOTNET_ROOT_X64=',
+    'AppEnvironmentExtra',
+    'DOTNET_ROOT=',
+    'DOTNET_MULTILEVEL_LOOKUP=0'
+)
+foreach($token in $runtimeLaunchTokens){
+    if(-not $implementation.Contains($token)){
+        throw 'Garnet installer must select the private host or apphost and pin the package-local .NET runtime.'
+    }
+}
 $testId=[Guid]::NewGuid().ToString('N').Substring(0,10)
 $root=Join-Path $env:RUNNER_TEMP ('esterium-install-'+$testId)
 $pg=Join-Path $root 'postgresql-16.exe'

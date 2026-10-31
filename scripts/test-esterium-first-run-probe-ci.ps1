@@ -8,6 +8,7 @@ if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
     throw 'First-run probe safety test requires disposable Windows CI.'
 }
 $probe=Join-Path $PSScriptRoot 'probe-esterium-local-first-run.ps1'
+$activation=Join-Path $PSScriptRoot 'activate-esterium-local-first-install.ps1'
 $tokens=$null
 $parseErrors=$null
 [void][Management.Automation.Language.Parser]::ParseFile(
@@ -41,6 +42,41 @@ foreach ($required in @('finally {','-StartupType Disabled','--check-dependencie
         throw 'First-run probe lost a required fail-closed security contract.'
     }
 }
+$parseErrors=$null
+[void][Management.Automation.Language.Parser]::ParseFile($activation,[ref]$tokens,[ref]$parseErrors)
+if (@($parseErrors).Count -gt 0) {
+    throw ('Final HTTPS activation parser errors: '+(@($parseErrors | Select-Object -ExpandProperty Message) -join '; '))
+}
+$activationText=[IO.File]::ReadAllText($activation)
+foreach ($required in @('ESTERIUM_FINAL_ACTIVATION_DISPOSABLE_CI','TrustedRemoteAddress',
+    'Get-NetFirewallProfile','New-NetFirewallRule','Get-NetFirewallApplicationFilter',
+    'WaitForStatus','Move-Item -LiteralPath $staging -Destination $activationPath',
+    'automaticStartupApproved=$true','fiscalEmissionApproved=$false')) {
+    if (-not $activationText.Contains($required)) {
+        throw 'Final activation lost a required HTTPS/firewall/startup contract.'
+    }
+}
+$repair=Join-Path $PSScriptRoot 'repair-esterium-local-install.ps1'
+$uninstall=Join-Path $PSScriptRoot 'uninstall-esterium-local-app.ps1'
+foreach($path in @($repair,$uninstall)){
+    $parseErrors=$null
+    [void][Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$parseErrors)
+    if(@($parseErrors).Count -gt 0){
+        throw ('Repair/uninstall PowerShell parser error: '+$path+' '+(@($parseErrors|Select-Object -ExpandProperty Message)-join '; '))
+    }
+}
+$repairText=[IO.File]::ReadAllText($repair)
+foreach($required in @('ESTERIUM_REPAIR_DISPOSABLE_CI','ConfirmRepair','bundle-manifest.json',
+    'Get-NetFirewallRule','/health/ready','backupRestoreApproved -cne $false')){
+    if(-not $repairText.Contains($required)){throw 'Assisted repair lost its signed/receipt/health/non-fiscal guard.'}
+}
+$uninstallText=[IO.File]::ReadAllText($uninstall)
+foreach($required in @('ESTERIUM_UNINSTALL_DISPOSABLE_CI','ConfirmUninstall',
+    'unregister-esterium-windows-service.ps1','Move-Item -LiteralPath $sourceDir',
+    'Remove-Item -LiteralPath $install -Recurse -Force','ProgramData','backups stay intact')){
+    if(-not $uninstallText.Contains($required)){throw 'Conservative uninstall lost its confirmation/data-preservation guard.'}
+}
+Write-Output 'PASS: assisted repair and conservative uninstall parse and retain signed receipt, HTTPS, confirmation and data-preservation gates.'
 # SQL coordinator must reject unsigned entry points before starting SQL.
 $sqlTool=Join-Path $PSScriptRoot 'bootstrap-esterium-local-schema.ps1'
 $parseErrors=$null
@@ -122,7 +158,8 @@ if ($denied -notmatch 'valid HTTPS origin') {
 $code=[IO.File]::ReadAllText($coordinator)
 foreach ($required in @('stage-esterium-approved-windows-release.ps1',
     'bootstrap-esterium-local-schema.ps1','register-esterium-windows-service.ps1',
-    'probe-esterium-local-first-run.ps1','provision-esterium-app-secrets.ps1',
+    'probe-esterium-local-first-run.ps1','activate-esterium-local-first-install.ps1',
+    'provision-esterium-app-secrets.ps1',
     "Set-Service -Name 'EsteriumERP' -StartupType Disabled")) {
     if (-not $code.Contains($required)) {
         throw 'Combined installer lost an essential signed first-install step.'
@@ -156,7 +193,7 @@ $fakeRoot=Join-Path $env:RUNNER_TEMP ('esterium-first-install-entry-'+[Guid]::Ne
 $fakeTools=Join-Path $fakeRoot 'tools'
 [IO.Directory]::CreateDirectory($fakeTools) | Out-Null
 try {
-    foreach ($file in @('install-esterium-local-complete.ps1',
+    foreach ($file in @('activate-esterium-local-first-install.ps1','install-esterium-local-complete.ps1',
                         'setup-esterium-local-dependencies.ps1',
                         'finish-esterium-local-first-install.ps1')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $fakeTools -ErrorAction Stop

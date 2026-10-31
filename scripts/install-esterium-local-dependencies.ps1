@@ -435,16 +435,21 @@ try {
     if ($servers.Count -ne 1) { throw 'Pacote exige exatamente um GarnetServer.exe.' }
     $relative=$servers[0].FullName.Substring($stage.Length).TrimStart('\')
     $serverAssemblies=@(Get-ChildItem -LiteralPath $stage -Recurse -Filter 'GarnetServer.dll' -File)
-    if ($serverAssemblies.Count -ne 1 -or
-        -not [String]::Equals($serverAssemblies[0].DirectoryName,$servers[0].DirectoryName,[StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Pacote Garnet exige GarnetServer.dll ao lado do apphost.'
-    }
-    foreach ($required in @('GarnetServer.runtimeconfig.json','GarnetServer.deps.json')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $servers[0].DirectoryName $required) -PathType Leaf)) {
-            throw ('Pacote Garnet não contém '+$required+' ao lado da assembly.')
+    if($serverAssemblies.Count -gt 1){throw 'Pacote Garnet contém mais de uma assembly GarnetServer.dll.'}
+    $frameworkDependent=$false
+    $relativeAssembly=''
+    if($serverAssemblies.Count -eq 1){
+        $assemblyDir=$serverAssemblies[0].DirectoryName
+        $hasRuntimeConfig=Test-Path -LiteralPath (Join-Path $assemblyDir 'GarnetServer.runtimeconfig.json') -PathType Leaf
+        $hasDeps=Test-Path -LiteralPath (Join-Path $assemblyDir 'GarnetServer.deps.json') -PathType Leaf
+        if(-not $hasRuntimeConfig -or -not $hasDeps){
+            throw 'Pacote Garnet contém assembly framework-dependent incompleta.'
         }
+        $frameworkDependent=$true
+        $relativeAssembly=$serverAssemblies[0].FullName.Substring($stage.Length).TrimStart('\')
+    }elseif(@(Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object {$_.Name -in @('GarnetServer.runtimeconfig.json','GarnetServer.deps.json')}).Count -gt 0){
+        throw 'Pacote Garnet contém metadados framework-dependent sem GarnetServer.dll.'
     }
-    $relativeAssembly=$serverAssemblies[0].FullName.Substring($stage.Length).TrimStart('\')
     $stagedWrapper=Join-Path $stage 'esterium-service-wrapper.exe'
     Copy-Item -LiteralPath $wrapper -Destination $stagedWrapper -ErrorAction Stop
     $dotnetStage=Join-Path $stage 'dotnet'
@@ -490,13 +495,16 @@ try {
     $dotnetRuntimeDir=Join-Path $garnetDir 'dotnet'
     $dotnetExe=Join-Path $dotnetRuntimeDir 'dotnet.exe'
     if (-not (Test-Path -LiteralPath $garnetExe -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $garnetServerDll -PathType Leaf) -or
-        -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $garnetServerDll) 'GarnetServer.runtimeconfig.json') -PathType Leaf) -or
-        -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $garnetServerDll) 'GarnetServer.deps.json') -PathType Leaf) -or
         -not (Test-Path -LiteralPath $dotnetExe -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $dotnetRuntimeDir 'host\fxr\10.0.14\hostfxr.dll') -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $dotnetRuntimeDir 'shared\Microsoft.NETCore.App\10.0.14\coreclr.dll') -PathType Leaf)) {
-        throw 'Garnet assembly ou runtime .NET privado ausente.'
+        throw 'Garnet apphost ou runtime .NET privado ausente.'
+    }
+    if($frameworkDependent -and (
+        -not (Test-Path -LiteralPath $garnetServerDll -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $garnetServerDll) 'GarnetServer.runtimeconfig.json') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $garnetServerDll) 'GarnetServer.deps.json') -PathType Leaf))){
+        throw 'Garnet framework-dependent assembly metadata changed after extraction.'
     }
     if ((Get-FileHash -LiteralPath $serviceExe -Algorithm SHA256).Hash -cne $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
         throw 'Wrapper instalado difere do SHA aprovado.'
@@ -504,17 +512,26 @@ try {
     if ($null -ne (Get-Service -Name $GarnetServiceName -ErrorAction SilentlyContinue)) {
         throw 'Serviço Garnet apareceu durante a instalação.'
     }
-    # Invoke the bundled dotnet host explicitly. NSSM's environment variables
-    # alone did not make a framework-dependent apphost select this runtime on
-    # the disposable Windows runner when another shared runtime was installed.
-    $appParameters='"'+$garnetServerDll+'" --config-import-path "'+$configPath+'"'
-    & $serviceExe install $GarnetServiceName $dotnetExe $appParameters | Out-Null
+    if($frameworkDependent){
+        # Explicit private host prevents a different globally installed runtime
+        # from satisfying the framework-dependent Garnet assembly.
+        $serviceApplication=$dotnetExe
+        $appParameters='"'+$garnetServerDll+'" --config-import-path "'+$configPath+'"'
+        $appDirectory=Split-Path -Parent $garnetServerDll
+    }else{
+        # Some upstream ReadyToRun ZIPs ship an apphost without its managed
+        # assembly metadata. The tested apphost reads DOTNET_ROOT at startup.
+        $serviceApplication=$garnetExe
+        $appParameters='--config-import-path "'+$configPath+'"'
+        $appDirectory=Split-Path -Parent $garnetExe
+    }
+    & $serviceExe install $GarnetServiceName $serviceApplication $appParameters | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'NSSM não registrou Garnet.' }
     $created=$true
     foreach ($command in @(
         @('set',$GarnetServiceName,'ObjectName','NT AUTHORITY\NetworkService'),
         @('set',$GarnetServiceName,'Start','SERVICE_DISABLED'),
-        @('set',$GarnetServiceName,'AppDirectory',(Split-Path -Parent $garnetServerDll)),
+        @('set',$GarnetServiceName,'AppDirectory',$appDirectory),
         @('set',$GarnetServiceName,'AppExit','Default','Restart'),
         @('set',$GarnetServiceName,'AppRestartDelay','5000')
     )) {

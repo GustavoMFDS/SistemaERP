@@ -102,6 +102,9 @@ try {
         'bootstrap-esterium-local-schema.ps1',
         'stage-esterium-approved-windows-release.ps1',
         'probe-esterium-local-first-run.ps1',
+        'activate-esterium-local-first-install.ps1',
+    'repair-esterium-local-install.ps1',
+    'uninstall-esterium-local-app.ps1',
         'finish-esterium-local-first-install.ps1',
         'install-esterium-local-complete.ps1',
         'apply-esterium-initial-schema.ps1'
@@ -310,6 +313,8 @@ try {
     catch { $listenerUserinfoRejected = $_.Exception.Message -match 'ListenAddress' }
     if (-not $listenerUserinfoRejected) { throw 'Listener userinfo was not rejected.' }
     $args.ListenAddress = '0.0.0.0:8443'
+    $args.AllowedOrigin = 'https://esterium.loja.example:8443'
+    $args.TrustedRemoteAddress = '192.168.10.0/24'
     $lanRejected = $false
     try { & $installer @args | Out-Null }
     catch { $lanRejected = $_.Exception.Message -match 'LAN listeners require' }
@@ -327,6 +332,7 @@ try {
         throw 'LAN HTTPS plan failed or created installation files.'
     }
     $args.ListenAddress = '127.0.0.1:8080'
+    $args.TrustedRemoteAddress = ''
     $args.Remove('TLSCertFile')
     $args.Remove('TLSKeyFile')
     New-Item -ItemType Directory -Path $install -ErrorAction Stop | Out-Null

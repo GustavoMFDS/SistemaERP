@@ -4,8 +4,10 @@ param([switch]$FromIntegratedStage,[switch]$RunIntegratedERPStartupSmoke)
 <#
   Real PostgreSQL 16 smoke, only on disposable GitHub-hosted Windows runner.
   Downloads vendor-published SHA-256-pinned community ZIP (not EDB installer);
-  starts a temporary scratch cluster, verifies local TLS/SCRAM and recovery.
-  NEVER touches installed services, customer databases or the main branch.
+  validates TLS/SCRAM, migrations and recovery on a unique scratch cluster.
+  Integrated mode temporarily registers that cluster as EsteriumPostgreSQL16
+  under a unique non-admin account, then removes the service and account.
+  Never touches pre-existing services, customer databases or the main branch.
 #>
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -46,6 +48,14 @@ $pgCtl=$null
 $psql=$null
 $started=$false
 $secondStarted=$false
+$pgServiceName='EsteriumPostgreSQL16'
+$pgServiceCreated=$false
+$pgServiceLogonRightGranted=$false
+$pgServiceAccountCreated=$false
+$pgServiceAccountName=''
+$pgServiceAccountSid=''
+$pgServiceCredential=$null
+$pgServicePasswordSecure=$null
 $secondData=Join-Path $root 'recovery-independent-cluster'
 $secondLog=Join-Path $root 'recovery-independent.log'
 $oldEnv=@{}
@@ -614,12 +624,130 @@ SELECT
         }finally{
             foreach($entry in $savedAdminEnv.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
         }
-        $labKeys=@('ESTERIUM_CI_DATABASE_URL_FILE','ESTERIUM_CI_POSTGRES_PORT')
+        # The ERP activation path requires a real PostgreSQL SCM service.
+        # Rehost only this fresh scratch cluster under a unique non-admin account
+        # created on the disposable runner; all permissions stay inside its
+        # binaries, TLS policy, and data directories.
+        if(Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue){
+            throw 'Disposable runner already contains the reserved Esterium PostgreSQL service name.'
+        }
+        $pgServiceAccountName='epg'+$id.Substring(0,12)
+        if(Get-LocalUser -Name $pgServiceAccountName -ErrorAction SilentlyContinue){
+            throw 'Generated disposable PostgreSQL service account already exists.'
+        }
+        $servicePasswordBytes=New-Object byte[] 48
+        $servicePasswordRng=[Security.Cryptography.RandomNumberGenerator]::Create()
+        try{
+            $servicePasswordRng.GetBytes($servicePasswordBytes)
+            $servicePassword='Q9_z'+[Convert]::ToBase64String($servicePasswordBytes).Replace('+','-').Replace('/','_').TrimEnd('=')
+        }finally{
+            $servicePasswordRng.Dispose()
+            [Array]::Clear($servicePasswordBytes,0,$servicePasswordBytes.Length)
+        }
+        $pgServicePasswordSecure=ConvertTo-SecureString $servicePassword -AsPlainText -Force
+        $servicePassword=$null
+        $serviceUser=New-LocalUser -Name $pgServiceAccountName -Password $pgServicePasswordSecure -Description 'Disposable integrated Esterium PostgreSQL service' -AccountNeverExpires -PasswordNeverExpires -UserMayNotChangePassword -ErrorAction Stop
+        if($null -eq $serviceUser -or $null -eq $serviceUser.SID){
+            throw 'Could not create the disposable non-admin PostgreSQL service identity.'
+        }
+        $pgServiceAccountCreated=$true
+        $pgServiceAccountSid=[string]$serviceUser.SID.Value
+        if(@(Get-LocalGroupMember -Group 'Administrators' -ErrorAction Stop |
+            Where-Object {$_.SID.Value -ceq $pgServiceAccountSid}).Count -ne 0){
+            throw 'Disposable PostgreSQL identity unexpectedly belongs to Administrators.'
+        }
+        $serviceCredentialName=$env:COMPUTERNAME+'\'+$pgServiceAccountName
+        $pgServiceCredential=[PSCredential]::new($serviceCredentialName,$pgServicePasswordSecure)
+        $lsaHelper=Join-Path $PSScriptRoot '../windows-setup/test-postgres-oss-lsa-ci.ps1'
+        if(-not(Test-Path -LiteralPath $lsaHelper -PathType Leaf)){
+            throw 'Disposable PostgreSQL service logon-right helper is missing.'
+        }
+        & $lsaHelper -Action Grant -Sid $pgServiceAccountSid | Out-Null
+        if(-not $?){throw 'Could not grant service logon to the disposable PostgreSQL account.'}
+        $pgServiceLogonRightGranted=$true
+        $programDataEsterium=Join-Path $env:ProgramData 'Esterium'
+        foreach($path in @($root,$programDataEsterium)){
+            if(-not(Test-Path -LiteralPath $path -PathType Container)){
+                throw 'PostgreSQL service ACL parent is missing from the disposable runner.'
+            }
+            & icacls.exe $path '/grant:r' ('*'+$pgServiceAccountSid+':RX') | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not grant PostgreSQL service path traversal.'}
+        }
+        foreach($entry in @(
+            @{Path=$unpacked;Rights='(OI)(CI)RX'},
+            @{Path=$policy;Rights='(OI)(CI)RX'},
+            @{Path=$data;Rights='(OI)(CI)M'}
+        )){
+            if(-not(Test-Path -LiteralPath $entry.Path -PathType Container)){
+                throw 'PostgreSQL service ACL target is missing.'
+            }
+            & icacls.exe $entry.Path '/grant:r' ('*'+$pgServiceAccountSid+':'+$entry.Rights) '/T' '/C' | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not apply scoped PostgreSQL service ACLs.'}
+        }
+        $pgCtlBinary=[IO.Path]::GetFullPath($pgCtl)
+        $expectedPgServiceCommand='"'+$pgCtlBinary+'" runservice -N "'+$pgServiceName+'" -D "'+[IO.Path]::GetFullPath($data)+'" -w'
+        New-Service -Name $pgServiceName -BinaryPathName $expectedPgServiceCommand -Credential $pgServiceCredential -StartupType Disabled -DisplayName 'Esterium disposable PostgreSQL 16 integrated lab' -ErrorAction Stop | Out-Null
+        $pgServiceCreated=$true
+        if($null -ne $pgServicePasswordSecure){$pgServicePasswordSecure.Dispose();$pgServicePasswordSecure=$null}
+        $pgServiceCredential=$null
+        $registeredPg=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop)
+        $expectedPgNames=@($serviceCredentialName,'.\'+$pgServiceAccountName,($env:COMPUTERNAME+'\'+$pgServiceAccountName))
+        if($registeredPg.Count -ne 1 -or $registeredPg[0].StartName -notin $expectedPgNames -or
+           $registeredPg[0].StartMode -cne 'Disabled' -or $registeredPg[0].State -cne 'Stopped' -or
+           [int]$registeredPg[0].ProcessId -ne 0 -or $registeredPg[0].PathName -cne $expectedPgServiceCommand){
+            throw 'PostgreSQL SCM entry did not retain the dedicated non-admin identity or isolated cluster path.'
+        }
+        Write-Host 'PostgreSQL CI: switching isolated TLS cluster from pg_ctl to restricted-account SCM service.'
+        Invoke-PgCtl -argList @('-D',$data,'-m','fast','-w','stop') -phase 'handoff to PostgreSQL Windows service'
+        $started=$false
+        Set-Service -Name $pgServiceName -StartupType Manual -ErrorAction Stop
+        $pgStartRecord=Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop
+        $pgStartResult=Invoke-CimMethod -InputObject $pgStartRecord -MethodName StartService -ErrorAction Stop
+        if([int]$pgStartResult.ReturnValue -ne 0){
+            throw ('PostgreSQL integrated service failed to start, Win32 code '+$pgStartResult.ReturnValue)
+        }
+        (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
+        $runningPg=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop)
+        if($runningPg.Count -ne 1 -or $runningPg[0].State -cne 'Running' -or
+           $runningPg[0].StartMode -cne 'Manual' -or [int]$runningPg[0].ProcessId -le 0){
+            throw 'PostgreSQL SCM service did not reach its expected running state.'
+        }
+        $pgProcesses=@(Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" -ErrorAction Stop |
+            Where-Object {[String]::Equals([string]$_.ExecutablePath,(Join-Path $bin 'postgres.exe'),[StringComparison]::OrdinalIgnoreCase)})
+        if($pgProcesses.Count -lt 1){throw 'No PostgreSQL server process was found under the real SCM service.'}
+        foreach($process in $pgProcesses){
+            $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+            if([int]$owner.ReturnValue -ne 0 -or $owner.User -cne $pgServiceAccountName -or
+               $owner.Domain -cne $env:COMPUTERNAME){
+                throw 'PostgreSQL server process is not running under its dedicated non-admin Windows account.'
+            }
+        }
+        if((Run-Psql 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()') -cne 't' -or
+           (Run-Psql "SELECT count(*) FROM ci_durable WHERE id=17") -cne '1'){
+            throw 'PostgreSQL SCM handoff lost TLS or committed synthetic ERP data.'
+        }
+        $durabilityBeforeRestart=Run-Psql "SELECT md5(string_agg(id::text||':'||value,'|' ORDER BY id)) FROM ci_durable;"
+        Stop-Service -Name $pgServiceName -ErrorAction Stop
+        (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
+        if(@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'PostgreSQL service retained its loopback listener after stop.'
+        }
+        Start-Service -Name $pgServiceName -ErrorAction Stop
+        (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
+        if((Run-Psql "SELECT md5(string_agg(id::text||':'||value,'|' ORDER BY id)) FROM ci_durable;") -cne $durabilityBeforeRestart){
+            throw 'PostgreSQL Windows service restart did not preserve the acknowledged synthetic transactions.'
+        }
+        Write-Output 'PASS: PostgreSQL 16 TLS cluster ran as a dedicated non-admin Windows service; SQL survived SCM restart.'
+        $labKeys=@('ESTERIUM_CI_DATABASE_URL_FILE','ESTERIUM_CI_POSTGRES_PORT','ESTERIUM_CI_POSTGRES_ACCOUNT')
         $oldLab=@{}
         foreach($key in $labKeys){$oldLab[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
         try{
             $env:ESTERIUM_CI_DATABASE_URL_FILE=$firstAdminDatabaseURLFile
             $env:ESTERIUM_CI_POSTGRES_PORT=[string]$port
+            $env:ESTERIUM_CI_POSTGRES_ACCOUNT=$pgServiceAccountName
             & (Join-Path $PSScriptRoot 'test-esterium-garnet-real-aof-ci.ps1') -FromIntegratedStage -RunERPStartupSmoke
             if(-not $?){throw 'Integrated Garnet and ERP service runtime proof failed.'}
         }finally{
@@ -627,6 +755,45 @@ SELECT
         }
     }
 } finally {
+    if($pgServiceCreated){
+        try{
+            $pgSvc=Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue
+            if($null -ne $pgSvc -and $pgSvc.Status -ne 'Stopped'){
+                Stop-Service -Name $pgServiceName -Force -ErrorAction Stop
+                (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+                    [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
+            }
+            if($null -ne (Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue)){
+                Set-Service -Name $pgServiceName -StartupType Disabled -ErrorAction Stop
+                & sc.exe delete $pgServiceName | Out-Null
+                if($LASTEXITCODE -ne 0){throw 'SCM refused to remove the disposable PostgreSQL service.'}
+                for($attempt=0;$attempt -lt 20;$attempt++){
+                    if($null -eq (Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue)){break}
+                    Start-Sleep -Milliseconds 500
+                }
+                if($null -ne (Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue)){
+                    throw 'Disposable PostgreSQL service remained registered after cleanup.'
+                }
+            }
+            $pgServiceCreated=$false
+        }catch{
+            throw 'Disposable PostgreSQL service could not be stopped and deregistered; discard the hosted runner.'
+        }
+    }
+    if($pgServiceLogonRightGranted -and $pgServiceAccountSid){
+        $lsaHelper=Join-Path $PSScriptRoot '../windows-setup/test-postgres-oss-lsa-ci.ps1'
+        & $lsaHelper -Action Revoke -Sid $pgServiceAccountSid | Out-Null
+        if(-not $?){throw 'Could not revoke the disposable PostgreSQL service logon right.'}
+        $pgServiceLogonRightGranted=$false
+    }
+    if($pgServiceAccountCreated){
+        Remove-LocalUser -Name $pgServiceAccountName -ErrorAction Stop
+        if(Get-LocalUser -Name $pgServiceAccountName -ErrorAction SilentlyContinue){
+            throw 'Disposable PostgreSQL service account remained after cleanup.'
+        }
+        $pgServiceAccountCreated=$false
+    }
+    if($null -ne $pgServicePasswordSecure){$pgServicePasswordSecure.Dispose()}
     if ($secondStarted -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
         try { Invoke-PgCtl -argList @('-D',$secondData,'-m','immediate','-w','stop') -phase 'second cluster cleanup' }
         catch { Write-Warning 'Disposable recovery cluster needs runner teardown.' }

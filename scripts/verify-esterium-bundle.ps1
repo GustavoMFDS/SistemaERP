@@ -58,9 +58,15 @@ $requiredTools = @(
     'tools/bootstrap-esterium-local-schema.ps1',
     'tools/stage-esterium-approved-windows-release.ps1',
     'tools/probe-esterium-local-first-run.ps1',
+    'tools/activate-esterium-local-first-install.ps1',
+    'tools/repair-esterium-local-install.ps1',
+    'tools/uninstall-esterium-local-app.ps1',
     'tools/finish-esterium-local-first-install.ps1',
     'tools/install-esterium-local-complete.ps1',
     'tools/apply-esterium-initial-schema.ps1',
+    'tools/bootstrap-esterium-first-admin.ps1',
+    'tools/seed.prod.sql',
+    'tools/esterium-bootstrap-admin.exe',
     'tools/esterium-migrate.exe',
     'tools/esterium-pg-tls-certgen.exe',
     'README_LOCAL.md'
@@ -69,9 +75,6 @@ $requiredTools = @(
 $optionalTools = @(
     'tools/restore-esterium-app-version.ps1',
     'tools/check-esterium-restore-archive.ps1',
-    'tools/bootstrap-esterium-first-admin.ps1',
-    'tools/seed.prod.sql',
-    'tools/esterium-bootstrap-admin.exe'
 )
 $seen = @{}
 foreach ($record in @($document.files)) {
