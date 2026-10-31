@@ -731,13 +731,58 @@ SELECT
         Invoke-PgCtl -argList @('-D',$data,'-m','fast','-w','stop') -phase 'handoff to PostgreSQL Windows service'
         $started=$false
         Set-Service -Name $pgServiceName -StartupType Manual -ErrorAction Stop
+        $pgServiceStartAt=Get-Date
         $pgStartRecord=Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop
         $pgStartResult=Invoke-CimMethod -InputObject $pgStartRecord -MethodName StartService -ErrorAction Stop
         if([int]$pgStartResult.ReturnValue -ne 0){
             throw ('PostgreSQL integrated service failed to start, Win32 code '+$pgStartResult.ReturnValue)
         }
-        (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
-            [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
+        try{
+            (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+                [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
+        }catch{
+            $failedPgService=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction SilentlyContinue)
+            if($failedPgService.Count -eq 1){
+                Write-Host ('PostgreSQL CI SCM start failure: State=['+$failedPgService[0].State+'], Win32ExitCode=['+
+                    $failedPgService[0].ExitCode+'], ServiceSpecificExitCode=['+$failedPgService[0].ServiceSpecificExitCode+
+                    '], ProcessId=['+$failedPgService[0].ProcessId+'], StartName=['+$failedPgService[0].StartName+']')
+            }
+            foreach($eventLogName in @('System','Application')){
+                try{
+                    $pgServiceEvents=@(Get-WinEvent -FilterHashtable @{
+                        LogName=$eventLogName
+                        StartTime=$pgServiceStartAt
+                    } -ErrorAction Stop | Where-Object {
+                        $_.ProviderName -match 'Service Control Manager|PostgreSQL|pg_ctl'
+                    } | Select-Object -First 12)
+                    foreach($pgServiceEvent in $pgServiceEvents){
+                        $eventMessage=([string]$pgServiceEvent.Message).Replace($pass,'[REDACTED]').Replace($appPassword,'[REDACTED]')
+                        if($eventMessage.Length -gt 1200){$eventMessage=$eventMessage.Substring(0,1200)}
+                        Write-Host ('PostgreSQL CI event: Log=['+$eventLogName+'], Provider=['+$pgServiceEvent.ProviderName+
+                            '], Id=['+$pgServiceEvent.Id+'], Message=['+$eventMessage+']')
+                    }
+                }catch{
+                    Write-Host ('PostgreSQL CI could not read recent '+$eventLogName+' service events.')
+                }
+            }
+            foreach($postgresLog in @($log,(Join-Path $data 'log'),(Join-Path $data 'pg_log'))){
+                if(Test-Path -LiteralPath $postgresLog -PathType Leaf){
+                    Write-Host ('PostgreSQL CI service diagnostic log ['+$postgresLog+'] (last 30 lines):')
+                    foreach($line in @(Get-Content -LiteralPath $postgresLog -Tail 30)){
+                        Write-Host (([string]$line).Replace($pass,'[REDACTED]').Replace($appPassword,'[REDACTED]'))
+                    }
+                }elseif(Test-Path -LiteralPath $postgresLog -PathType Container){
+                    foreach($file in @(Get-ChildItem -LiteralPath $postgresLog -File -ErrorAction SilentlyContinue |
+                        Sort-Object LastWriteTime -Descending | Select-Object -First 2)){
+                        Write-Host ('PostgreSQL CI service diagnostic log ['+$file.FullName+'] (last 30 lines):')
+                        foreach($line in @(Get-Content -LiteralPath $file.FullName -Tail 30)){
+                            Write-Host (([string]$line).Replace($pass,'[REDACTED]').Replace($appPassword,'[REDACTED]'))
+                        }
+                    }
+                }
+            }
+            throw
+        }
         $runningPg=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop)
         if($runningPg.Count -ne 1 -or $runningPg[0].State -cne 'Running' -or
            $runningPg[0].StartMode -cne 'Manual' -or [int]$runningPg[0].ProcessId -le 0){
