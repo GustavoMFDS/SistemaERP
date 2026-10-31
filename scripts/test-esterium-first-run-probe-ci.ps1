@@ -208,7 +208,7 @@ try {
     $fakeEntry=Join-Path $fakeTools 'install-esterium-local-complete.ps1'
     $args=@{
         SourceBundleDir=$fakeRoot
-        AllowedOrigin='https://esterium.ci.invalid'
+        AllowedOrigin='https://esterium.ci.invalid:8443'
         PostgresInstaller=(Join-Path $fakeRoot 'postgres.exe')
         ExpectedPostgresSHA256=('0'*64)
         ExpectedPostgresPublisherThumbprint=('0'*40)
@@ -238,7 +238,7 @@ try {
     if ($denied -notmatch 'origem HTTPS aprovada') {
         throw 'One-command setup accepted an insecure browser origin.'
     }
-    $args.AllowedOrigin='https://esterium.ci.invalid'
+    $args.AllowedOrigin='https://esterium.ci.invalid:8443'
     $args.GarnetPort=5432
     $denied=''
     try { & $fakeEntry @args | Out-Null } catch { $denied=$_.Exception.Message }
