@@ -182,7 +182,9 @@ if ($originalConfigNames.Count -ne 2 -or
 foreach ($name in $originalConfigNames) {
     $null=Assert-Local (Join-Path $options $name) $false
 }
-& (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf (Join-Path $data 'postgresql.conf') -PgHbaConf (Join-Path $data 'pg_hba.conf') | Out-Null
+$postgresConf=Assert-Local (Join-Path $data 'postgresql.conf') $false
+$pgHbaConf=Assert-Local (Join-Path $data 'pg_hba.conf') $false
+& (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf $postgresConf -PgHbaConf $pgHbaConf | Out-Null
 $null=Assert-Local (Join-Path $policy 'certificates\root.crt') $false
 foreach ($name in @('postgres.exe','psql.exe','pg_dump.exe','pg_restore.exe')) {
     $null=Assert-Local (Join-Path $bin $name) $false
@@ -418,7 +420,7 @@ try {
         stage='dependencies-validated-services-disabled'
         checkedUtc=[DateTime]::UtcNow.ToString('o')
         releaseManifestSHA256=(Get-FileHash -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Algorithm SHA256).Hash
-        postgresqlConfigSHA256=(Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash
+        postgresqlConfigSHA256=(Get-FileHash -LiteralPath $postgresConf -Algorithm SHA256).Hash
         garnetConfigSHA256=(Get-FileHash -LiteralPath $garnetConf -Algorithm SHA256).Hash
         postgresService=$PostgresServiceName
         garnetService=$GarnetServiceName
