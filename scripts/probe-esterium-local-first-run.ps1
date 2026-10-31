@@ -288,7 +288,10 @@ function Write-CIDiagnosticStage {
     param([Parameter(Mandatory=$true)]
         [ValidateSet('disable ERP service','start dependency services',
             'verify dependency ownership','run ERP dependency preflight',
-            'verify dependencies stopped and disabled','write protected readiness receipt',
+            'verify dependencies stopped and disabled','create receipt directory',
+            'create receipt staging folder','secure receipt folder','hash receipt metadata',
+            'serialize receipt metadata','write receipt file','secure receipt file',
+            'check receipt collision','commit receipt','restore ERP manual startup',
             'restore ERP manual startup')]
         [string]$Stage)
     if ($env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -eq '1' -and
@@ -393,16 +396,22 @@ foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
 }
 # Only a completed, successful probe produces a one-time audit receipt.
 # It deliberately does NOT authorize automatic ERP startup or fiscal traffic.
-$probeStage='write protected readiness receipt'
+$probeStage='create receipt directory'
 Write-CIDiagnosticStage $probeStage
 $receiptParent=Split-Path -Parent $receiptTarget
 [IO.Directory]::CreateDirectory($receiptParent) | Out-Null
 $staging=Join-Path $receiptParent ('.esterium-first-run-'+[Guid]::NewGuid().ToString('N'))
 $committed=$false
 try {
+    $probeStage='create receipt staging folder'
+    Write-CIDiagnosticStage $probeStage
     [IO.Directory]::CreateDirectory($staging) | Out-Null
+    $probeStage='secure receipt folder'
+    Write-CIDiagnosticStage $probeStage
     & icacls.exe $staging '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'First-run verification receipt folder ACL rejected.' }
+    $probeStage='hash receipt metadata'
+    Write-CIDiagnosticStage $probeStage
     $meta=[ordered]@{
         kind='ESTERIUM_LOCAL_DEPENDENCY_PROBE'
         schemaVersion=1
@@ -417,18 +426,28 @@ try {
         backupRestoreApproved=$false
         fiscalEmissionApproved=$false
     }
+    $probeStage='serialize receipt metadata'
+    Write-CIDiagnosticStage $probeStage
     $out=Join-Path $staging 'probe-result.json'
     $bytes=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json $meta -Depth 3)+[Environment]::NewLine)
     try {
+        $probeStage='write receipt file'
+        Write-CIDiagnosticStage $probeStage
         $stream=[IO.File]::Open($out,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
         try { $stream.Write($bytes,0,$bytes.Length);$stream.Flush($true) }
         finally { $stream.Dispose() }
     } finally { [Array]::Clear($bytes,0,$bytes.Length) }
+    $probeStage='secure receipt file'
+    Write-CIDiagnosticStage $probeStage
     & icacls.exe $out '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'First-run verification receipt could not be protected.' }
+    $probeStage='check receipt collision'
+    Write-CIDiagnosticStage $probeStage
     if (Test-Path -LiteralPath $receiptTarget) {
         throw 'Another attempt already created a first-run readiness receipt.'
     }
+    $probeStage='commit receipt'
+    Write-CIDiagnosticStage $probeStage
     Move-Item -LiteralPath $staging -Destination $receiptTarget -ErrorAction Stop
     $committed=$true
 } finally {
