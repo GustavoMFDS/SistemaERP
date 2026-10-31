@@ -427,15 +427,15 @@ try {
             $serviceWorkingDir=$garnetExe[0].DirectoryName
             $workerExecutable=$garnetExe[0].FullName
         }
-        $quotePowerShellLiteral={param([string]$value) "'"+$value.Replace("'","''")+"'"}
+        $quotePowerShellLiteral={param([string]$value) return ("'"+$value.Replace("'","''")+"'")}
         $launcherArgumentText=(@($launchArguments | ForEach-Object {& $quotePowerShellLiteral ([string]$_)}) -join ',')
         $launcherLines=@(
             '$ErrorActionPreference = ''Stop''',
-            '$env:DOTNET_ROOT_X64 = '+(& $quotePowerShellLiteral $dotnetRuntimeDir),
-            '$env:DOTNET_ROOT = '+(& $quotePowerShellLiteral $dotnetRuntimeDir),
+            ('$env:DOTNET_ROOT_X64 = '+(& $quotePowerShellLiteral $dotnetRuntimeDir)),
+            ('$env:DOTNET_ROOT = '+(& $quotePowerShellLiteral $dotnetRuntimeDir)),
             '$env:DOTNET_MULTILEVEL_LOOKUP = ''0''',
-            '$launchArguments = @('+$launcherArgumentText+')',
-            '& '+(& $quotePowerShellLiteral $launchExecutable)+' @launchArguments',
+            ('$launchArguments = @('+$launcherArgumentText+')'),
+            ('& '+(& $quotePowerShellLiteral $launchExecutable)+' @launchArguments'),
             'exit $LASTEXITCODE'
         )
         $launcherScriptPath=Join-Path $root 'esterium-garnet-launcher.ps1'
