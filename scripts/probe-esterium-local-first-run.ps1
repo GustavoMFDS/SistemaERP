@@ -97,6 +97,7 @@ function Assert-Local([string]$path,[bool]$directory) {
         } catch [Management.Automation.ItemNotFoundException] {
             $missingCursor=$cursor.TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar))
             $missing=[IO.Path]::GetFileName($missingCursor)
+            $missing=$missing -replace '[^A-Za-z0-9._-]','_'
             if ($missing -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') {
                 $missing='ancestor'
             }
