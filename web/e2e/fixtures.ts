@@ -67,10 +67,10 @@ export const test = base.extend({
 
 export const cashTest = test.extend<{ cashSessionCleanup: void }>({
   cashSessionCleanup: [
-    async ({ request }, use) => {
+    async ({ request }, runCleanupScenario) => {
       await cleanupOpenCashSessions(request)
       try {
-        await use()
+        await runCleanupScenario()
       } finally {
         await cleanupOpenCashSessions(request)
       }
