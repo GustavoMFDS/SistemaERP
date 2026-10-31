@@ -111,10 +111,16 @@ Ambos os PRs permanecem Draft e separados. Não houve merge, release, instalaç�
 
 Reboot real em Windows limpo, validação física em dois PCs/LAN, restore externo independente, assinatura comercial Authenticode e proveniência do editor, revisão jurídica dos fornecedores, transmissão SEFAZ real, Pix/TEF, periféricos, aceite contábil e aceite do responsável pela issue #160 seguem pendentes. A issue #160 permanece aberta: não foi identificada a origem histórica da primeira sessão vazada.
 
-### Atualização de CI posterior — head atual #212 `14ff510257ce54b71fd7d3e75b360744c73511bd`
+### Atualização de CI posterior — head #212 `ce1ed41fc85eded7d94264f12acf52a0646420a0`
 
-- CI geral aprovou **19/19 jobs** ([run 41235325267](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41235325267)); E2E da primeira execução: 162 passaram e 6 ficaram ignorados.
-- A repetição solicitada do job E2E no mesmo SHA está ativa. Uma tentativa anterior em outro SHA foi cancelada após novo commit; ela não conta para o requisito da issue #160.
-- O job integrado Windows do head atual está ativo ([run 41235325297](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41235325297). O último erro identificado era ausência de argumentos HTTPS na chamada do probe; commit `14ff5102` passa os campos e adiciona guarda estática. Resultado final ainda pendente.
-- Continuam bloqueios externos listados acima; nenhuma aprovação comercial decorre do CI.
+- O parser do probe e do teste estático passou no runner Windows; a simulação local confirmou a extração segura do item ausente com separador final.
+- CI geral: 18/19 jobs aprovados. O smoke EDB 16.15 ainda está em andamento ([run 41238198595](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238198595)).
+- E2E no SHA atual: 162 passaram e 6 foram ignorados. Uma segunda execução no mesmo SHA ainda será feita após o CI concluir. O head anterior `f209b98967f6dabbfb328488ccfc7dda8810fbf9` já passou duas vezes com o mesmo resultado.
+- A validação integrada Windows está ativa ([run 41238198614](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41238198614)). No head anterior, o diagnóstico apontou um caminho com separador final; o novo código remove o separador antes de relatar o nome.
+- A instalação só será considerada aprovada após instalação completa, navegação HTTPS, reinício das dependências, reparo e desinstalação conservadora.
+- Nenhum serviço ou dado do Windows local foi alterado. Não houve instalação em cliente, merge, release, venda ou ativação fiscal.
+
+### Bloqueios externos mantidos
+
+Reboot real em Windows limpo, validação física em dois PCs/LAN, restore externo independente, assinatura comercial Authenticode e proveniência do editor, revisão jurídica dos fornecedores, transmissão SEFAZ real, Pix/TEF, periféricos, aceite contábil e aceite do responsável pela issue #160 seguem pendentes. A issue #160 permanece aberta: a origem histórica da primeira sessão vazada não foi identificada.
 
