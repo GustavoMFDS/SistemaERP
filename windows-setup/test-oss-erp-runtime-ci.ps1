@@ -326,6 +326,7 @@ try{
        @($serviceEnvironment | Where-Object {$_ -match '^NFCE_SEFAZ_(?:PRODUCTION|HOMOLOGATION)_ENABLED=true$'}).Count -ne 0){
         throw 'Disposable ERP service did not retain the production-safe disabled fiscal/SEFAZ configuration.'
     }
+    $activationServiceEnvironment=@($serviceEnvironment)
     $scm=Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
     if($scm.StartName -notin @('NT AUTHORITY\LocalService','NT AUTHORITY\LOCAL SERVICE') -or $scm.StartMode -cne 'Manual' -or $scm.State -cne 'Stopped' -or $scm.PathName -notlike ('*'+[IO.Path]::Combine($install,'esterium-server.exe')+'*')){throw 'ERP service identity, initial state or executable path is unsafe.'}
     $failure=& sc.exe qfailure $serviceName 2>&1
@@ -533,6 +534,18 @@ try{
     $protectedFiles=@(Get-ChildItem -LiteralPath $secrets -Recurse -File)+@(Get-ChildItem -LiteralPath $tls -Recurse -File)
     $protectedHashes=@{}
     foreach($file in $protectedFiles){$protectedHashes[$file.FullName]=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash}
+    # Repair must inspect the same fiscal-safe service environment as activation.
+    # Restore the captured fixture after synthetic MVP sales; never weaken repair guards.
+    $serviceEnvironment=@($activationServiceEnvironment)
+    Set-ItemProperty -LiteralPath $serviceRegistry -Name Environment -Value $serviceEnvironment -ErrorAction Stop
+    $restoredServiceEnvironment=@((Get-ItemProperty -LiteralPath $serviceRegistry -Name Environment -ErrorAction Stop).Environment)
+    if(@($restoredServiceEnvironment | Where-Object {$_ -ceq 'APP_ENV=prod'}).Count -ne 1 -or
+       @($restoredServiceEnvironment | Where-Object {$_ -ceq 'FISCAL_PROVIDER=disabled'}).Count -ne 1 -or
+       @($restoredServiceEnvironment | Where-Object {$_ -ceq 'NFCE_SEFAZ_PRODUCTION_ENABLED=false'}).Count -ne 1 -or
+       @($restoredServiceEnvironment | Where-Object {$_ -ceq 'NFCE_SEFAZ_HOMOLOGATION_ENABLED=false'}).Count -ne 1 -or
+       @($restoredServiceEnvironment | Where-Object {$_ -match '^RATE_LIMIT_(?:LOGIN|REFRESH)'}).Count -ne 0){
+        throw 'Disposable CI did not restore the activated fiscal-safe service environment before repair.'
+    }
     $repair=Join-Path $source 'tools\repair-esterium-local-install.ps1'
     if(-not(Test-Path -LiteralPath $repair -PathType Leaf)){throw 'Assisted repair helper is missing from the verified bundle.'}
     $oldRepairGate=$env:ESTERIUM_REPAIR_DISPOSABLE_CI
