@@ -42,6 +42,8 @@ try {
     New-Item -ItemType Directory -Path $tools | Out-Null
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-pg-tls-certgen.exe'), 'synthetic-signer-never-executed')
+    [IO.File]::WriteAllText((Join-Path $tools 'esterium-bootstrap-admin.exe'), 'synthetic-CLI-never-executed')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $tools 'seed.prod.sql')
     foreach ($name in @(
         'register-esterium-windows-service.ps1',
         'provision-esterium-app-secrets.ps1',
@@ -79,7 +81,8 @@ try {
     'uninstall-esterium-local-app.ps1',
         'finish-esterium-local-first-install.ps1',
         'install-esterium-local-complete.ps1',
-        'apply-esterium-initial-schema.ps1'
+        'apply-esterium-initial-schema.ps1',
+        'bootstrap-esterium-first-admin.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $tools
     }

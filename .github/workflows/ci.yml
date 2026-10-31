@@ -311,6 +311,8 @@ jobs:
           cp "$build_dir/bin/windows_amd64/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
           (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen)
           test -s dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe
+          (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-bootstrap-admin.exe ./cmd/esterium-bootstrap-admin)
+          test -s dist/esterium-local-win-x64/tools/esterium-bootstrap-admin.exe
       - name: Add curated Windows setup and backup tools
         run: |
           set -euo pipefail
@@ -349,8 +351,13 @@ jobs:
             scripts/bootstrap-esterium-local-schema.ps1 \
             scripts/stage-esterium-approved-windows-release.ps1 \
             scripts/probe-esterium-local-first-run.ps1 \
+            scripts/activate-esterium-local-first-install.ps1 \
+            scripts/repair-esterium-local-install.ps1 \
+            scripts/uninstall-esterium-local-app.ps1 \
             scripts/finish-esterium-local-first-install.ps1 \
             scripts/install-esterium-local-complete.ps1 \
+            scripts/bootstrap-esterium-first-admin.ps1 \
+            backend/seed/seed.prod.sql \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md

@@ -41,6 +41,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not build synthetic Windows server fixture.' }
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-migrate.exe')
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe')
+    Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-bootstrap-admin.exe')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $toolsDir 'seed.prod.sql')
     # Match the manifest's exhaustive curator, but never copy package secrets.
     $required=@(
         'register-esterium-windows-service.ps1',
@@ -79,7 +81,8 @@ try {
         'uninstall-esterium-local-app.ps1',
         'finish-esterium-local-first-install.ps1',
         'install-esterium-local-complete.ps1',
-        'apply-esterium-initial-schema.ps1'
+        'apply-esterium-initial-schema.ps1',
+        'bootstrap-esterium-first-admin.ps1'
     )
     foreach ($tool in $required) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool)

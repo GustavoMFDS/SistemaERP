@@ -56,6 +56,8 @@ try {
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'tools')) | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-pg-tls-certgen.exe'), 'synthetic-CLI-never-executed')
+    [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-bootstrap-admin.exe'), 'synthetic-CLI-never-executed')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $bundle 'tools\\seed.prod.sql')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), 'synthetic-html')
     $migrationDir = Join-Path $bundle 'migrations'
     [IO.Directory]::CreateDirectory($migrationDir) | Out-Null
@@ -107,7 +109,8 @@ try {
     'uninstall-esterium-local-app.ps1',
         'finish-esterium-local-first-install.ps1',
         'install-esterium-local-complete.ps1',
-        'apply-esterium-initial-schema.ps1'
+        'apply-esterium-initial-schema.ps1',
+        'bootstrap-esterium-first-admin.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $bundleTools $tool)
     }
