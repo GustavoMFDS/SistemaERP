@@ -99,3 +99,14 @@ O fechamento de código e validação automatizada desta rodada foi concluído: 
 As issues #24, #28, #29, #32, #33, #35, #36, #43, #52, #160 e #194 seguem abertas; nenhuma foi fechada ou comentada. Testes sintéticos não substituem aceite manual de todas as telas, homologação SEFAZ, Pix/TEF, periféricos ou contabilidade.
 
 Ambos os PRs permanecem Draft e separados. Não houve merge, release, instalação em máquina de cliente ou reinício completo do Windows como sistema operacional em máquina real. Permanecem revisão jurídica de redistribuição, assinatura/proveniência Authenticode, validação física em dois PCs com LAN/backup/reboot e credenciais/homologação fiscal reais. A prévia não está pronta para produção.
+
+## Revalidação 31/10/2026 — sequência completa #212
+
+- PR #213 head `921afc18e1e981a0cc211615c2a3f621ea8e0a49`: CI **19/19** aprovado ([run 41232516290](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41232516290)); E2E: 161 passaram, 6 ignorados pelas condições da suite; smoke do PostgreSQL EDB 16.15 também passou. O teste de legenda agora espera a resposta PATCH antes de verificar estado persistido.
+- PR #212 head `fca67763998dbe2ff917269e6ba0d8047a5c19aa`: CI **19/19** aprovado ([run 41234145814](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41234145814)). A segunda execução E2E no mesmo SHA foi solicitada e ainda estava ativa na última consulta; não contar como concluída antes do resultado.
+- O job do instalador integrado segue em andamento no runner Windows descartável ([run 41234145812](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41234145812)). Diagnóstico anterior isolou falha no bootstrap do primeiro administrador: o coordenador deixava PostgreSQL parado/desabilitado após migrations, mas tentava abrir conexão para criar o admin. A correção inicia PostgreSQL apenas durante o bootstrap, depois para/desabilita e verifica o estado antes do probe. O job atual ainda precisa aprovar para confirmar a correção.
+- Nenhum serviço ou dado do Windows local foi alterado. Não houve instalação em cliente, merge, release, venda ou ativação fiscal.
+
+### Bloqueios externos mantidos
+
+Reboot real em Windows limpo, validação física em dois PCs/LAN, restore externo independente, assinatura comercial Authenticode e proveniência do editor, revisão jurídica dos fornecedores, transmissão SEFAZ real, Pix/TEF, periféricos, aceite contábil e aceite do responsável pela issue #160 seguem pendentes. A issue #160 permanece aberta: não foi identificada a origem histórica da primeira sessão vazada.
