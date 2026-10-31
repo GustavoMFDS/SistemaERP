@@ -170,14 +170,50 @@ try {
         $failureLine=[int]$failure.InvocationInfo.ScriptLineNumber
         $failureType=$failure.Exception.GetType().FullName
         $safeDetail=''
-        if ($failure.Exception.Message -match '^(?:Bootstrap recusado: )?(FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+)$') {
-            $safeDetail=$Matches[1]
-        } elseif ($failure.Exception.Message -match '^(First-run probe required local item is missing: [A-Za-z0-9._-]{1,128}\\.)$') {
-            $safeDetail=$Matches[1]
-        # Disposable CI may show short text-only errors, never paths or credentials.
-        } elseif ($failure.Exception.Message -match '^[A-Za-z0-9 ,.;:()-]{1,180}$' -and
-            $failure.Exception.Message -notmatch '(?i)(password|secret|token|credential|bearer|https?://|[\\/]|[A-Z]:)') {
-            $safeDetail=$failure.Exception.Message
+        # PowerShell often wraps a useful leaf error in a RuntimeException with
+        # path/line context. Inspect a bounded chain, but emit only a complete
+        # short ASCII message that contains no credential terms or path syntax.
+        $safeException=$failure.Exception
+        for ($depth=0; $null -ne $safeException -and $depth -lt 6; $depth++) {
+            $safeMessage=([string]$safeException.Message).Replace([char]39,'')
+            if ($safeMessage -match '^(?:Bootstrap recusado: )?(FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+)
+        $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
+        if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
+        throw ('Instalacao inicial do ERP interrompida; preserve o banco e nao repetir Apply. [CI diagnostic: {0}]' -f $diagnostic)
+    }
+    throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
+}
+Write-Output 'PASS: instalacao inicial assinada; migracoes/admin/HTTPS/servicos/atalho e health foram ativados.'
+Write-Output 'FISCAL permanece desativado; backup externo, EDB EXE, terminais fisicos e piloto comercial continuam independentes.'
+) {
+                $safeDetail=$Matches[1]
+            } elseif ($safeMessage -match '^(First-run probe required local item is missing: [A-Za-z0-9._-]{1,128}\\.)
+        $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
+        if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
+        throw ('Instalacao inicial do ERP interrompida; preserve o banco e nao repetir Apply. [CI diagnostic: {0}]' -f $diagnostic)
+    }
+    throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
+}
+Write-Output 'PASS: instalacao inicial assinada; migracoes/admin/HTTPS/servicos/atalho e health foram ativados.'
+Write-Output 'FISCAL permanece desativado; backup externo, EDB EXE, terminais fisicos e piloto comercial continuam independentes.'
+) {
+                $safeDetail=$Matches[1]
+            # Disposable CI may show short text-only errors, never paths or credentials.
+            } elseif ($safeMessage -match '^[A-Za-z0-9 ,.;:()-]{1,180}
+        $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
+        if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
+        throw ('Instalacao inicial do ERP interrompida; preserve o banco e nao repetir Apply. [CI diagnostic: {0}]' -f $diagnostic)
+    }
+    throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
+}
+Write-Output 'PASS: instalacao inicial assinada; migracoes/admin/HTTPS/servicos/atalho e health foram ativados.'
+Write-Output 'FISCAL permanece desativado; backup externo, EDB EXE, terminais fisicos e piloto comercial continuam independentes.'
+ -and
+                $safeMessage -notmatch '(?i)(password|secret|token|credential|bearer|https?://|[\\/]|[A-Z]:)') {
+                $safeDetail=$safeMessage
+            }
+            if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { break }
+            $safeException=$safeException.InnerException
         }
         $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
         if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
