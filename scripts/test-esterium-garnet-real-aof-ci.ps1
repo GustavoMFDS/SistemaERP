@@ -116,9 +116,9 @@ function Assert-PrivateDotnetRuntime([int]$workerPid,[string]$phase) {
     $actualCoreClr=[IO.Path]::GetFullPath([string]$loadedCoreClr[0].FileName)
     $expectedCoreClr=[IO.Path]::GetFullPath($expectedCoreClr)
     if(-not [String]::Equals($actualCoreClr,$expectedCoreClr,[StringComparison]::OrdinalIgnoreCase)){
-        throw ('The '+$phase+' Garnet process loaded CoreCLR outside the pinned private runtime.')
+        throw ('The '+$phase+' Garnet process loaded CoreCLR outside the pinned private runtime. actual='+$actualCoreClr+' expected='+$expectedCoreClr)
     }
-    Write-Output ('PASS: '+$phase+' Garnet process loaded CoreCLR from the pinned private runtime.')
+    Write-Output ('PASS: '+$phase+' Garnet process loaded CoreCLR from the pinned private runtime: '+$actualCoreClr)
 }
 function Start-Garnet([string]$conf,[string]$phase) {
     $exes=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.exe')
