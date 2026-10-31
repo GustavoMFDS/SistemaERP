@@ -327,6 +327,9 @@ try {
     Wait-ERPReady $httpsPort 120
     Assert-AdminLogin $origin
 
+    Write-Output 'Stopping ERP before assisted repair; only the missing owned settings will be restored.'
+    Stop-Service -Name 'EsteriumERP' -Force -ErrorAction Stop
+    (Get-Service -Name 'EsteriumERP').WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(45))
     Write-Output 'Removing only the owned shortcut and firewall rule to exercise assisted repair.'
     Remove-NetFirewallRule -Name 'EsteriumERP-HTTPS' -ErrorAction Stop
     Remove-Item -LiteralPath $shortcut -Force -ErrorAction Stop
