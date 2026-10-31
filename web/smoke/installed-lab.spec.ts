@@ -127,9 +127,17 @@ test('installed mobile routes remain usable without horizontal overflow', async 
 test('installed navigation, attention alerts, and sale confirmation messages work with real services', async ({ page }) => {
   test.skip(test.info().project.name !== 'chromium', 'screen 18-19 confirmation smoke runs once on Chromium')
   await loginUi(page)
+  const fiscalReminder = page.getByRole('dialog', { name: 'Sua configuração fiscal ainda não está concluída' })
+  await expect(fiscalReminder).toBeVisible()
   const evidenceDir = process.env.ESTERIUM_LAB_EVIDENCE_DIR ?? ''
   expect(evidenceDir).not.toBe('')
   mkdirSync(evidenceDir, { recursive: true })
+  await page.screenshot({
+    path: join(evidenceDir, 'installed-screen-18-fiscal-reminder.png'),
+    fullPage: true,
+  })
+  await fiscalReminder.getByRole('button', { name: 'Agora não' }).click()
+  await expect(fiscalReminder).not.toBeVisible()
 
   const navigation = page.getByRole('navigation', { name: 'Navegação principal' })
   await expect(navigation).toBeVisible()
