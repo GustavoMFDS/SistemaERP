@@ -691,16 +691,29 @@ SELECT
         if($null -ne $pgServicePasswordSecure){$pgServicePasswordSecure.Dispose();$pgServicePasswordSecure=$null}
         $pgServiceCredential=$null
         $registeredPg=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop)
-        $expectedPgNames=@($serviceCredentialName,'.\'+$pgServiceAccountName,($env:COMPUTERNAME+'\'+$pgServiceAccountName))
         if($registeredPg.Count -ne 1){
             throw ('Expected one disposable PostgreSQL SCM entry; observed '+$registeredPg.Count+'.')
         }
         $pgObserved=$registeredPg[0]
-        Write-Host ('PostgreSQL SCM observation: StartName=[{0}], StartMode=[{1}], State=[{2}], ProcessId=[{3}], PathName=[{4}], ExpectedPath=[{5}]' -f $pgObserved.StartName,$pgObserved.StartMode,$pgObserved.State,$pgObserved.ProcessId,$pgObserved.PathName,$expectedPgServiceCommand)
-        if($pgObserved.StartName -notin $expectedPgNames -or
-           $pgObserved.StartMode -cne 'Disabled' -or $pgObserved.State -cne 'Stopped' -or
-           [int]$pgObserved.ProcessId -ne 0 -or $pgObserved.PathName -cne $expectedPgServiceCommand){
-            throw 'PostgreSQL SCM entry did not retain the dedicated non-admin identity or isolated cluster path.'
+        $pgObservedAccountSid=''
+        $pgIdentityResolved=$false
+        try{
+            $pgObservedAccountSid=[string]([Security.Principal.NTAccount]::new([string]$pgObserved.StartName).Translate([Security.Principal.SecurityIdentifier]).Value)
+            $pgIdentityResolved=$true
+        }catch{}
+        $pgModeMatches=[String]::Equals([string]$pgObserved.StartMode,'Disabled',[StringComparison]::OrdinalIgnoreCase)
+        $pgStateMatches=[String]::Equals([string]$pgObserved.State,'Stopped',[StringComparison]::OrdinalIgnoreCase)
+        $pgProcessMatches=([int]$pgObserved.ProcessId -eq 0)
+        $pgPathMatches=[String]::Equals([string]$pgObserved.PathName,[string]$expectedPgServiceCommand,[StringComparison]::OrdinalIgnoreCase)
+        $pgMetadataFailures=@()
+        if(-not $pgIdentityResolved -or $pgObservedAccountSid -cne $pgServiceAccountSid){$pgMetadataFailures+='account SID'}
+        if(-not $pgModeMatches){$pgMetadataFailures+='startup mode'}
+        if(-not $pgStateMatches){$pgMetadataFailures+='state'}
+        if(-not $pgProcessMatches){$pgMetadataFailures+='process ID'}
+        if(-not $pgPathMatches){$pgMetadataFailures+='binary/cluster path'}
+        Write-Host ('PostgreSQL SCM observation: StartName=[{0}], AccountSID=[{1}], ExpectedSID=[{2}], IdentityResolved=[{3}], ModeOK=[{4}], StateOK=[{5}], PIDOK=[{6}], PathOK=[{7}]' -f $pgObserved.StartName,$pgObservedAccountSid,$pgServiceAccountSid,$pgIdentityResolved,$pgModeMatches,$pgStateMatches,$pgProcessMatches,$pgPathMatches)
+        if($pgMetadataFailures.Count -gt 0){
+            throw ('PostgreSQL SCM metadata mismatch: '+($pgMetadataFailures -join ', ')+'.')
         }
         Write-Host 'PostgreSQL CI: switching isolated TLS cluster from pg_ctl to restricted-account SCM service.'
         Invoke-PgCtl -argList @('-D',$data,'-m','fast','-w','stop') -phase 'handoff to PostgreSQL Windows service'
