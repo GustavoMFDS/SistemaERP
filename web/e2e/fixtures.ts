@@ -14,7 +14,7 @@ async function cleanupOpenCashSessions(
     data: { email: 'admin@sistema.local', password: 'admin123' },
   })
   if (!loginResponse.ok()) {
-    throw new Error(\`E2E cash cleanup login failed (\${loginResponse.status()}).\`)
+    throw new Error('E2E cash cleanup login failed (' + loginResponse.status() + ').')
   }
 
   const login = (await loginResponse.json()) as {
@@ -22,13 +22,15 @@ async function cleanupOpenCashSessions(
   }
   const accessToken = login.token?.access_token
   if (!accessToken) throw new Error('E2E cash cleanup received no access token.')
-  const headers = { Authorization: \`Bearer \${accessToken}\` }
+  const headers = { Authorization: 'Bearer ' + accessToken }
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const currentResponse = await request.get('/api/v1/cash/sessions/current', { headers })
     if (currentResponse.status() === 404) return
     if (!currentResponse.ok()) {
-      throw new Error(\`E2E cash cleanup current-session query failed (\${currentResponse.status()}).\`)
+      throw new Error(
+        'E2E cash cleanup current-session query failed (' + currentResponse.status() + ').',
+      )
     }
 
     const current = (await currentResponse.json()) as { id?: string; status?: string }
@@ -37,14 +39,14 @@ async function cleanupOpenCashSessions(
     }
 
     const closeResponse = await request.post(
-      \`/api/v1/cash/sessions/\${encodeURIComponent(current.id)}/close\`,
+      '/api/v1/cash/sessions/' + encodeURIComponent(current.id) + '/close',
       {
         headers,
         data: { closing_amount: 0, notes: 'Playwright E2E fixture cleanup' },
       },
     )
     if (!closeResponse.ok()) {
-      throw new Error(\`E2E cash cleanup close failed (\${closeResponse.status()}).\`)
+      throw new Error('E2E cash cleanup close failed (' + closeResponse.status() + ').')
     }
   }
 
