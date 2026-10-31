@@ -119,10 +119,19 @@ function Assert-InstalledServices {
 }
 function Register-LabCertificateTrust([string]$Thumbprint, [switch]$CodePublisher) {
     $source = 'Cert:\LocalMachine\My\' + $Thumbprint
+    $certificate = Get-Item -LiteralPath $source -ErrorAction Stop
+    $trustFile = Join-Path $tempRoot ('trusted-' + $Thumbprint + '.cer')
+    Export-Certificate -Cert $certificate -FilePath $trustFile -Force | Out-Null
     $stores = @('Cert:\LocalMachine\Root')
     if ($CodePublisher) { $stores += 'Cert:\LocalMachine\TrustedPublisher' }
     foreach ($store in $stores) {
-        if (-not (Test-Path -LiteralPath ($store + '\' + $Thumbprint))) { Copy-Item -LiteralPath $source -Destination $store -ErrorAction Stop | Out-Null }
+        $destination = $store + '\' + $Thumbprint
+        if (-not (Test-Path -LiteralPath $destination)) {
+            Import-Certificate -FilePath $trustFile -CertStoreLocation $store -ErrorAction Stop | Out-Null
+        }
+        if (-not (Test-Path -LiteralPath $destination)) {
+            throw 'The disposable certificate could not be added to the requested Windows trust store.'
+        }
     }
 }
 
