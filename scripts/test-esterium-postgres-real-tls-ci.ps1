@@ -695,23 +695,26 @@ SELECT
             throw ('Expected one disposable PostgreSQL SCM entry; observed '+$registeredPg.Count+'.')
         }
         $pgObserved=$registeredPg[0]
-        $pgObservedAccountSid=''
-        $pgIdentityResolved=$false
-        try{
-            $pgObservedAccountSid=[string]([Security.Principal.NTAccount]::new([string]$pgObserved.StartName).Translate([Security.Principal.SecurityIdentifier]).Value)
-            $pgIdentityResolved=$true
-        }catch{}
+        $pgObservedStartName=[string]$pgObserved.StartName
+        $expectedPgServiceStartNames=@('.\'+[string]$serviceUser.Name,($env:COMPUTERNAME+'\'+[string]$serviceUser.Name))
+        $pgIdentityMatches=$false
+        foreach($expectedStartName in $expectedPgServiceStartNames){
+            if([String]::Equals($pgObservedStartName,[string]$expectedStartName,[StringComparison]::OrdinalIgnoreCase)){
+                $pgIdentityMatches=$true
+                break
+            }
+        }
         $pgModeMatches=[String]::Equals([string]$pgObserved.StartMode,'Disabled',[StringComparison]::OrdinalIgnoreCase)
         $pgStateMatches=[String]::Equals([string]$pgObserved.State,'Stopped',[StringComparison]::OrdinalIgnoreCase)
         $pgProcessMatches=([int]$pgObserved.ProcessId -eq 0)
         $pgPathMatches=[String]::Equals([string]$pgObserved.PathName,[string]$expectedPgServiceCommand,[StringComparison]::OrdinalIgnoreCase)
         $pgMetadataFailures=@()
-        if(-not $pgIdentityResolved -or $pgObservedAccountSid -cne $pgServiceAccountSid){$pgMetadataFailures+='account SID'}
+        if(-not $pgIdentityMatches){$pgMetadataFailures+='account name'}
         if(-not $pgModeMatches){$pgMetadataFailures+='startup mode'}
         if(-not $pgStateMatches){$pgMetadataFailures+='state'}
         if(-not $pgProcessMatches){$pgMetadataFailures+='process ID'}
         if(-not $pgPathMatches){$pgMetadataFailures+='binary/cluster path'}
-        Write-Host ('PostgreSQL SCM observation: StartName=[{0}], AccountSID=[{1}], ExpectedSID=[{2}], IdentityResolved=[{3}], ModeOK=[{4}], StateOK=[{5}], PIDOK=[{6}], PathOK=[{7}]' -f $pgObserved.StartName,$pgObservedAccountSid,$pgServiceAccountSid,$pgIdentityResolved,$pgModeMatches,$pgStateMatches,$pgProcessMatches,$pgPathMatches)
+        Write-Host ('PostgreSQL SCM observation: StartName=[{0}], ExpectedStartNames=[{1}], AccountSID=[{2}], IdentityMatch=[{3}], ModeOK=[{4}], StateOK=[{5}], PIDOK=[{6}], PathOK=[{7}]' -f $pgObservedStartName,($expectedPgServiceStartNames -join ';'),$pgServiceAccountSid,$pgIdentityMatches,$pgModeMatches,$pgStateMatches,$pgProcessMatches,$pgPathMatches)
         if($pgMetadataFailures.Count -gt 0){
             throw ('PostgreSQL SCM metadata mismatch: '+($pgMetadataFailures -join ', ')+'.')
         }
