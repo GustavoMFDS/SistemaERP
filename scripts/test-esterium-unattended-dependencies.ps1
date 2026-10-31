@@ -36,6 +36,7 @@ $runtimeLaunchTokens=@(
     '$env:DOTNET_ROOT_X64 = ',
     '$env:DOTNET_ROOT = ',
     '$env:DOTNET_MULTILEVEL_LOOKUP = ',
+    '$quotePowerShellLiteral={param([string]$value) return (',
     '[Text.UTF8Encoding]::new($true)',
     '& $serviceExe install $GarnetServiceName $serviceApplication $appParameters'
 )
