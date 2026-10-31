@@ -684,6 +684,21 @@ SELECT
             & icacls.exe $entry.Path '/grant:r' ('*'+$pgServiceAccountSid+':'+$entry.Rights) '/T' '/C' | Out-Null
             if($LASTEXITCODE -ne 0){throw 'Could not apply scoped PostgreSQL service ACLs.'}
         }
+        # The TLS policy deliberately protects the certificate directory with a
+        # non-inheriting ACL. Match the production staging contract explicitly:
+        # grant traversal on the exact folders and read on each certificate file.
+        foreach($folder in @($policy,$tlsDir)){
+            & icacls.exe $folder '/grant:r' ('*'+$pgServiceAccountSid+':RX') | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not grant PostgreSQL service certificate-directory traversal.'}
+        }
+        foreach($name in @('server.crt','server.key','root.crt')){
+            $certificatePath=Join-Path $tlsDir $name
+            if(-not(Test-Path -LiteralPath $certificatePath -PathType Leaf)){
+                throw ('PostgreSQL TLS fixture certificate is missing: '+$name)
+            }
+            & icacls.exe $certificatePath '/grant:r' ('*'+$pgServiceAccountSid+':R') | Out-Null
+            if($LASTEXITCODE -ne 0){throw ('Could not grant PostgreSQL service read access to '+$name+'.')}
+        }
         $pgCtlBinary=[IO.Path]::GetFullPath($pgCtl)
         $expectedPgServiceCommand='"'+$pgCtlBinary+'" runservice -N "'+$pgServiceName+'" -D "'+[IO.Path]::GetFullPath($data)+'" -w'
         New-Service -Name $pgServiceName -BinaryPathName $expectedPgServiceCommand -Credential $pgServiceCredential -StartupType Disabled -DisplayName 'Esterium disposable PostgreSQL 16 integrated lab' -ErrorAction Stop | Out-Null
