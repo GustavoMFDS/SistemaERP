@@ -284,17 +284,23 @@ if (-not [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsI
     throw 'Elevated Windows administrator is required.'
 }
 $success=$false
+$probeFailed=$false
+$probeFailureStage=''
+$probeStage='disable ERP service'
 try {
     # Disallow an external SCM trigger from starting ERP while dependencies
     # are temporarily alive. On a failed probe ERP remains Disabled.
     Set-Service -Name 'EsteriumERP' -StartupType Disabled -ErrorAction Stop
+    $probeStage='start dependency services'
     foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
         Set-Service -Name $name -StartupType Manual -ErrorAction Stop
         Start-Service -Name $name -ErrorAction Stop
         (Get-Service -Name $name).WaitForStatus(
             [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
     }
+    $probeStage='verify dependency ownership'
     & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -RequireServiceOwnership | Out-Null
+    $probeStage='run ERP dependency preflight'
     $process=[Diagnostics.ProcessStartInfo]::new()
     $process.FileName=Assert-Local (Join-Path $bundle 'esterium-server.exe') $false
     $process.Arguments='--check-dependencies'
@@ -324,6 +330,9 @@ try {
         }
     } finally { $client.Dispose() }
     $success=$true
+} catch {
+    $probeFailed=$true
+    $probeFailureStage=$probeStage
 } finally {
     # Always attempt BOTH services, even when the first stop command fails.
     # Retain a hard failure if any process is still running or auto-start
@@ -350,6 +359,9 @@ try {
     if ($cleanupFailures.Count -gt 0) {
         throw 'Probe cleanup could not confirm BOTH dependencies stopped and disabled; manual intervention required.'
     }
+}
+if ($probeFailed) {
+    throw ('First-run probe failed at stage: {0}.' -f $probeFailureStage)
 }
 if (-not $success) { throw 'Runtime probe did not pass.' }
 foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
