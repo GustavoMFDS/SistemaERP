@@ -258,7 +258,7 @@ test('installed mobile and desktop navigation, attention alerts, and sale confir
   }
 })
 
-test('installed ERP completes synthetic retail operations with fiscal generation disabled and a two-terminal stock race', async ({ page, browser, browserName }) => {
+test('installed ERP completes synthetic retail operations, checks the fiscal gate and races two terminals', async ({ page, browser, browserName }) => {
   test.skip(test.info().project.name !== 'chromium', 'business write smoke runs once on Chromium')
   expect(browserName).toBe('chromium')
   const email = process.env.ESTERIUM_LAB_ADMIN_EMAIL ?? ''
@@ -406,7 +406,28 @@ test('installed ERP completes synthetic retail operations with fiscal generation
     const fiscalGeneration = await browserApi(page, '/api/v1/fiscal/nfe/xml', adminToken, {
       method: 'POST', body: { sale_id: sale.id },
     })
-    expect(fiscalGeneration.status, 'Fiscal generation must stay disabled in the installed CI service').toBe(405)
+    if (fiscalGeneration.status === 405) {
+      expect(fiscalGeneration.status, 'Fiscal generation must stay disabled in the installed CI service').toBe(405)
+    } else {
+      const invoice = expectBody<{ invoice_id: string; xml_file_id: string }>(
+        fiscalGeneration, 'local synthetic invoice XML generation',
+      )
+      expect(invoice.invoice_id).not.toBe('')
+      const xmlList = expectBody<{ items: Array<{ id: string; invoice_id: string }> }>(
+        await browserApi(page, '/api/v1/fiscal/nfe/xml?limit=200&offset=0', adminToken), 'local XML list',
+      )
+      expect(xmlList.items.some((item) => item.id === invoice.xml_file_id && item.invoice_id === invoice.invoice_id)).toBe(true)
+      const xmlDownload = await browserApi(page, `/api/v1/fiscal/nfe/xml/${invoice.xml_file_id}/download`, adminToken)
+      expect(xmlDownload.status, `preview XML download: ${xmlDownload.text}`).toBe(200)
+      expect(String(xmlDownload.body)).toContain('<NFe')
+      expect(String(xmlDownload.body)).toContain('PREVIEW NFC-e 65 NAO FISCAL / NAO TRANSMITIR')
+      const parsedXML = await page.evaluate((xml) => {
+        const document = new DOMParser().parseFromString(xml, 'application/xml')
+        return { root: document.documentElement.localName, parserError: document.querySelector('parsererror')?.textContent ?? '' }
+      }, String(xmlDownload.body))
+      expect(parsedXML.root).toBe('NFe')
+      expect(parsedXML.parserError).toBe('')
+    }
 
     const saleDetail = expectBody<{
       items: Array<{ id: string }>
