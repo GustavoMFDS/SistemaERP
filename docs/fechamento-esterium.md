@@ -1,7 +1,7 @@
 # Fechamento da missão — Esterium ERP
 
-**Atualizado:** 31/10/2026  
-**Estado:** PR #212 permanece Draft; CI geral (19/19) e integração Windows completa passaram no head `53f869fd9ea5908ca23a61d9173f2085604a3f7c`. PR #213 permanece Draft. Sem merge ou liberação comercial.
+**Atualizado:** 31/10/2026 23:45 BRT (01/11 UTC)  
+**Estado:** #212 e #213 com CI e laboratório Windows aprovados; #214 CI de integração aprovado; #215 em nova validação após correção do lockfile. Todos os PRs seguem Draft, sem merge ou liberação comercial.
 
 Este relatório registra o estado da cópia em `D:\ERP` e as verificações executadas nesta sessão. Ele não declara o ERP pronto para produção.
 
@@ -167,4 +167,51 @@ Reboot real em Windows limpo, validação física em dois PCs/LAN, restore exter
 - A fixture E2E exige que não haja sessão de teste anterior aberta. No teardown, reconecta browser, reconcilia filas pendentes/legadas e só fecha caixa com filas vazias; falha em reconciliação deixa caixa aberto. A regressão provou que venda offline chega ao servidor antes do fechamento.
 - Issue #160 continua aberta para observar estabilidade e possíveis gaps restantes. A causa histórica foi identificada em `cash-movement-reload.spec.ts` e corrigida pela PR #161 (merge `759992f4`); não é mais correto descrevê-la como desconhecida.
 - Limites: runner não fez reboot do Windows como sistema operacional, piloto físico em dois PCs/LAN, restore externo, aceite de fornecedores/periféricos, transmissão SEFAZ real, Pix/TEF, Authenticode comercial/proveniência ou aceite contábil.
-- PRs #212 e #213 seguem abertas e Draft. Sem merge, release, instalação em cliente ou ativação fiscal/comercial. Head documental anterior `7d19fc7d25d7eeaf8bbfef87c203c7a163e44103` passou CI 19/19 em [run 41259691614](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41259691614); esta revisão final inicia CI próprio.
+- PRs #212 e #213 seguem abertas e Draft. Sem merge, release, instalação em cliente ou ativação fiscal/comercial. Head documental anterior `7d19fc7d25d7eeaf8bbfef87c203c7a163e44103` passou CI 19/19 em [run 41259691614](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41259691614); esta revisão final inicia CI próprio.## Atualização 31/10/2026 — revalidação e auditoria final das issues
+
+### Estado dos PRs e verificações
+
+- **PR #212 — Windows local:** head cbbd72eb62ffcc1f32d629f1dcbb7b7e125030fe. CI geral [run 41263732350](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41263732350) e bancada Windows [run 41263732319](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41263732319) concluíram com sucesso. O laboratório cobriu instalação, reparo, desinstalação e exercício de atualização somente do aplicativo, rollback e recusa de migração insegura em runner descartável.
+- **PR #213 — fechamento/PWA:** head 237887548d835fc153cc35b75b9972b00d59df. A segunda tentativa do CI [run 41264814572](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41264814572) concluiu **19/19 jobs**; E2E passou com **161 testes e 6 condicionais**. Frontend, backend, integração, segurança e bancada Windows passaram.
+- **PR #214 — repetição de integração:** head 43de231888979917e52823932d2ec7429fac4c8a. CI [run 41264794584](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41264794584) concluiu com sucesso em todos os jobs, incluindo repetição de integração no mesmo banco sintético após isolamento de tenant e preservação da associação de usuário exigida pelo histórico fiscal imutável.
+- **PR #215 — Tailwind 4:** head 785122a52a8362f470091ddf35cf202f91fafe09. O primeiro CI [run 41265424626](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41265424626) apontou lockfile fora de sincronia no Linux, pedindo duas dependências transitivas. A correção foi commitada no ramo e o CI novo [run 41265992945](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41265992945) está em execução nesta leitura. Ainda não declarar a migração aprovada até esse run terminar. A alteração mantém o suporte mínimo documentado pelo Tailwind 4 (Safari 16.4, Chrome 111 e Firefox 128); a inspeção visual final também depende da nova execução.
+- Os quatro PRs continuam abertos em Draft. Nenhuma issue foi fechada automaticamente.
+
+### Mapa atualizado das 22 issues abertas
+
+Verificação feita ao vivo no GitHub em 31/10/2026: as 22 issues abaixo continuam abertas. “Implementado” indica evidência em código/teste; não equivale a aceite do responsável nem liberação de produção.
+
+| Issue | Situação verificada | Pendência para fechar |
+|---|---|---|
+| #194 — alertas de build/Tailwind | Migração para Tailwind 4 preparada no #215; CI novo ainda em execução. | CI verde, revisão visual e confirmação da política de suporte a navegadores. |
+| #160 — isolamento de caixa E2E | Fixture exige sessão limpa, reconcilia fila antes de fechar e falha com venda pendente; regressão passou. | Manter aberta para observar estabilidade e outros casos de teardown. |
+| #151 — checklist de release não fiscal | Instalação e recuperação exercitadas em runner descartável no #212. | Authenticode comercial, reboot real, dois PCs/LAN, restore externo e aceite operacional. |
+| #148 — segurança do frontend/Tailwind | Mesma migração do #194, em validação no #215. | Aprovação final de CI, dependências, navegadores e visuais. |
+| #52 — CI histórico da PR #25 | Os runners atuais funcionam; a cadeia histórica permanece documentada. | Revisão isolada dos HEADs históricos; não integrar PR antiga sem nova decisão. |
+| #50 — recuperação sem e-mail | Token de uso único e fluxo sintético têm implementação e cobertura. | Aceite do processo presencial e validação operacional de recuperação. |
+| #44 — instalação local Windows | Pacote local e laboratório integrado avançaram e passaram no runner. | Validação física, reboot do Windows, rede real, assinatura comercial e restore externo. |
+| #43 — UX das 19 telas | Requisitos mapeados em 17 rotas e 2 fluxos transversais; Playwright e laboratório cobrem rotas/estados principais. | Aceite manual completo por perfil, erros e tamanhos de tela. |
+| #42 — mensagens e confirmações | Confirmação da venda e estados fiscais foram exercitados; há salvaguardas em fluxos sensíveis. | Auditoria transversal de mensagens, erros, offline e confirmação nas telas. |
+| #41 — navegação e atenção | Navegação principal/secundária, central de atenção e lembrete fiscal por perfil foram exercitados. | Aceite de acessibilidade, restrições de caixa e estados de atenção restantes. |
+| #40 — ativação de acesso | Ativação por código sem e-mail obrigatório está implementada e coberta. | Aceite operacional dos convites e recuperação de acesso. |
+| #39 — login | Login por usuário e redirecionamento para /home estão implementados e cobertos. | Aceite visual e operacional final. |
+| #38 — relatórios | Rota e item Relatórios separados do Financeiro existem. | Conferir critérios e indicadores com o responsável do negócio. |
+| #37 — lembrete fiscal | Lembrete por perfil/tenant e sua dispensa foram cobertos no fluxo de início. | Confirmar comportamento final com o responsável fiscal. |
+| #36 — funcionário sem e-mail | Cadastro/login com identificador de usuário sem e-mail está implementado e coberto. | Aceite do fluxo administrativo e de suporte. |
+| #35 — política de devolução | Política por produto e snapshot na venda/devolução estão cobertos por testes. | Aceite operacional das regras e exceções. |
+| #33 — protocolo SEFAZ/nfeProc | Guards, arquivo e builders locais usam apenas dados sintéticos. | Resposta genuína SEFAZ, certificado, autorização e validação contábil. |
+| #32 — emissão automática após venda | Fila, idempotência e reconciliação local foram exercitadas; emissão real não ocorreu. | Homologação e credenciamento SEFAZ; não habilitar transmissão sem autorização. |
+| #29 — rerun de integração | #214 passou na repetição do mesmo banco descartável com isolamento de tenant. | Manter a execução repetível como gate e ampliar observação de estado residual. |
+| #28 — runners de Actions | CI recente executou jobs Linux/Windows reais e passou nos PRs indicados. | Revalidar os HEADs antigos citados na issue se ainda forem necessários. |
+| #26 — rebranding | Marca Esterium aparece nas superfícies públicas; nomes internos/chaves antigas foram preservados por compatibilidade. | Revisão jurídica de marca, domínio, embalagem e materiais públicos. |
+| #24 — variações/estoque | Variações/SKUs e estoque por opção têm migração, integração e cobertura E2E. | Aceite de importação, sincronização offline e limpeza de variação. |
+
+### Graphify — escopo web/src
+
+- Grafo gerado com 46 arquivos, 483 nós, 1.119 relações e 13 comunidades. Relatório e artefatos locais: D:\ERP\web\src\graphify-out\GRAPH_REPORT.md, graph.json e graph.html.
+- Nós centrais: errorMessage() (75 ligações), apiJson() (63), getSessionScope() (45), PDVPage() (43) e scopedStorageKey() (24).
+- Conexão que merece revisão: apiJson() liga várias comunidades, com intermediação 0,279. Pergunta sugerida: tratamento e normalização de respostas da API devem formar uma fronteira compartilhada explícita?
+
+### Critério de conclusão
+
+O fechamento técnico em CI avançou e a cópia local contém relatório e grafo reproduzível. A migração Tailwind #215 ainda aguarda o CI da correção do lockfile. A missão de produção continua incompleta: não houve instalação em cliente, Authenticode comercial, reboot físico, aceite de dois PCs/LAN e restore externo, homologação SEFAZ real, ativação Pix/TEF, validação de periféricos, revisão jurídica nem aceite contábil. Manter os PRs em Draft e não declarar o ERP pronto para produção até resolver os gates técnicos e externos aplicáveis.
