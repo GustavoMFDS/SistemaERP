@@ -2088,7 +2088,7 @@ jobs:
         with:
           name: tailwind-v4-visual-evidence
           path: web/test-results
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
 
   security:
