@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect, type Page, type TestInfo } from '@playwright/test'
 
 /**
  * Most E2E scenarios exercise normal store tasks, not the optional fiscal
@@ -19,3 +19,12 @@ export const test = base.extend({
 })
 
 export { expect }
+
+export async function attachVisualScreenshot(page: Page, testInfo: TestInfo, name: string) {
+  const screenshotPath = testInfo.outputPath('tailwind-v4-' + name + '.png')
+  await page.screenshot({ path: screenshotPath, fullPage: true })
+  await testInfo.attach('tailwind-v4-' + name, {
+    path: screenshotPath,
+    contentType: 'image/png',
+  })
+}

@@ -2082,6 +2082,14 @@ jobs:
       - name: Run browser E2E
         working-directory: web
         run: npx playwright test
+      - name: Upload Tailwind migration visual evidence
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'codex/tailwind-v4-20261101'
+        uses: actions/upload-artifact@v7
+        with:
+          name: tailwind-v4-visual-evidence
+          path: web/test-results
+          if-no-files-found: error
+          retention-days: 7
 
   security:
     runs-on: ubuntu-latest
@@ -2099,25 +2107,23 @@ jobs:
       - name: Go vulnerability scan
         working-directory: backend
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-      - name: Frontend production dependency audit
+      - name: Full frontend dependency audit
         working-directory: web
         run: |
           npm install --global npm@11.6.1
           npm ci
-          npm audit --omit=dev --audit-level=high
-      - name: Generate remediated frontend lockfile
+          npm audit --audit-level=moderate
+      - name: Capture frontend audit evidence
         working-directory: web
-        run: |
-          npm audit fix --package-lock-only || true
-          npm audit --json > audit-after-fix.json || true
-      - name: Upload remediated frontend lockfile
+        run: npm audit --json > audit-report.json
+      - name: Upload frontend audit evidence
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-audit-fix
+          name: frontend-audit
           path: |
             web/package.json
             web/package-lock.json
-            web/audit-after-fix.json
+            web/audit-report.json
           if-no-files-found: error
 
 
