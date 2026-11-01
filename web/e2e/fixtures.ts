@@ -21,8 +21,10 @@ export const test = base.extend({
 export { expect }
 
 export async function attachVisualScreenshot(page: Page, testInfo: TestInfo, name: string) {
+  const screenshotPath = testInfo.outputPath('tailwind-v4-' + name + '.png')
+  await page.screenshot({ path: screenshotPath, fullPage: true })
   await testInfo.attach('tailwind-v4-' + name, {
-    body: await page.screenshot({ fullPage: true }),
+    path: screenshotPath,
     contentType: 'image/png',
   })
 }
