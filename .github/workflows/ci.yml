@@ -2128,7 +2128,7 @@ jobs:
         if: always() && github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'codex/tailwind-v4-20261101' || github.event.pull_request.head.ref == 'codex/integration-212-215-20261101')
         uses: actions/upload-artifact@v7
         with:
-          name: tailwind-v4-visual-evidence
+          name: tailwind-v4-visual-evidence-run-${{ matrix.isolation }}
           path: web/test-results
           if-no-files-found: error
           retention-days: 7
