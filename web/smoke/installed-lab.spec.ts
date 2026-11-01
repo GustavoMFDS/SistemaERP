@@ -230,7 +230,7 @@ test('installed mobile and desktop navigation, attention alerts, and sale confir
     await expect(completed).toBeVisible()
     await assertNoHorizontalOverflow(page, 'screen 19 sale confirmation')
     await expect(completed.getByText(/Pagamento registrado\. Total: R\$\s*10,00/)).toBeVisible()
-    await expect(completed.getByText('A autorização da nota fiscal, quando necessária, é conferida separadamente.')).toBeVisible()
+    await expect(completed.getByText(/A nota fiscal é conferida separadamente\. O comprovante não fiscal não a substitui\./)).toBeVisible()
     await completed.getByRole('button', { name: 'Continuar no caixa' }).click()
     await expect(page.getByRole('status').filter({
       hasText: 'Obrigação fiscal registrada. A emissão só é concluída após autorização fiscal.',
