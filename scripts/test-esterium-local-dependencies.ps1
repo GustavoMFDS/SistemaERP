@@ -11,6 +11,9 @@ $checker = Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1'
 # Override only read-only Windows inventory commands in this script session.
 # No real Windows service is installed, started or contacted in this test.
 $global:ESTERIUM_TEST_PG_RUNNING = $true
+$global:ESTERIUM_TEST_PG_WRAPPED = $false
+$global:ESTERIUM_TEST_PG_WRONG_OWNER = $false
+$global:ESTERIUM_TEST_PG_WRONG_PARENT = $false
 $global:ESTERIUM_TEST_REDIS_RUNNING = $true
 $global:ESTERIUM_TEST_LAN_BIND = $false
 $global:ESTERIUM_TEST_PG_MISSING = $false
@@ -23,8 +26,30 @@ function Get-CimInstance {
     [CmdletBinding()]
     param([string]$ClassName, [string]$Filter)
     if ($ClassName -eq 'Win32_Process') {
-        if ($Filter -ne 'ProcessId=28103') { throw 'Unexpected Garnet process.' }
-        return [PSCustomObject]@{ ParentProcessId=$(if ($global:ESTERIUM_TEST_GARNET_WRONG_PARENT) { 28199 } else { 28102 }) }
+        switch ($Filter) {
+            'ProcessId=28101' { return [PSCustomObject]@{ ProcessId=28101; Name='pg_ctl.exe'; ParentProcessId=4 } }
+            'ProcessId=28104' {
+                return [PSCustomObject]@{
+                    ProcessId=28104
+                    Name='postgres.exe'
+                    ParentProcessId=$(if ($global:ESTERIUM_TEST_PG_WRONG_PARENT) { 28199 } else { 28101 })
+                }
+            }
+            'ProcessId=28103' {
+                return [PSCustomObject]@{
+                    ProcessId=28103
+                    Name='Garnet.exe'
+                    ParentProcessId=$(if ($global:ESTERIUM_TEST_GARNET_WRONG_PARENT) { 28199 } else { 28102 })
+                }
+            }
+            default {
+                if ($global:ESTERIUM_TEST_PG_WRONG_PARENT -and $Filter -match '^ProcessId=(2819[4-9])$') {
+                    $processId=[int]($Filter -replace '^ProcessId=','')
+                    return [PSCustomObject]@{ ProcessId=$processId; Name='postgres.exe'; ParentProcessId=($processId-1) }
+                }
+                return
+            }
+        }
     }
     if ($ClassName -ne 'Win32_Service') { throw 'Unexpected CIM request.' }
     if ($Filter -eq "Name='EsteriumCI-Postgres'") {
@@ -48,10 +73,15 @@ function Invoke-CimMethod {
     [CmdletBinding()]
     param($InputObject, [string]$MethodName)
     if ($MethodName -ne 'GetOwnerSid') { throw 'Unexpected process owner query.' }
-    return [PSCustomObject]@{
-        ReturnValue=0
-        Sid=$(if ($global:ESTERIUM_TEST_GARNET_WRONG_OWNER) { 'S-1-5-21-123' } else { 'S-1-5-20' })
+    $sid='S-1-5-20'
+    if ($InputObject.Name -in @('pg_ctl.exe','postgres.exe')) {
+        $sid=if ($global:ESTERIUM_TEST_PG_WRONG_OWNER -and $InputObject.Name -eq 'postgres.exe') {
+            'S-1-5-21-999'
+        } else { 'S-1-5-21-42' }
+    } elseif ($global:ESTERIUM_TEST_GARNET_WRONG_OWNER) {
+        $sid='S-1-5-21-123'
     }
+    return [PSCustomObject]@{ ReturnValue=0; Sid=$sid }
 }
 function Get-NetTCPConnection {
     [CmdletBinding()]
@@ -59,7 +89,9 @@ function Get-NetTCPConnection {
     if ($State -ne 'Listen' -or $LocalPort -notin @(5432, 6379)) {
         throw 'Unexpected TCP inventory request.'
     }
-    $pidValue = if ($LocalPort -eq 5432) { 28101 } else { 28102 }
+    $pidValue = if ($LocalPort -eq 5432) {
+        if ($global:ESTERIUM_TEST_PG_WRAPPED) { 28104 } else { 28101 }
+    } else { 28102 }
     if ($global:ESTERIUM_TEST_PORT_OWNER_MISMATCH -and $LocalPort -eq 6379) { $pidValue = 28199 }
     if ($global:ESTERIUM_TEST_GARNET_WRAPPED -and $LocalPort -eq 6379) { $pidValue = 28103 }
     if ($global:ESTERIUM_TEST_LAN_BIND -and $LocalPort -eq 6379) {
@@ -96,6 +128,18 @@ try {
     if ($strictResult -notmatch 'strict ownership mode') {
         throw 'Synthetic strict dependency listener ownership was not checked.'
     }
+    $global:ESTERIUM_TEST_PG_WRAPPED = $true
+    $wrappedPostgres = @(& $checker @inventoryParameters) -join ' '
+    if ($wrappedPostgres -notmatch 'strict ownership mode') {
+        throw 'PostgreSQL listener child under the declared service account was rejected.'
+    }
+    $global:ESTERIUM_TEST_PG_WRONG_OWNER = $true
+    Assert-Reject 'PostgreSQL listener under a different Windows account' 'declared service account'
+    $global:ESTERIUM_TEST_PG_WRONG_OWNER = $false
+    $global:ESTERIUM_TEST_PG_WRONG_PARENT = $true
+    Assert-Reject 'PostgreSQL listener outside the Windows service ancestry' 'not descended'
+    $global:ESTERIUM_TEST_PG_WRONG_PARENT = $false
+    $global:ESTERIUM_TEST_PG_WRAPPED = $false
     $global:ESTERIUM_TEST_GARNET_WRAPPED = $true
     $wrapped = @(& $checker @inventoryParameters) -join ' '
     if ($wrapped -notmatch 'strict ownership mode') {
@@ -105,11 +149,11 @@ try {
     Assert-Reject 'Garnet child in an unrelated OS identity' 'NETWORK SERVICE'
     $global:ESTERIUM_TEST_GARNET_WRONG_OWNER = $false
     $global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $true
-    Assert-Reject 'Garnet child outside the service ancestry' 'Unexpected Garnet process'
+    Assert-Reject 'Garnet child outside the service ancestry' 'Garnet listener process is missing'
     $global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $false
     $global:ESTERIUM_TEST_GARNET_WRAPPED = $false
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $true
-    Assert-Reject 'a different executable listening on the Redis port' 'Unexpected Garnet process'
+    Assert-Reject 'a different executable listening on the Redis port' 'Garnet listener process is missing'
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $false
     $global:ESTERIUM_TEST_PG_PID_MISSING = $true
     Assert-Reject 'a service without a live owning process' 'does not expose a running process'
@@ -135,7 +179,7 @@ try {
     Write-Output 'PASS: synthetic Windows dependency inventory rejects LAN exposure, invalid or missing services, and missing backup tooling.'
 } finally {
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING', 'ESTERIUM_TEST_PORT_OWNER_MISMATCH', 'ESTERIUM_TEST_PG_PID_MISSING', 'ESTERIUM_TEST_GARNET_WRAPPED', 'ESTERIUM_TEST_GARNET_WRONG_OWNER', 'ESTERIUM_TEST_GARNET_WRONG_PARENT')) {
+    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_PG_WRAPPED', 'ESTERIUM_TEST_PG_WRONG_OWNER', 'ESTERIUM_TEST_PG_WRONG_PARENT', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING', 'ESTERIUM_TEST_PORT_OWNER_MISMATCH', 'ESTERIUM_TEST_PG_PID_MISSING', 'ESTERIUM_TEST_GARNET_WRAPPED', 'ESTERIUM_TEST_GARNET_WRONG_OWNER', 'ESTERIUM_TEST_GARNET_WRONG_PARENT')) {
         Remove-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
     }
 }

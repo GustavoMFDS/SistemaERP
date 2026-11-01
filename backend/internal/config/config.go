@@ -229,7 +229,7 @@ func (c Config) Validate() error {
 	if c.IsProdLike() && len(c.CORSAllowedOrigins) == 0 {
 		errs = append(errs, "CORS_ALLOWED_ORIGINS must be explicit in staging/prod")
 	}
-	if err := validateCORSOrigins(c.CORSAllowedOrigins, c.IsProdLike()); err != nil {
+	if err := validateCORSOrigins(c.CORSAllowedOrigins, c.IsProdLike(), isLoopbackBindAddress(c.HTTPAddr)); err != nil {
 		errs = append(errs, err.Error())
 	}
 	for _, cidr := range c.TrustedProxyCIDRs {
@@ -331,7 +331,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func validateCORSOrigins(origins []string, prodLike bool) error {
+func validateCORSOrigins(origins []string, prodLike, loopbackOnly bool) error {
 	for _, origin := range origins {
 		origin = strings.TrimSpace(origin)
 		if origin == "" {
@@ -344,11 +344,27 @@ func validateCORSOrigins(origins []string, prodLike bool) error {
 		if err != nil || u.Scheme == "" || u.Host == "" || u.Path != "" {
 			return fmt.Errorf("CORS_ALLOWED_ORIGINS contains invalid origin %q", origin)
 		}
-		if prodLike && (strings.HasPrefix(u.Host, "localhost") || strings.HasPrefix(u.Host, "127.0.0.1")) {
+		if prodLike && !loopbackOnly && isLoopbackHost(u.Hostname()) {
 			return fmt.Errorf("CORS_ALLOWED_ORIGINS must not use localhost origins in staging/prod: %q", origin)
 		}
 	}
 	return nil
+}
+
+func isLoopbackBindAddress(address string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(address))
+	if err != nil {
+		return false
+	}
+	return isLoopbackHost(host)
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 func defaultCORSOrigins(env string) []string {

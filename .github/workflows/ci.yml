@@ -311,6 +311,8 @@ jobs:
           cp "$build_dir/bin/windows_amd64/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
           (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen)
           test -s dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe
+          (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-bootstrap-admin.exe ./cmd/esterium-bootstrap-admin)
+          test -s dist/esterium-local-win-x64/tools/esterium-bootstrap-admin.exe
       - name: Add curated Windows setup and backup tools
         run: |
           set -euo pipefail
@@ -349,13 +351,36 @@ jobs:
             scripts/bootstrap-esterium-local-schema.ps1 \
             scripts/stage-esterium-approved-windows-release.ps1 \
             scripts/probe-esterium-local-first-run.ps1 \
+            scripts/activate-esterium-local-first-install.ps1 \
+            scripts/repair-esterium-local-install.ps1 \
+            scripts/uninstall-esterium-local-app.ps1 \
             scripts/finish-esterium-local-first-install.ps1 \
             scripts/install-esterium-local-complete.ps1 \
+            scripts/bootstrap-esterium-first-admin.ps1 \
+            backend/seed/seed.prod.sql \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
           cp -R backend/migrations dist/esterium-local-win-x64/migrations
           test "$(find dist/esterium-local-win-x64/migrations -name '*.up.sql' | wc -l)" -ge 51
+      - name: Embed pinned .NET runtime required by Garnet
+        run: |
+          set -euo pipefail
+          runtime_version='10.0.14'
+          runtime_sha512='a176095f1db69b42c81acc60940744078d6bf2d2ac643e418342aa9c81889f4bd13e42f4621b131f9e77e4bc781ad46e375956219df9a4f979031d2a5a8d93cd'
+          runtime_zip="$(mktemp --suffix=.zip)"
+          trap 'rm -f "$runtime_zip"' EXIT
+          runtime_url="https://builds.dotnet.microsoft.com/dotnet/Runtime/${runtime_version}/dotnet-runtime-${runtime_version}-win-x64.zip"
+          curl -fLsS --retry 2 --connect-timeout 25 --max-time 300 -o "$runtime_zip" "$runtime_url"
+          echo "${runtime_sha512}  ${runtime_zip}" | sha512sum --check
+          runtime_dir='dist/esterium-local-win-x64/tools/dotnet'
+          mkdir -p "$runtime_dir"
+          unzip -q "$runtime_zip" -d "$runtime_dir"
+          test -s "$runtime_dir/dotnet.exe"
+          test -s "$runtime_dir/LICENSE.txt"
+          test -s "$runtime_dir/ThirdPartyNotices.txt"
+          test -s "$runtime_dir/host/fxr/${runtime_version}/hostfxr.dll"
+          test -s "$runtime_dir/shared/Microsoft.NETCore.App/${runtime_version}/System.Private.CoreLib.dll"
       - name: Generate and verify bundle SHA-256 manifest
         shell: pwsh
         run: |
@@ -445,6 +470,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm install --global npm@11.6.1
       - run: npm ci
+      - run: npm run test:assets
       - run: npm run lint
       - run: npm run build
 
@@ -1945,12 +1971,12 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_cash_tender WITH (FORCE);"
 
-      - name: Run tagged integration tests
+      - name: Run tagged integration tests twice against the same disposable database
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
           TEST_REDIS_ADDR: localhost:6379
-        run: go test -tags=integration ./tests/integration/...
+        run: go test -v -tags=integration -count=2 -p 1 -parallel 1 ./tests/integration/...
       - name: Verify supplier integration test can run twice in the same disposable DB
         working-directory: backend
         env:
@@ -1987,13 +2013,18 @@ jobs:
             -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
           (
             cd backend
-            go test -v -tags=integration -count=1 -p 1 -parallel 1 \
+            go test -v -tags=integration -count=2 -p 1 -parallel 1 \
               -run '^(TestNFCeFoundation_TenantIsolationAndConstraints|TestNFCeReservation_IsAtomicAndIdempotentPerSale)$' \
               ./tests/integration/... | tee /tmp/esterium-fiscal-sequence-tests.log
           )
           # Prevent a false green if either guarded test unexpectedly skips.
-          grep -Fq -- '--- PASS: TestNFCeFoundation_TenantIsolationAndConstraints ' /tmp/esterium-fiscal-sequence-tests.log
-          grep -Fq -- '--- PASS: TestNFCeReservation_IsAtomicAndIdempotentPerSale ' /tmp/esterium-fiscal-sequence-tests.log
+          for test_name in TestNFCeFoundation_TenantIsolationAndConstraints TestNFCeReservation_IsAtomicAndIdempotentPerSale; do
+            passed="$(grep -Fc -- "--- PASS: ${test_name} " /tmp/esterium-fiscal-sequence-tests.log || true)"
+            if [ "$passed" -ne 2 ]; then
+              echo "Expected ${test_name} to pass twice in the same disposable database; observed ${passed}"
+              exit 1
+            fi
+          done
       - name: Start API and verify readiness
         working-directory: backend
         env:
@@ -2017,9 +2048,15 @@ jobs:
           exit 1
 
   e2e:
+    name: E2E disposable run ${{ matrix.isolation }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        isolation: [1, 2]
     # Never leave a pre-browser API readiness step holding a runner indefinitely.
     timeout-minutes: 25
+    env:
+      E2E_DISPOSABLE_DATABASE: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -2082,6 +2119,14 @@ jobs:
       - name: Run browser E2E
         working-directory: web
         run: npx playwright test
+      - name: Upload Tailwind migration visual evidence
+        if: always() && github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'codex/tailwind-v4-20261101' || github.event.pull_request.head.ref == 'codex/integration-212-215-20261101')
+        uses: actions/upload-artifact@v7
+        with:
+          name: tailwind-v4-visual-evidence
+          path: web/test-results
+          if-no-files-found: error
+          retention-days: 7
 
   security:
     runs-on: ubuntu-latest
@@ -2099,25 +2144,23 @@ jobs:
       - name: Go vulnerability scan
         working-directory: backend
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-      - name: Frontend production dependency audit
+      - name: Full frontend dependency audit
         working-directory: web
         run: |
           npm install --global npm@11.6.1
           npm ci
-          npm audit --omit=dev --audit-level=high
-      - name: Generate remediated frontend lockfile
+          npm audit --audit-level=moderate
+      - name: Capture frontend audit evidence
         working-directory: web
-        run: |
-          npm audit fix --package-lock-only || true
-          npm audit --json > audit-after-fix.json || true
-      - name: Upload remediated frontend lockfile
+        run: npm audit --json > audit-report.json
+      - name: Upload frontend audit evidence
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-audit-fix
+          name: frontend-audit
           path: |
             web/package.json
             web/package-lock.json
-            web/audit-after-fix.json
+            web/audit-report.json
           if-no-files-found: error
 
 

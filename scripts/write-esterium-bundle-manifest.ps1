@@ -52,15 +52,24 @@ $requiredTools = @(
     'tools/bootstrap-esterium-local-schema.ps1',
     'tools/stage-esterium-approved-windows-release.ps1',
     'tools/probe-esterium-local-first-run.ps1',
+    'tools/activate-esterium-local-first-install.ps1',
+    'tools/repair-esterium-local-install.ps1',
+    'tools/uninstall-esterium-local-app.ps1',
     'tools/finish-esterium-local-first-install.ps1',
     'tools/install-esterium-local-complete.ps1',
     'tools/apply-esterium-initial-schema.ps1',
+    'tools/bootstrap-esterium-first-admin.ps1',
+    'tools/seed.prod.sql',
+    'tools/esterium-bootstrap-admin.exe',
     'tools/esterium-migrate.exe',
     'tools/esterium-pg-tls-certgen.exe',
     'README_LOCAL.md'
 )
 # A rollback helper is optional so older approved bundles remain verifiable.
-$optionalTools = @('tools/restore-esterium-app-version.ps1', 'tools/check-esterium-restore-archive.ps1')
+$optionalTools = @(
+    'tools/restore-esterium-app-version.ps1',
+    'tools/check-esterium-restore-archive.ps1'
+)
 $items = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)
 $records = @()
 foreach ($file in $items) {
@@ -72,10 +81,15 @@ foreach ($file in $items) {
         $relative -notmatch '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$') {
         throw "Unexpected migration file: $relative"
     }
+    $insideDotnetRuntime = $relative.StartsWith('tools/dotnet/',[StringComparison]::Ordinal)
+    if ($insideDotnetRuntime -and $relative -notmatch '^tools/dotnet/(dotnet\.exe|LICENSE\.txt|ThirdPartyNotices\.txt|host/fxr/10\.0\.14/(\.version|[^/]+\.(dll|json|exe|pdb))|shared/Microsoft\.NETCore\.App/10\.0\.14/(\.version|[^/]+\.(dll|json|exe|xml|pdb|dat)))$') {
+        throw "Unexpected embedded .NET runtime path: $relative"
+    }
     if ($relative -ne 'esterium-server.exe' -and -not $relative.StartsWith('web/', [StringComparison]::Ordinal) -and
         -not $relative.StartsWith('migrations/', [StringComparison]::Ordinal) -and
         -not ($requiredTools -contains $relative) -and
-        -not ($optionalTools -contains $relative)) {
+        -not ($optionalTools -contains $relative) -and
+        -not $insideDotnetRuntime) {
         throw "Unexpected bundle file: $relative"
     }
     # Even web/ is an allowed output subtree: never publish private keys,
@@ -107,6 +121,21 @@ if (-not ($records | Where-Object { $_.path -eq 'esterium-server.exe' }) -or
 foreach ($needed in $requiredTools) {
     if (-not ($records | Where-Object { $_.path -eq $needed })) {
         throw "Incomplete local tools bundle: $needed"
+    }
+}
+$dotnetRequiredFiles = @(
+    'tools/dotnet/dotnet.exe',
+    'tools/dotnet/LICENSE.txt',
+    'tools/dotnet/ThirdPartyNotices.txt',
+    'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+    'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+)
+$dotnetRoot = Join-Path $root 'tools\dotnet'
+if (Test-Path -LiteralPath $dotnetRoot -PathType Container) {
+    foreach ($needed in $dotnetRequiredFiles) {
+        if (-not ($records | Where-Object { $_.path -eq $needed })) {
+            throw "Embedded .NET runtime file is missing: $needed"
+        }
     }
 }
 $migrationFiles = @($records | Where-Object { $_.path -match '^migrations/[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql$' })
