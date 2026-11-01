@@ -283,3 +283,34 @@ As 22 issues da auditoria permanecem abertas; em particular, #148 e #194 aguarda
 - Este registro documental aciona uma nova CI para o head atualizado da #213; a descrição da PR será alinhada ao resultado dessa rodada após a conclusão.
 - PRs #212, #213, #214 (`43de231888979917e52823932d2ec7429fac4c8a`) e #215 (`73fbaef2df39cda8c7ffc64e2b29dbfbd17c2fad`) permanecem abertas e Draft. A auditoria ao vivo encontrou **22 issues abertas**; nenhuma foi fechada.
 - `git diff --check` local não encontrou erro de whitespace; houve apenas avisos de autocrlf em três arquivos locais. O relatório local não contém espaços finais. Nenhum merge, release, instalação em cliente ou transmissão fiscal foi feito.
+
+## Adendo 01/11/2026 — integração #216 validada
+
+**Código validado:** `8fffcee1bff0728463c757aa8aafc90c1f4a2348`, baseado em `main` `69d5e205400d3f4b02c35dca9b164bdeaa9cf49c`. [PR #216](https://github.com/GustavoMFDS/SistemaERP/pull/216) segue aberta e Draft. As PRs #212–#215 também seguem abertas e Draft; nenhuma foi mesclada.
+
+### CI
+
+- [CI completo](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41288736318): **20/20 jobs aprovados** no SHA acima.
+- Duas suítes E2E independentes, cada uma em banco descartável: **167 passaram, 6 ignorados** de 173 testes. [Evidência run 1](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41288736318/artifacts/13076248239) · [evidência run 2](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41288736318/artifacts/13076820367).
+- Integração PostgreSQL/fiscal/fornecedores repetida na mesma base descartável passou; restauração também foi verificada em base independente. O smoke Windows instalou o PostgreSQL 16.15 EDB oficial, conferiu SHA-256 e assinatura Authenticode do fornecedor e encerrou serviço/porta com segurança.
+- Build, lint, assets, marca, Go tests/vet e SPA same-origin passaram. `npm audit` encontrou zero vulnerabilidades; `govulncheck` encontrou zero vulnerabilidades alcançadas no código. Registrou 7 alertas em pacotes importados e 1 em módulo requerido que não são chamados pelo código analisado; manter issue #194 para revisão da política. [Relatório de auditoria](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41288736318/artifacts/13076735492).
+
+### Instalador e primeira instalação Windows
+
+- [Workflow Windows Setup EXE](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41288736458): os quatro gates aplicáveis à PR — prévia, pacote integrado, primeira instalação e gate agregado — passaram. Quatro jobs reservados a `workflow_dispatch` foram ignorados por não serem executados em PR.
+- O pacote integrado verificou 379 arquivos e hashes, PostgreSQL 16.15 real, TLS verify-full/SCRAM, serviço Windows não administrador, migrações, backup/restauração, recuperação após parada abrupta, Garnet TLS/ACL/AOF, HTTPS, login, reparo, remoção conservadora e registro/desregistro do serviço ERP.
+- A instalação completa passou em runner descartável: assinatura temporária de CI, banco/segredos protegidos, HTTPS, reparo, desinstalação preservando PostgreSQL/Garnet/dados e simulações de update/rollback sem alterar SQL. No teste de navegador, **6 passaram e 4 foram ignorados** em cada laboratório; as rotas foram abertas em Chromium/Firefox e a matriz móvel não teve overflow horizontal.
+- Artefatos: [prévia técnica unsigned](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41288736458/artifacts/13076705498), [laboratório integrado](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41288736458/artifacts/13076443986) e [primeira instalação/reparo/remoção](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41288736458/artifacts/13076184494).
+
+### Auditoria final
+
+- As **22 issues mapeadas** neste relatório foram conferidas ao vivo e continuam abertas; nenhuma foi fechada automaticamente. A matriz de testes das **19 áreas** permanece acima.
+- #160: o isolamento corrigido foi executado duas vezes no mesmo SHA em bancos independentes e passou; a issue fica aberta para revisão do responsável e análise da falha histórica.
+- #26: marca configurável e recibo claramente não fiscal implementados. Nome público definitivo, aprovação do proprietário e validação jurídica permanecem pendentes.
+- A cobertura automatizada não equivale a aceite visual humano de todas as 19 áreas. O runner registrou screenshots e abriu as 17 rotas principais em Chromium e Firefox; a revisão visual completa ainda precisa de operador/proprietário.
+
+### Limites antes de produção
+
+O Setup permanece uma prévia técnica sem assinatura comercial. O ensaio Windows usou runner e credenciais sintéticas; não simulou aceite de cliente. O clique interativo em Apply, reboot integral de um Windows limpo, dois PCs na LAN, restauração de share externo, periféricos, aceite contábil/operacional, Authenticode/proveniência comercial e aprovação jurídica da marca ainda precisam de execução externa. Em fiscal, o runner desligou transmissão SEFAZ e usou provedor XML local: certificado/credenciamento genuínos, homologação, autorização real e `nfeProc` autorizado continuam bloqueando produção. Pix/TEF reais e seus contratos/credenciais também não foram usados.
+
+Nenhum merge, release, instalação em cliente ou transmissão fiscal foi feito. A cópia de trabalho `D:\ERP` permaneceu intacta; o código e este relatório foram atualizados somente na branch remota da PR #216.
