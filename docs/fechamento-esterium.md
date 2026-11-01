@@ -143,6 +143,15 @@ Reboot real em Windows limpo, validação física em dois PCs/LAN, restore exter
 - ZIP integrado validou fontes MIT extraídas do Setup EXE, PostgreSQL 16 TLS verify-full/SCRAM, migrations até schema 52, restauração de backup, recuperação pós-falha e operação ERP local. XML foi gerado apenas no modo local sintético; SEFAZ permaneceu desativada.
 - PostgreSQL EDB 16.15 teve hash e Authenticode de fornecedor confirmados, instalação unattended, serviço/conta dedicada e parada segura aprovados.
 - A assinatura da instalação completa veio de certificado efêmero de CI para exercício técnico. Isso não comprova Authenticode comercial, proveniência comercial, reinicialização física em cliente, LAN real, restore externo, SEFAZ, Pix/TEF, periféricos nem aceite contábil.
-- PR #212 segue aberta e Draft, sem merge/release/instalação em cliente. Issue #160 continua aberta porque a origem da sessão vazada não foi identificada.
+- PR #212 segue aberta e Draft, sem merge/release/instalação em cliente. A issue #160 permanece aberta para acompanhar estabilidade e possíveis teardowns adicionais; a corrida original foi identificada e corrigida pela #161 (`cash-movement-reload.spec.ts`, commit `759992f4`).
 - O CI do head documental `0c66f6e7600e98d2edcbd65c5cfddf597a06fd96` concluiu 19/19 jobs ([run 41258963854](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41258963854)); E2E 162 passaram e 6 foram ignorados; EDB 16.15 passou.
 - Esta correção do relatório registra os resultados acima e inicia CI próprio para a nova revisão documental. A missão de liberação continua condicionada aos bloqueios externos listados acima.
+
+## Atualização 01/11/2026 — fila offline e revalidação
+
+- Issue #160: a corrida histórica foi localizada em `cash-movement-reload.spec.ts` e corrigida pela PR #161, merge `759992f4`. A issue segue aberta para observação de estabilidade e outros gaps de teardown, conforme comentários do responsável.
+- PR #212 head `5e061510d4e7babbe6f25807ec803f26787ce277`: CI [run 41260683054](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41260683054) aprovou **19/19 jobs**, incluindo o smoke do PostgreSQL EDB 16.15. Playwright passou com **164 aprovados e 6 ignorados**.
+- A fixture E2E agora exige ausência de sessão anterior no começo do teste. No teardown, reconecta o browser, tenta reconciliar fila offline/legada e só fecha caixa quando ambas estão vazias; falha de reconciliação deixa a sessão aberta. A regressão sintética confirmou que a venda offline chegou ao servidor antes do fechamento.
+- A bancada Windows do mesmo head [run 41260683199](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41260683199) ainda estava validando instalação completa e ZIP integrado no momento desta atualização. A última bancada completa aprovada continua sendo run 41254136879, no head anterior `b1c68c9`.
+- PR #213 head documental `7d19fc7d25d7eeaf8bbfef87c203c7a163e44103` concluiu CI **19/19** ([run 41259691614](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41259691614)); este novo registro inicia validação documental própria.
+- PRs #212 e #213 seguem Draft. Sem merge, release, instalação em cliente ou ativação fiscal/comercial. Reboot real, rede física, restore externo, assinatura comercial/proveniência, revisão jurídica, SEFAZ, Pix/TEF, periféricos e aceite contábil seguem pendentes.
