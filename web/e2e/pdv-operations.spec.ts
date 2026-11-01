@@ -235,7 +235,7 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
     await expect(receipt.getByText(/Não substitui documento fiscal/)).toBeVisible()
     await expect(receipt.getByText(sale.id)).toBeVisible()
     await expect(receipt.getByText('PIX', { exact: true })).toBeVisible()
-    await expect(receipt.getByText(/E2E-PDV-/)).toBeVisible()
+    await expect(receipt.getByText(/Produto Operacional/)).toBeVisible()
     await expect(receipt.getByText('12,00')).toBeVisible()
   } finally {
     if (!receipt.isClosed()) await receipt.close()
