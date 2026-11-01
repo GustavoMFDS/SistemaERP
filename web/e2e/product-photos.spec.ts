@@ -93,7 +93,13 @@ test('catálogo: foto opcional, miniatura e exclusão sem afetar estoque', async
   await expect(gallery.getByText('Foto principal')).toBeVisible()
   expect(attempts).toBe(1)
   await gallery.getByRole('textbox', { name: 'Cor ou modelo' }).fill('Azul')
+  const captionSaved = page.waitForResponse((response) => {
+    const request = response.request()
+    return request.method() === 'PATCH' &&
+      new URL(response.url()).pathname === '/api/v1/products/' + productId + '/images/' + imageId + '/caption'
+  })
   await gallery.getByRole('button', { name: 'Salvar nome' }).click()
+  expect((await captionSaved).status()).toBe(200)
   await expect(gallery.getByRole('textbox', { name: 'Cor ou modelo' })).toHaveValue('Azul')
   expect(photoCaption).toBe('Azul')
   await expect(page.getByRole('row', { name: /FOTO-001/ }).locator('img')).toHaveCount(1)

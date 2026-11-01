@@ -103,7 +103,7 @@ Frontend: `http://localhost:5173` | API: `http://localhost:8080`.
 
 **Banco e senhas locais:** `.env.example` fornece `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` e `DATABASE_URL` compatíveis entre si. A senha é **apenas de desenvolvimento**: substitua por segredo próprio fora do ambiente de teste. Se já existir um volume PostgreSQL inicializado com outra senha, alterar `.env` **não altera** automaticamente o usuário do banco; ajuste as credenciais ou recrie **somente um volume de teste descartável**. Nunca use `docker compose down -v` em dados reais.
 
-**Seed:** `backend/seed/seed.sql` é **somente para demo/desenvolvimento**, não execute em homologação ou produção. O serviço `seed` no Compose é explicitamente destinado a esse uso. `backend/seed/seed.prod.sql` não cria administrador com senha padrão.
+**Seed:** `backend/seed/seed.sql` é **somente para demo/desenvolvimento**, não execute em homologação ou produção. O serviço `seed` no Compose é explicitamente destinado a esse uso. `backend/seed/seed.prod.sql` cria apenas RBAC, sem empresa, usuário, senha ou dados demo. Em uma instalação Windows limpa, o bootstrap de primeiro admin valida o banco vazio e recebe a senha em prompt protegido.
 
 ## Configuração importante
 

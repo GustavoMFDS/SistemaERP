@@ -1,10 +1,20 @@
 #requires -Version 5.1
+[CmdletBinding()]
+param([switch]$FromIntegratedStage,[switch]$RunERPStartupSmoke)
 # Real Garnet smoke: disposable Windows CI, pinned upstream ZIP, no ERP data.
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
     $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw 'Garnet real AOF smoke only supports disposable hosted Windows CI.'
+}
+if($RunERPStartupSmoke -and (-not $FromIntegratedStage -or
+   $env:ESTERIUM_CI_DATABASE_URL_FILE -notmatch 'database-url(?:-first-admin)?\.secret$')){
+    throw 'ERP startup smoke requires the integrated PostgreSQL secret handoff.'
+}
+if($RunERPStartupSmoke -and (-not $FromIntegratedStage -or
+   $env:ESTERIUM_CI_DATABASE_URL_FILE -notmatch 'database-url(?:-first-admin)?\.secret$')){
+    throw 'ERP startup smoke requires the integrated PostgreSQL secret handoff.'
 }
 $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-garnet-aof-'+$id)
@@ -16,6 +26,8 @@ $nssmExe=Join-Path $nssmDir 'nssm-2.24-101-g897c7ad\\win64\\nssm.exe'
 $nssmService='EstGarCI'+$id.Substring(0,12)
 $nssmRegistered=$false
 $bin=Join-Path $root 'bin'
+$dotnetRuntimeRoot=Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\tools\dotnet'
+$script:dotnetRuntimeCopy=$null
 $acl=Join-Path $root 'garnet.acl'
 $pfx=Join-Path $root 'garnet.pfx'
 $pfxPassword=Join-Path $root 'pfx.secret'
@@ -94,12 +106,102 @@ function Open-Redis {
         throw
     }
 }
+function Assert-PrivateDotnetRuntime([int]$workerPid,[string]$phase) {
+    if(-not $FromIntegratedStage){return}
+    $expectedCoreClr=Join-Path $script:dotnetRuntimeCopy 'shared\Microsoft.NETCore.App\10.0.14\coreclr.dll'
+    if(-not(Test-Path -LiteralPath $expectedCoreClr -PathType Leaf)){
+        throw 'Private .NET runtime does not contain the pinned CoreCLR library.'
+    }
+    $loadedCoreClr=@(Get-Process -Id $workerPid -Module -ErrorAction Stop |
+        Where-Object {$_.ModuleName -ieq 'coreclr.dll'})
+    if($loadedCoreClr.Count -ne 1){
+        throw ('Could not prove the '+$phase+' Garnet process loaded the private CoreCLR.')
+    }
+    $actualCoreClr=[IO.Path]::GetFullPath([string]$loadedCoreClr[0].FileName)
+    $expectedCoreClr=[IO.Path]::GetFullPath($expectedCoreClr)
+    if(-not [String]::Equals($actualCoreClr,$expectedCoreClr,[StringComparison]::OrdinalIgnoreCase)){
+        throw ('The '+$phase+' Garnet process loaded CoreCLR outside the pinned private runtime. actual='+$actualCoreClr+' expected='+$expectedCoreClr)
+    }
+    Write-Output ('PASS: '+$phase+' Garnet process loaded CoreCLR from the pinned private runtime: '+$actualCoreClr)
+}
+function Assert-PrivateDotnetRuntime([int]$workerPid,[string]$phase) {
+    if(-not $FromIntegratedStage){return}
+    $expectedCoreClr=Join-Path $script:dotnetRuntimeCopy 'shared\Microsoft.NETCore.App\10.0.14\coreclr.dll'
+    if(-not(Test-Path -LiteralPath $expectedCoreClr -PathType Leaf)){
+        throw 'Private .NET runtime does not contain the pinned CoreCLR library.'
+    }
+    $loadedCoreClr=@(Get-Process -Id $workerPid -Module -ErrorAction Stop |
+        Where-Object {$_.ModuleName -ieq 'coreclr.dll'})
+    if($loadedCoreClr.Count -ne 1){
+        throw ('Could not prove the '+$phase+' Garnet process loaded the private CoreCLR.')
+    }
+    $actualCoreClr=[IO.Path]::GetFullPath([string]$loadedCoreClr[0].FileName)
+    $expectedCoreClr=[IO.Path]::GetFullPath($expectedCoreClr)
+    if(-not [String]::Equals($actualCoreClr,$expectedCoreClr,[StringComparison]::OrdinalIgnoreCase)){
+        throw ('The '+$phase+' Garnet process loaded CoreCLR outside the pinned private runtime. actual='+$actualCoreClr+' expected='+$expectedCoreClr)
+    }
+    Write-Output ('PASS: '+$phase+' Garnet process loaded CoreCLR from the pinned private runtime: '+$actualCoreClr)
+}
 function Start-Garnet([string]$conf,[string]$phase) {
     $exes=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.exe')
     if ($exes.Count -ne 1) { throw 'Expected exactly one GarnetServer.exe.' }
     $out=Join-Path $root ($phase+'.out.log')
     $err=Join-Path $root ($phase+'.err.log')
-    $proc=Start-Process -FilePath $exes[0].FullName -WorkingDirectory $exes[0].DirectoryName -ArgumentList @('--config-import-path',('"'+$conf+'"')) -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    if($FromIntegratedStage){
+        if($null -eq $script:dotnetRuntimeCopy){
+            $sourceRuntime=Join-Path $dotnetRuntimeRoot ''
+            $targetRuntime=Join-Path $root 'dotnet-runtime'
+            if(-not(Test-Path -LiteralPath (Join-Path $sourceRuntime 'dotnet.exe') -PathType Leaf) -or
+               (Get-Item -LiteralPath $sourceRuntime -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){
+                throw 'Integrated Garnet source has no ordinary bundled .NET runtime.'
+            }
+            Copy-Item -LiteralPath $sourceRuntime -Destination $targetRuntime -Recurse -ErrorAction Stop
+            $sourceFiles=@(Get-ChildItem -LiteralPath $sourceRuntime -Recurse -File)
+            $targetFiles=@(Get-ChildItem -LiteralPath $targetRuntime -Recurse -File)
+            if($sourceFiles.Count -eq 0 -or $sourceFiles.Count -ne $targetFiles.Count){
+                throw 'Disposable service runtime copy is incomplete.'
+            }
+            foreach($sourceFile in $sourceFiles){
+                if(($sourceFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                    throw 'Bundled .NET runtime contains a reparse point.'
+                }
+                $relative=$sourceFile.FullName.Substring($sourceRuntime.Length).TrimStart('\')
+                $copyFile=Join-Path $targetRuntime $relative
+                if(-not(Test-Path -LiteralPath $copyFile -PathType Leaf) -or
+                   (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash -cne
+                   (Get-FileHash -LiteralPath $copyFile -Algorithm SHA256).Hash){
+                    throw 'Disposable .NET runtime copy differs from verified staged bytes.'
+                }
+            }
+            $script:dotnetRuntimeCopy=$targetRuntime
+        }
+        $dotnetExe=Join-Path $script:dotnetRuntimeCopy 'dotnet.exe'
+        $expectedCoreClr=Join-Path $script:dotnetRuntimeCopy 'shared\Microsoft.NETCore.App\10.0.14\coreclr.dll'
+        $apphostExists=Test-Path -LiteralPath $exes[0].FullName -PathType Leaf
+        $dotnetExists=Test-Path -LiteralPath $dotnetExe -PathType Leaf
+        $coreClrExists=Test-Path -LiteralPath $expectedCoreClr -PathType Leaf
+        if(-not $apphostExists -or -not $dotnetExists -or -not $coreClrExists){
+            $candidates=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($bin.Length).TrimStart('\\') })
+            throw ('Integrated Garnet requires GarnetServer.exe and its bundled .NET runtime. apphost='+$apphostExists+' dotnet='+$dotnetExists+' coreclr='+$coreClrExists+' appDir='+$exes[0].DirectoryName+' candidates='+($candidates -join ','))
+        }
+        $runtimeList=@(& $dotnetExe --list-runtimes)
+        if($LASTEXITCODE -ne 0 -or -not($runtimeList -match 'Microsoft\.NETCore\.App 10\.0\.14')){
+            throw 'Integrated Garnet did not find the bundled .NET 10 runtime.'
+        }
+        $processArgs=@('--config-import-path',('"'+$conf+'"'))
+        $oldDotnetRootX64=[Environment]::GetEnvironmentVariable('DOTNET_ROOT_X64','Process')
+        $oldDotnetRoot=[Environment]::GetEnvironmentVariable('DOTNET_ROOT','Process')
+        try{
+            [Environment]::SetEnvironmentVariable('DOTNET_ROOT_X64',$script:dotnetRuntimeCopy,'Process')
+            [Environment]::SetEnvironmentVariable('DOTNET_ROOT',$script:dotnetRuntimeCopy,'Process')
+            $proc=Start-Process -FilePath $exes[0].FullName -WorkingDirectory $exes[0].DirectoryName -ArgumentList $processArgs -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+        }finally{
+            [Environment]::SetEnvironmentVariable('DOTNET_ROOT_X64',$oldDotnetRootX64,'Process')
+            [Environment]::SetEnvironmentVariable('DOTNET_ROOT',$oldDotnetRoot,'Process')
+        }
+    }else{
+        $proc=Start-Process -FilePath $exes[0].FullName -WorkingDirectory $exes[0].DirectoryName -ArgumentList @('--config-import-path',('"'+$conf+'"')) -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    }
     for ($attempt=0;$attempt -lt 40;$attempt++) {
         $proc.Refresh()
         if ($proc.HasExited) { break }
@@ -134,6 +236,9 @@ try {
     [IO.File]::WriteAllText($pfxPassword,('ci-only-pfx-'+$id))
     $cert=New-SelfSignedCertificate -DnsName localhost -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(3) -ErrorAction Stop
     $thumbprint=$cert.Thumbprint
+    $garnetPublicCert=Join-Path $root 'garnet-server.cer'
+    Export-Certificate -Cert $cert -FilePath $garnetPublicCert -ErrorAction Stop | Out-Null
+    Protect-Fixture $garnetPublicCert $true
     $secure=ConvertTo-SecureString ([IO.File]::ReadAllText($pfxPassword)) -AsPlainText -Force
     Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $secure -ErrorAction Stop | Out-Null
     foreach ($file in @($acl,$pfx,$pfxPassword)) { Protect-Fixture $file $true }
@@ -149,14 +254,44 @@ try {
     $config.Recover=$false
     [IO.File]::WriteAllText($fresh,($config | ConvertTo-Json -Depth 5))
     Protect-Fixture $fresh $false
-    $url='https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
-    Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
+    if($FromIntegratedStage){
+        if($env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -ne '1' -or
+           $env:ESTERIUM_PG_ZIP_DISPOSABLE_CI -ne '1'){
+            throw 'Integrated Garnet smoke requires the disposable hosted Windows MIT setup CI guards.'
+        }
+        $sourceZip=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\garnet.zip'
+        $sourceNssm=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\nssm.exe'
+        if(-not(Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\bundle-manifest.json') -PathType Leaf) -or
+           -not(Test-Path -LiteralPath $sourceZip -PathType Leaf) -or
+           -not(Test-Path -LiteralPath $sourceNssm -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $sourceNssm -Algorithm SHA256).Hash -cne
+             'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'){
+            throw 'Protected native EXE Garnet/NSSM staged bytes not present or pin invalid.'
+        }
+        Copy-Item -LiteralPath $sourceZip -Destination $zip -ErrorAction Stop
+        # The original vendor staging is admin-only by design. A service
+        # running as NetworkService must get RX, never write, to the NSSM
+        # executable. Copy pinned bytes into this isolated CI fixture whose
+        # parent has explicit NetworkService RX, rather than relaxing the
+        # protected publisher staging ACL.
+        $nssmExe=Join-Path $root 'nssm.exe'
+        Copy-Item -LiteralPath $sourceNssm -Destination $nssmExe -ErrorAction Stop
+        if((Get-FileHash -LiteralPath $nssmExe -Algorithm SHA256).Hash -cne
+          'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848') {
+            throw 'Copied native-exe NSSM file failed independent SHA-256 verification.'
+        }
+        Write-Output 'PASS: Garnet CI uses the Garnet/NSSM bytes extracted from the native MIT EXE.'
+    }else{
+        $url='https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
+        Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
+    }
     if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne
         '5cd130686ab415b13c59d36d048a6faded81e707ffe6da5953f98beeb79f9f16') {
         throw 'Upstream official Garnet ZIP hash differs from independently pinned CI fixture.'
     }
     Expand-Archive -LiteralPath $zip -DestinationPath $bin -ErrorAction Stop
     $server=Start-Garnet $fresh 'fresh'
+    Assert-PrivateDotnetRuntime -workerPid $server.Id -phase 'console'
     $connection=Open-Redis
     try {
         Assert-RedisDenied $connection.ssl $connection.reader @('PING')
@@ -178,6 +313,7 @@ try {
     $server.WaitForExit()
     $server=$null
     $server=Start-Garnet $confPath 'recovered'
+    Assert-PrivateDotnetRuntime -workerPid $server.Id -phase 'recovered console'
     $connection=Open-Redis
     try {
         if ((Send-Redis $connection.ssl $connection.reader @('AUTH','esteriumcache',$password)) -ne 'OK') {
@@ -200,71 +336,173 @@ try {
     Stop-Process -Id $server.Id -Force
     $server.WaitForExit()
     $server=$null
-    $nssmHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
-    $cacheRoot=Join-Path $env:GITHUB_WORKSPACE '.vendor-cache'
-    $cacheFile=Join-Path $cacheRoot 'nssm-2.24-101-g897c7ad.zip'
-    $downloaded=$false
-    # GitHub Actions cache is an UNTRUSTED byte source. Its content must pass
-    # the same independently pinned vendor SHA-256 as direct upstream bytes.
-    if (Test-Path -LiteralPath $cacheFile -PathType Leaf) {
-        $cacheHash=(Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash
-        if ($cacheHash -cne $nssmHash) {
-            throw 'Cached NSSM ZIP differs from approved upstream SHA-256; refuse cache and installation.'
-        }
-        Copy-Item -LiteralPath $cacheFile -Destination $nssmZip -ErrorAction Stop
-        $downloaded=$true
-        Write-Output 'PASS: reused SHA-256 verified official NSSM ZIP from ephemeral CI cache.'
-    }
-    # Publisher-only fallback for a cold cache. The downloaded binary is
-    # cached only AFTER immutable SHA-256 verification and a full successful
-    # live Windows service test; it is never signed on behalf of the vendor.
-    if (-not $downloaded) {
-      foreach ($nssmUrl in @(
-        'https://www.nssm.cc/ci/nssm-2.24-101-g897c7ad.zip',
-        'https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
-    )) {
-        for ($attempt=0; $attempt -lt 3; $attempt++) {
-            try {
-                if (Test-Path -LiteralPath $nssmZip) {
-                    Remove-Item -LiteralPath $nssmZip -Force
-                }
-                Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -TimeoutSec 90 -ErrorAction Stop
-                $downloaded=$true
-                break
-            } catch {
-                if ($attempt -lt 2) { Start-Sleep -Seconds @(2,6,14)[$attempt] }
+    if(-not $FromIntegratedStage){
+        $nssmHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
+        $cacheRoot=Join-Path $env:GITHUB_WORKSPACE '.vendor-cache'
+        $cacheFile=Join-Path $cacheRoot 'nssm-2.24-101-g897c7ad.zip'
+        $downloaded=$false
+        # GitHub Actions cache is an UNTRUSTED byte source. Its content must pass
+        # the same independently pinned vendor SHA-256 as direct upstream bytes.
+        if (Test-Path -LiteralPath $cacheFile -PathType Leaf) {
+            $cacheHash=(Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash
+            if ($cacheHash -cne $nssmHash) {
+                throw 'Cached NSSM ZIP differs from approved upstream SHA-256; refuse cache and installation.'
             }
+            Copy-Item -LiteralPath $cacheFile -Destination $nssmZip -ErrorAction Stop
+            $downloaded=$true
+            Write-Output 'PASS: reused SHA-256 verified official NSSM ZIP from ephemeral CI cache.'
         }
-        if ($downloaded) { break }
-      }
-    }
-    if (-not $downloaded) {
-        throw 'Publisher unavailable and no verified NSSM cache exists; service proof is blocked.'
-    }
-    if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmHash) {
-        throw 'NSSM package differs from independently approved upstream WinGet SHA-256.'
-    }
-    Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmDir -ErrorAction Stop
-    if (-not (Test-Path -LiteralPath $nssmExe -PathType Leaf)) {
-        throw 'Pinned NSSM ZIP has no required Windows x64 executable.'
+        # Publisher-only fallback for a cold cache. The downloaded binary is
+        # cached only AFTER immutable SHA-256 verification and a full successful
+        # live Windows service test; it is never signed on behalf of the vendor.
+        if (-not $downloaded) {
+          foreach ($nssmUrl in @(
+            'https://www.nssm.cc/ci/nssm-2.24-101-g897c7ad.zip',
+            'https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
+        )) {
+            for ($attempt=0; $attempt -lt 3; $attempt++) {
+                try {
+                    if (Test-Path -LiteralPath $nssmZip) {
+                        Remove-Item -LiteralPath $nssmZip -Force
+                    }
+                    Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -TimeoutSec 90 -ErrorAction Stop
+                    $downloaded=$true
+                    break
+                } catch {
+                    if ($attempt -lt 2) { Start-Sleep -Seconds @(2,6,14)[$attempt] }
+                }
+            }
+            if ($downloaded) { break }
+          }
+        }
+        if (-not $downloaded) {
+            throw 'Publisher unavailable and no verified NSSM cache exists; service proof is blocked.'
+        }
+        if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmHash) {
+            throw 'NSSM package differs from independently approved upstream WinGet SHA-256.'
+        }
+        Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmDir -ErrorAction Stop
+        if (-not (Test-Path -LiteralPath $nssmExe -PathType Leaf)) {
+            throw 'Pinned NSSM ZIP has no required Windows x64 executable.'
+        }
+    }else{
+        if(-not (Test-Path -LiteralPath $nssmExe -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $nssmExe -Algorithm SHA256).Hash -cne
+             'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'){
+            throw 'NSSM from native MIT EXE does not match the approved x64 SHA-256.'
+        }
     }
     if ($null -ne (Get-Service -Name $nssmService -ErrorAction SilentlyContinue)) {
         throw 'Disposable Garnet service identity is already registered.'
     }
     $garnetExe=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.exe')
     if ($garnetExe.Count -ne 1) { throw 'Expected one pinned GarnetServer.exe for SCM.' }
-    & $nssmExe install $nssmService $garnetExe[0].FullName '--config-import-path' $confPath | Out-Null
+    if($FromIntegratedStage){
+        $dotnetRuntimeDir=[IO.Path]::GetFullPath($script:dotnetRuntimeCopy)
+        $dotnetExe=Join-Path $dotnetRuntimeDir 'dotnet.exe'
+        if(-not(Test-Path -LiteralPath $dotnetExe -PathType Leaf)){
+            throw 'Integrated Garnet service requires the staged private dotnet host.'
+        }
+        $assemblyFiles=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.dll')
+        if($assemblyFiles.Count -gt 1){throw 'Integrated Garnet ZIP contains multiple GarnetServer.dll assemblies.'}
+        $frameworkDependent=$false
+        $garnetServerDll=''
+        if($assemblyFiles.Count -eq 1){
+            $garnetServerDll=$assemblyFiles[0].FullName
+            $assemblyDir=$assemblyFiles[0].DirectoryName
+            if(-not(Test-Path -LiteralPath (Join-Path $assemblyDir 'GarnetServer.runtimeconfig.json') -PathType Leaf) -or
+               -not(Test-Path -LiteralPath (Join-Path $assemblyDir 'GarnetServer.deps.json') -PathType Leaf)){
+                throw 'Integrated Garnet ZIP has an incomplete framework-dependent assembly set.'
+            }
+            $frameworkDependent=$true
+            $launchExecutable=$dotnetExe
+            $launchArguments=@($garnetServerDll,'--config-import-path',$confPath)
+            $serviceWorkingDir=$assemblyDir
+            $workerExecutable=$dotnetExe
+        }else{
+            $frameworkMetadata=@(Get-ChildItem -LiteralPath $bin -Recurse -File | Where-Object {$_.Name -in @('GarnetServer.runtimeconfig.json','GarnetServer.deps.json')})
+            if($frameworkMetadata.Count -gt 0){throw 'Integrated Garnet ZIP has framework metadata but no GarnetServer.dll.'}
+            $launchExecutable=$garnetExe[0].FullName
+            $launchArguments=@('--config-import-path',$confPath)
+            $serviceWorkingDir=$garnetExe[0].DirectoryName
+            $workerExecutable=$garnetExe[0].FullName
+        }
+        $quotePowerShellLiteral={param([string]$value) return ("'"+$value.Replace("'","''")+"'")}
+        $launcherArgumentText=(@($launchArguments | ForEach-Object {& $quotePowerShellLiteral ([string]$_)}) -join ',')
+        $launcherLines=@(
+            '$ErrorActionPreference = ''Stop''',
+            ('$env:DOTNET_ROOT_X64 = '+(& $quotePowerShellLiteral $dotnetRuntimeDir)),
+            ('$env:DOTNET_ROOT = '+(& $quotePowerShellLiteral $dotnetRuntimeDir)),
+            '$env:DOTNET_MULTILEVEL_LOOKUP = ''0''',
+            ('$launchArguments = @('+$launcherArgumentText+')'),
+            ('& '+(& $quotePowerShellLiteral $launchExecutable)+' @launchArguments'),
+            'exit $LASTEXITCODE'
+        )
+        $launcherScriptPath=Join-Path $root 'esterium-garnet-launcher.ps1'
+        [IO.File]::WriteAllText($launcherScriptPath,(($launcherLines -join [Environment]::NewLine)+[Environment]::NewLine),[Text.UTF8Encoding]::new($true))
+        $serviceApplication=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        if(-not(Test-Path -LiteralPath $serviceApplication -PathType Leaf)){
+            throw 'Windows PowerShell launcher is unavailable for the private Garnet runtime.'
+        }
+        $appParameters='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$launcherScriptPath+'"'
+        $serviceWorkingDir=$root
+        & $nssmExe install $nssmService $serviceApplication $appParameters | Out-Null
+    }else{
+        $frameworkDependent=$false
+        $garnetServerDll=''
+        $serviceApplication=$garnetExe[0].FullName
+        $serviceWorkingDir=$garnetExe[0].DirectoryName
+        & $nssmExe install $nssmService $garnetExe[0].FullName '--config-import-path' $confPath | Out-Null
+    }
     if ($LASTEXITCODE -ne 0) { throw 'NSSM did not register Garnet Windows service.' }
     $nssmRegistered=$true
+    if($FromIntegratedStage){
+        $scmCommand=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
+        $serviceAppPath=@(& $nssmExe get $nssmService Application 2>&1) -join ''
+        $serviceParameters=@(& $nssmExe get $nssmService AppParameters 2>&1) -join ' '
+        $launcherContent=[IO.File]::ReadAllText($launcherScriptPath)
+        $expectedAssembly=if($frameworkDependent){[IO.Path]::GetFullPath($garnetServerDll)}else{''}
+        $expectedRuntimeLiteral=& $quotePowerShellLiteral $dotnetRuntimeDir
+        $expectedConfigLiteral=& $quotePowerShellLiteral $confPath
+        $expectedExecutableLiteral=& $quotePowerShellLiteral $launchExecutable
+        $expectedAssemblyLiteral=if($frameworkDependent){& $quotePowerShellLiteral $expectedAssembly}else{''}
+        $appPathMatches=[String]::Equals($serviceAppPath,$serviceApplication,[StringComparison]::OrdinalIgnoreCase)
+        $hasLauncherPath=$serviceParameters.IndexOf($launcherScriptPath,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        $hasConfigSwitch=$launcherContent -match '(?i)--config-import-path'
+        $hasConfigPath=$launcherContent.IndexOf($expectedConfigLiteral,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        $hasAssemblyPath=(-not $frameworkDependent) -or $launcherContent.IndexOf($expectedAssemblyLiteral,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        $hasExecutable=$launcherContent.IndexOf($expectedExecutableLiteral,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        $hasRuntimeX64=$launcherContent.IndexOf(('$env:DOTNET_ROOT_X64 = '+$expectedRuntimeLiteral),[StringComparison]::OrdinalIgnoreCase) -ge 0
+        $hasRuntime=$launcherContent.IndexOf(('$env:DOTNET_ROOT = '+$expectedRuntimeLiteral),[StringComparison]::OrdinalIgnoreCase) -ge 0
+        if($scmCommand.Count -ne 1 -or
+           $scmCommand[0].PathName -notlike ('*'+$nssmExe+'*') -or
+           -not $appPathMatches -or -not $hasLauncherPath -or -not $hasAssemblyPath -or
+           -not $hasExecutable -or -not $hasConfigSwitch -or -not $hasConfigPath -or
+           -not $hasRuntimeX64 -or -not $hasRuntime){
+            throw ('NSSM Garnet launcher mismatch: serviceCount='+$scmCommand.Count+
+                ' appPathMatches='+$appPathMatches+' launcherPath='+$hasLauncherPath+
+                ' assemblyPath='+$hasAssemblyPath+' executable='+$hasExecutable+
+                ' configSwitch='+$hasConfigSwitch+' configPath='+$hasConfigPath+
+                ' runtimeX64='+$hasRuntimeX64+' runtime='+$hasRuntime+
+                ' appPath='+$serviceAppPath+' parameters='+$serviceParameters)
+        }
+        Write-Output 'PASS: real Garnet SCM command uses a PowerShell launcher that sets the private .NET runtime before Garnet.'
+    }
     foreach ($cmd in @(
         @('set',$nssmService,'ObjectName','NT AUTHORITY\NetworkService'),
         @('set',$nssmService,'Start','SERVICE_DISABLED'),
-        @('set',$nssmService,'AppDirectory',$garnetExe[0].DirectoryName),
+        @('set',$nssmService,'AppDirectory',$serviceWorkingDir),
         @('set',$nssmService,'AppExit','Default','Restart'),
         @('set',$nssmService,'AppRestartDelay','5000')
     )) {
         & $nssmExe @cmd | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'NSSM refused restricted Garnet SCM settings.' }
+    }
+    if($FromIntegratedStage){
+        & icacls.exe $script:dotnetRuntimeCopy '/grant:r' '*S-1-5-20:(OI)(CI)RX' '/T' '/C' | Out-Null
+        if($LASTEXITCODE -ne 0){
+            throw 'Could not grant the disposable NetworkService account read access to the private Garnet runtime.'
+        }
     }
     $scm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
     if ($scm.Count -ne 1 -or $scm[0].StartMode -cne 'Disabled' -or
@@ -288,6 +526,25 @@ try {
         Start-Sleep -Milliseconds 800
     }
     if (-not $ready) { throw 'NSSM Garnet service did not expose local TLS on its expected port.' }
+    if($FromIntegratedStage){
+        $serviceScm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
+        if($serviceScm.Count -ne 1){throw 'Could not identify the NSSM Garnet service process.'}
+        $launcherName=Split-Path -Leaf $serviceApplication
+        $launchers=@(Get-CimInstance Win32_Process -Filter "Name='$launcherName'" -ErrorAction Stop |
+            Where-Object {$_.ParentProcessId -eq [int]$serviceScm[0].ProcessId -and
+                [String]::Equals([string]$_.ExecutablePath,$serviceApplication,[StringComparison]::OrdinalIgnoreCase) -and
+                ([string]$_.CommandLine).IndexOf($launcherScriptPath,[StringComparison]::OrdinalIgnoreCase) -ge 0})
+        if($launchers.Count -ne 1){throw 'Could not identify the private runtime launcher child of the NSSM service.'}
+        $workerName=Split-Path -Leaf $workerExecutable
+        $garnetWorkers=@(Get-CimInstance Win32_Process -Filter "Name='$workerName'" -ErrorAction Stop |
+            Where-Object {$_.ParentProcessId -eq [int]$launchers[0].ProcessId -and
+                [String]::Equals([string]$_.ExecutablePath,$workerExecutable,[StringComparison]::OrdinalIgnoreCase) -and
+                ((-not $frameworkDependent) -or ([string]$_.CommandLine).IndexOf($expectedAssembly,[StringComparison]::OrdinalIgnoreCase) -ge 0)})
+        if($garnetWorkers.Count -ne 1){
+            throw 'Could not identify the pinned Garnet worker launched by the NSSM private runtime script.'
+        }
+        Assert-PrivateDotnetRuntime -workerPid ([int]$garnetWorkers[0].ProcessId) -phase 'NSSM service'
+    }
     $serviceConnection=Open-Redis
     try {
         Assert-RedisDenied $serviceConnection.ssl $serviceConnection.reader @('PING')
@@ -301,6 +558,21 @@ try {
         $serviceConnection.reader.Dispose()
         $serviceConnection.ssl.Dispose()
         $serviceConnection.tcp.Dispose()
+    }
+    if($RunERPStartupSmoke){
+        $labKeys=@('ESTERIUM_CI_GARNET_PASSWORD','ESTERIUM_CI_GARNET_CERT_FILE','ESTERIUM_CI_GARNET_PORT','ESTERIUM_CI_GARNET_SERVICE')
+        $oldLab=@{}
+        foreach($key in $labKeys){$oldLab[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+        try{
+            $env:ESTERIUM_CI_GARNET_PASSWORD=$password
+            $env:ESTERIUM_CI_GARNET_CERT_FILE=$garnetPublicCert
+            $env:ESTERIUM_CI_GARNET_PORT=[string]$port
+            $env:ESTERIUM_CI_GARNET_SERVICE=$nssmService
+            & (Join-Path $PSScriptRoot '..\windows-setup\test-oss-erp-runtime-ci.ps1')
+            if(-not $?){throw 'Live ERP service start, login or dependency restart smoke failed.'}
+        }finally{
+            foreach($entry in $oldLab.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+        }
     }
     Stop-Service -Name $nssmService -ErrorAction Stop
     (Get-Service -Name $nssmService).WaitForStatus(
@@ -322,19 +594,24 @@ try {
         @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -ne 0) {
         throw 'SCM service shutdown left Garnet running or its local TLS port open.'
     }
-    if (-not (Test-Path -LiteralPath $cacheFile)) {
-        if (Test-Path -LiteralPath $cacheRoot) {
-            $cacheDir=Get-Item -LiteralPath $cacheRoot -Force -ErrorAction Stop
-            if (($cacheDir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-                throw 'Refuse NSSM CI cache through a symbolic link or junction.'
+    # The integrated path uses the already SHA-256-approved NSSM executable
+    # provided by the MIT EXE. It has NO upstream NSSM archive or cacheFile;
+    # do not read undefined variables or fabricate an archive from the EXE.
+    if (-not $FromIntegratedStage) {
+        if (-not (Test-Path -LiteralPath $cacheFile)) {
+            if (Test-Path -LiteralPath $cacheRoot) {
+                $cacheDir=Get-Item -LiteralPath $cacheRoot -Force -ErrorAction Stop
+                if (($cacheDir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw 'Refuse NSSM CI cache through a symbolic link or junction.'
+                }
+            } else {
+                [IO.Directory]::CreateDirectory($cacheRoot) | Out-Null
             }
-        } else {
-            [IO.Directory]::CreateDirectory($cacheRoot) | Out-Null
-        }
-        # Copy only after the genuine SCM/TLS/ACL/AOF proof passed.
-        Copy-Item -LiteralPath $nssmZip -Destination $cacheFile -ErrorAction Stop
-        if ((Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash -cne $nssmHash) {
-            throw 'NSSM vendor cache bytes changed while preparing GitHub upload.'
+            # Copy only after the genuine SCM/TLS/ACL/AOF proof passed.
+            Copy-Item -LiteralPath $nssmZip -Destination $cacheFile -ErrorAction Stop
+            if ((Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash -cne $nssmHash) {
+                throw 'NSSM vendor cache bytes changed while preparing GitHub upload.'
+            }
         }
     }
     Write-Output 'PASS: upstream WinGet-pinned NSSM runs authenticated Garnet TLS under NetworkService and stops disabled with no listener.'

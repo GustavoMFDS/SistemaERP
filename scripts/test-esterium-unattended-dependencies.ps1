@@ -21,6 +21,30 @@ if (-not $implementation.Contains('Set-Service -Name $PostgresServiceName -Start
     -not $implementation.Contains("'Start','SERVICE_DISABLED'")) {
     throw 'Unattended dependency installer must leave PostgreSQL and Garnet disabled.'
 }
+$runtimeLaunchTokens=@(
+    '$dotnetRuntimeSource=Join-Path $PSScriptRoot ''dotnet''',
+    '$dotnetRuntimeDir=Join-Path $garnetDir ''dotnet''',
+    '$garnetServerDll=Join-Path $garnetDir $relativeAssembly',
+    'GarnetServer.runtimeconfig.json',
+    'GarnetServer.deps.json',
+    '$frameworkDependent=$false',
+    '$launchExecutable=$dotnetExe',
+    '$launchExecutable=$garnetExe',
+    '$launcherScript=Join-Path $garnetDir ''esterium-garnet-launcher.ps1''',
+    '$serviceApplication=Join-Path $env:WINDIR',
+    'WindowsPowerShell',
+    '$env:DOTNET_ROOT_X64 = ',
+    '$env:DOTNET_ROOT = ',
+    '$env:DOTNET_MULTILEVEL_LOOKUP = ',
+    '$quotePowerShellLiteral={param([string]$value) return (',
+    '[Text.UTF8Encoding]::new($true)',
+    '& $serviceExe install $GarnetServiceName $serviceApplication $appParameters'
+)
+foreach($token in $runtimeLaunchTokens){
+    if(-not $implementation.Contains($token)){
+        throw 'Garnet installer must launch through a PowerShell wrapper that sets the pinned package-local .NET runtime.'
+    }
+}
 $testId=[Guid]::NewGuid().ToString('N').Substring(0,10)
 $root=Join-Path $env:RUNNER_TEMP ('esterium-install-'+$testId)
 $pg=Join-Path $root 'postgresql-16.exe'
@@ -41,6 +65,9 @@ try {
     [IO.File]::WriteAllText($pg,'fake EDB installer never executed')
     [IO.File]::WriteAllText($wrapper,'fake NSSM never executed')
     [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.exe'),'fake Garnet server never executed')
+    [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.dll'),'fake Garnet assembly never executed')
+    [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.runtimeconfig.json'),'{}')
+    [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.deps.json'),'{}')
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::CreateFromDirectory($unpacked,$garnet)
     $optionsText=@(

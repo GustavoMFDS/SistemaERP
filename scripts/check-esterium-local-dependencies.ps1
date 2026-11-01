@@ -52,6 +52,7 @@ foreach ($exe in @('postgres.exe', 'pg_dump.exe', 'pg_restore.exe', 'psql.exe'))
     }
 }
 $servicePids = @{}
+$serviceOwnerSids = @{}
 function Assert-RunningService([string]$name) {
     $service = @(Get-CimInstance -ClassName Win32_Service -Filter "Name='$name'" -ErrorAction Stop)
     if ($service.Count -ne 1) {
@@ -66,6 +67,17 @@ function Assert-RunningService([string]$name) {
             throw 'Dependency service does not expose a running process for strict port ownership.'
         }
         $servicePids[$name] = $pidOfService
+        if ($name -eq $PostgresServiceName) {
+            $serviceProcess = @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$pidOfService" -ErrorAction Stop)
+            if ($serviceProcess.Count -ne 1) {
+                throw 'PostgreSQL service process cannot be verified for strict port ownership.'
+            }
+            $serviceOwner = Invoke-CimMethod -InputObject $serviceProcess[0] -MethodName GetOwnerSid -ErrorAction Stop
+            if ($serviceOwner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($serviceOwner.Sid)) {
+                throw 'PostgreSQL service account cannot be verified for strict port ownership.'
+            }
+            $serviceOwnerSids[$name] = [string]$serviceOwner.Sid
+        }
     }
     # Windows process command-line details might embed credentials: NEVER echo PathName.
 }
@@ -91,6 +103,32 @@ function Assert-GarnetServiceDescendant([int]$listenerPid, [int]$servicePid) {
     }
     throw 'Garnet listener is not descended from its Windows service.'
 }
+function Assert-PostgresServiceDescendant([int]$listenerPid, [int]$servicePid) {
+    $expectedSid = [string]$serviceOwnerSids[$PostgresServiceName]
+    if ([string]::IsNullOrWhiteSpace($expectedSid)) {
+        throw 'PostgreSQL service account is unavailable for strict port ownership.'
+    }
+    $currentPid = $listenerPid
+    $visited = @{}
+    for ($depth = 0; $depth -lt 6; $depth++) {
+        if ($currentPid -eq $servicePid) { return }
+        if ($currentPid -le 0 -or $visited.ContainsKey($currentPid)) {
+            throw 'PostgreSQL listener process ancestry is invalid.'
+        }
+        $visited[$currentPid] = $true
+        $processes = @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$currentPid" -ErrorAction Stop)
+        if ($processes.Count -ne 1) { throw 'PostgreSQL listener process is missing.' }
+        if ($currentPid -eq $listenerPid -and $processes[0].Name -cne 'postgres.exe') {
+            throw 'PostgreSQL port is not owned by postgres.exe.'
+        }
+        $owner = Invoke-CimMethod -InputObject $processes[0] -MethodName GetOwnerSid -ErrorAction Stop
+        if ($owner.ReturnValue -ne 0 -or $owner.Sid -cne $expectedSid) {
+            throw 'PostgreSQL listener must run under the declared service account.'
+        }
+        $currentPid = [int]$processes[0].ParentProcessId
+    }
+    throw 'PostgreSQL listener is not descended from its Windows service.'
+}
 function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
     $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
     if ($listeners.Count -eq 0) {
@@ -101,10 +139,16 @@ function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
             throw "Local dependency port $port is exposed on a non-loopback address."
         }
         if ($RequireServiceOwnership -and [int]$listener.OwningProcess -ne $expectedPid) {
-            if ($port -ne $RedisPort) {
-                throw 'Dependency listener process does not belong to its declared Windows service.'
+            if ($port -eq $RedisPort) {
+                Assert-GarnetServiceDescendant ([int]$listener.OwningProcess) $expectedPid
+            } elseif ($port -eq $PostgresPort) {
+                # EDB can keep pg_ctl.exe as SCM owner while postgres.exe
+                # child process owns the socket. Require bounded ancestry and
+                # the exact service account for every process in that chain.
+                Assert-PostgresServiceDescendant ([int]$listener.OwningProcess) $expectedPid
+            } else {
+                throw 'Dependency listener cannot be tied to its declared service.'
             }
-            Assert-GarnetServiceDescendant ([int]$listener.OwningProcess) $expectedPid
         }
     }
 }
