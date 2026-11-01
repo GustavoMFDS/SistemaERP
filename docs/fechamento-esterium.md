@@ -133,4 +133,15 @@ Reboot real em Windows limpo, validação física em dois PCs/LAN, restore exter
 - Para o novo head, a prévia unsigned já passou no run Windows `41241089612`. Os jobs de instalação completa e ZIP ainda estão em execução; o CI geral `41241089597` também permanece em execução na última consulta. A correção aguarda validação integrada.
 - PR #213 antes desta atualização documental estava no head `853788f08a79e39f4d4a213f2096b11bc70cd556`; seu CI `41240481987` ainda aguardava o smoke do instalador PostgreSQL EDB 16.15. Esta alteração inicia nova validação documental.
 - PRs #212 e #213 seguem abertas e Draft. Sem merge, release, instalação em cliente ou ativação fiscal/comercial.
+## Atualização 31/10/2026 — bancada Windows #212 validada
 
+- PR #212 head `b1c68c9caa7e1f0d15d1ec27d89de2ab8295c69b`: CI [run 41254136873](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41254136873) concluiu **19/19 jobs sem falhas**.
+- E2E do mesmo head passou duas vezes, cada uma com **162 aprovados e 6 ignorados**.
+- Bancada [Windows Setup EXE run 41254136879](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41254136879): `unsigned-preview`, `unsigned-integrated-zip-preview`, `complete-first-install-lab` e `oss-component-gate` passaram.
+- Instalação completa em runner descartável validou o recibo de prontidão, 17 telas em Chromium e Firefox com TLS confiável, rotas móveis sem overflow, operações sintéticas, reinício do ERP e dependências, recuperação de falha do serviço, reparo assistido e desinstalação conservadora.
+- Reparo restaurou política SCM, regra HTTPS e atalho sem alterar arquivos da aplicação, banco, segredos, TLS ou backup. Desinstalação removeu app/serviço/regra/atalho e arquivou recibos, mantendo PostgreSQL, Garnet, segredos e dados SQL.
+- ZIP integrado validou fontes MIT extraídas do Setup EXE, PostgreSQL 16 TLS verify-full/SCRAM, migrations até schema 52, restauração de backup, recuperação pós-falha e operação ERP local. XML foi gerado apenas no modo local sintético; SEFAZ permaneceu desativada.
+- PostgreSQL EDB 16.15 teve hash e Authenticode de fornecedor confirmados, instalação unattended, serviço/conta dedicada e parada segura aprovados.
+- A assinatura da instalação completa veio de certificado efêmero de CI para exercício técnico. Isso não comprova Authenticode comercial, proveniência comercial, reinicialização física em cliente, LAN real, restore externo, SEFAZ, Pix/TEF, periféricos nem aceite contábil.
+- PR #212 segue aberta e Draft, sem merge/release/instalação em cliente. Issue #160 continua aberta porque a origem da sessão vazada não foi identificada.
+- Esta atualização documental na PR #213 aguarda seu próprio CI. A missão de liberação continua condicionada aos bloqueios externos listados acima.
