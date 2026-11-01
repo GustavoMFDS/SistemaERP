@@ -95,19 +95,28 @@ async function cleanupOpenCashSessions(
   throw new Error('E2E cash cleanup reached its open-session safety limit.')
 }
 
-async function reconcileBrowserCashQueues(browser: import('@playwright/test').Browser): Promise<void> {
+async function reconcileBrowserCashQueues(
+  browser: import('@playwright/test').Browser,
+  activePage: import('@playwright/test').Page,
+): Promise<void> {
   const expectedOrigin = new URL(process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5173').origin
-  for (const context of browser.contexts()) {
+  const contexts = new Set(browser.contexts())
+  contexts.add(activePage.context())
+
+  for (const context of contexts) {
     await context.setOffline(false)
-    for (const page of context.pages()) {
-      if (page.isClosed()) continue
-      let origin = ''
+    const appPage = context.pages().find((page) => {
+      if (page.isClosed()) return false
       try {
-        origin = new URL(page.url()).origin
+        return new URL(page.url()).origin === expectedOrigin
       } catch {
-        continue
+        return false
       }
-      if (origin !== expectedOrigin) continue
+    })
+    const page = appPage ?? (await context.newPage())
+    const temporaryPage = !appPage
+    try {
+      if (temporaryPage) await page.goto(expectedOrigin, { waitUntil: 'domcontentloaded' })
       await page.waitForFunction(() => navigator.onLine, undefined, { timeout: 5000 })
       const state = await page.evaluate(async () => {
         const { flushQueue, getLegacyQueueCount, getQueueSummary } = await import('/src/lib/offlineQueue.ts')
@@ -122,6 +131,8 @@ async function reconcileBrowserCashQueues(browser: import('@playwright/test').Br
           'E2E cash cleanup refused to close a cash session while offline sales or legacy queue items remain.',
         )
       }
+    } finally {
+      if (temporaryPage && !page.isClosed()) await page.close()
     }
   }
 }
@@ -140,12 +151,12 @@ export const test = base.extend({
 
 export const cashTest = test.extend<{ cashSessionCleanup: void }>({
   cashSessionCleanup: [
-    async ({ request, browser }, runCleanupScenario) => {
+    async ({ request, browser, page }, runCleanupScenario) => {
       await cleanupOpenCashSessions(request)
       try {
         await runCleanupScenario()
       } finally {
-        await reconcileBrowserCashQueues(browser)
+        await reconcileBrowserCashQueues(browser, page)
         await cleanupOpenCashSessions(request)
       }
     },
