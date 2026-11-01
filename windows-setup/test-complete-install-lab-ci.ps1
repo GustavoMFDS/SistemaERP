@@ -253,6 +253,27 @@ try {
         throw 'The pinned EDB installer does not have its approved vendor Authenticode identity.'
     }
 
+    $setupExeDir = Join-Path $tempRoot 'signed-setup-exe'
+    $setupBuilder = Join-Path $repo 'windows-setup\build-esterium-setup-exe.ps1'
+    & $setupBuilder -OutputDir $setupExeDir -BundleDir $bundle `
+        -ApprovedManifestSHA256 $manifestSHA256 -TrustedPublisherThumbprint $signerThumbprint `
+        -PostgresInstaller $edbExe -ExpectedPostgresSHA256 $edbHash `
+        -ExpectedPostgresPublisherThumbprint $edbSigner -GarnetPackage $garnetZip `
+        -ExpectedGarnetSHA256 $garnetHash -ServiceWrapperExe $nssmExe `
+        -ExpectedServiceWrapperSHA256 $nssmHash
+    $setupExe = Join-Path $setupExeDir 'EsteriumERP-Setup.exe'
+    if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) { throw 'Full signed-mode Setup.exe was not built.' }
+    $setupSignature = Set-AuthenticodeSignature -LiteralPath $setupExe -Certificate $signer -HashAlgorithm SHA256
+    if ($setupSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or $setupSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $signerThumbprint) {
+        throw 'The disposable CI Setup.exe did not retain the expected test publisher signature.'
+    }
+    $payloadProbe = Start-Process -FilePath $setupExe -ArgumentList '--has-payload' -Wait -PassThru
+    $retailProbe = Start-Process -FilePath $setupExe -ArgumentList '--is-retail-build' -Wait -PassThru
+    $previewProbe = Start-Process -FilePath $setupExe -ArgumentList '--has-preview-approvals' -Wait -PassThru
+    if ($payloadProbe.ExitCode -ne 0 -or $retailProbe.ExitCode -ne 0 -or $previewProbe.ExitCode -ne 2) {
+        throw 'Signed-mode Setup.exe payload, retail flag, or preview-metadata gate failed.'
+    }
+    Write-Output 'PASS: signed non-preview Setup.exe embeds actual ERP and vendor payload and reports retail mode under disposable CI signer.'
     Write-Output 'Applying the real complete first-install coordinator on this disposable runner.'
     $completeInstaller = Join-Path $bundle 'tools\install-esterium-local-complete.ps1'
     $installArgs = @{
