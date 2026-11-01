@@ -144,4 +144,5 @@ Reboot real em Windows limpo, validação física em dois PCs/LAN, restore exter
 - PostgreSQL EDB 16.15 teve hash e Authenticode de fornecedor confirmados, instalação unattended, serviço/conta dedicada e parada segura aprovados.
 - A assinatura da instalação completa veio de certificado efêmero de CI para exercício técnico. Isso não comprova Authenticode comercial, proveniência comercial, reinicialização física em cliente, LAN real, restore externo, SEFAZ, Pix/TEF, periféricos nem aceite contábil.
 - PR #212 segue aberta e Draft, sem merge/release/instalação em cliente. Issue #160 continua aberta porque a origem da sessão vazada não foi identificada.
-- Esta atualização documental na PR #213 aguarda seu próprio CI. A missão de liberação continua condicionada aos bloqueios externos listados acima.
+- O CI do head documental `0c66f6e7600e98d2edcbd65c5cfddf597a06fd96` concluiu 19/19 jobs ([run 41258963854](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41258963854)); E2E 162 passaram e 6 foram ignorados; EDB 16.15 passou.
+- Esta correção do relatório registra os resultados acima e inicia CI próprio para a nova revisão documental. A missão de liberação continua condicionada aos bloqueios externos listados acima.
