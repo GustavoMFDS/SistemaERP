@@ -71,7 +71,7 @@ test.describe('offline sale cash cleanup', () => {
     await page.getByLabel('E-mail').fill('admin@sistema.local')
     await page.getByLabel('Senha', { exact: true }).fill('admin123')
     await page.getByRole('button', { name: 'Entrar' }).click()
-    await expect(page).toHaveURL(/\\/home$/)
+    await expect(page).toHaveURL(/\//home$/)
 
     const sale = await page.evaluate(async () => {
       const { apiJson } = await import('/src/lib/api.ts')
@@ -136,7 +136,7 @@ test.describe('offline sale cash cleanup', () => {
     await page.getByLabel('E-mail').fill('admin@sistema.local')
     await page.getByLabel('Senha', { exact: true }).fill('admin123')
     await page.getByRole('button', { name: 'Entrar' }).click()
-    await expect(page).toHaveURL(/\\/home$/)
+    await expect(page).toHaveURL(/\//home$/)
 
     const product = await page.evaluate(async (productId) => {
       const { apiJson } = await import('/src/lib/api.ts')
