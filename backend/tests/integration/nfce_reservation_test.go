@@ -185,17 +185,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	// invoices and fiscal number sequences into the next test iteration.
 	t.Cleanup(pool.Close)
 
-	var tenantID, actorUserID string
-	if err := pool.QueryRow(ctx, `
-		SELECT utr.tenant_id::text, utr.user_id::text
-		FROM user_tenant_roles utr
-		JOIN roles r ON r.id=utr.role_id AND r.name='admin'
-		ORDER BY utr.user_id
-		LIMIT 1
-	`).Scan(&tenantID, &actorUserID); err != nil {
-		t.Fatalf("seeded tenant/admin required: %v", err)
-	}
-
+	tenantID, actorUserID := createNFCeTestTenant(t, ctx, pool, "NFCe Reservation", true)
 	testSeries := unusedNFCeSeries(t, ctx, pool, tenantID, 2)
 
 	var registerID string
@@ -235,6 +225,18 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		"NFCe-INT-"+time.Now().Format("150405.000000000"),
 	).Scan(&productID); err != nil {
 		t.Fatalf("create isolated fiscal product: %v", err)
+	}
+
+	var seedProductID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO products(
+			tenant_id, sku, barcode, name, unit, cost_price, price_cash, min_stock,
+			active, ncm, cest
+		)
+		VALUES ($1,'SKU-COCA-2L',NULL,'Produto fiscal seed NFC-e','UN',5,10,0,true,'61091000',NULL)
+		RETURNING id::text
+	`, tenantID).Scan(&seedProductID); err != nil {
+		t.Fatalf("create active product without fiscal profile: %v", err)
 	}
 
 	uow := db.NewPgxUnitOfWork(pool)
@@ -327,6 +329,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM sales WHERE tenant_id=$1 AND id=$2`, tenantID, saleID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM product_fiscal_profiles WHERE tenant_id=$1 AND product_id=$2`, tenantID, productID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM products WHERE tenant_id=$1 AND id=$2`, tenantID, productID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM products WHERE tenant_id=$1 AND id=$2`, tenantID, seedProductID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM cash_sessions WHERE tenant_id=$1 AND id=$2`, tenantID, cashSessionID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM cash_registers WHERE tenant_id=$1 AND id=$2`, tenantID, registerID)
 	})
@@ -523,13 +526,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	); !errors.Is(err, common.ErrFiscalNotReady) {
 		t.Fatalf("active product without fiscal profile must block production: %v", err)
 	}
-	var seedProductID string
-	if err := pool.QueryRow(ctx, `
-		SELECT id::text FROM products
-		WHERE tenant_id=$1 AND sku='SKU-COCA-2L' AND active=true
-	`, tenantID).Scan(&seedProductID); err != nil {
-		t.Fatalf("seeded active product required for fiscal readiness: %v", err)
-	}
+
 	tx, err = uow.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin seeded fiscal profile tx: %v", err)
@@ -610,7 +607,7 @@ func TestNFCeReservation_IsAtomicAndIdempotentPerSale(t *testing.T) {
 	}
 	if !created ||
 		productionReservation.Environment != "production" ||
-		productionReservation.Series != testSeries + 1 {
+		productionReservation.Series != testSeries+1 {
 		t.Fatalf("unexpected production reservation: %+v created=%t", productionReservation, created)
 	}
 

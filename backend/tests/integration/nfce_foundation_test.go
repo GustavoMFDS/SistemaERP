@@ -61,6 +61,90 @@ func unusedNFCeSeries(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ten
 	return 0
 }
 
+func testNFCeCNPJCheckDigit(digits []byte, weights []int) byte {
+	sum := 0
+	for i, weight := range weights {
+		sum += int(digits[i]-'0') * weight
+	}
+	remainder := sum % 11
+	if remainder < 2 {
+		return '0'
+	}
+	return byte('0' + 11 - remainder)
+}
+
+func createNFCeTestTenant(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	name string,
+	withAdmin bool,
+) (string, string) {
+	t.Helper()
+
+	var actorUserID string
+	if withAdmin {
+		if err := pool.QueryRow(ctx, `
+			SELECT utr.user_id::text
+			FROM user_tenant_roles utr
+			JOIN roles r ON r.id=utr.role_id AND r.name='admin'
+			ORDER BY utr.user_id
+			LIMIT 1
+		`).Scan(&actorUserID); err != nil {
+			t.Fatalf("seeded admin required for isolated NFC-e tenant: %v", err)
+		}
+	}
+
+	base := fmt.Sprintf("%012d", time.Now().UnixNano()%1_000_000_000_000)
+	digits := []byte(base)
+	firstWeights := []int{5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2}
+	digits = append(digits, testNFCeCNPJCheckDigit(digits, firstWeights))
+	secondWeights := []int{6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2}
+	digits = append(digits, testNFCeCNPJCheckDigit(digits, secondWeights))
+
+	var tenantID string
+	legalName := fmt.Sprintf("%s %s", name, base)
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO companies(legal_name, trade_name, cnpj)
+		VALUES ($1, $1, $2)
+		RETURNING id::text
+	`, legalName, string(digits)).Scan(&tenantID); err != nil {
+		t.Fatalf("create isolated NFC-e tenant: %v", err)
+	}
+
+	if withAdmin {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO user_tenants(user_id, tenant_id, active)
+			VALUES ($1, $2, true)
+		`, actorUserID, tenantID); err != nil {
+			t.Fatalf("associate seeded admin with isolated NFC-e tenant: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO user_tenant_roles(user_id, tenant_id, role_id)
+			SELECT $1, $2, id FROM roles WHERE name='admin'
+		`, actorUserID, tenantID); err != nil {
+			t.Fatalf("grant admin role to isolated NFC-e tenant: %v", err)
+		}
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if _, err := pool.Exec(cleanupCtx,
+				`DELETE FROM user_tenant_roles WHERE tenant_id=$1 AND user_id=$2`,
+				tenantID, actorUserID,
+			); err != nil {
+				t.Errorf("remove isolated NFC-e tenant role: %v", err)
+			}
+			if _, err := pool.Exec(cleanupCtx,
+				`DELETE FROM user_tenants WHERE tenant_id=$1 AND user_id=$2`,
+				tenantID, actorUserID,
+			); err != nil {
+				t.Errorf("remove isolated NFC-e tenant membership: %v", err)
+			}
+		})
+	}
+	return tenantID, actorUserID
+}
+
 func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -79,31 +163,31 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	defer pool.Close()
 
-	var tenantA, actorA, productA string
+	t.Cleanup(pool.Close)
+
+	tenantA, actorA := createNFCeTestTenant(t, ctx, pool, "NFCe Foundation A", true)
+	var productA string
 	if err := pool.QueryRow(ctx, `
-		SELECT utr.tenant_id::text, utr.user_id::text, p.id::text
-		FROM user_tenant_roles utr
-		JOIN roles r ON r.id=utr.role_id AND r.name='admin'
-		JOIN products p ON p.tenant_id=utr.tenant_id
-		ORDER BY p.created_at
-		LIMIT 1
-	`).Scan(&tenantA, &actorA, &productA); err != nil {
-		t.Fatalf("seeded tenant/admin/product required: %v", err)
+		INSERT INTO products(
+			tenant_id, sku, name, unit, cost_price, price_cash,
+			min_stock, active, ncm
+		)
+		VALUES ($1, $2, 'NFC-e foundation product', 'UN', 1, 2, 0, true, '61091000')
+		RETURNING id::text
+	`, tenantA, fmt.Sprintf("NFCe-FOUNDATION-%d", time.Now().UnixNano())).Scan(&productA); err != nil {
+		t.Fatalf("create isolated foundation product: %v", err)
 	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(),
+			`DELETE FROM products WHERE tenant_id=$1 AND id=$2`, tenantA, productA,
+		); err != nil {
+			t.Errorf("remove isolated foundation product: %v", err)
+		}
+	})
 
 	tenantASeries := unusedNFCeSeries(t, ctx, pool, tenantA, 1)
-
-	cnpj := fmt.Sprintf("%014d", time.Now().UnixNano()%100000000000000)
-	var tenantB string
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO companies(legal_name, trade_name, cnpj)
-		VALUES ('NFCe Tenant B', 'NFCe Tenant B', $1)
-		RETURNING id::text
-	`, cnpj).Scan(&tenantB); err != nil {
-		t.Fatalf("create tenant B: %v", err)
-	}
+	tenantB, _ := createNFCeTestTenant(t, ctx, pool, "NFCe Foundation B", false)
 
 	// Intentionally do not delete fiscal_document_sequences or nfce_configs:
 	// those rows may have protected audit history. The dedicated test runner
