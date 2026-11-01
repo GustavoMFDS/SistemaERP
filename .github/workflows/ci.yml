@@ -2121,6 +2121,8 @@ jobs:
         run: npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/web.log 2>&1 &
       - name: Run browser E2E
         working-directory: web
+        env:
+          VITE_APP_BRAND_NAME: Esterium CI
         run: npx playwright test
       - name: Upload Tailwind migration visual evidence
         if: always() && github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'codex/tailwind-v4-20261101' || github.event.pull_request.head.ref == 'codex/integration-212-215-20261101')
