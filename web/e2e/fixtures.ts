@@ -36,6 +36,38 @@ function disposableE2EApiBaseUrl(): string {
   return parsed.origin
 }
 
+async function assertNoOpenCashSession(
+  request: import('@playwright/test').APIRequestContext,
+): Promise<void> {
+  const apiBaseUrl = disposableE2EApiBaseUrl()
+  const loginResponse = await request.post(apiBaseUrl + '/api/v1/auth/login', {
+    data: { email: 'admin@sistema.local', password: 'admin123' },
+  })
+  if (!loginResponse.ok()) {
+    throw new Error('E2E cash isolation login failed (' + loginResponse.status() + ').')
+  }
+
+  const login = (await loginResponse.json()) as {
+    token?: { access_token?: string }
+  }
+  const accessToken = login.token?.access_token
+  if (!accessToken) throw new Error('E2E cash isolation received no access token.')
+
+  const currentResponse = await request.get(apiBaseUrl + '/api/v1/cash/sessions/current', {
+    headers: { Authorization: 'Bearer ' + accessToken },
+  })
+  if (currentResponse.status() === 404) return
+  if (!currentResponse.ok()) {
+    throw new Error(
+      'E2E cash isolation current-session query failed (' + currentResponse.status() + ').',
+    )
+  }
+
+  throw new Error(
+    'E2E cash isolation refused to start while a prior cash session remains open. No session was closed.',
+  )
+}
+
 async function cleanupOpenCashSessions(
   request: import('@playwright/test').APIRequestContext,
 ): Promise<void> {
@@ -152,7 +184,7 @@ export const test = base.extend({
 export const cashTest = test.extend<{ cashSessionCleanup: void }>({
   cashSessionCleanup: [
     async ({ request, browser, page }, runCleanupScenario) => {
-      await cleanupOpenCashSessions(request)
+      await assertNoOpenCashSession(request)
       try {
         await runCleanupScenario()
       } finally {
