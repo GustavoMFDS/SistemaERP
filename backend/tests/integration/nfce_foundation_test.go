@@ -17,6 +17,50 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func unusedNFCeSeries(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, consecutive int) int {
+	t.Helper()
+	const maxSeries = 889
+	if consecutive < 1 || consecutive > maxSeries {
+		t.Fatalf("invalid consecutive NFC-e series count: %d", consecutive)
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT series FROM fiscal_document_sequences
+		WHERE tenant_id=$1 AND model=65
+	`, tenantID)
+	if err != nil {
+		t.Fatalf("list previously used NFC-e series: %v", err)
+	}
+	defer rows.Close()
+
+	used := make(map[int]struct{})
+	for rows.Next() {
+		var series int
+		if err := rows.Scan(&series); err != nil {
+			t.Fatalf("scan previously used NFC-e series: %v", err)
+		}
+		used[series] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate previously used NFC-e series: %v", err)
+	}
+
+	for first := 1; first+consecutive-1 <= maxSeries; first++ {
+		available := true
+		for offset := 0; offset < consecutive; offset++ {
+			if _, exists := used[first+offset]; exists {
+				available = false
+				break
+			}
+		}
+		if available {
+			return first
+		}
+	}
+	t.Fatalf("no %d consecutive unused NFC-e series for tenant %s", consecutive, tenantID)
+	return 0
+}
+
 func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -48,6 +92,8 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	`).Scan(&tenantA, &actorA, &productA); err != nil {
 		t.Fatalf("seeded tenant/admin/product required: %v", err)
 	}
+
+	tenantASeries := unusedNFCeSeries(t, ctx, pool, tenantA, 1)
 
 	cnpj := fmt.Sprintf("%014d", time.Now().UnixNano()%100000000000000)
 	var tenantB string
@@ -143,7 +189,7 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin first sequence tx: %v", err)
 	}
-	number, err := repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	number, err := repo.ReserveNextNFCeNumber(ctx, tx, tenantA, tenantASeries)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("reserve first NFC-e number: %v", err)
@@ -160,7 +206,7 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin rollback sequence tx: %v", err)
 	}
-	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, tenantASeries)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("reserve rollback NFC-e number: %v", err)
@@ -177,7 +223,7 @@ func TestNFCeFoundation_TenantIsolationAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin reused sequence tx: %v", err)
 	}
-	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, 889)
+	number, err = repo.ReserveNextNFCeNumber(ctx, tx, tenantA, tenantASeries)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("reserve reused NFC-e number: %v", err)
