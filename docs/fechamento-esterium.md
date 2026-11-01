@@ -1,6 +1,6 @@
 # Fechamento da missão — Esterium ERP
 
-**Atualizado:** 31/10/2026 23:45 BRT (01/11 UTC)  
+**Atualizado:** 31/10/2026 23:45 BRT (01/11 UTC)
 **Estado:** #212 e #213 com CI e laboratório Windows aprovados; #214 CI de integração aprovado; #215 em nova validação após correção do lockfile. Todos os PRs seguem Draft, sem merge ou liberação comercial.
 
 Este relatório registra o estado da cópia em `D:\ERP` e as verificações executadas nesta sessão. Ele não declara o ERP pronto para produção.
@@ -239,3 +239,27 @@ Esta seção substitui os estados pendentes das atualizações anteriores. CI fi
 ### Pendências que impedem declarar produção
 
 As 22 issues da auditoria permanecem abertas; em particular, #148 e #194 aguardam aceite de navegador/visual e responsável, e #160 permanece aberta para observação de estabilidade. Ainda faltam assinatura comercial Authenticode e proveniência, reboot em Windows limpo, validação física em dois PCs/LAN, restore externo independente, revisão jurídica de marca/licenças, credenciais e homologação SEFAZ genuínas, aceite contábil, Pix/TEF, periféricos e aceite operacional das telas/fluxos. Não houve instalação em cliente, transmissão fiscal real, merge ou release. Manter o ERP classificado como não homologado para produção.
+
+
+## Atualização 01/11/2026 — auditoria da instalação integrada e validação restante
+
+### Evidências executadas em runner Windows descartável
+
+- PR #212, head `cbbd72eb62ffcc1f32d629f1dcbb7b7e125030fe`: CI [41263732350](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41263732350) passou em 19/19 jobs; bancada [41263732319](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41263732319) aprovou instalação completa, ZIP integrado, prévia e gate OSS. Quatro jobs opcionais foram ignorados conforme configuração.
+- A bancada compilou o bundle Windows, aplicou assinaturas de teste temporárias aos arquivos Esterium, baixou EDB PostgreSQL 16.15, Garnet 2.2.3 e NSSM com hashes fixados, verificou o publicador Authenticode do EDB e executou o coordenador `install-esterium-local-complete.ps1 -Apply` num runner limpo.
+- O ERP foi iniciado como serviço LocalService; PostgreSQL usou conta restrita; Garnet usou NetworkService. A bancada confirmou migrations, conta admin sintética sem replay, credenciais protegidas, Garnet TLS/ACL/AOF, HTTPS confiável pelo sistema, React servido pelo backend, health, regra de firewall limitada a um endereço privado e atalho.
+- Playwright contra os serviços instalados executou 10 casos no Windows: 6 passaram e 4 foram ignorados por escopo de projeto. Cobriu as 17 rotas reais, os estados aprovados de tela 18 (lembrete fiscal/navegação/alertas) e tela 19 (confirmação da venda), Chromium, Firefox e viewport móvel. Operações sintéticas cobriram equipe/permissões, produto/foto/variante/estoque, fornecedor/compra/recebimento, cliente, venda e idempotência, troco, caixa, devolução/reembolso, contas/relatórios, XML fiscal local e disputa de estoque entre dois terminais. Não houve transmissão SEFAZ. Evidência: [capturas da instalação integrada](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41263732319/artifacts/13067171264).
+- Restart de PostgreSQL/Garnet/ERP, recuperação após falha do processo ERP, reparo assistido e desinstalação conservadora passaram; segredos, TLS, PostgreSQL/Garnet e dados SQL permaneceram preservados. Atualização e rollback do aplicativo passaram em fixture sintética sem alterar banco/SQL.
+- O job ZIP integrado restaurou um arquivo PostgreSQL 16 em cluster Windows independente e comparou migrations, conteúdo e tabelas críticas. Os jobs de backup exercitaram integridade/configuração e cópia externa sintética; nenhum share SMB externo foi disponibilizado para restaurar um backup de loja.
+- A instalação de serviço foi exercitada pelo coordenador real extraído do bundle. O fluxo interativo do EXE comercial não foi usado para executar Apply; as verificações de prévia/EXE e o caminho do coordenador foram validados separadamente. A assinatura temporária de CI não é Authenticode comercial.
+
+### Integridade do diff da PR #213
+
+- Os arquivos de texto existentes que mudaram na branch mantêm LF como na base; nenhum deles ganhou CRLF. Arquivos novos do relatório e do validador de ícones também usam LF. O patch contém mudanças funcionais/localizadas em CI, PWA, lockfile e carregamento por rota, sem regravação de arquivos.
+- A auditoria do patch encontrou um espaço final na linha de data deste relatório; ele foi removido nesta atualização. A CI do novo head documental será registrada na descrição da PR após concluir.
+
+### Validação que depende de VM/laboratório externo
+
+- Não consegui acessar uma VM Windows nesta sessão: `Get-VM` falhou por indisponibilidade do recurso CIM e o Docker Desktop não tinha daemon acessível. O runner hospedado executou o laboratório descartável, mas foi encerrado sem reinicializar o sistema operacional.
+- Continua pendente o ciclo de reboot integral: instalar, reiniciar o Windows e confirmar inicialização automática PostgreSQL/Garnet/ERP, readiness HTTPS, login e persistência dos dados sintéticos após boot. Também seguem pendentes segundo dispositivo físico/LAN e restauração a partir de share externo independente.
+- Piloto/produção continuam bloqueados por Authenticode/proveniência comercial, revisão jurídica, aceite de navegador/telas/contabilidade, credenciamento/certificado SEFAZ genuínos, Pix/TEF e periféricos. Não instalar em cliente, transmitir documento real, mesclar PR ou liberar vendas.
