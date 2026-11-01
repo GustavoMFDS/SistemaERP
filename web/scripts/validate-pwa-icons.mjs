@@ -4,8 +4,9 @@ import { inflateSync } from 'node:zlib'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'public')
-const manifest = JSON.parse(readFileSync(resolve(publicDir, 'manifest.webmanifest'), 'utf8'))
+const webDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const publicDir = resolve(webDir, 'public')
+const manifest = JSON.parse(readFileSync(resolve(webDir, 'manifest.webmanifest.template.json'), 'utf8'))
 const icons = [
   { filename: 'icon-192.png', size: 192 },
   { filename: 'icon-512.png', size: 512 },

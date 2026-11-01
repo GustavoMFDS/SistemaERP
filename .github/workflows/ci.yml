@@ -473,6 +473,7 @@ jobs:
       - run: npm run test:assets
       - run: npm run lint
       - run: npm run build
+      - run: npm run test:brand
 
   integration:
     runs-on: ubuntu-latest
@@ -2051,6 +2052,7 @@ jobs:
     name: E2E disposable run ${{ matrix.isolation }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         isolation: [1, 2]
     # Never leave a pre-browser API readiness step holding a runner indefinitely.
@@ -2115,6 +2117,7 @@ jobs:
         working-directory: web
         env:
           VITE_API_BASE_URL: http://127.0.0.1:8080
+          VITE_APP_BRAND_NAME: Esterium CI
         run: npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/web.log 2>&1 &
       - name: Run browser E2E
         working-directory: web

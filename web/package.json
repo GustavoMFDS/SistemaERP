@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:e2e": "playwright test",
-    "test:assets": "node scripts/validate-pwa-icons.mjs"
+    "test:assets": "node scripts/validate-pwa-icons.mjs",
+    "test:brand": "node scripts/validate-app-brand-build.mjs"
   },
   "dependencies": {
     "react": "^19.2.5",

@@ -1,4 +1,4 @@
-import { cashTest as test, expect } from './fixtures'
+import { cashTest, expect, test } from './fixtures'
 
 async function waitForCashClosed(page: import('@playwright/test').Page) {
   await expect
@@ -11,7 +11,7 @@ async function waitForCashClosed(page: import('@playwright/test').Page) {
     .toBe('')
 }
 
-test('lost sale response reuses the original idempotency key', async ({ page }) => {
+cashTest('lost sale response reuses the original idempotency key', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha', { exact: true }).fill('admin123')
