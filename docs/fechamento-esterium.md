@@ -215,3 +215,27 @@ Verificação feita ao vivo no GitHub em 31/10/2026: as 22 issues abaixo continu
 ### Critério de conclusão
 
 O fechamento técnico em CI avançou e a cópia local contém relatório e grafo reproduzível. A migração Tailwind #215 ainda aguarda o CI da correção do lockfile. A missão de produção continua incompleta: não houve instalação em cliente, Authenticode comercial, reboot físico, aceite de dois PCs/LAN e restore externo, homologação SEFAZ real, ativação Pix/TEF, validação de periféricos, revisão jurídica nem aceite contábil. Manter os PRs em Draft e não declarar o ERP pronto para produção até resolver os gates técnicos e externos aplicáveis.
+
+
+## Atualização 01/11/2026 00:06 BRT — validação final desta rodada
+
+Esta seção substitui os estados pendentes das atualizações anteriores. CI final e artefatos foram consultados no GitHub em 01/11/2026.
+
+### Estado dos quatro PRs
+
+- **#212 — instalador Windows:** head `cbbd72eb62ffcc1f32d629f1dcbb7b7e125030fe`. CI [41263732350](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41263732350) passou em **19/19 jobs**. Bancada Windows [41263732319](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41263732319): instalação completa, ZIP integrado, preview unsigned e gate OSS passaram; quatro verificações opcionais independentes foram ignoradas pela configuração. Playwright: **164 passaram, 6 ignorados**.
+- **#213 — fechamento e PWA:** head de código `fa93048dd1774425693d06538a68aef70bb77364`. CI [41266126981](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41266126981) passou em **19/19 jobs**, incluindo EDB PostgreSQL; Playwright: **161 passaram, 6 ignorados**. Esta atualização documental aciona nova rodada de CI para o head que contém este relatório.
+- **#214 — repetição segura da integração:** head `43de231888979917e52823932d2ec7429fac4c8a`. CI [41264794584](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41264794584) passou em **19/19 jobs**; Playwright: **161 passaram, 6 ignorados**. As suítes repetiram no mesmo banco fiscal descartável, preservando o histórico imutável.
+- **#215 — migração Tailwind 4:** head `73fbaef2df39cda8c7ffc64e2b29dbfbd17c2fad`. CI [41267040692](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41267040692) passou em **19/19 jobs**; Playwright: **162 passaram, 6 ignorados**. `npm audit --audit-level=moderate` encontrou zero vulnerabilidades; o scan do código não identificou vulnerabilidade alcançável (sete achados de dependências e um módulo não chamado permanecem no relatório de segurança).
+- Os quatro PRs estão abertos e em Draft. Nenhuma issue foi fechada nesta atualização.
+
+### Evidência visual e desempenho
+
+- Artefato visual do CI: [cinco capturas Tailwind 4](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41267040692/artifacts/13067646590). Login, estoque, catálogo, PDV desktop e PDV móvel foram revisados. A captura móvel do PDV não mostra rolagem horizontal geral; a tabela do catálogo mantém rolagem horizontal própria para colunas largas.
+- Artefato de auditoria de dependências: [frontend-audit](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41267040692/artifacts/13067946540).
+- O build do #215 ainda emite aviso de chunk principal de aproximadamente 545 kB nessa branch baseada em `main`. A divisão de rotas da #213 reduz o chunk principal de aproximadamente 545 kB para 251 kB (gzip: 147,81 kB para 80,44 kB); a otimização está em PR separada.
+- Tailwind 4 requer Safari 16.4+, Chrome 111+ e Firefox 128+ segundo o [guia oficial de atualização](https://tailwindcss.com/docs/upgrade-guide). Confirmação da política mínima de navegadores pelos responsáveis do produto segue necessária.
+
+### Pendências que impedem declarar produção
+
+As 22 issues da auditoria permanecem abertas; em particular, #148 e #194 aguardam aceite de navegador/visual e responsável, e #160 permanece aberta para observação de estabilidade. Ainda faltam assinatura comercial Authenticode e proveniência, reboot em Windows limpo, validação física em dois PCs/LAN, restore externo independente, revisão jurídica de marca/licenças, credenciais e homologação SEFAZ genuínas, aceite contábil, Pix/TEF, periféricos e aceite operacional das telas/fluxos. Não houve instalação em cliente, transmissão fiscal real, merge ou release. Manter o ERP classificado como não homologado para produção.
