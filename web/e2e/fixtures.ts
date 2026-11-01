@@ -95,6 +95,37 @@ async function cleanupOpenCashSessions(
   throw new Error('E2E cash cleanup reached its open-session safety limit.')
 }
 
+async function reconcileBrowserCashQueues(browser: import('@playwright/test').Browser): Promise<void> {
+  const expectedOrigin = new URL(process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5173').origin
+  for (const context of browser.contexts()) {
+    await context.setOffline(false)
+    for (const page of context.pages()) {
+      if (page.isClosed()) continue
+      let origin = ''
+      try {
+        origin = new URL(page.url()).origin
+      } catch {
+        continue
+      }
+      if (origin !== expectedOrigin) continue
+      await page.waitForFunction(() => navigator.onLine, undefined, { timeout: 5000 })
+      const state = await page.evaluate(async () => {
+        const { flushQueue, getLegacyQueueCount, getQueueSummary } = await import('/src/lib/offlineQueue.ts')
+        const before = { queue: getQueueSummary(), legacy: getLegacyQueueCount() }
+        if (before.queue.total === 0 && before.legacy === 0) return { before, after: before }
+        await flushQueue()
+        const after = { queue: getQueueSummary(), legacy: getLegacyQueueCount() }
+        return { before, after }
+      })
+      if (state.after.queue.total > 0 || state.after.legacy > 0) {
+        throw new Error(
+          'E2E cash cleanup refused to close a cash session while offline sales or legacy queue items remain.',
+        )
+      }
+    }
+  }
+}
+
 export const test = base.extend({
   page: async ({ page }, runScenario) => {
     await page.addLocatorHandler(
@@ -109,11 +140,12 @@ export const test = base.extend({
 
 export const cashTest = test.extend<{ cashSessionCleanup: void }>({
   cashSessionCleanup: [
-    async ({ request }, runCleanupScenario) => {
+    async ({ request, browser }, runCleanupScenario) => {
       await cleanupOpenCashSessions(request)
       try {
         await runCleanupScenario()
       } finally {
+        await reconcileBrowserCashQueues(browser)
         await cleanupOpenCashSessions(request)
       }
     },
