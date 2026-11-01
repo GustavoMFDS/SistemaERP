@@ -104,6 +104,15 @@ function validateIcon({ filename, size }) {
 
 for (const icon of icons) validateIcon(icon)
 
+const appIcon = readFileSync(resolve(publicDir, 'app-icon.svg'), 'utf8')
+const appIconLabel = appIcon.match(/\\baria-label="([^"]+)"/)?.[1]
+assert.equal(appIconLabel, 'Esterium ERP', 'app-icon.svg must expose the Esterium ERP brand to assistive technology')
+assert.ok(
+  manifest.icons.some((entry) => entry.src === '/app-icon.svg' && entry.type === 'image/svg+xml'),
+  'app-icon.svg must remain listed in manifest.webmanifest',
+)
+console.log('app-icon.svg: Esterium ERP accessible label and manifest entry verified')
+
 const sample = readFileSync(resolve(publicDir, 'icon-192.png'))
 const corruptedSample = Buffer.from(sample)
 const idatType = corruptedSample.indexOf(Buffer.from('IDAT'))
