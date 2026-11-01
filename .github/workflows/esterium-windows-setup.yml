@@ -464,6 +464,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & .\windows-setup\test-complete-install-lab-ci.ps1
+      - name: Rehearse signed app-only update, rollback, and migration refusal
+        shell: pwsh
+        timeout-minutes: 12
+        run: .\\scripts\\test-esterium-upgrade-plan.ps1
       - name: Upload real-service HTTPS browser evidence
         if: always()
         uses: actions/upload-artifact@v4
