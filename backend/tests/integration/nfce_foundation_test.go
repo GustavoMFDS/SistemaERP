@@ -125,22 +125,8 @@ func createNFCeTestTenant(
 		`, actorUserID, tenantID); err != nil {
 			t.Fatalf("grant admin role to isolated NFC-e tenant: %v", err)
 		}
-		t.Cleanup(func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if _, err := pool.Exec(cleanupCtx,
-				`DELETE FROM user_tenant_roles WHERE tenant_id=$1 AND user_id=$2`,
-				tenantID, actorUserID,
-			); err != nil {
-				t.Errorf("remove isolated NFC-e tenant role: %v", err)
-			}
-			if _, err := pool.Exec(cleanupCtx,
-				`DELETE FROM user_tenants WHERE tenant_id=$1 AND user_id=$2`,
-				tenantID, actorUserID,
-			); err != nil {
-				t.Errorf("remove isolated NFC-e tenant membership: %v", err)
-			}
-		})
+		// Fiscal event history references these tenant membership rows. Keep this synthetic
+		// identity in the disposable database until the database itself is dropped.
 	}
 	return tenantID, actorUserID
 }
