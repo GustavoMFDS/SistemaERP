@@ -105,7 +105,7 @@ function validateIcon({ filename, size }) {
 for (const icon of icons) validateIcon(icon)
 
 const appIcon = readFileSync(resolve(publicDir, 'app-icon.svg'), 'utf8')
-const appIconLabel = appIcon.match(/\\baria-label="([^"]+)"/)?.[1]
+const appIconLabel = appIcon.match(/\baria-label="([^"]+)"/)?.[1]
 assert.equal(appIconLabel, 'Esterium ERP', 'app-icon.svg must expose the Esterium ERP brand to assistive technology')
 assert.ok(
   manifest.icons.some((entry) => entry.src === '/app-icon.svg' && entry.type === 'image/svg+xml'),
