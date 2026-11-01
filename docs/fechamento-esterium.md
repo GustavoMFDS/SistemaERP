@@ -263,3 +263,23 @@ As 22 issues da auditoria permanecem abertas; em particular, #148 e #194 aguarda
 - Não consegui acessar uma VM Windows nesta sessão: `Get-VM` falhou por indisponibilidade do recurso CIM e o Docker Desktop não tinha daemon acessível. O runner hospedado executou o laboratório descartável, mas foi encerrado sem reinicializar o sistema operacional.
 - Continua pendente o ciclo de reboot integral: instalar, reiniciar o Windows e confirmar inicialização automática PostgreSQL/Garnet/ERP, readiness HTTPS, login e persistência dos dados sintéticos após boot. Também seguem pendentes segundo dispositivo físico/LAN e restauração a partir de share externo independente.
 - Piloto/produção continuam bloqueados por Authenticode/proveniência comercial, revisão jurídica, aceite de navegador/telas/contabilidade, credenciamento/certificado SEFAZ genuínos, Pix/TEF e periféricos. Não instalar em cliente, transmitir documento real, mesclar PR ou liberar vendas.
+
+## Atualização 01/11/2026 00:45 BRT — fechamento das rodadas atuais
+
+### PR #212 — instalador Windows integrado
+
+- Head `5813bf7cab5ff75c2c5d36b50e7c5f1a87d30eb2`, aberta e Draft. CI geral [run 41269111509](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41269111509) concluiu **19/19 jobs**.
+- O E2E executou 170 casos. Na primeira tentativa, 163 passaram, 1 falhou e 6 foram ignorados: o caso de duplo clique não encontrou a confirmação de venda em cinco segundos. Reexecutei somente o job no mesmo SHA, sem mudanças no código; o rerun passou com **164 testes e 6 ignorados**. A falha não se repetiu; manter #160 aberta para acompanhar estabilidade.
+- Bancada Windows [run 41269111620](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41269111620): os 4 jobs configurados passaram (prévia, instalação completa, ZIP/restauração e gate de componentes); 4 verificações opcionais ficaram ignoradas pela configuração.
+- A bancada construiu um `EsteriumERP-Setup.exe` com o bundle real do ERP e EDB PostgreSQL, Garnet e NSSM aprovados por hash, usando identidade temporária de assinatura do CI. Authenticode do teste e probes de payload/modo retail passaram. Isso não é Authenticode comercial.
+- A instalação completa executou o coordenador real com `-Apply` em runner limpo; criou os serviços e administrador sintético, aplicou migrations, TLS/SCRAM/ACL/AOF, HTTPS confiável, React servido pelo backend, health, firewall restrito e atalho. Playwright nos serviços instalados: 6 passaram e 4 foram ignorados conforme os projetos; 17 rotas abriram em Chromium e Firefox, sem overflow horizontal na matriz móvel; operações sintéticas de equipe, catálogo, compras, caixa, venda, retorno, financeiro, XML local e disputa de estoque passaram.
+- Reinício/recuperação de ERP, PostgreSQL e Garnet, reparo assistido, desinstalação conservadora e fixtures de update/rollback do aplicativo passaram. A restauração do arquivo PostgreSQL ocorreu em segundo cluster Windows independente e conferiu migração, conteúdo e tabelas críticas.
+- Evidências: [navegadores da instalação integrada](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41269111620/artifacts/13067909951), [capturas Windows](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41269111620/artifacts/13068718231), [prévia técnica unsigned](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41269111620/artifacts/13068367654).
+- A instalação foi aplicada pelo coordenador extraído do pacote; o clique interativo do botão Apply do Setup não foi automatizado. O runner não reiniciou o Windows como sistema operacional. Continuam pendentes VM acessível, teste de reboot integral, segundo dispositivo/LAN e restore de share externo, além dos gates comerciais/fiscais já listados.
+
+### PR #213 e estado geral
+
+- Head #213 `070e14aaa50cf2aaae727f56cc16a1766ddcf520`: CI [run 41269053863](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41269053863) passou em **19/19 jobs**; E2E: **161 passaram e 6 foram ignorados**. A auditoria de LF segue sem conversão CRLF ou whitespace excedente.
+- Este registro documental aciona uma nova CI para o head atualizado da #213; a descrição da PR será alinhada ao resultado dessa rodada após a conclusão.
+- PRs #212, #213, #214 (`43de231888979917e52823932d2ec7429fac4c8a`) e #215 (`73fbaef2df39cda8c7ffc64e2b29dbfbd17c2fad`) permanecem abertas e Draft. A auditoria ao vivo encontrou **22 issues abertas**; nenhuma foi fechada.
+- `git diff --check` local não encontrou erro de whitespace; houve apenas avisos de autocrlf em três arquivos locais. O relatório local não contém espaços finais. Nenhum merge, release, instalação em cliente ou transmissão fiscal foi feito.
