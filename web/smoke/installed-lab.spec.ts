@@ -1,4 +1,4 @@
-import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
+import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -86,19 +86,19 @@ async function browserApi(
   }, { path, token, options })
 }
 
-async function closeCurrentCashSession(token: string, notes: string): Promise<void> {
-  const client = await playwrightRequest.newContext({
-    baseURL: process.env.E2E_BASE_URL ?? 'https://esterium.ci.invalid:8443',
-    ignoreHTTPSErrors: false,
-    extraHTTPHeaders: { Authorization: `Bearer ${token}` },
-  })
+async function closeCurrentCashSession(browser: Browser, token: string, notes: string): Promise<void> {
+  const context = await browser.newContext({ ignoreHTTPSErrors: false })
   try {
-    const currentResponse = await client.get('/api/v1/cash/sessions/current')
-    if (currentResponse.status() === 404) return
-    if (!currentResponse.ok()) {
-      throw new Error(`Installed lab cash cleanup query failed (${currentResponse.status()}).`)
+    const page = await context.newPage()
+    await page.goto(process.env.E2E_BASE_URL ?? 'https://esterium.ci.invalid:8443', {
+      waitUntil: 'domcontentloaded',
+    })
+    const currentResponse = await browserApi(page, '/api/v1/cash/sessions/current', token)
+    if (currentResponse.status === 404) return
+    if (currentResponse.status < 200 || currentResponse.status >= 300) {
+      throw new Error(`Installed lab cash cleanup query failed (${currentResponse.status}).`)
     }
-    const current = await currentResponse.json() as {
+    const current = currentResponse.body as {
       id?: string
       status?: string
       expected_cash?: number
@@ -110,19 +110,21 @@ async function closeCurrentCashSession(token: string, notes: string): Promise<vo
     if (typeof expectedCash !== 'number' || !Number.isFinite(expectedCash) || expectedCash < 0) {
       throw new Error('Installed lab cash cleanup received no valid expected cash balance.')
     }
-    const closeResponse = await client.post(
+    const closeResponse = await browserApi(
+      page,
       `/api/v1/cash/sessions/${encodeURIComponent(current.id)}/close`,
-      { data: { closing_amount: expectedCash, notes } },
+      token,
+      { method: 'POST', body: { closing_amount: expectedCash, notes } },
     )
-    if (!closeResponse.ok()) {
-      throw new Error(`Installed lab cash cleanup close failed (${closeResponse.status()}).`)
+    if (closeResponse.status < 200 || closeResponse.status >= 300) {
+      throw new Error(`Installed lab cash cleanup close failed (${closeResponse.status}).`)
     }
-    const closeResult = await closeResponse.json() as { status?: string; closing_difference?: number }
+    const closeResult = closeResponse.body as { status?: string; closing_difference?: number }
     if (closeResult.status !== 'closed' || closeResult.closing_difference !== 0) {
       throw new Error('Installed lab cash cleanup did not close at the expected balance.')
     }
   } finally {
-    await client.dispose()
+    await context.close()
   }
 }
 
@@ -502,7 +504,7 @@ test('installed mobile and desktop navigation, staff activation, cash, safe erro
       fullPage: true,
     })
   } finally {
-    await closeCurrentCashSession(adminToken, 'Synthetic screen 19 cleanup')
+    await closeCurrentCashSession(browser, adminToken, 'Synthetic screen 19 cleanup')
     openSessionId = ''
   }
 })
@@ -777,7 +779,7 @@ test('installed ERP completes synthetic retail operations, checks the fiscal gat
     await page.screenshot({ path: join(evidenceDir, 'installed-real-operations.png'), fullPage: true })
   } finally {
     try {
-      if (adminToken) await closeCurrentCashSession(adminToken, 'Synthetic installed-lab operations cleanup')
+      if (adminToken) await closeCurrentCashSession(browser, adminToken, 'Synthetic installed-lab operations cleanup')
     } finally {
       await cashierContext.close()
     }
