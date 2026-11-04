@@ -410,7 +410,10 @@ test('installed mobile and desktop navigation, staff activation, cash, safe erro
 
     await page.getByLabel('Busca rápida por nome ou código').fill(productName)
     await expect(page.getByRole('button', { name: `Adicionar ${productName} à venda` })).toBeVisible()
-    const saleProductSelect = page.getByLabel(/^Produto/)
+    const saleProductSelect = page
+      .getByRole('region', { name: 'Produtos da venda', exact: true })
+      .getByRole('combobox')
+      .first()
     await expect(saleProductSelect).toBeVisible()
     await saleProductSelect.selectOption(product.id)
     await page.getByLabel('Qtd', { exact: true }).fill('0')
