@@ -314,3 +314,37 @@ As 22 issues da auditoria permanecem abertas; em particular, #148 e #194 aguarda
 O Setup permanece uma prévia técnica sem assinatura comercial. O ensaio Windows usou runner e credenciais sintéticas; não simulou aceite de cliente. O clique interativo em Apply, reboot integral de um Windows limpo, dois PCs na LAN, restauração de share externo, periféricos, aceite contábil/operacional, Authenticode/proveniência comercial e aprovação jurídica da marca ainda precisam de execução externa. Em fiscal, o runner desligou transmissão SEFAZ e usou provedor XML local: certificado/credenciamento genuínos, homologação, autorização real e `nfeProc` autorizado continuam bloqueando produção. Pix/TEF reais e seus contratos/credenciais também não foram usados.
 
 Nenhum merge, release, instalação em cliente ou transmissão fiscal foi feito. A cópia de trabalho `D:\ERP` permaneceu intacta; o código e este relatório foram atualizados somente na branch remota da PR #216.
+## Atualização 04/11/2026 — cobertura estrutural de 19 áreas
+
+- Revisão estática conferiu 17 rotas da aplicação: 17/17 mapeadas para pastas de evidência. A enumeração das rotas e dos fluxos encontrou IDs de área de 01 a 19, sem lacunas.
+- O smoke local agora inclui captura de quantidade inválida no PDV e de acesso de Caixa negado a Relatórios. O caso de acesso nega o conteúdo dos relatórios e captura a mensagem genérica; venda aprovada também mantém captura separada.
+- Verificações do arquivo do smoke passaram: ESLint focado, compilação TypeScript isolada, git diff --check e descoberta Playwright com 10 casos em 3 projetos.
+- A descoberta Playwright apenas lista os testes. Nenhum E2E funcional foi executado e nenhuma imagem das telas foi gerada: Windows convidado ainda trava no EFI antes do Setup.
+- web/smoke/installed-lab.spec.ts permanece modificado no clone local da branch codex/integration-212-215-20261101, sem commit ou push. PR #216 segue aberta, Draft e mergeable no head a02551f4b34a38afba6d8e840f48aa4912615a3b. Sem merge ou release.
+
+## Revalidação da VM após inspeção do VirtualBox (04/11/2026 15:32 -03:00)
+
+- A interface do VirtualBox e a janela `Esterium-Windows-Lab` estão abertas; o Gerenciador responde. A VM aparece como `Executando`.
+- A árvore do VirtualBox mantém o snapshot `Base vazia antes do Windows - 2026-11-03`; estado atual aparece como modificado. Snapshot não foi restaurado nem removido.
+- Tela convidada continua preta. A barra de status confirma 1 disco rígido, 1 unidade óptica com 1 imagem montada e 4 processadores; o motor mostra execução nativa, paginação aninhada inativa, execução irrestrita inativa e interface de paravirtualização Hyper-V.
+- Leitura da configuração `.vbox` confirma firmware EFI, 4 vCPUs, disco VDI e ISO oficial anexada. O caminho da mídia na configuração aponta para Downloads; a cópia preservada e seu SHA-256 constam acima.
+- `VBox.log` permanece sem avanço desde 14:56:18 BRT; última entrada continua em `PciHostBridgeDxe.efi` (cerca de 36 minutos antes da observação). A VM não chegou ao Windows Setup.
+- A enumeração por PowerShell/VBoxManage neste contexto não conseguiu listar processos/VMs (`E_ACCESSDENIED` em `VBoxManage`), enquanto a inspeção direta da interface confirmou Manager e VM ativos. Não foi feita elevação de privilégio nem mudança de configuração para contornar isso.
+- Após o usuário informar que não pode liberar o computador agora, nenhuma nova interação com a interface foi feita. Não houve encerramento/reinício da VM, mudança no Windows principal, instalação, aceite de termos, conta ou credenciais.
+
+### Retomada segura
+
+Quando o computador puder ser liberado, retomar pela tela da VM e revisar, em leitura, EFI, boot e aceleração. A atualização oficial do VirtualBox 7.2.8 para 7.2.22 pode ser avaliada; exige parada controlada da VM e atualização no host, depende de autorização específica e não garante resolver o travamento. Manter Hyper-V e Core Isolation/Memory Integrity ativos. Se a VM continuar preta, interromper testes reais e providenciar outro host Windows compatível.
+
+## Verificação somente leitura da ISO e do changelog (04/11/2026)
+
+- A listagem direta da ISO oficial confirmou `bootmgr.efi`, `efi\boot\bootx64.efi`, `sources\install.wim` e `sources\setup.exe`. A ISO não foi extraída nem modificada. Isso confirma os arquivos de boot e Setup esperados na mídia; não prova que o firmware da VM os esteja lendo.
+- O manual oficial 7.2.22 classifica a versão como manutenção com correções de segurança. O changelog consultado não lista correção específica para a parada EFI em `PciHostBridgeDxe.efi` ou para este caso NEM. Entre 7.2.8 e 7.2.22 há correções próximas, mas distintas: 7.2.14 ajusta uso de XCR0 com Hyper-V e um reboot do Windows 11 durante atualização de DBX; 7.2.10 trata boot EFI ARM com menos de 1024 MiB. Nenhuma descreve o sintoma atual.
+- Fontes oficiais: [índice do VirtualBox 7.2.22](https://download.virtualbox.org/virtualbox/7.2.22/) e [manual 7.2.22, changelog](https://download.virtualbox.org/virtualbox/7.2.22/UserManual.pdf). Atualizar o host segue como tentativa possível, sem garantia de correção e com parada da VM; manter as proteções do Windows.
+
+## Revisão final do smoke local (04/11/2026)
+
+- `installed-lab.spec.ts` registra capturas das 17 rotas e executa, pela interface, ativação sintética de Caixa, negação de Financeiro/Relatórios, erro de quantidade no PDV, suprimento, sangria, venda não fiscal e fechamento conciliado.
+- A limpeza da sessão de caixa acompanha o último saldo confirmado pelo servidor; após fechamento aceito, não tenta fechar a mesma sessão novamente.
+- ESLint focado, TypeScript isolado, `git diff --check` e Playwright `--list` passaram; a lista contém 10 casos em Chromium, Firefox e Chromium mobile. `--list` só descobre testes; nenhum E2E funcional foi executado.
+- Nenhuma tela do produto foi capturada. O Windows convidado continua bloqueado antes do Setup em EFI; as capturas serão produzidas somente após boot real.

@@ -24,6 +24,39 @@ const screens = [
   ['/fiscal', 'Nota fiscal da loja'],
 ] as const
 
+const evidenceAreaByRoute: Record<string, string> = {
+  '/login': '16-login',
+  '/accept-invite': '17-ativacao',
+  '/reset-password': '16-login',
+  '/home': '01-inicio',
+  '/setup': '12-configuracao',
+  '/staff': '11-funcionarios',
+  '/products': '04-produtos',
+  '/inventory': '05-estoque',
+  '/stock-movements': '13-movimentacoes',
+  '/imports': '14-historico-importacoes',
+  '/purchases': '06-compras-fornecedores',
+  '/customers': '07-clientes',
+  '/returns': '10-devolucoes',
+  '/pdv': '02-pdv',
+  '/finance': '08-financeiro',
+  '/reports': '15-relatorios',
+  '/fiscal': '09-fiscal',
+}
+
+function areaEvidencePath(area: string, projectName: string, state: string, evidenceDir: string): string {
+  const areaDir = join(evidenceDir, area)
+  mkdirSync(areaDir, { recursive: true })
+  return join(areaDir, `${state}-${projectName}.png`)
+}
+
+function screenEvidencePath(projectName: string, route: string, evidenceDir: string): string {
+  const routeName = route.replace(/^\/+/, '').replace(/[^a-z0-9-]+/gi, '-') || 'root'
+  const area = evidenceAreaByRoute[route]
+  if (!area) throw new Error(`Missing evidence area for route: ${route}`)
+  return areaEvidencePath(area, projectName, routeName, evidenceDir)
+}
+
 type JsonRecord = Record<string, unknown>
 type ApiResult = { status: number; body: unknown; text: string }
 
@@ -77,7 +110,7 @@ async function loginApi(page: Page, email: string, password: string): Promise<st
   return token
 }
 
-async function loginUi(page: Page): Promise<void> {
+async function loginUi(page: Page): Promise<string> {
   const projectName = test.info().project.name
   if (projectName !== 'chromium' && !rateLimitWindowWaitedProjects.has(projectName)) {
     // The installed service keeps its production login limits; let the one-minute window expire before another browser project reuses the seeded admin.
@@ -115,6 +148,10 @@ async function loginUi(page: Page): Promise<void> {
     throw new Error(`Installed UI login did not reach home (HTTP ${loginResponse.status()}, URL ${page.url()}, alert ${loginAlert || '(none)'}): ${message}`)
   }
   await expect(page.getByRole('heading', { name: 'O ritmo da loja' })).toBeVisible()
+  const loginPayload = await loginResponse.json() as { token?: { access_token?: string } }
+  const token = loginPayload.token?.access_token ?? ''
+  expect(token).not.toBe('')
+  return token
 }
 
 test('installed HTTPS login opens all 17 screens and both route redirects', async ({ page }) => {
@@ -126,15 +163,21 @@ test('installed HTTPS login opens all 17 screens and both route redirects', asyn
 
   await page.goto('/login')
   await expect(page.getByRole('heading', { name: 'Bem-vindo de volta' })).toBeVisible()
-  await page.screenshot({ path: join(evidenceDir, `${test.info().project.name}-login.png`), fullPage: true })
+  await page.screenshot({
+    path: screenEvidencePath(test.info().project.name, '/login', evidenceDir),
+    fullPage: true,
+  })
   await loginUi(page)
   await expect(page.getByRole('navigation', { name: 'Navegação principal' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Resumo da semana' })).toBeVisible()
-  await page.screenshot({ path: join(evidenceDir, `${test.info().project.name}-home.png`), fullPage: true })
 
   for (const [path, heading] of screens.slice(1)) {
     await page.goto(path)
     await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible()
+    await page.screenshot({
+      path: screenEvidencePath(test.info().project.name, path, evidenceDir),
+      fullPage: true,
+    })
   }
   await page.goto('/')
   await expect(page).toHaveURL(/\/home$/)
@@ -148,16 +191,23 @@ test('installed HTTPS login opens all 17 screens and both route redirects', asyn
 test('installed mobile routes remain usable without horizontal overflow', async ({ page }) => {
   test.skip(test.info().project.name !== 'chromium-mobile', 'only runs on the Chromium mobile viewport')
   await loginUi(page)
+  const evidenceDir = process.env.ESTERIUM_LAB_EVIDENCE_DIR ?? ''
+  expect(evidenceDir).not.toBe('')
+  mkdirSync(evidenceDir, { recursive: true })
   for (const [path, heading] of screens) {
     await page.goto(path)
     await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible()
     await assertNoHorizontalOverflow(page, path)
+    await page.screenshot({
+      path: screenEvidencePath(test.info().project.name, path, evidenceDir),
+      fullPage: true,
+    })
   }
 })
 
-test('installed mobile and desktop navigation, attention alerts, and sale confirmation messages work with real services', async ({ page }) => {
+test('installed mobile and desktop navigation, staff activation, cash, safe errors, and sale confirmation work with real services', async ({ page, browser }) => {
   test.skip(!['chromium', 'chromium-mobile'].includes(test.info().project.name), 'screen 18-19 confirmation smoke runs on Chromium desktop and mobile')
-  await loginUi(page)
+  const adminToken = await loginUi(page)
   const fiscalReminder = page.getByRole('dialog', { name: 'Sua configuração fiscal ainda não está concluída' })
   await expect(fiscalReminder).toBeVisible()
   await assertNoHorizontalOverflow(page, 'screen 18 fiscal reminder')
@@ -166,7 +216,7 @@ test('installed mobile and desktop navigation, attention alerts, and sale confir
   expect(evidenceDir).not.toBe('')
   mkdirSync(evidenceDir, { recursive: true })
   await page.screenshot({
-    path: join(evidenceDir, `installed-screen-18-fiscal-reminder-${projectName}.png`),
+    path: areaEvidencePath('18-navegacao', projectName, 'fiscal-reminder', evidenceDir),
     fullPage: true,
   })
   await fiscalReminder.getByRole('button', { name: 'Agora não' }).click()
@@ -188,16 +238,97 @@ test('installed mobile and desktop navigation, attention alerts, and sale confir
   ).first()).toBeVisible()
   await assertNoHorizontalOverflow(page, 'screen 18 navigation and attention alerts')
   await page.screenshot({
-    path: join(evidenceDir, `installed-screen-18-navigation-alerts-${projectName}.png`),
+    path: areaEvidencePath('18-navegacao', projectName, 'navigation-alerts', evidenceDir),
     fullPage: true,
   })
 
-  const adminToken = await loginApi(
-    page,
-    process.env.ESTERIUM_LAB_ADMIN_EMAIL ?? '',
-    process.env.ESTERIUM_LAB_ADMIN_PASSWORD ?? '',
-  )
   const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 14)
+
+  const cashierName = `Synthetic Screen Cashier ${suffix}`
+  const cashierEmail = `ci-screen-cashier-${suffix}@esterium.invalid`
+  const cashierUsername = `ci.cashier.${suffix}`
+  const cashierPassword = `LabCashier-${suffix}!`
+  await page.goto('/staff')
+  await expect(page.getByRole('heading', { name: 'Funcionários e permissões' })).toBeVisible()
+  await page.getByText('Adicionar outro funcionário', { exact: true }).click()
+  await page.getByLabel('Nome completo', { exact: true }).fill(cashierName)
+  await page.getByLabel('Nome de usuário', { exact: true }).fill(cashierUsername)
+  await page.getByLabel('E-mail do funcionário (opcional)', { exact: true }).fill(cashierEmail)
+  await page.getByLabel('Função inicial', { exact: true }).selectOption('cashier')
+  await page.getByRole('button', { name: 'Criar acesso individual', exact: true }).click()
+  const activationLinkField = page.getByLabel('Link de ativação', { exact: true })
+  await expect(activationLinkField).toHaveValue(/\/accept-invite#token=[a-f0-9]{64}$/)
+  const activationLink = await activationLinkField.inputValue()
+  await page.screenshot({
+    path: areaEvidencePath('11-funcionarios', projectName, 'access-created', evidenceDir),
+    fullPage: true,
+    mask: [activationLinkField],
+  })
+
+  await page.goto(activationLink)
+  await expect(page.getByRole('heading', { name: 'Ativar acesso à loja' })).toBeVisible()
+  await page.getByLabel('Criar senha', { exact: true }).fill(cashierPassword)
+  await page.getByLabel('Confirmar nova senha', { exact: true }).fill(cashierPassword)
+  await page.getByRole('button', { name: 'Ativar minha conta', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Conta ativada.')
+  await page.screenshot({
+    path: areaEvidencePath('17-ativacao', projectName, 'activated-access', evidenceDir),
+    fullPage: true,
+  })
+
+  const staffAfterActivation = expectBody<{ members: Array<{ email: string; role: string }> }>(
+    await browserApi(page, '/api/v1/staff', adminToken), 'staff list after GUI activation',
+  )
+  expect(staffAfterActivation.members.some((member) => member.email === cashierEmail && member.role === 'cashier')).toBe(true)
+
+  const cashierContext = await browser.newContext({ ignoreHTTPSErrors: false })
+  try {
+    const cashierPage = await cashierContext.newPage()
+    await cashierPage.goto(new URL('/login', page.url()).href)
+    await cashierPage.getByLabel(/E-mail/).fill(cashierEmail)
+    await cashierPage.getByLabel('Senha', { exact: true }).fill(cashierPassword)
+    const cashierLoginResponsePromise = cashierPage.waitForResponse((response) =>
+      response.request().method() === 'POST' && response.url().endsWith('/api/v1/auth/login'))
+    await cashierPage.getByRole('button', { name: 'Entrar', exact: true }).click()
+    const cashierLoginResponse = await cashierLoginResponsePromise
+    expect(cashierLoginResponse.status()).toBe(200)
+    const cashierLoginPayload = await cashierLoginResponse.json() as { token?: { access_token?: string } }
+    const cashierToken = cashierLoginPayload.token?.access_token ?? ''
+    expect(cashierToken).not.toBe('')
+    await expect(cashierPage).toHaveURL(/\/home$/)
+    const cashierMe = expectBody<{ roles?: string[]; permissions?: string[] }>(
+      await browserApi(cashierPage, '/api/v1/auth/me', cashierToken), 'cashier profile after GUI login',
+    )
+    expect(cashierMe.roles).toContain('cashier')
+    expect(cashierMe.permissions).not.toContain('finance:read')
+    expect((await browserApi(cashierPage, '/api/v1/finance/accounts?limit=1', cashierToken)).status).toBe(403)
+    const cashierNavigation = cashierPage.getByRole('navigation', { name: 'Navegação principal' })
+    await expect(cashierNavigation).toBeVisible()
+    await cashierNavigation.getByText('Mais áreas do sistema', { exact: true }).click()
+    await expect(cashierNavigation.getByRole('link', { name: 'PDV' })).toBeVisible()
+    await expect(cashierNavigation.getByRole('link', { name: 'Financeiro' })).toHaveCount(0)
+    await cashierPage.screenshot({
+      path: areaEvidencePath('18-navegacao', projectName, 'cashier-profile', evidenceDir),
+      fullPage: true,
+    })
+
+    await cashierPage.goto('/reports')
+    const restrictedReportsMessage = cashierPage.getByRole('alert')
+    await expect(restrictedReportsMessage).toHaveText(
+      'Sua função não permite consultar relatórios financeiros desta loja. Peça acesso ao responsável.',
+    )
+    await expect(cashierPage.getByRole('region', { name: 'Relatórios operacionais' })).toHaveCount(0)
+    await expect(cashierPage.getByRole('region', { name: 'Produtos mais vendidos' })).toHaveCount(0)
+    await cashierPage.screenshot({
+      path: areaEvidencePath('19-mensagens', projectName, 'reports-access-denied', evidenceDir),
+      fullPage: true,
+    })
+  } finally {
+    await cashierContext.close()
+  }
+
+  await page.goto('/home')
+  await expect(page.getByRole('heading', { name: 'O ritmo da loja' })).toBeVisible()
   const productName = `Synthetic confirmation ${suffix}`
   const product = expectBody<{ id: string }>(await browserApi(page, '/api/v1/products', adminToken, {
     method: 'POST', body: {
@@ -210,21 +341,92 @@ test('installed mobile and desktop navigation, attention alerts, and sale confir
     method: 'POST',
     body: { product_id: product.id, delta: 1, reason: 'Synthetic confirmation screen stock', type: 'adjustment' },
   }), 'screen 19 opening stock')
-  const cash = expectBody<{ id: string }>(await browserApi(page, '/api/v1/cash/sessions/open', adminToken, {
-    method: 'POST', body: { opening_amount: 0, notes: 'Synthetic screen 19 confirmation' },
-  }), 'screen 19 cash session')
-  let openSessionId = cash.id
+  let openSessionId = ''
   let closingAmount = 0
   try {
     await page.getByRole('link', { name: 'PDV', exact: true }).click()
+    await expect(page.getByText('Abra o caixa para começar.')).toBeVisible()
+    await page.getByLabel('Abertura (R$)').fill('0')
+    const openCashResponsePromise = page.waitForResponse((response) =>
+      response.url().includes('/api/v1/cash/sessions/open') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Abrir', exact: true }).click()
+    const openCashResponse = await openCashResponsePromise
+    expect(openCashResponse.status()).toBeGreaterThanOrEqual(200)
+    expect(openCashResponse.status()).toBeLessThan(300)
+    const openedCash = await openCashResponse.json() as { id: string }
+    openSessionId = openedCash.id
     await expect(page.getByText('Caixa pronto para atender.')).toBeVisible()
+    const currentCash = expectBody<{ id: string; expected_cash: number }>(
+      await browserApi(page, '/api/v1/cash/sessions/current', adminToken), 'cash opened through GUI',
+    )
+    expect(currentCash.id).toBe(openSessionId)
+    expect(currentCash.expected_cash).toBe(0)
+    await page.screenshot({
+      path: areaEvidencePath('03-caixa', projectName, 'open', evidenceDir),
+      fullPage: true,
+    })
+
+    await page.getByLabel('Busca rápida por nome ou código').fill(productName)
+    await expect(page.getByRole('button', { name: `Adicionar ${productName} à venda` })).toBeVisible()
+    await page.getByLabel('Produto', { exact: true }).selectOption(product.id)
+    await page.getByLabel('Qtd', { exact: true }).fill('0')
+    await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
+    const invalidQuantityAlert = page.getByRole('alert').filter({ hasText: 'Informe uma quantidade maior que zero.' })
+    await expect(invalidQuantityAlert).toHaveCount(1)
+    await expect(invalidQuantityAlert).toHaveText('Informe uma quantidade maior que zero.')
+    await page.screenshot({
+      path: areaEvidencePath('19-mensagens', projectName, 'invalid-quantity', evidenceDir),
+      fullPage: true,
+    })
+
+    await page.goto('/home')
+    await page.getByRole('link', { name: 'PDV', exact: true }).click()
+    await expect(page.getByText('Caixa pronto para atender.')).toBeVisible()
+
+    await page.getByText('Movimentar dinheiro (entrada ou retirada)', { exact: true }).click()
+    const movementAmount = page.getByLabel('Movimento (R$)')
+    await movementAmount.fill('10')
+    const supplyResponsePromise = page.waitForResponse((response) =>
+      response.url().includes(`/api/v1/cash/sessions/${openSessionId}/movements`) && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Suprimento', exact: true }).click()
+    const supplyResponse = await supplyResponsePromise
+    expect(supplyResponse.status()).toBeGreaterThanOrEqual(200)
+    expect(supplyResponse.status()).toBeLessThan(300)
+    closingAmount = 10
+    await expect(movementAmount).toHaveValue('0')
+    const afterSupply = expectBody<{ expected_cash: number }>(
+      await browserApi(page, '/api/v1/cash/sessions/current', adminToken), 'cash supply through GUI',
+    )
+    expect(afterSupply.expected_cash).toBe(10)
+    await movementAmount.fill('2')
+    const withdrawalResponsePromise = page.waitForResponse((response) =>
+      response.url().includes(`/api/v1/cash/sessions/${openSessionId}/movements`) && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Sangria', exact: true }).click()
+    const withdrawalResponse = await withdrawalResponsePromise
+    expect(withdrawalResponse.status()).toBeGreaterThanOrEqual(200)
+    expect(withdrawalResponse.status()).toBeLessThan(300)
+    closingAmount = 8
+    await expect(movementAmount).toHaveValue('0')
+    const afterWithdrawal = expectBody<{ expected_cash: number }>(
+      await browserApi(page, '/api/v1/cash/sessions/current', adminToken), 'cash withdrawal through GUI',
+    )
+    expect(afterWithdrawal.expected_cash).toBe(8)
+    await page.screenshot({
+      path: areaEvidencePath('03-caixa', projectName, 'movements', evidenceDir),
+      fullPage: true,
+    })
+
     await page.getByLabel('Busca rápida por nome ou código').fill(productName)
     await page.getByRole('button', { name: `Adicionar ${productName} à venda` }).click()
     await page.getByLabel('Forma de pagamento').selectOption('cash')
     await page.getByLabel('Valor recebido em dinheiro (R$)').fill('10')
     await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeEnabled()
+    await page.screenshot({
+      path: areaEvidencePath('02-pdv', projectName, 'sale-ready', evidenceDir),
+      fullPage: true,
+    })
     await page.getByRole('button', { name: 'Finalizar venda' }).click()
-    closingAmount = 10
+    closingAmount = 18
 
     const completed = page.getByRole('dialog', { name: 'Venda concluída' })
     await expect(completed).toBeVisible()
@@ -237,14 +439,26 @@ test('installed mobile and desktop navigation, attention alerts, and sale confir
     })).toBeVisible()
     await assertNoHorizontalOverflow(page, 'screen 19 post-sale status')
     await page.screenshot({
-      path: join(evidenceDir, `installed-screen-19-sale-confirmation-${projectName}.png`),
+      path: areaEvidencePath('19-mensagens', projectName, 'sale-confirmation', evidenceDir),
       fullPage: true,
     })
 
-    expectBody<JsonRecord>(await browserApi(page, `/api/v1/cash/sessions/${openSessionId}/close`, adminToken, {
-      method: 'POST', body: { closing_amount: 10, notes: 'Synthetic screen 19 confirmation close' },
-    }), 'screen 19 cash close')
+    await page.getByLabel('Dinheiro declarado').fill(String(closingAmount))
+    const closeCashResponsePromise = page.waitForResponse((response) =>
+      response.url().includes(`/api/v1/cash/sessions/${openSessionId}/close`) && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Fechar caixa', exact: true }).click()
+    const closeCashResponse = await closeCashResponsePromise
+    expect(closeCashResponse.status()).toBeGreaterThanOrEqual(200)
+    expect(closeCashResponse.status()).toBeLessThan(300)
     openSessionId = ''
+    const closeCashResult = await closeCashResponse.json() as { status: string; expected_cash: number }
+    expect(closeCashResult.status).toBe('closed')
+    expect(closeCashResult.expected_cash).toBe(closingAmount)
+    await expect(page.getByText('Conciliação do último fechamento')).toBeVisible()
+    await page.screenshot({
+      path: areaEvidencePath('03-caixa', projectName, 'close', evidenceDir),
+      fullPage: true,
+    })
   } finally {
     if (openSessionId) {
       expectBody<JsonRecord>(
@@ -262,7 +476,6 @@ test('installed ERP completes synthetic retail operations, checks the fiscal gat
   test.skip(test.info().project.name !== 'chromium', 'business write smoke runs once on Chromium')
   expect(browserName).toBe('chromium')
   const email = process.env.ESTERIUM_LAB_ADMIN_EMAIL ?? ''
-  const password = process.env.ESTERIUM_LAB_ADMIN_PASSWORD ?? ''
   const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 14)
   const evidenceDir = process.env.ESTERIUM_LAB_EVIDENCE_DIR ?? ''
   expect(evidenceDir).not.toBe('')
@@ -271,8 +484,7 @@ test('installed ERP completes synthetic retail operations, checks the fiscal gat
   const cashierContext = await browser.newContext({ ignoreHTTPSErrors: false })
   const cashierPage = await cashierContext.newPage()
   try {
-    await page.goto('/login')
-    const adminToken = await loginApi(page, email, password)
+    const adminToken = await loginUi(page)
     const me = expectBody<{ roles?: string[]; permissions?: string[] }>(
       await browserApi(page, '/api/v1/auth/me', adminToken), 'admin profile',
     )
@@ -531,4 +743,3 @@ test('installed ERP completes synthetic retail operations, checks the fiscal gat
     await cashierContext.close()
   }
 })
-
