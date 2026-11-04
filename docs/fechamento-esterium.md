@@ -374,3 +374,10 @@ Quando o computador puder ser liberado, retomar pela tela da VM e revisar, em le
 - O `.vbox` e o VDI diferencial do snapshot seguem com última gravação em 14:49 BRT; o disco-base não teve gravação desde 03/11. `VBox.log` continua com última gravação em 14:56 BRT e a última entrada é `PciHostBridgeDxe.efi`.
 - A consulta somente leitura `VBoxManage list vms` falhou com `E_ACCESSDENIED`; a enumeração Hyper-V também falhou. Nenhum processo VirtualBox/VMware/QEMU ficou visível nesta sessão e não há `vmrun` ou QEMU nos caminhos padrão verificados. Isso não confirma se a VM está ligada em outra sessão; o estado permanece desconhecido.
 - Nenhum comando iniciou/parou a VM, mudou configuração, restaurou snapshot, alterou o hipervisor ou o Windows principal.
+
+## Comparação das cópias e inventário do hipervisor (04/11/2026)
+
+- O executável do VirtualBox informa `7.2.8r173730`. `VBoxManage list vms` continua retornando `E_ACCESSDENIED`; a consulta Hyper-V falha e o inventário WMI de processos não está disponível. A busca limitada às pastas comuns encontrou apenas a VM do Esterium e suas duas cópias (`baseline-empty` e `with-snapshot`), sem outra configuração `.vbox`/`.vmx` candidata nesses locais.
+- A cópia `baseline-empty` não tem snapshot nem ISO anexada; `with-snapshot` contém o snapshot vazio original. As duas são backups da mesma VM, não um Windows já instalado e pronto para homologação.
+- SHA-256 confirmou que o VDI-base atual corresponde ao backup `baseline-empty` e que a NVRAM do snapshot corresponde ao backup `with-snapshot`. Não foi possível calcular o hash do VDI diferencial do snapshot: o Windows reportou que outro processo mantém o arquivo aberto. Nenhum processo VirtualBox apareceu na enumeração local, portanto esse bloqueio não prova que a VM esteja executando; o estado permanece desconhecido. O VDI não foi reaberto nem alterado.
+- Não atualizei o VirtualBox 7.2.8 nem mexi nas cópias. Sem acesso ao PC e sem identificar quem mantém o VDI aberto, iniciar, parar, restaurar ou duplicar a VM não é seguro nesta sessão.
