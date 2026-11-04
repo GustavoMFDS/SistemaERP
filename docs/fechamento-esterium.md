@@ -347,4 +347,11 @@ Quando o computador puder ser liberado, retomar pela tela da VM e revisar, em le
 - `installed-lab.spec.ts` registra capturas das 17 rotas e executa, pela interface, ativação sintética de Caixa, negação de Financeiro/Relatórios, erro de quantidade no PDV, suprimento, sangria, venda não fiscal e fechamento conciliado.
 - A limpeza da sessão de caixa acompanha o último saldo confirmado pelo servidor; após fechamento aceito, não tenta fechar a mesma sessão novamente.
 - ESLint focado, TypeScript isolado, `git diff --check` e Playwright `--list` passaram; a lista contém 10 casos em Chromium, Firefox e Chromium mobile. `--list` só descobre testes; nenhum E2E funcional foi executado.
-- Nenhuma tela do produto foi capturada. O Windows convidado continua bloqueado antes do Setup em EFI; as capturas serão produzidas somente após boot real.
+- Nenhuma tela do produto foi capturada na VM local. O Windows convidado continua bloqueado antes do Setup em EFI; as capturas locais serão produzidas somente após boot real.
+
+## Revalidação Windows descartável (04/11/2026)
+
+- No commit `2167e5410b3631717aa98969ab0ceb0523e512a2`, o CI `41891195256` concluiu com **20/20 jobs aprovados**.
+- O Windows Setup `41891195251` concluiu com falha nos jobs de instalação completa e pacote integrado. Ambos reprovaram o mesmo passo do smoke: `selectOption` não encontrou `getByLabel('Função inicial', { exact: true })` em Chromium e Chromium mobile; a tela e o campo existem, e os inputs anteriores foram preenchidos. As capturas das 17 rotas e da execução integrada foram preservadas nos artefatos [instalação completa](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41891195251/artifacts/13354607840) e [pacote integrado](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41891195251/artifacts/13353729406).
+- Corrigi localmente o locator para corresponder ao prefixo do rótulo, mantendo a interação semântica. ESLint focado, descoberta Playwright (10 casos em 3 projetos) e `git diff --check` passaram. A execução funcional dessa correção ainda aguarda novo commit e CI.
+- O resultado do CI não homologa a VM local: ela segue bloqueada no EFI, sem instalação GUI, reboot, backup/restauração, rede ou segurança comprovados no convidado. Sem merge ou release.

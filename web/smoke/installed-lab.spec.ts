@@ -254,7 +254,7 @@ test('installed mobile and desktop navigation, staff activation, cash, safe erro
   await page.getByLabel('Nome completo', { exact: true }).fill(cashierName)
   await page.getByLabel('Nome de usuário', { exact: true }).fill(cashierUsername)
   await page.getByLabel('E-mail do funcionário (opcional)', { exact: true }).fill(cashierEmail)
-  await page.getByLabel('Função inicial', { exact: true }).selectOption('cashier')
+  await page.getByLabel(/Função inicial/).selectOption('cashier')
   await page.getByRole('button', { name: 'Criar acesso individual', exact: true }).click()
   const activationLinkField = page.getByLabel('Link de ativação', { exact: true })
   await expect(activationLinkField).toHaveValue(/\/accept-invite#token=[a-f0-9]{64}$/)
