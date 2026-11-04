@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -86,6 +86,46 @@ async function browserApi(
   }, { path, token, options })
 }
 
+async function closeCurrentCashSession(token: string, notes: string): Promise<void> {
+  const client = await playwrightRequest.newContext({
+    baseURL: process.env.E2E_BASE_URL ?? 'https://esterium.ci.invalid:8443',
+    ignoreHTTPSErrors: false,
+    extraHTTPHeaders: { Authorization: `Bearer ${token}` },
+  })
+  try {
+    const currentResponse = await client.get('/api/v1/cash/sessions/current')
+    if (currentResponse.status() === 404) return
+    if (!currentResponse.ok()) {
+      throw new Error(`Installed lab cash cleanup query failed (${currentResponse.status()}).`)
+    }
+    const current = await currentResponse.json() as {
+      id?: string
+      status?: string
+      expected_cash?: number
+    }
+    if (current.status !== 'open' || !current.id) {
+      throw new Error('Installed lab cash cleanup received an invalid open-session response.')
+    }
+    const expectedCash = current.expected_cash
+    if (typeof expectedCash !== 'number' || !Number.isFinite(expectedCash) || expectedCash < 0) {
+      throw new Error('Installed lab cash cleanup received no valid expected cash balance.')
+    }
+    const closeResponse = await client.post(
+      `/api/v1/cash/sessions/${encodeURIComponent(current.id)}/close`,
+      { data: { closing_amount: expectedCash, notes } },
+    )
+    if (!closeResponse.ok()) {
+      throw new Error(`Installed lab cash cleanup close failed (${closeResponse.status()}).`)
+    }
+    const closeResult = await closeResponse.json() as { status?: string; closing_difference?: number }
+    if (closeResult.status !== 'closed' || closeResult.closing_difference !== 0) {
+      throw new Error('Installed lab cash cleanup did not close at the expected balance.')
+    }
+  } finally {
+    await client.dispose()
+  }
+}
+
 function expectBody<T>(result: ApiResult, label: string): T {
   expect(result.status, `${label}: ${result.text}`).toBeGreaterThanOrEqual(200)
   expect(result.status, `${label}: ${result.text}`).toBeLessThan(300)
@@ -115,7 +155,7 @@ async function loginUi(page: Page): Promise<string> {
   if (projectName !== 'chromium' && !rateLimitWindowWaitedProjects.has(projectName)) {
     // The installed service keeps its production login limits; let the one-minute window expire before another browser project reuses the seeded admin.
     rateLimitWindowWaitedProjects.add(projectName)
-    test.info().setTimeout(180_000)
+    test.info().setTimeout(Math.max(test.info().timeout, 180_000))
     await page.waitForTimeout(65_000)
   }
   const email = process.env.ESTERIUM_LAB_ADMIN_EMAIL ?? ''
@@ -368,7 +408,9 @@ test('installed mobile and desktop navigation, staff activation, cash, safe erro
 
     await page.getByLabel('Busca rápida por nome ou código').fill(productName)
     await expect(page.getByRole('button', { name: `Adicionar ${productName} à venda` })).toBeVisible()
-    await page.getByLabel('Produto', { exact: true }).selectOption(product.id)
+    const saleProductSelect = page.getByLabel(/^Produto/)
+    await expect(saleProductSelect).toBeVisible()
+    await saleProductSelect.selectOption(product.id)
     await page.getByLabel('Qtd', { exact: true }).fill('0')
     await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
     const invalidQuantityAlert = page.getByRole('alert').filter({ hasText: 'Informe uma quantidade maior que zero.' })
@@ -460,15 +502,8 @@ test('installed mobile and desktop navigation, staff activation, cash, safe erro
       fullPage: true,
     })
   } finally {
-    if (openSessionId) {
-      expectBody<JsonRecord>(
-        await browserApi(page, `/api/v1/cash/sessions/${openSessionId}/close`, adminToken, {
-          method: 'POST', body: { closing_amount: closingAmount, notes: 'Synthetic screen 19 cleanup' },
-        }),
-        'screen 19 cash cleanup',
-      )
-      openSessionId = ''
-    }
+    await closeCurrentCashSession(adminToken, 'Synthetic screen 19 cleanup')
+    openSessionId = ''
   }
 })
 
@@ -483,8 +518,9 @@ test('installed ERP completes synthetic retail operations, checks the fiscal gat
 
   const cashierContext = await browser.newContext({ ignoreHTTPSErrors: false })
   const cashierPage = await cashierContext.newPage()
+  let adminToken = ''
   try {
-    const adminToken = await loginUi(page)
+    adminToken = await loginUi(page)
     const me = expectBody<{ roles?: string[]; permissions?: string[] }>(
       await browserApi(page, '/api/v1/auth/me', adminToken), 'admin profile',
     )
@@ -740,6 +776,10 @@ test('installed ERP completes synthetic retail operations, checks the fiscal gat
 
     await page.screenshot({ path: join(evidenceDir, 'installed-real-operations.png'), fullPage: true })
   } finally {
-    await cashierContext.close()
+    try {
+      if (adminToken) await closeCurrentCashSession(adminToken, 'Synthetic installed-lab operations cleanup')
+    } finally {
+      await cashierContext.close()
+    }
   }
 })
