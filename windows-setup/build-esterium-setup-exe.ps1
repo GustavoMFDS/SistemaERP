@@ -169,7 +169,7 @@ try {
             $digest=(Get-FileHash -LiteralPath (Join-Path (Join-Path $stage 'vendor') $item[0]) -Algorithm SHA256).Hash
             if ($digest -cne $item[1].ToUpperInvariant()) { throw 'Staged vendor hash mismatch.' }
         }
-        $embeddedNotices=Join-Path $stage 'third-party-notices'
+        $embeddedNotices=Join-Path (Join-Path $stage 'vendor') 'third-party-notices'
         $staticNotices=Join-Path $embeddedNotices 'static'
         [IO.Directory]::CreateDirectory($staticNotices) | Out-Null
         Copy-Item -Path (Join-Path $PSScriptRoot 'vendor-notices\*') -Destination $staticNotices -ErrorAction Stop
@@ -249,7 +249,7 @@ try {
     $releaseNotices=Join-Path $OutputDir 'third-party-notices'
     [IO.Directory]::CreateDirectory($releaseNotices) | Out-Null
     if ($full) {
-        Copy-Item -Path (Join-Path (Join-Path $stage 'third-party-notices') '*') `
+        Copy-Item -Path (Join-Path $embeddedNotices '*') `
             -Destination $releaseNotices -Recurse -ErrorAction Stop
     } else {
         Copy-Item -Path (Join-Path $PSScriptRoot 'vendor-notices\*') `
