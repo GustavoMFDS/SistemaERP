@@ -281,3 +281,11 @@ Continuam externos à homologação local: Authenticode comercial, autorização
 - Captura da tela com o resultado: `D:\ERP\evidencias\esterium-vm\instalacao\preflight-windows-pass-20261105.jpg`; SHA-256 `41AE94565285B71351A63FA6114D55B9CB561045FC3CF6ACC61D827EA1412440`.
 - O EXE técnico permanece `NotSigned` e `Apply` continua desativado. O run Windows Setup `41913534238` publica evidências de navegador, telas do runner e prévia unsigned; não há artefato Setup VM-LAB assinado. Não contornei o bloqueio de assinatura.
 - Continuam pendentes: instalação GUI funcional, homologação das 19 áreas, reboot e recuperação pós-instalação, persistência, backup/restauração, LAN com segundo dispositivo, segurança/periféricos e respectivas evidências. PR #216 segue aberta e Draft; nenhum merge ou release foi feito.
+
+## VM retomada e desktop Windows alcançado (06/11/2026)
+
+- A VM `Esterium-Windows-Lab-Fresh-20261104` voltou a executar e chegou ao desktop do Windows 11 Enterprise Evaluation. A captura está em [`evidencias/esterium-vm/vm-desktop-boot-20261106.jpg`](../evidencias/esterium-vm/vm-desktop-boot-20261106.jpg), SHA-256 `B7C6E48123B241596DA1809EC24121359FB68AB4C99E2114F4E9133B1F67C997`.
+- O título da VM mantém o snapshot `Blank baseline before Windows - 2026-11-04`; não restaurei nem removi snapshot. A VM original `Esterium-Windows-Lab` permaneceu salva.
+- Esta captura prova somente boot e acesso ao desktop. O registro anterior de 05/11 documenta Verify/Plan da prévia técnica local; não executei novamente o Setup nesta retomada. A automação não conseguiu abrir o Explorador no guest (`SendInput sent 0 of 1 events; GetLastError=87`), portanto nenhuma ação de instalação foi enviada.
+- No head documental `437cc468cc84155a5f883fcfab007db757870582`, CI `42284131373` passou 20/20 jobs e Windows Setup `42284131392` concluiu os gates de instalação/integração; quatro jobs exclusivos de `workflow_dispatch` foram ignorados. Essas provas vêm de runners descartáveis, não da VM.
+- A instalação funcional, as 19 áreas, reboot pós-instalação, backup/restauração, LAN, segurança e periféricos continuam sem prova local. A prévia unsigned mantém `Apply` bloqueado; PR #216 segue aberta e Draft.
