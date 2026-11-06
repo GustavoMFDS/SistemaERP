@@ -181,6 +181,8 @@ $bootstrapArgs.Apply=$true
 $bootstrapArgs.TrustedPublisherThumbprint=$TrustedPublisherThumbprint
 & $bootstrap @bootstrapArgs | Out-Null
 $prepareArgs=@{
+    PostgresSuperPasswordFile=(Join-Path $BootstrapDir 'pg-super.secret')
+    PostgresServicePasswordFile=(Join-Path $BootstrapDir 'pg-service.secret')
     GarnetAclFile=(Join-Path $BootstrapDir 'garnet.acl')
     GarnetCertificatePfxFile=(Join-Path $BootstrapDir 'garnet.pfx')
     GarnetCertificatePasswordFile=(Join-Path $BootstrapDir 'garnet-pfx.secret')
