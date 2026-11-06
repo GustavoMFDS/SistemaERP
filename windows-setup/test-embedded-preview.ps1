@@ -88,7 +88,10 @@ try {
     if($format -eq 'zip'){$requiredNotices+='archives/postgresql/archive-notice-inventory.txt'}
     foreach($notice in $requiredNotices){
         if(-not $files.ContainsKey($noticeRoot+$notice)){
-            throw ('Embedded third-party notice missing: '+$notice)
+            $found=@($files.Keys | Where-Object {
+                $_ -like 'vendor/*' -and $_ -match '(?i)(license|licence|notice|copyright|copying|patent)'
+            } | Sort-Object | Select-Object -First 40)
+            throw ('Embedded third-party notice missing: '+$notice+'; found: '+($found -join '; '))
         }
     }
     Write-Output ('PASS: embedded ERP, PostgreSQL, Garnet, NSSM - '+$files.Count+' files, read-only.')
