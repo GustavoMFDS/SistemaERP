@@ -501,7 +501,9 @@ namespace Esterium.WindowsSetup
                 using (var p = Process.Start(psi))
                 {
                     if (p == null) return false;
-                    if (!p.WaitForExit(15000))
+                    // The signed all-in-one EXE contains the complete ERP bundle;
+                    // hashing several hundred megabytes can exceed a short timeout.
+                    if (!p.WaitForExit(120000))
                     {
                         try { p.Kill(); p.WaitForExit(5000); } catch { }
                         return false;
@@ -586,7 +588,8 @@ namespace Esterium.WindowsSetup
                 if (apply)
                 {
                     phase = "autenticação do instalador";
-                    CheckSignedLauncher(Program.ReleaseApprovals["editor"]);
+                    Log("Validando a assinatura digital do instalador...");
+                    await Task.Run(() => CheckSignedLauncher(Program.ReleaseApprovals["editor"]));
                 }
                 // Capture UI state on its owning thread; hashing and extraction run off-thread.
                 var values = new Dictionary<string,string>();
