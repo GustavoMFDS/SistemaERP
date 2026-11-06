@@ -165,6 +165,19 @@ try {
         }
         $failureLine=[int]$failure.InvocationInfo.ScriptLineNumber
         $failureType=$failure.Exception.GetType().FullName
+        $bindingParameter=''
+        $bindingException=$failure.Exception
+        for ($depth=0; $null -ne $bindingException -and $depth -lt 6 -and
+            [string]::IsNullOrWhiteSpace($bindingParameter); $depth++) {
+            if ($bindingException -is [Management.Automation.ParameterBindingException]) {
+                $candidate=[string]$bindingException.ParameterName
+                if ($candidate -match '^[A-Za-z][A-Za-z0-9]{0,63}$' -and
+                    $candidate -notmatch '(?i)(password|secret|token|credential|bearer)') {
+                    $bindingParameter=$candidate
+                }
+            }
+            $bindingException=$bindingException.InnerException
+        }
         $safeDetail=''
         $safeException=$failure.Exception
         for ($depth=0; $null -ne $safeException -and $depth -lt 6 -and
@@ -179,6 +192,14 @@ try {
             $safeException=$safeException.InnerException
         }
         $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
+        if (-not [string]::IsNullOrWhiteSpace($bindingParameter)) {
+            $diagnostic+='; parameter='+$bindingParameter
+        }
+        $safeErrorId=[string]$failure.FullyQualifiedErrorId
+        if ($safeErrorId -match '^[A-Za-z0-9_.,-]{1,120}$' -and
+            $safeErrorId -notmatch '(?i)(password|secret|token|credential|bearer)') {
+            $diagnostic+='; error='+$safeErrorId
+        }
         if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
         throw ('Instalacao das dependencias interrompida; preserve evidencias e faca avaliacao manual. Nao repetir Apply automaticamente. [CI diagnostic: {0}]' -f $diagnostic)
     }
