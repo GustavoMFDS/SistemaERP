@@ -146,7 +146,7 @@ foreach ($path in $normalized) {
     }
     $passwords+= $secret
 }
-if ($passwords[0] -ceq $passwords[1]) {
+if (-not $PostgresBinaryZip -and $passwords[0] -ceq $passwords[1]) {
     throw 'PostgreSQL and service passwords must be different.'
 }
 $icacls=Join-Path $env:SystemRoot 'System32\icacls.exe'
