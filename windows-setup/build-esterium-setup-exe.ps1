@@ -58,6 +58,7 @@ if (-not $full -and @($inputs | Where-Object { $_ -ne '' }).Count -gt 0) {
 function Export-ArchiveNoticeFiles {
     param([string]$ArchivePath,[string]$Destination,[string]$Component)
     Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Directory]::CreateDirectory($Destination) | Out-Null
     $archive=[IO.Compression.ZipFile]::OpenRead($ArchivePath)
     try {
         $entries=@($archive.Entries | Where-Object {

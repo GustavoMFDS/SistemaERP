@@ -498,6 +498,14 @@ jobs:
           path: ${{ runner.temp }}/esterium-full-install-evidence
           if-no-files-found: ignore
           retention-days: 7
+      - name: Upload third-party license evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esterium-third-party-license-evidence-${{ matrix.postgres }}
+          path: ${{ runner.temp }}/esterium-third-party-license-evidence
+          if-no-files-found: ignore
+          retention-days: 7
 
   oss-component-gate:
     # IMPORTANT: This is a COMPONENT TEST GATE, NOT approval of a retail

@@ -277,6 +277,9 @@ try {
     if ($PostgresBinaryZip -and -not (Test-Path -LiteralPath (Join-Path $licenseRoot 'archives\postgresql\archive-notice-inventory.txt') -PathType Leaf)) {
         throw 'ZIP Setup package is missing the PostgreSQL vendor notice inventory.'
     }
+    $licenseEvidence=Join-Path $env:RUNNER_TEMP 'esterium-third-party-license-evidence'
+    [IO.Directory]::CreateDirectory($licenseEvidence) | Out-Null
+    Copy-Item -Path (Join-Path $licenseRoot '*') -Destination $licenseEvidence -Recurse -Force
     Write-Output 'PASS: third-party license texts, runtime notices, and archive inventories are beside the distributable Setup EXE.'
     $setupSignature = Set-AuthenticodeSignature -LiteralPath $setupExe -Certificate $signer -HashAlgorithm SHA256
     if ($setupSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or $setupSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $signerThumbprint) {
