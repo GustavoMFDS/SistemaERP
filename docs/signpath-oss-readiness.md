@@ -20,6 +20,13 @@ O repositório contém licença MIT em `LICENSE`, mas isso sozinho não comprova
 - Existe um inventário técnico de dados em `docs/privacy/data-inventory.md`; ele próprio informa que não é garantia de conformidade jurídica. Ainda é preciso confirmar que a política de privacidade pública descreve o produto instalado e os destinos de dados configurados.
 - README antes dizia que não havia licença, apesar do arquivo MIT. Corrigi essa inconsistência e acrescentei o cabeçalho com o termo “Code signing policy”; a política formal exigida pelo SignPath continua pendente de equipe/MFA confirmados, aprovação e publicação.
 
+## Revalidação CI em 06/11/2026 — head documental
+
+- PR #216 continua aberta e Draft no head `e24dbc42903af586e3a46435755bebd573edd3c8`. CI [42169933570](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42169933570) passou nos **20/20 jobs**.
+- Windows Setup [42169933573](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42169933573) passou em prévia unsigned, integração ZIP, primeira instalação/reparo/remoção por ZIP e EDB e gate agregado. Quatro jobs reservados a `workflow_dispatch` foram ignorados.
+- Artefatos desta execução: [telas do laboratório](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42169933573/artifacts/13481636536), [instalação ZIP](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42169933573/artifacts/13480941923), [instalação EDB](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42169933573/artifacts/13480953317), [prévia técnica unsigned](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42169933573/artifacts/13480756947), e [avisos PostgreSQL ZIP](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42169933573/artifacts/13481535831) / [EDB](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42169933573/artifacts/13481117942). Expiram em 13/11/2026.
+- Os gates e artefatos vieram de runners descartáveis. Não são prova de instalação na VM nem aprovação/assinatura SignPath.
+
 ## Papéis propostos
 
 - **Autor e mantenedor:** `GustavoMFDS`, proprietário visível do repositório.
