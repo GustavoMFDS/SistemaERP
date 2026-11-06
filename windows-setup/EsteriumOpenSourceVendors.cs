@@ -64,9 +64,9 @@ namespace Esterium.WindowsSetup
                 Bundle(erp, manifest);
                 string vendors = Path.Combine(extracted, "vendor");
                 OrdinaryTree(vendors);
-                if (Directory.GetFiles(vendors, "*", SearchOption.AllDirectories).Length != files.Length ||
-                    Directory.GetDirectories(vendors, "*", SearchOption.AllDirectories).Length != 0)
+                if (Directory.GetFiles(vendors, "*", SearchOption.TopDirectoryOnly).Length != files.Length)
                     throw new InvalidOperationException("Pacote possui fornecedor extra ou caminho invalido.");
+                AssertVendorNoticeTree(vendors);
                 for (int i = 0; i < files.Length; i++)
                 {
                     string file = Path.Combine(vendors, files[i]);
@@ -121,6 +121,36 @@ namespace Esterium.WindowsSetup
                     try { OrdinaryTree(partial); Directory.Delete(partial, true); }
                     catch { /* Manual diagnostics if temporary cleanup unsafe. */ }
             }
+        }
+
+        static void AssertVendorNoticeTree(string vendors)
+        {
+            var directories = Directory.GetDirectories(vendors, "*", SearchOption.TopDirectoryOnly);
+            if (directories.Length != 1 || !String.Equals(Path.GetFileName(directories[0]),
+                "third-party-notices", StringComparison.Ordinal))
+                throw new InvalidOperationException("Diretorio de avisos de terceiros ausente ou inesperado.");
+            string root = directories[0];
+            string prefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var required = new List<string> {
+                "static/PostgreSQL-LICENSE.txt", "static/Garnet-2.2.3-LICENSE.txt",
+                "static/Garnet-2.2.3-NOTICE.md", "static/NSSM-2.24-LICENSE.txt",
+                "dotnet/LICENSE.txt", "dotnet/ThirdPartyNotices.txt",
+                "archives/garnet/archive-notice-inventory.txt"
+            };
+            if (IsPostgresZipPreview)
+                required.Add("archives/postgresql/archive-notice-inventory.txt");
+            foreach (string relative in required)
+            {
+                string path = Path.GetFullPath(Path.Combine(root,
+                    relative.Replace('/', Path.DirectorySeparatorChar)));
+                if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
+                    !File.Exists(path) || new FileInfo(path).Length == 0)
+                    throw new InvalidOperationException("Aviso de terceiro obrigatorio ausente.");
+            }
+            int count = Directory.GetFiles(root, "*", SearchOption.AllDirectories).Length;
+            if (count < required.Count || count > 610)
+                throw new InvalidOperationException("Inventario de avisos de terceiros invalido.");
         }
 
         static void AssertEdBAuthenticode(string path, string approvedThumbprint)
