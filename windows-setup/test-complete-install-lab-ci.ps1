@@ -274,6 +274,11 @@ try {
     $retailProbe = Start-Process -FilePath $setupExe -ArgumentList '--is-retail-build' -Wait -PassThru
     $previewProbe = Start-Process -FilePath $setupExe -ArgumentList '--has-preview-approvals' -Wait -PassThru
     $releaseProbe = Start-Process -FilePath $setupExe -ArgumentList '--has-release-approvals' -Wait -PassThru
+    $editorCheck = Get-AuthenticodeSignature -LiteralPath $setupExe
+    $editorMatches = $null -ne $editorCheck.SignerCertificate -and
+        $editorCheck.SignerCertificate.Thumbprint.ToUpperInvariant() -ceq $signerThumbprint
+    Write-Output ('Setup probes: payload={0}; retail={1}; preview={2}; release={3}; signature={4}; editor-match={5}' -f
+        $payloadProbe.ExitCode,$retailProbe.ExitCode,$previewProbe.ExitCode,$releaseProbe.ExitCode,$editorCheck.Status,$editorMatches)
     if ($payloadProbe.ExitCode -ne 0 -or $retailProbe.ExitCode -ne 0 -or $previewProbe.ExitCode -ne 2 -or $releaseProbe.ExitCode -ne 0) {
         throw 'Signed-mode Setup.exe payload, Authenticode retail flag, preview-metadata, or embedded release-approval gate failed.'
     }
