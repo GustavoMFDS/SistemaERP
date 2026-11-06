@@ -155,6 +155,33 @@ $finishArgs.Apply=$true
 try {
     & $setup @setupArgs | Out-Null
 } catch {
+    if ($env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -eq '1' -and
+        $env:GITHUB_ACTIONS -eq 'true' -and
+        $env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+        $failure=$_
+        $failureFile='unknown'
+        if (-not [string]::IsNullOrWhiteSpace($failure.InvocationInfo.ScriptName)) {
+            $failureFile=[IO.Path]::GetFileName($failure.InvocationInfo.ScriptName)
+        }
+        $failureLine=[int]$failure.InvocationInfo.ScriptLineNumber
+        $failureType=$failure.Exception.GetType().FullName
+        $safeDetail=''
+        $safeException=$failure.Exception
+        for ($depth=0; $null -ne $safeException -and $depth -lt 6 -and
+            [string]::IsNullOrWhiteSpace($safeDetail); $depth++) {
+            $safeMessage=([string]$safeException.Message).Replace([string][char]39,'')
+            if ($safeMessage -match '^[A-Za-z0-9 ,.;:()-]{1,180}$' -and
+                $safeMessage -notmatch '(?i)(password|secret|token|credential|bearer)' -and
+                $safeMessage -notmatch '[A-Z]:') {
+                $safeDetail=$safeMessage
+            }
+            if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { break }
+            $safeException=$safeException.InnerException
+        }
+        $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
+        if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
+        throw ('Instalacao das dependencias interrompida; preserve evidencias e faca avaliacao manual. Nao repetir Apply automaticamente. [CI diagnostic: {0}]' -f $diagnostic)
+    }
     throw 'Instalacao das dependencias interrompida; preserve evidencias e faca avaliacao manual. Nao repetir Apply automaticamente.'
 }
 # Phase 2 may leave an initialized schema. It has its own always-stop guards.
