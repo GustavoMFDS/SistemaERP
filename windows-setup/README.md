@@ -8,12 +8,14 @@ Framework. No computador da loja nao exige Go, Docker nem Node.
 
 1. Compilar backend e frontend via scripts/build-esterium-local-windows.ps1 em
    uma maquina de build Windows, gerando o bundle ERP.
-2. Aprovar os pacotes oficiais PostgreSQL 16 EDB (EXE), Garnet (ZIP) e NSSM
-   (EXE) por hash SHA-256; conferir tambem o certificado do EDB. A aprovacao
-   deve vir de um canal independente do pacote.
-3. Assinar todos os scripts e executaveis privilegiados do bundle ERP com o
-   editor comercial, refazer o manifesto somente DEPOIS de assinar e aprovar
-   seu SHA-256 por canal independente.
+2. Escolher PostgreSQL EDB EXE (hash + Authenticode) ou o ZIP binário oficial
+   PostgreSQL 16.15-5 (SHA-256 fixo), além de Garnet (ZIP) e NSSM (EXE).
+   A aprovação deve vir de um canal independente do pacote.
+3. Para distribuição funcional, a rota escolhida é pedir assinatura gratuita
+   à SignPath Foundation, se o projeto e o pacote forem aceitos. Assinar ali
+   os scripts e executaveis Esterium; refazer o manifesto depois de assinar
+   e aprovar seu SHA-256 por canal independente. A preparação atual ainda
+   não configura nem submete esse pedido.
 4. Gerar a interface tecnica SEM payload:
 
     powershell.exe -NoProfile -File .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir C:\releases\setup-preview-novo
@@ -21,29 +23,38 @@ Framework. No computador da loja nao exige Go, Docker nem Node.
 5. Para um EXE de PREVIA TECNICA com os binarios reais embutidos, sem
    comprar assinatura, usar -TechnicalPreviewPayload e os hashes de fontes
    confiaveis; o botao Instalar fica bloqueado mesmo se o arquivo for
-   assinado posteriormente. Exige pacote ERP com manifesto valido, vendor
-   PostgreSQL realmente assinado e hashes confiaveis dos tres fornecedores.
+    assinado posteriormente. Exige pacote ERP com manifesto valido e hashes
+    confiaveis; EDB EXE também exige o certificado do fornecedor, enquanto o
+    ZIP PostgreSQL usa o SHA-256 oficial fixado.
    O arquivo gerado recebe o nome EsteriumERP-Setup-TECHNICAL-PREVIEW.exe.
    Para a previa, reutilize os parametros do exemplo abaixo, mas SUBSTITUA
    -TrustedPublisherThumbprint EDITOR_APROVADO por -TechnicalPreviewPayload.
    A previa NUNCA declara um editor comercial: usa o manifesto tecnico real
-   e os hashes independentes EDB, Garnet e NSSM. Nao permite instalacao.
+   e os hashes independentes PostgreSQL, Garnet e NSSM. Nao permite instalacao.
 
-6. Gerar o EXE UNICO comercial com o bundle assinado e os tres fornecedores:
+6. Gerar o EXE UNICO com o bundle assinado e os tres fornecedores. O thumbprint
+   aprovado da SignPath Foundation deve ser passado como `TrustedPublisherThumbprint`:
 
     powershell.exe -NoProfile -File .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir C:\releases\setup-completo-novo -BundleDir C:\releases\erp-assinado -ApprovedManifestSHA256 SHA256_APROVADO -TrustedPublisherThumbprint EDITOR_APROVADO -PostgresInstaller C:\vendors\postgresql.exe -ExpectedPostgresSHA256 SHA256_PG -ExpectedPostgresPublisherThumbprint EDITOR_PG -GarnetPackage C:\vendors\garnet.zip -ExpectedGarnetSHA256 SHA256_GARNET -ServiceWrapperExe C:\vendors\nssm.exe -ExpectedServiceWrapperSHA256 SHA256_NSSM
 
-7. Assinar o EXE FINAL com o certificado Authenticode comercial do editor,
-   validar a assinatura e SHA-256 e realizar piloto em Windows limpo.
+   Para usar o ZIP PostgreSQL no pacote assinado, informe o arquivo oficial,
+   seu SHA-256 fixo e `-PostgresBinaryZip`; não informe thumbprint EDB.
+
+7. Depois da aceitação do projeto e da configuração do pipeline, submeter o
+   EXE FINAL para assinatura Authenticode gratuita com aprovação manual.
+   Validar assinatura e SHA-256 e realizar piloto em Windows limpo. Não
+   copiar nem armazenar chave privada da SignPath.
 
 ## Comportamento e limites de seguranca
 
 O EXE apresenta Verificar arquivos, Ver plano e Instalar. Se houver payload
 embutido, extrai em pasta temporaria exclusiva. Verifica hashes do manifesto
-ERP e de todos os fornecedores antes de iniciar os scripts. O usuario deve
-informar hashes e identidades obtidos fora do proprio EXE distribuido.
+ERP e de todos os fornecedores antes de iniciar os scripts. No build de
+distribuição, hashes e thumbprint aprovados ficam embutidos e somente leitura;
+o cliente informa apenas os dados variáveis da instalação.
 
-Instalar exige EXE final assinado com Authenticode valido. Executa o
+Instalar exige EXE final assinado com Authenticode valido pelo publicador
+aprovado e incorporado no pacote. Executa o
 coordenador tecnico existente install-esterium-local-complete.ps1 com
 PowerShell AllSigned e UAC. O coordenador valida novamente os scripts, as
 assinaturas, dados de origem HTTPS, servicos e banco. Nao ativa vendas, nao
@@ -53,18 +64,19 @@ falhada. Nunca use hashes inventados ou opcao de fixture em loja.
 O EXE sem payload serve apenas como preview de build. Um bundle ainda nao
 assinado NAO passa pelo empacotador de distribuicao.
 
-Ainda pendente antes de vender: assinatura do editor, fornecedores aprovados
-reais, teste em Windows novo, HTTPS dos terminais, backup restaurado e
-verificacao fisica de reboot e recuperacao.
+Ainda pendente antes de distribuir: aceite da SignPath, pacote funcional
+elegível, fornecedores aprovados reais, teste em Windows limpo, configuração
+HTTPS da loja, backup restaurado e verificação física de reboot e recuperação.
 
 
 ## Distribuicao MIT sem certificado pago (plano seguro)
 
 A MIT do repositorio rege o codigo Esterium; as licencas dos fornecedores
-permanecem independentes. O bootstrapper pode ser compilado sem assinatura
-paga. O modo `-TechnicalPreviewPayload` EMBUTE os arquivos reais, hashes
-SHA-256 da versao e thumbprint do EDB como metadados de conferencia;
-nao embute nem presume certificado confiavel para o editor ERP.
+permanecem independentes. `-TechnicalPreviewPayload` ainda cria uma prévia
+sem assinatura paga e sem Apply. Uma futura distribuição funcional pode usar
+assinatura Authenticode gratuita da SignPath Foundation, sujeita à aceitação
+do projeto, elegibilidade de todos os componentes e publicação funcional no
+mesmo formato. O publicador será SignPath Foundation, não Esterium.
 
 No computador Windows, a interface permite **Verificar arquivos** e
 **Ver plano**, mas nunca **Instalar**. O plano e executado em PowerShell
@@ -79,14 +91,14 @@ altere politica global de PowerShell para testar o pacote.
 O plano pode falhar legitimamente em maquina ja usada: as verificacoes
 interrompem se pastas, portas, contas e servicos indicarem instalacao
 anterior. Nao apague os dados anteriores nem tente contornar essa protecao.
-O campo de HTTPS deve receber a origem real da loja, previamente definida.
+Na previa, a origem inicial `https://erp.exemplo.com:8443` corresponde ao
+listener `0.0.0.0:8443` do coordenador. O campo de HTTPS deve receber a origem
+real da loja, previamente definida, e usar a mesma porta do listener.
 
-O caminho real para INSTALAR sem certificado comercial ainda precisa de
-uma cadeia de verificacao de integridade antes de executar cada delegado
-privilegiado, testes de ponta a ponta em Windows descartavel e prova de
-recuperacao/backup. Os scripts atuais de `-Apply` da release comercial
-exigem assinatura valida dos proprios scripts e continuam intactos.
-Esta etapa nao pretende remover ou contornar essa exigencia.
+O Apply continuará exigindo Authenticode válido em cada script privilegiado,
+com o mesmo publicador aprovado, além dos testes em Windows descartável e da
+prova de recuperação/backup. A assinatura SignPath, se aprovada, satisfaz a
+rota gratuita sem remover ou contornar essas verificações.
 
 Garnet (MIT), NSSM (dominio publico), PostgreSQL e o empacotamento EDB
 tem seus proprios termos. Revisar os avisos e a autorizacao de
@@ -134,11 +146,12 @@ plano não destrutivo, construção do EXE integrado, staging real em
 Program Files, conferência de hashes, rejeição de repetição e ausência
 de serviços. O teste NÃO deve ser executado no computador de uma loja.
 
-A próxima fase de instalação de PostgreSQL/Garnet e SQL continua bloqueada,
-pois os coordenadores comerciais existentes exigem assinaturas Authenticode.
-Não é permitido contornar ou simular essas assinaturas. O empacotador
-de fornecedores e as condições de redistribuição da EDB precisam ser
-revisados antes do upload do EXE integrado a Releases públicos.
+O Apply continua bloqueado em prévias MIT sem aprovação de release. O pacote
+assinado suporta a instalação pelo ZIP PostgreSQL oficial: valida o SHA fixo,
+extrai os binários, cria conta local sem admin, inicializa cluster com senha
+temporária protegida e registra o serviço desabilitado. O EDB EXE permanece
+como rota opcional e distinta. A validação E2E das duas rotas em runners
+descartáveis ainda precisa passar antes de declarar o instalador pronto.
 
 
 ## Preparar dependências em Program Files — MIT unsigned (Fase 2A)
@@ -239,7 +252,7 @@ somente o prefixo que garante as categorias é constante. Nenhuma senha
 Esta alteração não equivale à aprovação de uma instalação completa.
 
 
-## PostgreSQL no instalador MIT: alternativa oficial em ZIP (investigação)
+## PostgreSQL no instalador: alternativa oficial em ZIP
 
 O teste CI de instalação *real* do `postgresql-16.15-1-windows-x64.exe`
 encontrou um problema de política de senha, corrigido no gerador, mas a
@@ -275,17 +288,23 @@ somente por ação manual explícita
 `run_experimental_edb_install=true` no workflow. Está separada do
 fluxo preferencial do ZIP para NÃO mascarar o histórico de falhas.
 
-**Próximo desenvolvimento:** implementar instalação real do PostgreSQL
-diretamente a partir do ZIP com conta não privilegiada, initdb, registro
-de serviço desabilitado, TLS, SQL, Garnet e backups, seguido de teste
-E2E completo. Até lá, o botão **Instalar** da versão MIT continua
-bloqueado e nenhum ZIP/EXE integrado foi publicado como release.
+O coordenador de instalação agora aceita esse ZIP no pacote assinado. Na
+rota ZIP, cria uma conta local sem admin, concede somente `SeServiceLogonRight`,
+extrai os binários com ACL SYSTEM/Administradores, inicializa um cluster
+SCRAM com senha temporária protegida e registra `EsteriumPostgreSQL16`
+desabilitado/parado. Em seguida, o fluxo existente aplica a política TLS e
+segue o primeiro setup do ERP. A versão técnica MIT continua sem `Apply`.
+
+O workflow completo foi ampliado para testar EDB e ZIP em runners Windows
+descartáveis independentes. Até essa CI passar, a instalação ZIP está
+implementada, mas ainda não homologada; nenhum pacote funcional foi publicado.
 
 
 ## Um unico EXE tecnico MIT com ZIP PostgreSQL (nao instalavel)
 
-O builder aceita exclusivamente no modo `-TechnicalPreviewPayload` o switch
-`-TechnicalPreviewPostgresBinaryZip`, usando o caminho de
+O builder aceita no pacote assinado o switch `-PostgresBinaryZip`. Para manter
+compatibilidade, a prévia técnica usa `-TechnicalPreviewPayload` e
+`-TechnicalPreviewPostgresBinaryZip`. Ambos usam o caminho de
 `-PostgresInstaller` para o arquivo
 `postgresql-16.15-5-windows-x64-binaries.zip` e o hash
 `-ExpectedPostgresSHA256 43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281`.
@@ -293,16 +312,18 @@ Neste modo o thumbprint
 `-ExpectedPostgresPublisherThumbprint` deve estar vazio; o ZIP nao
 e um executavel Authenticode e sua autenticidade depende da comparacao
 do SHA-256 obtido de fonte de fornecedor independente.
-O build comercial existente continua EXE EDB + Authenticode.
+O pacote ZIP não exige certificado Authenticode separado do instalador EDB;
+o EXE Esterium continua exigindo assinatura do editor aprovado. A rota EDB
+continua disponível com seu certificado Authenticode.
 
 O unico executavel tecnicamente integrado passa a carregar o recurso
 `vendor/postgresql-binaries.zip` ao lado de Garnet/NSSM e do ERP.
 Ele verifica a integridade do arquivo interno, a lista e os caminhos
 das entradas PostgreSQL ZIP, os binarios essenciais, o manifesto ERP
 e os fornecedores. A preparacao de arquivos e fornecedores continua
-restrita a Program Files, com hashes e ACLs protegidas. A rotina
-de plano PowerShell antigo (exige EDB EXE) fica DESATIVADA neste modo
-para evitar apresentar um plano incompativel.
+restrita a Program Files, com hashes e ACLs protegidas. O coordenador
+PowerShell recebe `-PostgresBinaryZip`, valida novamente o artefato e
+executa o fluxo ZIP; o plano da prévia só apresenta as etapas e não aplica.
 
 No Windows descartavel o teste integrado
 https://github.com/GustavoMFDS/SistemaERP/actions/runs/40171137153
@@ -593,8 +614,7 @@ Por eficiência, o GitHub Actions pode reutilizar em \`.vendor-cache\`
 o ZIP oficial PostgreSQL 16.15-5, mas trata cada cache como
 **conteúdo NÃO CONFIÁVEL** e exige o SHA-256 independente original
 antes e depois da cópia. Um cache adulterado bloqueia o teste.
-Isso não autoriza distribuir o ZIP a clientes nem elimina os
-avisos/licenças de terceiros.
+O cache não substitui os avisos/licenças dos componentes incluídos.
 
 
 ## Etapa nativa 4 — preparar pastas protegidas em ProgramData (não instala)

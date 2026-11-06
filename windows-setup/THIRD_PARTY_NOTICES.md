@@ -9,7 +9,7 @@ A licença MIT do repositório NÃO altera a licença dos programas de terceiros
 |---|---|---|---|
 | Esterium ERP | Este repositório | Em desenvolvimento | Código-fonte sob MIT (arquivo LICENSE na raiz) |
 | PostgreSQL Server | PostgreSQL Global Development Group | 16.15 | PostgreSQL License; preservar os avisos aplicáveis |
-| Binários PostgreSQL para integração Windows | EnterpriseDB (EDB) / PostgreSQL Global Development Group | postgresql-16.15-5-windows-x64-binaries.zip | Prévia MIT integrada inclui este ZIP, não o instalador gráfico. PostgreSQL License e eventuais avisos dos outros componentes do ZIP precisam acompanhar a distribuição; inventário ainda sujeito a revisão. |
+| Binários PostgreSQL para integração Windows | EnterpriseDB (EDB) / PostgreSQL Global Development Group | postgresql-16.15-5-windows-x64-binaries.zip | Rota de instalação ZIP validada por SHA-256 fixo; preservar a PostgreSQL License e revisar/acompanhar avisos dos componentes incluídos no arquivo. |
 | Instalador PostgreSQL para Windows | EnterpriseDB (EDB) | postgresql-16.15-1-windows-x64.exe | O executável de instalação é distribuído pela EDB: sua redistribuição em um pacote de terceiros requer revisão específica |
 | Garnet | microsoft/garnet | 2.2.3 | MIT; distribuir com seu LICENSE e com os avisos de terceiros de NOTICE.md |
 | .NET Runtime | Microsoft | 10.0.14 Windows x64 | MIT; archive SHA-512 pinned; preserve `LICENSE.txt` and `ThirdPartyNotices.txt` with the runtime |
@@ -18,8 +18,9 @@ A licença MIT do repositório NÃO altera a licença dos programas de terceiros
 ## Verificações e política de publicação
 
 * Binários fixados são conferidos por SHA-256 conhecido ANTES de integrar o
-  pacote; o instalador EDB ainda exige certificado Authenticode válido do
-  fornecedor aprovado.
+  pacote; a rota EDB EXE também exige certificado Authenticode válido do
+  fornecedor aprovado. O ZIP oficial não tem assinatura Authenticode: sua
+  verificação usa o hash independente publicado para esse arquivo exato.
 * O hash SHA-256 do EXE de saída deve ser divulgado junto à release. Como o EXE
   é unsigned, isso comprova somente igualdade dos bytes com o hash obtido
   externamente, não a identidade do editor.
@@ -27,19 +28,17 @@ A licença MIT do repositório NÃO altera a licença dos programas de terceiros
   até serem verificadas as permissões e condições específicas de redistribuição.
   A licença de código aberto do PostgreSQL Server não autoriza automaticamente
   a redistribuição de cada instalador ou componente de terceiros.
-* O projeto PostgreSQL recomenda seus arquivos ZIP binários do Windows
-  sem instalador para aplicações que incorporam PostgreSQL no próprio
-  instalador. O build MIT experimental já inclui exclusivamente o ZIP
-  `16.15-5` e valida seu SHA-256 externo
-  `43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281`.
-  Essa preparação está em teste; não constitui licença para redistribuição
-  de componentes de terceiros nem homologação dos serviços, SQL e backups.
-  A rota antiga EDB EXE, com assinatura Authenticode, continua distinta.
+* A rota ZIP do pacote assinado inclui exclusivamente `16.15-5` e valida o
+  SHA-256 publicado `43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281`.
+  Os componentes PostgreSQL permanecem sujeitos à PostgreSQL License e seus
+  avisos; revisar o inventário do ZIP e preservar avisos de dependências antes
+  da distribuição pública. A rota EDB EXE continua distinta e requer revisão
+  específica de redistribuição.
 * Nunca publicar material de credencial (.env, .key, .pem, .pfx),
   bancos de dados, backups ou dados de clientes.
-* Mesmo após revisão de redistribuição, o pacote não será marcado como
-  instalador funcional até serem testadas todas as operações com banco
-  e serviços em Windows limpo e as recuperações após falhas.
+* O pacote não será marcado como instalador funcional até passarem os testes
+  das rotas ZIP e EDB em Windows descartável, incluindo banco, serviços e
+  recuperação. O teste do runner não substitui aceite de loja ou fiscal.
 
 ## Fontes dos fornecedores
 

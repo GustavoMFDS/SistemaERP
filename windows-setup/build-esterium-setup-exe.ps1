@@ -17,7 +17,11 @@ param(
     [string]$ExpectedServiceWrapperSHA256='',
     # Test artifact only: embeds real unsigned ERP without enabling Apply.
     [switch]$TechnicalPreviewPayload,
-    [switch]$TechnicalPreviewPostgresBinaryZip
+    # Use PostgreSQL's official binary ZIP in the signed retail installer.
+    [switch]$PostgresBinaryZip,
+    # Backward-compatible alias for the unsigned ZIP staging preview.
+    [switch]$TechnicalPreviewPostgresBinaryZip,
+    [switch]$VMHomologationBuild
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -30,11 +34,15 @@ if (-not [IO.Path]::IsPathRooted($OutputDir) -or $OutputDir.StartsWith('\\') -or
 }
 $inputs=@($PostgresInstaller,$GarnetPackage,$ServiceWrapperExe,$ApprovedManifestSHA256,
     $ExpectedPostgresSHA256,$ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)
-if (-not $TechnicalPreviewPostgresBinaryZip) { $inputs+=$ExpectedPostgresPublisherThumbprint }
-if ($TechnicalPreviewPostgresBinaryZip -and -not $TechnicalPreviewPayload) { throw 'PostgreSQL binary ZIP is preview-only.' }
-if ($TechnicalPreviewPostgresBinaryZip -and $ExpectedPostgresPublisherThumbprint) { throw 'ZIP cannot claim the EDB EXE Authenticode signer.' }
+$usePostgresZip=$PostgresBinaryZip -or $TechnicalPreviewPostgresBinaryZip
+if (-not $usePostgresZip) { $inputs+=$ExpectedPostgresPublisherThumbprint }
+if ($TechnicalPreviewPostgresBinaryZip -and -not $TechnicalPreviewPayload) { throw 'The legacy ZIP-preview switch requires a technical preview payload.' }
+if ($usePostgresZip -and $ExpectedPostgresPublisherThumbprint) { throw 'A PostgreSQL ZIP cannot claim the EDB EXE Authenticode signer.' }
 $full=-not [string]::IsNullOrWhiteSpace($BundleDir)
 if ($TechnicalPreviewPayload -and -not $full) { throw 'Preview payload requires BundleDir.' }
+if ($VMHomologationBuild -and (-not $full -or $TechnicalPreviewPayload -or $usePostgresZip)) {
+    throw 'VM homologation build requires the full signed-mode bundle and EDB installer.'
+}
 if ($TechnicalPreviewPayload -and $TrustedPublisherThumbprint -ne '') {
     throw 'Technical preview must not claim a commercial publisher approval.'
 }
@@ -53,6 +61,7 @@ if ($full -and @($inputs | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Co
 $stage=''
 $archive=''
 $previewApprovals=''
+$releaseApprovals=''
 try {
     if ($full) {
         $bundle=(Resolve-Path -LiteralPath $BundleDir).Path
@@ -66,7 +75,7 @@ try {
             & (Join-Path $root 'scripts/check-esterium-signed-release.ps1') @verify | Out-Null
         }
         $pgName='postgresql.exe'
-        if ($TechnicalPreviewPostgresBinaryZip) {
+        if ($usePostgresZip) {
             $pgName='postgresql-binaries.zip'
             $official='43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'
             if (-not [IO.Path]::IsPathRooted($PostgresInstaller) -or $PostgresInstaller.StartsWith('\\') -or
@@ -74,7 +83,7 @@ try {
                 -not (Test-Path -LiteralPath $PostgresInstaller -PathType Leaf) -or
                 $ExpectedPostgresSHA256.ToUpperInvariant() -cne $official -or
                 (Get-FileHash -LiteralPath $PostgresInstaller -Algorithm SHA256).Hash -cne $official) {
-                throw 'PostgreSQL ZIP does not match the independently published official EDB SHA-256.'
+                throw 'PostgreSQL ZIP does not match the independently pinned official SHA-256.'
             }
             if (-not [IO.Path]::IsPathRooted($GarnetPackage) -or
                 -not (Test-Path -LiteralPath $GarnetPackage -PathType Leaf) -or
@@ -86,6 +95,12 @@ try {
         } else {
             $vendor=@{PostgresInstaller=$PostgresInstaller;ExpectedPostgresSHA256=$ExpectedPostgresSHA256;
                 ExpectedPostgresPublisherThumbprint=$ExpectedPostgresPublisherThumbprint;
+                GarnetPackage=$GarnetPackage;ExpectedGarnetSHA256=$ExpectedGarnetSHA256}
+            & (Join-Path $root 'scripts/check-esterium-offline-dependency-packages.ps1') @vendor | Out-Null
+        }
+        if ($usePostgresZip) {
+            $vendor=@{PostgresInstaller=$PostgresInstaller;ExpectedPostgresSHA256=$ExpectedPostgresSHA256;
+                ExpectedPostgresPublisherThumbprint='';PostgresBinaryZip=$true;
                 GarnetPackage=$GarnetPackage;ExpectedGarnetSHA256=$ExpectedGarnetSHA256}
             & (Join-Path $root 'scripts/check-esterium-offline-dependency-packages.ps1') @vendor | Out-Null
         }
@@ -118,7 +133,8 @@ try {
         [IO.Compression.ZipFile]::CreateFromDirectory($stage,$archive,[IO.Compression.CompressionLevel]::Optimal,$false)
     }
     New-Item -ItemType Directory -Path $OutputDir -ErrorAction Stop | Out-Null
-    $exeName=if ($TechnicalPreviewPayload) { 'EsteriumERP-Setup-TECHNICAL-PREVIEW.exe' } else { 'EsteriumERP-Setup.exe' }
+    $exeName=if ($TechnicalPreviewPayload) { 'EsteriumERP-Setup-TECHNICAL-PREVIEW.exe' } elseif ($VMHomologationBuild) { 'EsteriumERP-Setup-VM-LAB.exe' } else { 'EsteriumERP-Setup.exe' }
+    $pgFormat=if ($usePostgresZip) { 'zip' } else { 'edb' }
     $exe=Join-Path $OutputDir $exeName
     $arguments=@('/nologo','/target:winexe','/platform:x64','/optimize+',
         '/r:System.Windows.Forms.dll','/r:System.Drawing.dll',
@@ -127,18 +143,31 @@ try {
     if ($full) { $arguments+=('/resource:'+$archive+',Esterium.Payload') }
     if ($TechnicalPreviewPayload) {
         $previewApprovals=Join-Path ([IO.Path]::GetTempPath()) ('esterium-approvals-'+[Guid]::NewGuid().ToString('N')+'.json')
-        $pgFormat=if ($TechnicalPreviewPostgresBinaryZip) { 'zip' } else { 'edb' }
         @{
             manifest=$ApprovedManifestSHA256.ToUpperInvariant()
             pgFormat=$pgFormat
             postgres=$ExpectedPostgresSHA256.ToUpperInvariant()
-            pgSigner=$ExpectedPostgresPublisherThumbprint.ToUpperInvariant()
+            pgSigner=if ($usePostgresZip) { '' } else { $ExpectedPostgresPublisherThumbprint.ToUpperInvariant() }
             garnet=$ExpectedGarnetSHA256.ToUpperInvariant()
             nssm=$ExpectedServiceWrapperSHA256.ToUpperInvariant()
         } | ConvertTo-Json -Compress | Set-Content -LiteralPath $previewApprovals -Encoding UTF8
         $arguments+=('/resource:'+$previewApprovals+',Esterium.PreviewApprovals')
     }
+    if ($full -and -not $TechnicalPreviewPayload) {
+        $releaseApprovals=Join-Path ([IO.Path]::GetTempPath()) ('esterium-release-approvals-'+[Guid]::NewGuid().ToString('N')+'.json')
+        @{
+            manifest=$ApprovedManifestSHA256.ToUpperInvariant()
+            editor=$TrustedPublisherThumbprint.ToUpperInvariant()
+            pgFormat=$pgFormat
+            postgres=$ExpectedPostgresSHA256.ToUpperInvariant()
+            pgSigner=if ($usePostgresZip) { '' } else { $ExpectedPostgresPublisherThumbprint.ToUpperInvariant() }
+            garnet=$ExpectedGarnetSHA256.ToUpperInvariant()
+            nssm=$ExpectedServiceWrapperSHA256.ToUpperInvariant()
+        } | ConvertTo-Json -Compress | Set-Content -LiteralPath $releaseApprovals -Encoding UTF8
+        $arguments+=('/resource:'+$releaseApprovals+',Esterium.ReleaseApprovals')
+    }
     if ($TechnicalPreviewPayload -or -not $full) { $arguments+='/define:ESTERIUM_PREVIEW' }
+    if ($VMHomologationBuild) { $arguments+='/define:ESTERIUM_VM_LAB' }
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumSetup.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceStage.cs')
     $arguments+=(Join-Path $PSScriptRoot 'EsteriumOpenSourceVendors.cs')
@@ -163,8 +192,10 @@ try {
         } else {
             Write-Output 'TECHNICAL PREVIEW: ERP and vendors embedded; one-click verified PLAN available; Apply permanently disabled.'
         }
+    } elseif ($VMHomologationBuild) {
+        Write-Output 'VM HOMOLOGATION ONLY: VirtualBox-gated, temporary test publisher, not retail, not a release.'
     } elseif ($full) {
-        Write-Output 'BUNDLE: ERP, PostgreSQL, Garnet and NSSM embedded in one executable.'
+        Write-Output ('BUNDLE: ERP, PostgreSQL '+$(if($usePostgresZip){'official ZIP'}else{'EDB installer'})+', Garnet, NSSM and verified release approvals embedded in one executable.')
         Write-Output 'NOT RELEASED: Authenticode-sign the FINAL EXE and validate clean-Windows physical pilot.'
     } else {
         Write-Output 'PREVIEW ONLY: executable has no embedded payload; retail installation blocked.'
@@ -178,5 +209,8 @@ try {
     }
     if ($previewApprovals -and (Test-Path -LiteralPath $previewApprovals)) {
         Remove-Item -LiteralPath $previewApprovals -Force -ErrorAction SilentlyContinue
+    }
+    if ($releaseApprovals -and (Test-Path -LiteralPath $releaseApprovals)) {
+        Remove-Item -LiteralPath $releaseApprovals -Force -ErrorAction SilentlyContinue
     }
 }

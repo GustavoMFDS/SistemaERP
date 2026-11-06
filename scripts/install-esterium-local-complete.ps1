@@ -12,7 +12,7 @@ param(
     [Parameter(Mandatory=$true)][string]$AllowedOrigin,
     [Parameter(Mandatory=$true)][string]$PostgresInstaller,
     [Parameter(Mandatory=$true)][string]$ExpectedPostgresSHA256,
-    [Parameter(Mandatory=$true)][string]$ExpectedPostgresPublisherThumbprint,
+    [string]$ExpectedPostgresPublisherThumbprint='',
     [Parameter(Mandatory=$true)][string]$GarnetPackage,
     [Parameter(Mandatory=$true)][string]$ExpectedGarnetSHA256,
     [Parameter(Mandatory=$true)][string]$ServiceWrapperExe,
@@ -26,6 +26,7 @@ param(
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [switch]$Apply,
+    [switch]$PostgresBinaryZip,
     # Absolutely no executable vendor/ERP installation is allowed with this
     # test-only option. It verifies ONLY the real two-stage PLAN path in CI.
     [switch]$SyntheticPlanCIFixture
@@ -122,6 +123,7 @@ $setupArgs=@{
     ApprovedManifestSHA256=$ApprovedManifestSHA256
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint
 }
+if($PostgresBinaryZip){$setupArgs.PostgresBinaryZip=$true}
 if ($SyntheticPlanCIFixture) { $setupArgs.SyntheticPlanCIFixture=$true }
 $finishArgs=@{
     SourceBundleDir=$source

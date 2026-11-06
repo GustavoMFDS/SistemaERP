@@ -4,24 +4,27 @@ using System.IO;
 using System.IO.Compression;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 
-// Unsigned MIT technical preview may use EDB's official *binary archive*
-// instead of the EDB graphical installer, whose unattended CI trial timed out.
-// Never accept this ZIP in the signed/commercial PowerShell EDB EXE pipeline.
+// The fixed official PostgreSQL binary archive can be used by both the
+// unsigned staging preview and the signed retail installer. Its exact
+// upstream SHA-256 replaces the EDB installer Authenticode check.
 namespace Esterium.WindowsSetup
 {
     sealed partial class Installer
     {
         internal const string OfficialPostgresZipSHA256 =
             "43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281";
-        internal static bool IsPostgresZipPreview
+        internal static bool IsPostgresZipBuild
         {
             get
             {
-                if (!Program.PreviewBuild || !Program.HasPayload) return false;
+                if (!Program.HasPayload) return false;
+                string resourceName = Program.PreviewBuild
+                    ? "Esterium.PreviewApprovals" : "Esterium.ReleaseApprovals";
                 using (var s = Assembly.GetExecutingAssembly()
-                    .GetManifestResourceStream("Esterium.PreviewApprovals"))
+                    .GetManifestResourceStream(resourceName))
                 {
                     if (s == null) return false;
                     using (var reader = new StreamReader(s, Encoding.UTF8))
@@ -41,13 +44,17 @@ namespace Esterium.WindowsSetup
                 }
             }
         }
+        internal static bool IsPostgresZipPreview
+        {
+            get { return Program.PreviewBuild && Program.HasPayload && IsPostgresZipBuild; }
+        }
         internal static string EmbeddedPostgresName
         {
-            get { return IsPostgresZipPreview ? "postgresql-binaries.zip" : "postgresql.exe"; }
+            get { return IsPostgresZipBuild ? "postgresql-binaries.zip" : "postgresql.exe"; }
         }
         internal static void AssertOfficialPostgresZip(string file)
         {
-            if (!IsPostgresZipPreview || Digest(file) != OfficialPostgresZipSHA256)
+            if (!IsPostgresZipBuild || Digest(file) != OfficialPostgresZipSHA256)
                 throw new InvalidOperationException("ZIP oficial PostgreSQL nao corresponde ao SHA-256 fixado.");
             var mustHave = new HashSet<string>(StringComparer.Ordinal) {
                 "pgsql/bin/postgres.exe", "pgsql/bin/initdb.exe",
@@ -65,12 +72,15 @@ namespace Esterium.WindowsSetup
                     var name = entry.FullName.Replace('\\', '/');
                     var parts = name.TrimEnd('/').Split('/');
                     if (!name.StartsWith("pgsql/", StringComparison.Ordinal) ||
-                        name.Contains(":") || name.StartsWith("/") ||
+                        name.Contains(":") || name.StartsWith("/") || name.Length > 200 ||
                         parts.Length < 2 || !seen.Add(name.TrimEnd('/')) ||
                         ((entry.ExternalAttributes >> 16) & 0xf000) == 0xa000)
                         throw new InvalidOperationException("PostgreSQL ZIP possui caminho incorreto.");
                     foreach (var part in parts)
-                        if (part == "" || part == "." || part == "..")
+                        if (part == "" || part == "." || part == ".." ||
+                            part.EndsWith(".", StringComparison.Ordinal) ||
+                            part.EndsWith(" ", StringComparison.Ordinal) ||
+                            Regex.IsMatch(part, "^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?$"))
                             throw new InvalidOperationException("PostgreSQL ZIP possui entrada insegura.");
                     if (!name.EndsWith("/")) mustHave.Remove(name);
                     total += entry.Length;

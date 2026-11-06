@@ -176,4 +176,8 @@ A **produção** depende de credenciamento, dados reais por CNPJ, certificado ad
 
 ## Licença e contribuição
 
-Ainda não há licença definida no repositório. Isso **não** significa permissão automática para redistribuição. Mudanças significativas devem seguir por branch e PR com validação no HEAD final, sem merge com testes pendentes.
+O código deste repositório está sob a licença MIT (`LICENSE`). Isso não altera as licenças nem concede automaticamente direitos de redistribuição dos componentes de terceiros incluídos no instalador. Mudanças significativas devem seguir por branch e PR com validação no HEAD final, sem merge com testes pendentes.
+
+## Política de assinatura de código (Code signing policy)
+
+O projeto pretende solicitar assinatura Authenticode gratuita da SignPath Foundation para software open source. A inscrição ainda não foi aceita, não há certificado aprovado nem instalador funcional assinado; a prévia pública atual é somente demonstrativa e não instala. O publicador, se aprovada, aparecerá como SignPath Foundation. Consulte o [estado de preparação do SignPath OSS](docs/signpath-oss-readiness.md); esta preparação ainda não é uma política ativa nem autorização para distribuir o EXE.

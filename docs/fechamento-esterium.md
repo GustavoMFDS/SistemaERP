@@ -381,3 +381,184 @@ Quando o computador puder ser liberado, retomar pela tela da VM e revisar, em le
 - A cópia `baseline-empty` não tem snapshot nem ISO anexada; `with-snapshot` contém o snapshot vazio original. As duas são backups da mesma VM, não um Windows já instalado e pronto para homologação.
 - SHA-256 confirmou que o VDI-base atual corresponde ao backup `baseline-empty` e que a NVRAM do snapshot corresponde ao backup `with-snapshot`. Não foi possível calcular o hash do VDI diferencial do snapshot: o Windows reportou que outro processo mantém o arquivo aberto. Nenhum processo VirtualBox apareceu na enumeração local, portanto esse bloqueio não prova que a VM esteja executando; o estado permanece desconhecido. O VDI não foi reaberto nem alterado.
 - Não atualizei o VirtualBox 7.2.8 nem mexi nas cópias. Sem acesso ao PC e sem identificar quem mantém o VDI aberto, iniciar, parar, restaurar ou duplicar a VM não é seguro nesta sessão.
+
+## Retomada local com o PC liberado (04/11/2026)
+
+- A janela `Esterium-Windows-Lab` estava ativa. O convidado continua sem imagem do Windows e não chegou ao Setup. A ISO Enterprise Evaluation oficial permanece montada; os arquivos EFI/Setup da ISO já tinham sido verificados em leitura.
+- O log registra `EFI: Boot failure` aos 29 s e mensagem `VMBootFail`. Dois reinícios controlados repetiram a inicialização até `PciHostBridgeDxe.efi`; a tela continuou preta. `VBox.log` foi atualizado até 18:28 BRT e termina nesse ponto EFI.
+- A configuração continua referenciando o snapshot `Base vazia antes do Windows - 2026-11-03` (`fde9f7b6-c88c-49da-a148-cdc691bd54a7`), e o VDI diferencial continua presente. Não restaurei nem removi snapshot, não alterei `.vbox`, mídia, firmware, hardware ou rede.
+- `Esc` e `F12` não abriram o menu EFI. O painel de configurações do VirtualBox ficou em “Não está respondendo” ao abrir Sistema. Não encerrei o processo da VM; nenhuma alteração foi feita no Windows principal.
+- `VBoxManage showvminfo` retorna `E_ACCESSDENIED`. O cmdlet `Get-VM` existe, mas o serviço `vmms` não foi encontrado; consultar o recurso Hyper-V exige elevação. Não habilitei recurso nem contornei a restrição.
+- Ao reabrir o Gerenciador, ele mostrou a VM `Treino` como `Inacessível`, além da VM Esterium em execução. `VirtualBox.xml` aponta `Treino.vbox` para `C:\Users\gusta\VirtualBox VMs\Treino\Treino.vbox`, mas o arquivo e a pasta não existem. Sistema, discos e snapshots de `Treino` permanecem desconhecidos; não removi nem re-registrei essa entrada.
+- O painel de configurações voltou a travar. O Gerenciador pôde ser reaberto, mas não consegui fechar o painel sem fazer o processo da VM retornar a “Não está respondendo”.
+- Capturas locais do console preto: `D:\ERP\evidencias\esterium-vm\falhas\vm-tela-preta-apos-reinicios-2026-11-04.jpg` e `D:\ERP\evidencias\esterium-vm\falhas\vm-console-full-apos-reinicios-2026-11-04.jpg`.
+- A PR #216 foi consultada novamente: aberta, Draft, sem merge, `mergeable=true`, head `5eaebb52218bb24f66b87bce0758ec1fec166332`. O código validado em CI permanece `ac83fe5b7e21ffaf1043f25a7a6a66de2c8c3a50`; nenhum instalador foi aplicado à VM. A prévia técnica local e seu hash são descritos na retomada abaixo.
+- A homologação real continua bloqueada antes da instalação. As 19 áreas, reboot do Windows convidado, serviços, backup/restauração, LAN, segurança, desempenho e periféricos não foram testados na VM. A evidência de CI citada acima segue sendo de runners Windows descartáveis.
+
+Para retomar no mesmo host, uma atualização oficial do [VirtualBox 7.2.22](https://download.virtualbox.org/virtualbox/7.2.22/) ou outra intervenção administrativa precisaria de autorização específica: altera software do Windows principal, exige elevação e não garante resolver a falha EFI. Manter Hyper-V e as proteções do Windows ativos.
+
+## Retomada após liberação do PC (04/11/2026)
+
+- VirtualBox Manager e VM continuavam abertos. O convidado seguia preto antes do Windows Setup; o painel de configurações mostrava “Não está respondendo”. Clicar em Cancelar não fechou o painel. Preservei o processo da VM, snapshot, ISO e configuração; sem reinício forçado nem alteração no Windows principal.
+- Prévia técnica da CI está salva em `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-Windows-Setup-UNSIGNED-TECHNICAL-PREVIEW.zip`. SHA-256 local `315ABD762764CD4F14F208FB2EC972CA273B997184C78D769EEBB1293A370475` coincide com o digest publicado. O ZIP contém EXE preview de 91.136 bytes, sem bundle nem fornecedores, com **Instalar** desativado; não executei.
+- Insumos de laboratório GUI estão preparados em `D:\ERP\evidencias\esterium-vm\instalacao\gui-lab-inputs-pr216-a02551f4.zip`. SHA-256 `7DECBB77A67B8318BCF4FCFCFEF6BE8023C4F72A04356BAFC71AC58DE6CE9E71` coincide com o sidecar. Bundle e dependências foram conferidos; o Setup completo ainda depende de identidade temporária criada dentro da VM.
+- ISO oficial Windows 11 Enterprise Evaluation permanece local e anexada à VM. Nenhum termo aceito, credencial fornecida, pacote executado, serviço instalado ou teste do Esterium realizado nesta VM.
+- Criei VM limpa separada `Esterium-Windows-Lab-Fresh-20261104` (UUID `b9774f34-583e-491e-9b2e-d11702f59476`), VDI próprio de 80 GB e snapshot vazio `Blank baseline before Windows - 2026-11-04`. ISO oficial carregou `cdboot.efi`, mas o log registrou `EFI: Boot failure`/`VMBootFail` aos 35,96 s. Salvei as duas VMs por meio do VirtualBox; sem encerramento forçado.
+- Revisão dos `.vbox` confirmou EFI/Secure Boot, mas não encontrou configuração TPM 2.0 em nenhuma VM; descrição antiga do snapshot não comprova TPM. O CLI não persistiu a configuração TPM. Não iniciei a instalação nem contornei o requisito do Windows 11.
+- Consultas de inventário do VirtualBox funcionaram em modo elevado e somente leitura: ambas as VMs aparecem `saved`; `Treino` segue inacessível. As tentativas sem elevação continuam retornando `E_ACCESSDENIED`.
+- PR #216 segue Draft, sem merge. Hashes e artefatos locais não substituem homologação: 19 áreas e operações Windows reais seguem pendentes até instalar o ERP na VM e executar a matriz.
+- A descrição remota da PR #216 ainda contém o checkpoint antigo “PC não pode ser liberado agora”. Não editei o texto público; este relatório local registra a retomada atual.
+- O usuário autorizou atualizar VirtualBox no host. Instalador Oracle oficial 7.2.22 está salvo em `D:\ERP\evidencias\esterium-vm\instalacao\VirtualBox-7.2.22-175245-Win.exe`, SHA-256 `AFD0FF1656CBE04ED88CE619594AE021419D97CCE89FA9BDC443E9A963F1713F` e Authenticode válido. Na primeira tentativa, a versão permaneceu 7.2.8; a espera `92298` terminou com “A operação foi cancelada pelo usuário”.
+- Nova tentativa autorizada em 04/11/2026: o usuário confirmou o UAC e aceitou o contrato do Oracle; após “Files in Use”, o usuário fechou o Gerenciador e acionou Retry. O instalador terminou com saída `0`; `VBoxManage --version` confirmou `7.2.22r175245`. Consulta elevada e somente leitura confirmou ambas as VMs salvas antes do teste, seus snapshots, EFI e Secure Boot ativos; o host não foi reiniciado.
+- Após a atualização, `VBoxManage startvm` iniciou a VM limpa. O primeiro start retomou o estado salvo anterior; um `controlvm reset` reiniciou somente o hardware virtual sem encerrar o processo `VirtualBoxVM`. O log registrou `cdboot.efi` e `EFI: Boot failure`/`VMBootFail` em 2:07; depois disso, a janela avançou para “Installing Windows 11”. A captura mais recente mostra 29%, ainda em andamento. O original continua salvo e o snapshot-base da VM limpa permanece preservado.
+- A interface Computer Use falhou ao clicar na VM limpa no Gerenciador (`Input or refresh outcome is unknown; stop and report` após reobservação); usei `VBoxManage` autorizado para iniciar apenas a VM de diagnóstico. A consulta `VBoxManage modifynvram ... listvars` falhou com `VBOX_E_INVALID_OBJECT_STATE` enquanto a sessão gráfica mantém a VM bloqueada; nenhuma chave foi alterada. O usuário informou que o Windows está instalando, então mantive a VM aberta. Na retomada, o estado foi confirmado como `running` e o snapshot-base permaneceu. A última captura direta era 29%; o usuário informou 77% depois. Duas tentativas de ativação com janela atualizada falharam (`failed to activate captured window`), sem nova entrada enviada à interface. Nenhuma tela do Esterium foi homologada ainda.
+- No checkout da branch da PR, `go test ./...`, `npm run lint`, `npm run build`, `npm run test:assets`, `npm run test:brand`, verificação do bundle por manifesto e `git diff --check` passaram. A suíte Go precisou de permissão local de loopback; não houve tráfego externo. Isso não cobre execução GUI na VM.
+- Em 04/11/2026, GitHub confirmou PR #216 aberta, Draft, sem merge, `mergeable=true`, head `5eaebb52218bb24f66b87bce0758ec1fec166332`. Para esse head, CI [41913534237](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41913534237) concluiu 20/20 jobs com sucesso; Windows Setup [41913534238](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41913534238) concluiu 4 jobs com sucesso e ignorou 4. O job `complete-first-install-lab` passou em runner descartável; os artefatos [browser evidence](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41913534238/artifacts/13365187063) e [Windows lab screens](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41913534238/artifacts/13363824747) não são provas da VM local. Graphify gerou mapa isolado de `web/src` (48 arquivos, 494 nós, 1.148 arestas, 20 comunidades, custo de tokens 0) em `D:\ERP\graphify-websrc-2026-11-04\graphify-out\`; isso não substitui testes de runtime.
+
+## Estado atual da VM de homologação (04/11/2026, 21:47 BRT)
+
+- Consulta elevada somente leitura e captura às 21:47 confirmam a VM `Esterium-Windows-Lab-Fresh-20261104` (`b9774f34-583e-491e-9b2e-d11702f59476`) em `running`, VirtualBox `7.2.22r175245`, EFI/Secure Boot ativos, ISO oficial Enterprise Evaluation anexada e snapshot-base `Blank baseline before Windows - 2026-11-04` (`0f4c1246-b139-44bd-9f94-8ad5bb1c848a`). A VM original permanece salva. Nenhuma configuração ou chave NVRAM foi alterada.
+- Na captura das 21:47, o OOBE ainda pedia login de trabalho/escola. Tab só mostrou validação de e-mail vazio; Enter não abriu opções; nenhuma credencial foi digitada. A captura daquele momento não mostra desktop: `D:\ERP\evidencias\esterium-vm\instalacao\oobe-current-20261104T2147.png`.
+- O usuário confirmou que não tem `EsteriumERP-Setup.exe` completo assinado. A prévia técnica com payload real foi compilada no host, com Apply permanentemente desativado: 463.227.904 bytes, SHA-256 `0095C1C3B66B050A48C39940362D7E7852D4BA91EFBC5B5D7677D2A6FA308011`. Gates locais passaram (`--self-test`, `--has-payload`, `--has-preview-approvals`, `--is-retail-build=3`). A ISO UDF 1.02 em `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-Technical-Preview-Payload-PR216-20261104.iso` passou `7z t`; SHA-256 `BA25F9DE1153EE6ADD28D073E45DE2B2418E833507A70E939C9850AB504C4162`. Ainda não foi aberta na VM e não habilita instalação.
+- O pacote local `gui-lab-inputs-pr216-a02551f4.zip` confere com seu sidecar SHA-256, mas traz bundle, dependências e fontes do Setup, sem EXE completo pré-construído. `windows-setup/test-complete-install-lab-ci.ps1:6-10` restringe Apply a runner Windows hospedado pelo GitHub e assinado com identidade temporária de CI; não vou contornar essa proteção neste host.
+- Inventário do run CI `41913534238` retorna só `Esterium-Windows-Setup-UNSIGNED-TECHNICAL-PREVIEW` (36.437 bytes), `esterium-complete-install-browser-evidence` e `esterium-windows-lab-screens`; não há artefato completo assinado para instalar nesta VM.
+- O resultado às 21:47 era **incompleto**: desktop ainda não comprovado, Setup do Esterium não executado, sem serviços ou operação do ERP na VM. As 19 áreas, reboot, backup/restauração, rede, segurança, desempenho e periféricos não tinham evidência local. O OOBE de conta local foi concluído mais tarde, conforme as atualizações abaixo.
+
+## Retomada do OOBE (04/11/2026, 23:15 BRT)
+
+- O usuário informou que não tem e-mail de trabalho; o fluxo local foi usado, sem credenciais Microsoft. `EsteriumLab` já constava como nome existente após a VM aparecer desligada. O OOBE aceitou `EsteriumLabResume` e avançou à atualização; senha vazia, sem dados pessoais.
+- Região Brasil selecionada; localização e “Find my device” desativados. Layout do teclado e demais escolhas ainda não confirmados.
+- Na revalidação, VM apareceu desligada. Reiniciei somente `Esterium-Windows-Lab-Fresh-20261104` pelo disco atual, sem reset/reverter snapshot. Agora `running`, Secure Boot ativo e snapshot-base `0f4c1246-b139-44bd-9f94-8ad5bb1c848a` preservado.
+- Captura `D:\ERP\evidencias\esterium-vm\instalacao\oobe-update-progress9-20261104.png` registra Windows Update, etapa 2/3, download 53%. Desktop ainda não apareceu.
+- Não há Setup completo assinado disponível. A prévia com payload real continua com Apply desativado; não executei instalação. Homologação real das 19 áreas, reboot, backup/restauração, rede, segurança e periféricos segue pendente.
+
+## Finalização do Windows Update (04/11/2026, 23:53 BRT)
+
+- Windows concluiu as etapas de download e chegou a 100% na instalação, mas ainda não confirmou o fim nem mostrou desktop. Capturas recentes alternam tela preta e “100% there”: `D:\ERP\evidencias\esterium-vm\instalacao\windows-update-post100-3-20261104.png`.
+- Às 23:53, VM segue `running`, VirtualBox responde e o log é recente; snapshot-base `0f4c1246-b139-44bd-9f94-8ad5bb1c848a` preservado. Sem reset ou restauração.
+- E-mail corporativo não é necessário: OOBE usa conta local sintética e nenhuma credencial real. A homologação do produto segue pendente porque não há instalador comercial assinado; Apply na prévia técnica está desativado.
+
+## OOBE após atualização (05/11/2026, 00:03 BRT)
+
+- A conta local `EsteriumLabResume` foi aceita; não é necessário e-mail de trabalho nem conta Microsoft. Captura das 23:59 BRT de 04/11, `D:\ERP\evidencias\esterium-vm\instalacao\vm-update-progress-20261104-2359.png`, mostra a tela de privacidade do OOBE, ainda sem desktop.
+- “Location” está em **Yes** e “Find my device” em **No**. A tela aguarda o usuário escolher a preferência e clicar em “Next”; não alterei essa configuração.
+- Consulta somente leitura confirma VM em execução, VirtualBox respondendo e snapshot-base `0f4c1246-b139-44bd-9f94-8ad5bb1c848a` preservado. Sem reset ou restauração.
+- Ainda não há Setup completo assinado para aplicar. Portanto, não foram homologadas as 19 áreas, reboot, backup/restauração, rede, segurança, desempenho ou periféricos.
+
+## Desktop e prévia montada (05/11/2026, 00:10 BRT)
+
+- O usuário concluiu a tela de privacidade e confirmou a área de trabalho. Captura: `D:\ERP\evidencias\esterium-vm\instalacao\desktop-confirmed-20261105-0005.png`.
+- ISO técnica anexada após o OOBE; SHA-256 `BA25F9DE1153EE6ADD28D073E45DE2B2418E833507A70E939C9850AB504C4162`. O Explorer da VM mostra `EsteriumERP-Setup-TECHNICAL-PREVIEW.exe`, licença e avisos. Captura: `D:\ERP\evidencias\esterium-vm\instalacao\technical-preview-mounted-20261105.png`.
+- A prévia ainda não foi executada na VM e nenhuma instalação foi aplicada. Aguarda confirmação do usuário para abrir o EXE. O instalador completo assinado segue indisponível, portanto as 19 áreas e cenários de reboot, backup/restauração, rede, segurança, desempenho e periféricos ainda não foram homologados localmente.
+- VM continua `running`; snapshot-base `0f4c1246-b139-44bd-9f94-8ad5bb1c848a` intacto.
+
+## Build técnico corrigido e reteste pendente (05/11/2026, 00:45 BRT)
+
+- A prévia GUI anterior passou em Verify; Plan falhou ao comparar HTTPS na porta padrão 443 com o listener `8443`, e a tela exibiu detalhes locais da exceção. O código local corrigiu a origem padrão, informou `-ListenAddress 0.0.0.0:8443` e passou a registrar apenas etapa/código de saída, sem stdout/stderr bruto.
+- Build técnico local: `D:\ERP\evidencias\esterium-vm\instalacao\technical-preview-fixed-20261105\EsteriumERP-Setup-TECHNICAL-PREVIEW.exe`, 463.228.416 bytes, SHA-256 `93B72BF4150DF29C3C10B61CA68329F7F97252FFC2BE81BF16C78DB1BCCB63E7`. Sem assinatura Authenticode comercial; Apply permanece permanentemente desativado. O bundle embutido veio dos insumos do commit `a02551f4b34a38afba6d8e840f48aa4912615a3b`, e o Setup foi compilado do checkout local.
+- Inspeção somente leitura confirmou hashes do bundle e dos fornecedores (PostgreSQL/EDB, Garnet, NSSM), total de 379 arquivos; nenhum fornecedor foi executado no host. ISO UDF 1.02 `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-Technical-Preview-Payload-PR216-FIXED-ROOT-20261105.iso` passou `7z t`, tem quatro arquivos na raiz e SHA-256 `3102B13FE1759173440AA9EF40EFC88F8464B87B397FEF9D4131ABEDC1437121`.
+- `VBox.log` registra a ISO nova montada como DVD e a VM voltando a `RUNNING`; o snapshot-base segue preservado. A tela do convidado ficou preta após a troca de mídia. Tentei acordá-la com Space, sem efeito; `VBoxManage` no host retornou `E_ACCESSDENIED`. Não encerrei/reiniciei a VM, não restaurei snapshot e não preparei/apliquei instalação. A nova GUI ainda precisa ser aberta para confirmar a correção de Plan.
+- Resultado local continua incompleto: ERP, PostgreSQL e Garnet não instalados; nenhuma das 19 áreas funcionais, reboot do Windows, backup/restauração, serviços, LAN, segurança, desempenho ou periféricos foi homologada nesta VM. PR #216 permanece Draft e sem merge.
+
+## Rechecagem local da VM (05/11/2026, 01:03 BRT)
+
+- VM visivelmente em execução, ISO corrigida anexada; snapshot-base `0f4c1246-b139-44bd-9f94-8ad5bb1c848a` continua apontado no `.vbox` e diferencial permanece presente. `VBoxManage` segue bloqueado por `E_ACCESSDENIED` sem elevação.
+- A janela GUI restante era da prévia antiga e repetia erro de porta/stack; foi fechada. `C:\Program Files` não mostra `EsteriumOpenSourceStage`. Novo EXE está na unidade ISO `D:` e aguarda confirmação para executar apenas Verify/Plan. Nenhum Apply ou teste funcional das 19 telas foi feito nesta etapa.
+- PR #216 reconsultada: aberta, Draft, sem merge, `mergeable=true`, head `5eaebb52218bb24f66b87bce0758ec1fec166332`.
+
+## Reinício do convidado não concluído (05/11/2026, 01:10 BRT)
+
+- Ctrl+Alt+Del abriu a tela de segurança; Cancel retornou ao desktop, confirmando resposta da interface Windows. Os menus de energia e Alt+F4 não abriram opções de reinício. Nenhum reboot/reset/desligamento ocorreu.
+- Janela VirtualBox segue `RUNNING`; `VBox.log` atualizado às 01:06:32 BRT. Snapshot-base e ISO técnica continuam referenciados no `.vbox`. Sem elevação, `VBoxManage` segue com `E_ACCESSDENIED`.
+- Novo EXE não executado; aguarda confirmação específica. Nenhuma das 19 telas ou reinício foi homologado nesta etapa.
+
+## Atualização da homologação em VM — reboot do Windows (05/11/2026, 01:10–01:20 BRT)
+
+- O Windows reiniciou pelo menu Energia → Reiniciar e voltou à área de trabalho. `VBox.log` da VM Fresh registra `RESETTING` → `RUNNING` e `NAT: Link up`; evidência visual foi inspecionada nesta sessão, sem arquivo de captura exportado.
+- Snapshot-base `0f4c1246-b139-44bd-9f94-8ad5bb1c848a`, VDI diferencial e ISO técnica permanecem referenciados/presentes. Sem restauração de snapshot.
+- O reboot do sistema convidado passou; recuperação pós-reboot de serviços Esterium segue sem teste porque ainda não houve instalação do ERP.
+- As 19 áreas, instalação GUI, backup/restauração, LAN com segundo dispositivo, segurança e periféricos permanecem abertas. A prévia técnica mantém Apply bloqueado e aguarda confirmação específica para executar. Os scripts de instalação completa disponíveis na árvore são restritos a CI; seus guardas não foram contornados.
+
+## Build da prévia com bundle atual (05/11/2026)
+
+- EXE compilado do checkout local do head `5eaebb52218bb24f66b87bce0758ec1fec166332`; bundle ERP contém 376 arquivos e manifesto SHA-256 `08FAE70D333DA7009779BBE8B20FD7BFDBAC5DEC71E60FEC194FAB8E77754018`.
+- Artefato: `D:\ERP\evidencias\esterium-vm\instalacao\technical-preview-pr216-ui-fix-20261105\EsteriumERP-Setup-TECHNICAL-PREVIEW.exe`; 463.232.512 bytes; SHA-256 `BB093A0AA1FD047DA08A512F40AAC0949BFF3EE9B1B27D0C194071A36BF47FBD`; Authenticode `NotSigned`.
+- Build incorporou bundle e fornecedores com hashes conferidos. A prévia não tem assinatura comercial e mantém `Apply` permanentemente desativado. Não foi executada no host nem na VM.
+- A GUI agora deriva a porta do listener da origem HTTPS informada e encaminha certificado/chave PEM e CIDR privado ao instalador no caminho de Apply. `git diff --check` passou. Ainda falta validar Plan nessa nova GUI; instalação, 19 áreas, backup/restauração, LAN e recuperação de serviços seguem abertas.
+
+## Revalidação da build e do estado da VM (05/11/2026, 13:04 BRT)
+
+- Computer Use lista a VM Fresh e o VirtualBox Manager em execução; usuário confirmou desktop Windows. Snapshot-base `0f4c1246-b139-44bd-9f94-8ad5bb1c848a` e ISO técnica atual seguem preservados. EXE atual tem 463.232.512 bytes, SHA-256 `BB093A0AA1FD047DA08A512F40AAC0949BFF3EE9B1B27D0C194071A36BF47FBD`, Authenticode `NotSigned`; `Apply` desativado.
+- PR #216 segue aberta, Draft, não merged, head `5eaebb52218bb24f66b87bce0758ec1fec166332`; CI `41913534237` passou 20/20. Windows Setup `41913534238` teve 4 gates aplicáveis aprovados e 4 ignorados; instalação completa ocorreu em runner descartável, sem Setup VM-LAB assinado publicado.
+- Mudanças locais de GUI/builder ainda não estão no PR e não foram cobertas por CI. A confirmação específica para abrir a prévia e executar Verify/Plan segue pendente; não rodei o EXE nem apliquei instalação.
+- Correção do status de reboot: Windows reiniciou pelo menu Energia antes da instalação, retornou à área de trabalho. Recuperação de serviços e dados Esterium após instalação segue pendente. Nenhuma das 19 áreas foi testada na VM.
+
+## ISO da prévia atual montada na VM (05/11/2026)
+
+- ISO UDF 1.02: `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-Technical-Preview-PR216-CURRENT-HEAD-20261105.iso`; 464.388.096 bytes; SHA-256 `9FD0A0245AA2E9541F54B5ED2D7319DD7E2597BDC582078D4F449D99880541CD`. `7z t` passou; contém EXE, hash, licença e avisos.
+- Montei essa mídia na VM Fresh pela GUI do VirtualBox. O `.vbox` aponta DVD ao UUID `{ec38e138-5830-4924-9126-4856ee5a3526}` e a `VBox.log` registra suspensão/resumo com a ISO nova em `RUNNING`. Snapshot-base `0f4c1246-b139-44bd-9f94-8ad5bb1c848a` continua selecionado.
+- A tela ficou preta após a troca; clique e Enter retornaram à área de trabalho. EXE não executado. Verify/Plan aguardam confirmação de ação; nenhuma instalação foi aplicada. As 19 áreas e cenários restantes continuam abertos.
+
+## Estado ao retomar (05/11/2026, 02:16 BRT)
+
+- VM continua em execução, snapshot-base e mídia montada preservados. O convidado exibe encerramento agendado em 10 minutos e data interna de 05/11/2025; não alterei a VM nem cancelei o aviso. `VBoxManage showvminfo` foi negado com `E_ACCESSDENIED`; a configuração `.vbox` e `VBox.log` confirmam o disco diferencial e a ISO atuais.
+- O modo `-VMHomologationBuild` exige bundle em modo de release assinado, manifesto aprovado e thumbprint independente. Os quatro executáveis Esterium estão `NotSigned` em todas as quatro cópias de bundle locais; não há bundle elegível para Apply. O instalador completo de CI recusa host fora do runner GitHub descartável. Não contornei esses gates nem alterei certificados confiáveis.
+- Prévia do head atual já compilada sem licença/assinatura comercial; tamanho 463.232.512 bytes, SHA-256 `BB093A0AA1FD047DA08A512F40AAC0949BFF3EE9B1B27D0C194071A36BF47FBD`. Pedido do usuário cobre build; não executei o EXE nem Verify/Plan. `Apply` permanece desativado.
+- Homologação funcional ainda não concluída: instalação GUI, 19 áreas, backup/restauração, recuperação após reboot, rede/segurança e evidências exportadas continuam pendentes. PR #216 permanece sem merge automático.
+- Consulta GitHub ao vivo confirma PR #216 **open**, **Draft**, não merged, head `5eaebb52218bb24f66b87bce0758ec1fec166332`; não houve escrita remota.
+- Depois do aviso de encerramento do Windows, a VM foi desligada; reabri o Gerenciador e iniciei somente `Esterium-Windows-Lab-Fresh-20261104`. Snapshot base e estado atual modificado seguem na árvore, sem restore. Windows voltou ao desktop; `VBox.log` registra `NAT: Link up`; ISO continua montada. Setup não executado.
+- Revalidação ao vivo das Actions ligadas à PR: run `41907778163` concluiu 20/20 jobs com sucesso; run Windows Setup `41907777994` teve 4 jobs/gates aplicáveis com sucesso e 4 componentes reservados a `workflow_dispatch` ignorados. O laboratório de instalação é runner descartável GitHub. Artefatos listados para esse run são evidência de navegador/telas e prévia unsigned; não há instalador VM-LAB assinado disponível.
+- Esses runs validam o código no commit `ac83fe5b7e21ffaf1043f25a7a6a66de2c8c3a50`; a metadata da PR informa que o head remoto atual `5eaebb52218bb24f66b87bce0758ec1fec166332` acrescenta documentação. As mudanças de Setup ainda não commitadas neste checkout local não foram executadas por esses jobs nem pela VM.
+- `windows-setup/test-embedded-preview.ps1` passou em modo somente leitura na prévia local: manifesto e hashes de PostgreSQL/Garnet/NSSM conferem, 379 arquivos no payload. Isso não executa nem comprova o fluxo gráfico; a prévia continua sem assinatura e sem `Apply`.
+
+## Atualização 05/11/2026, 13:23 BRT — Verify e Plan em VM
+
+- Na VM `Esterium-Windows-Lab-Fresh-20261104`, abri a prévia técnica atual a partir do DVD `D:`. EXE de 463.232.512 bytes, SHA-256 `BB093A0AA1FD047DA08A512F40AAC0949BFF3EE9B1B27D0C194071A36BF47FBD`, Authenticode `NotSigned`.
+- `Verificar arquivos` retornou `PASS` para os hashes ERP e fornecedores. `Ver plano` retornou `Plano concluído sem alterações`, sem elevação e sem `Apply`; o plano listou PostgreSQL 16, Garnet, ERP, TLS e banco novo, com vendas desativadas.
+- Recusei a confirmação separada de `Preparar arquivos (não instala)`; a interface registrou `Preparação cancelada`. Não houve confirmação de preparação nem instalação.
+- A observação visual não foi exportada para arquivo local. PR/remoto não foram alterados nesta etapa.
+- **Fechamento integral ainda pendente:** não há instalação do ERP; as 19 áreas, reboot e recuperação pós-instalação, persistência, backup/restauração, LAN, segurança e periféricos não foram homologados na VM. A prévia unsigned mantém `Apply` bloqueado. Evidência de CI runner descartável não substitui esses testes locais.
+
+## Pré-checagem Windows pendente (05/11/2026, 13:31 BRT)
+
+- A pré-checagem da GUI é somente leitura, mas o código exige antes as pastas de ERP e fornecedores preparadas. Os dois estágios não foram executados.
+- O fluxo pediu UAC para o EXE `NotSigned`; recusei a elevação porque a condição de preparo ainda não estava atendida. A interface registrou `UAC cancelado/falhou`; a checagem não rodou e não prova estado limpo da VM.
+- Próxima ação de GUI: preparar ERP e dependências em diretórios protegidos da VM; isso copia arquivos verificados, sem iniciar serviço ou executar `Apply`. Aguarda autorização específica, pois grava em `Program Files` e pede UAC.
+
+## Etapa ERP copiada; dependências pendentes (05/11/2026, 13:37 BRT)
+
+- `Preparar arquivos` terminou com `PASS` na GUI. ERP verificado copiado para `C:\Program Files\EsteriumOpenSourceStage`; interface confirma que nenhum serviço ou banco foi instalado.
+- `Preparar dependências` foi iniciado. Confirmei a etapa cujo escopo é copiar PostgreSQL/Garnet/NSSM verificados sem executar instaladores ou criar serviços/contas/SQL. A tela agora aguarda UAC para o EXE não assinado.
+- A automação não acionou a tela segura do UAC; pedi ao usuário para clicar **Yes** na VM. Dependências ainda não copiadas; sem `Apply`.
+- A homologação integral segue em aberto: preflight, instalação, 19 áreas, reboot/recuperação pós-instalação, backup/restauração, rede e segurança ainda sem prova funcional local.
+
+## UAC de dependências cancelado (05/11/2026, 13:40 BRT)
+
+- A reobservação encontrou o Setup novamente visível e sem UAC aberto. O log registra `UAC cancelado/falhou: The operation was canceled by the user`; não repeti a elevação.
+- O estágio ERP permanece concluído. PostgreSQL/Garnet/NSSM não foram copiados; não houve preflight, criação de serviços/banco ou `Apply`.
+- Sem confirmação de UAC, o próximo estágio permanece pendente. Instalação funcional e matriz das 19 áreas continuam abertas; não exportei captura local.
+
+## Dependências e pré-checagem passaram na VM (05/11/2026, 14:45 BRT)
+
+- Atualização que supersede o checkpoint das 13:40: o usuário confirmou **Yes** no UAC. A GUI concluiu `Preparar dependências` com cópia verificada de PostgreSQL, Garnet e NSSM para o estágio protegido da VM. Nenhum instalador de fornecedor foi executado.
+- A ação `Pré-checar Windows (não instala)` retornou `PASS: arquivos e Windows limpo para futura instalação. Nenhum serviço instalado.` O preflight só leu Windows/portas/serviços e os estágios preparados. Nenhum serviço ou banco do Esterium foi criado; `Apply` não foi executado.
+- Evidência visual: `D:\ERP\evidencias\esterium-vm\instalacao\preflight-windows-pass-20261105.jpg`, SHA-256 `41AE94565285B71351A63FA6114D55B9CB561045FC3CF6ACC61D827EA1412440`.
+- A prévia é `NotSigned` e mantém `Apply` desativado. Reconsulta ao run `41913534238` encontrou somente artefatos de evidência do runner e `Esterium-Windows-Setup-UNSIGNED-TECHNICAL-PREVIEW`; nenhum Setup VM-LAB assinado está disponível. Não alterei confiança de certificados nem contornei o bloqueio.
+- Instalação funcional, 19 áreas, reboot/recuperação pós-instalação, persistência, backup/restauração, LAN, segurança e periféricos seguem sem homologação local. PR #216 continua aberta/Draft, head `5eaebb52218bb24f66b87bce0758ec1fec166332`; não houve escrita remota, merge ou release.
+
+## Atualização 05/11/2026 — SignPath OSS
+
+- O usuário escolheu solicitar assinatura gratuita da SignPath Foundation. A inscrição ainda não existe nem foi aprovada. Se aceita, o publicador visível será SignPath Foundation; aprovação manual é exigida para cada assinatura e o aceite não é garantido.
+- O builder agora incorpora os hashes de release e o thumbprint aprovado no EXE. A GUI carrega esses valores em campos somente leitura e valida Authenticode antes do `Apply`; o probe `--is-retail-build` também exige payload, metadados válidos e assinatura do publicador aprovado.
+- Verificação local: compilação do EXE sem payload, `--self-test`, portas de bloqueio para payload/aprovações ausentes, parser PowerShell e `git diff --check` passaram. Isso não prova um bundle funcional assinado. O probe de instalação completa não foi executado neste host.
+- Bloqueios: não há bundle/EXE funcional disponível nesta cópia; o pacote testado por CI usa instalador EDB com redistribuição ainda sob revisão; a rota PostgreSQL ZIP permanece sem `Apply`; não há release funcional pública exigida pela SignPath, conta/configuração/token, MFA e política formal ativa.
+- Nenhum pedido foi enviado à SignPath. Não houve publicação, assinatura, release ou merge nesta atualização.
+
+## Bloqueio 1 — rota PostgreSQL ZIP no instalador
+
+- O build assinado agora aceita `-PostgresBinaryZip` com o ZIP oficial PostgreSQL 16.15-5 e SHA-256 fixo. O EXE de release registra `pgFormat=zip`; o parser recusa SHA diferente e thumbprint EDB preenchido.
+- O coordenador propaga esse formato por verificação, preparação e instalação. No Apply, valida o ZIP novamente, extrai em estágio protegido, cria a conta local sem admin, concede apenas o direito de logon como serviço, inicializa o cluster com SCRAM e senha temporária ACL-protegida e registra PostgreSQL desabilitado/parado. A etapa TLS existente recebe a mesma prova de cluster novo.
+- A CI de instalação completa agora roda em duas VMs Windows descartáveis independentes, uma para EDB e outra para ZIP, usando a mesma aceitação de banco, TLS, ERP, reparo e desinstalação. Essa CI ainda não foi executada para estas alterações; o Apply não foi testado neste PC ou na VM do usuário.
+- A página oficial PostgreSQL diz que o ZIP sem instalador é destinado a inclusão em instaladores de outras aplicações; a licença PostgreSQL permite copiar e distribuir sob condições de aviso. O caminho ZIP dispensa redistribuir o EDB EXE. Falta revisar e incluir avisos de eventuais dependências dentro do ZIP antes de publicar: [Windows downloads](https://www.postgresql.org/download/windows/), [PostgreSQL License](https://www.postgresql.org/about/licence/).
+- Verificação local: parser PowerShell passou nos oito scripts alterados; `git diff --check` passou; o Setup C# sem payload compilou e o probe confirmou que a porta de instalação segue bloqueada. Um artefato sintético confirmou que o parser aceita metadados `pgFormat=zip` apenas com o SHA fixado e thumbprint EDB vazio. O código LSA compilou em memória, sem invocar a alteração de direitos locais. A pasta temporária de build foi removida.
+- Estado: rota implementada, ainda sem homologação E2E. Assinatura SignPath, auditoria dos avisos do ZIP e aceitação do release seguem abertos; nenhuma alteração remota, publicação ou instalação foi feita nesta etapa.

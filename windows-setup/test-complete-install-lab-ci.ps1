@@ -1,6 +1,6 @@
 #requires -Version 7.2
 [CmdletBinding()]
-param()
+param([switch]$PostgresBinaryZip)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -ne '1' -or [string]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE) -or [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
@@ -216,19 +216,20 @@ try {
     & $releaseCheck -BundleDir $bundle -ExpectedManifestSHA256 $manifestSHA256 -ExpectedPublisherThumbprint $signerThumbprint
     Write-Output 'PASS: bundle integrity verified; all Esterium code is signed; Microsoft runtime remains vendor-signed.'
 
-    $edbHash = 'DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'
-    $edbSigner = '7BEDD1269FCCF7A5D95F18274750B79893C06C70'
+    $postgresHash = if($PostgresBinaryZip){'43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'}else{'DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'}
+    $postgresSigner = if($PostgresBinaryZip){''}else{'7BEDD1269FCCF7A5D95F18274750B79893C06C70'}
     $garnetHash = '5CD130686AB415B13C59D36D048A6FADED81E707FFE6DA5953F98BEEB79F9F16'
     $nssmArchiveHash = '99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
     $nssmHash = 'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'
-    $edbExe = Join-Path $vendor 'postgresql-16.15-1-windows-x64.exe'
+    $postgresPackage = if($PostgresBinaryZip){Join-Path $vendor 'postgresql-16.15-5-windows-x64-binaries.zip'}else{Join-Path $vendor 'postgresql-16.15-1-windows-x64.exe'}
     $garnetZip = Join-Path $vendor 'garnet-2.2.3-win-x64.zip'
     $nupkg = Join-Path $vendor 'nssm-2.24.101-g897c7ad.nupkg'
     $nssmZip = Join-Path $vendor 'nssm-2.24-101-g897c7ad.zip'
     $nssmExtract = Join-Path $vendor 'nssm-unpacked'
     $nssmExe = Join-Path $vendor 'nssm.exe'
-    Write-Output 'Downloading and verifying the pinned EDB, Garnet, and NSSM vendor inputs.'
-    Invoke-PinnedDownload 'https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64.exe' $edbExe $edbHash
+    Write-Output ('Downloading and verifying PostgreSQL '+$(if($PostgresBinaryZip){'official ZIP'}else{'EDB installer'})+', Garnet, and NSSM inputs.')
+    $postgresUrl=if($PostgresBinaryZip){'https://get.enterprisedb.com/postgresql/postgresql-16.15-5-windows-x64-binaries.zip'}else{'https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64.exe'}
+    Invoke-PinnedDownload $postgresUrl $postgresPackage $postgresHash
     Invoke-PinnedDownload 'https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip' $garnetZip $garnetHash
     & curl.exe '-fLsS' '--retry' '2' '--connect-timeout' '25' '--max-time' '180' '-o' $nupkg 'https://community.chocolatey.org/api/v2/package/NSSM/2.24.101-g897c7ad'
     if ($LASTEXITCODE -ne 0) { throw 'Pinned NSSM transport package download failed.' }
@@ -248,17 +249,19 @@ try {
     $nssmSource = Join-Path $nssmExtract 'nssm-2.24-101-g897c7ad\win64\nssm.exe'
     Copy-Item -LiteralPath $nssmSource -Destination $nssmExe -ErrorAction Stop
     if ((Get-FileHash -LiteralPath $nssmExe -Algorithm SHA256).Hash -cne $nssmHash) { throw 'The x64 NSSM service wrapper differs from the independently pinned release.' }
-    $edbSignature = Get-AuthenticodeSignature -LiteralPath $edbExe
-    if ($edbSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or $null -eq $edbSignature.SignerCertificate -or $edbSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $edbSigner) {
-        throw 'The pinned EDB installer does not have its approved vendor Authenticode identity.'
+    if(-not $PostgresBinaryZip){
+        $edbSignature = Get-AuthenticodeSignature -LiteralPath $postgresPackage
+        if ($edbSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or $null -eq $edbSignature.SignerCertificate -or $edbSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $postgresSigner) {
+            throw 'The pinned EDB installer does not have its approved vendor Authenticode identity.'
+        }
     }
 
     $setupExeDir = Join-Path $tempRoot 'signed-setup-exe'
     $setupBuilder = Join-Path $repo 'windows-setup\build-esterium-setup-exe.ps1'
     & $setupBuilder -OutputDir $setupExeDir -BundleDir $bundle `
         -ApprovedManifestSHA256 $manifestSHA256 -TrustedPublisherThumbprint $signerThumbprint `
-        -PostgresInstaller $edbExe -ExpectedPostgresSHA256 $edbHash `
-        -ExpectedPostgresPublisherThumbprint $edbSigner -GarnetPackage $garnetZip `
+        -PostgresInstaller $postgresPackage -ExpectedPostgresSHA256 $postgresHash `
+        -ExpectedPostgresPublisherThumbprint $postgresSigner -PostgresBinaryZip:$PostgresBinaryZip -GarnetPackage $garnetZip `
         -ExpectedGarnetSHA256 $garnetHash -ServiceWrapperExe $nssmExe `
         -ExpectedServiceWrapperSHA256 $nssmHash
     $setupExe = Join-Path $setupExeDir 'EsteriumERP-Setup.exe'
@@ -270,18 +273,19 @@ try {
     $payloadProbe = Start-Process -FilePath $setupExe -ArgumentList '--has-payload' -Wait -PassThru
     $retailProbe = Start-Process -FilePath $setupExe -ArgumentList '--is-retail-build' -Wait -PassThru
     $previewProbe = Start-Process -FilePath $setupExe -ArgumentList '--has-preview-approvals' -Wait -PassThru
-    if ($payloadProbe.ExitCode -ne 0 -or $retailProbe.ExitCode -ne 0 -or $previewProbe.ExitCode -ne 2) {
-        throw 'Signed-mode Setup.exe payload, retail flag, or preview-metadata gate failed.'
+    $releaseProbe = Start-Process -FilePath $setupExe -ArgumentList '--has-release-approvals' -Wait -PassThru
+    if ($payloadProbe.ExitCode -ne 0 -or $retailProbe.ExitCode -ne 0 -or $previewProbe.ExitCode -ne 2 -or $releaseProbe.ExitCode -ne 0) {
+        throw 'Signed-mode Setup.exe payload, Authenticode retail flag, preview-metadata, or embedded release-approval gate failed.'
     }
-    Write-Output 'PASS: signed non-preview Setup.exe embeds actual ERP and vendor payload and reports retail mode under disposable CI signer.'
+    Write-Output 'PASS: signed non-preview Setup.exe embeds actual ERP, vendor payload and release approvals and reports retail mode under disposable CI signer.'
     Write-Output 'Applying the real complete first-install coordinator on this disposable runner.'
     $completeInstaller = Join-Path $bundle 'tools\install-esterium-local-complete.ps1'
     $installArgs = @{
         SourceBundleDir = $bundle
         AllowedOrigin = $origin
-        PostgresInstaller = $edbExe
-        ExpectedPostgresSHA256 = $edbHash
-        ExpectedPostgresPublisherThumbprint = $edbSigner
+        PostgresInstaller = $postgresPackage
+        ExpectedPostgresSHA256 = $postgresHash
+        ExpectedPostgresPublisherThumbprint = $postgresSigner
         GarnetPackage = $garnetZip
         ExpectedGarnetSHA256 = $garnetHash
         ServiceWrapperExe = $nssmExe
@@ -296,6 +300,7 @@ try {
         GarnetPort = $garnetPort
         Apply = $true
     }
+    if($PostgresBinaryZip){$installArgs.PostgresBinaryZip=$true}
     & $completeInstaller @installArgs
     Assert-InstalledServices
     Wait-ERPReady $httpsPort 120
@@ -310,7 +315,7 @@ try {
     if (-not (Test-Path -LiteralPath $shortcut) -or [IO.File]::ReadAllText($shortcut) -notmatch ('(?m)^URL=' + [Regex]::Escape($origin) + '\r?$')) {
         throw 'The first install did not create its expected all-users HTTPS shortcut.'
     }
-    Write-Output 'PASS: signed coordinator installed EDB/PostgreSQL, protected DB secrets, Garnet TLS/ACL/AOF, schema, first admin, ERP, HTTPS, scoped firewall, and shortcut.'
+    Write-Output ('PASS: signed coordinator installed '+$(if($PostgresBinaryZip){'official ZIP PostgreSQL'}else{'EDB PostgreSQL'})+', protected DB secrets, Garnet TLS/ACL/AOF, schema, first admin, ERP, HTTPS, scoped firewall, and shortcut.')
 
     Write-Output 'Installing Playwright browsers and exercising real installed services over trusted HTTPS.'
     Push-Location (Join-Path $repo 'web')

@@ -10,7 +10,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$PostgresInstaller,
     [Parameter(Mandatory=$true)][string]$ExpectedPostgresSHA256,
-    [Parameter(Mandatory=$true)][string]$ExpectedPostgresPublisherThumbprint,
+    [string]$ExpectedPostgresPublisherThumbprint='',
     [Parameter(Mandatory=$true)][string]$GarnetPackage,
     [Parameter(Mandatory=$true)][string]$ExpectedGarnetSHA256,
     [Parameter(Mandatory=$true)][string]$ServiceWrapperExe,
@@ -31,7 +31,8 @@ param(
     [string]$ApprovedManifestSHA256='',
     [string]$TrustedPublisherThumbprint='',
     [switch]$Apply,
-    [switch]$SyntheticPlanCIFixture
+    [switch]$SyntheticPlanCIFixture,
+    [switch]$PostgresBinaryZip
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -156,6 +157,7 @@ $packageArgs=@{
     ExpectedGarnetSHA256=$ExpectedGarnetSHA256
 }
 if ($SyntheticPlanCIFixture) { $packageArgs.SyntheticUnsignedCIFixture=$true }
+if ($PostgresBinaryZip) { $packageArgs.PostgresBinaryZip=$true }
 & $sourceGate @packageArgs | Out-Null
 if ($ExpectedServiceWrapperSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
     -not [IO.Path]::IsPathRooted($ServiceWrapperExe) -or
@@ -179,8 +181,6 @@ $bootstrapArgs.Apply=$true
 $bootstrapArgs.TrustedPublisherThumbprint=$TrustedPublisherThumbprint
 & $bootstrap @bootstrapArgs | Out-Null
 $prepareArgs=@{
-    PostgresSuperPasswordFile=(Join-Path $BootstrapDir 'pg-super.secret')
-    PostgresServicePasswordFile=(Join-Path $BootstrapDir 'pg-service.secret')
     GarnetAclFile=(Join-Path $BootstrapDir 'garnet.acl')
     GarnetCertificatePfxFile=(Join-Path $BootstrapDir 'garnet.pfx')
     GarnetCertificatePasswordFile=(Join-Path $BootstrapDir 'garnet-pfx.secret')
@@ -195,6 +195,12 @@ $prepareArgs=@{
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint
     Apply=$true
 }
+if($PostgresBinaryZip){
+    $prepareArgs.PostgresBinaryZip=$true
+}else{
+    $prepareArgs.PostgresSuperPasswordFile=Join-Path $BootstrapDir 'pg-super.secret'
+    $prepareArgs.PostgresServicePasswordFile=Join-Path $BootstrapDir 'pg-service.secret'
+}
 & $prepare @prepareArgs | Out-Null
 $installArgs=@{
     PostgresInstaller=$PostgresInstaller
@@ -205,6 +211,9 @@ $installArgs=@{
     ServiceWrapperExe=$ServiceWrapperExe
     ExpectedServiceWrapperSHA256=$ExpectedServiceWrapperSHA256
     PostgresOptionsFile=(Join-Path $PostgresOptionsDir 'postgresql-unattended.options')
+    PostgresOptionsDir=$PostgresOptionsDir
+    PostgresSuperPasswordFile=(Join-Path $BootstrapDir 'pg-super.secret')
+    PostgresServicePasswordFile=(Join-Path $BootstrapDir 'pg-service.secret')
     GarnetConfigFile=(Join-Path $GarnetConfigDir 'garnet.conf')
     PostgresInstallDir=$PostgresInstallDir
     PostgresDataDir=$PostgresDataDir
@@ -217,10 +226,11 @@ $installArgs=@{
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint
     Apply=$true
 }
+if($PostgresBinaryZip){$installArgs.PostgresBinaryZip=$true}
 & $install @installArgs | Out-Null
 # Never modify a newly installed cluster until its certificate and runtime
 # authentication can be validated. Staged templates cannot start the service.
 & $pgPolicyTool -DestinationDir $PostgresTlsPolicyDir -PostgresPort $PostgresPort -PostgresServiceAccount $PostgresServiceAccount -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
 & $stagePolicyTool -PostgresDataDir $PostgresDataDir -TlsPolicyDir $PostgresTlsPolicyDir -FreshClusterMarker (Join-Path $PostgresOptionsDir ('PostgresFresh-'+$PostgresServiceName+'.marker')) -PostgresServiceName $PostgresServiceName -PostgresServiceAccount $PostgresServiceAccount -PostgresPort $PostgresPort -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
 Write-Output 'PASS: dependências locais instaladas com um comando técnico; serviços permanecem desabilitados e parados.'
-Write-Output 'NOT READY: configurações TLS instaladas offline, mas serviços ainda desabilitados. Falta validação real do EDB.exe, conexão SSL e primeiro schema antes da primeira venda.'
+Write-Output ('NOT READY: configuração TLS instalada offline, mas serviços ainda desabilitados. Falta validar PostgreSQL '+$(if($PostgresBinaryZip){'ZIP oficial'}else{'EDB.exe'})+', conexão SSL e primeiro schema antes da primeira venda.')

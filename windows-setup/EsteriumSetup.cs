@@ -23,10 +23,63 @@ namespace Esterium.WindowsSetup
 #else
         internal static readonly bool PreviewBuild = false;
 #endif
+#if ESTERIUM_VM_LAB
+        internal static readonly bool VmLabBuild = true;
+#else
+        internal static readonly bool VmLabBuild = false;
+#endif
         internal static bool HasPayload
         {
             get { using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.Payload")) return s != null; }
         }
+        internal static Dictionary<string, string> ReleaseApprovals
+        {
+            get
+            {
+                try
+                {
+                    using (var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.ReleaseApprovals"))
+                    {
+                        if (resource == null) return null;
+                        using (var reader = new StreamReader(resource, Encoding.UTF8))
+                        {
+                            var values = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(reader.ReadToEnd());
+                            string pgFormat;
+                            string pgSigner;
+                            if (values == null || !HexValue(values, "manifest", 64) || !HexValue(values, "editor", 40) ||
+                                !HexValue(values, "postgres", 64) || !values.TryGetValue("pgFormat", out pgFormat) ||
+                                !values.TryGetValue("pgSigner", out pgSigner) ||
+                                (pgFormat == "edb" && !Regex.IsMatch(pgSigner ?? "", "^[A-Fa-f0-9]{40}$")) ||
+                                (pgFormat == "zip" && (!String.IsNullOrEmpty(pgSigner) ||
+                                    !String.Equals(values["postgres"], Installer.OfficialPostgresZipSHA256,
+                                        StringComparison.OrdinalIgnoreCase))) ||
+                                (pgFormat != "edb" && pgFormat != "zip") ||
+                                !HexValue(values, "garnet", 64) || !HexValue(values, "nssm", 64)) return null;
+                            foreach (string key in new[] { "manifest", "editor", "postgres", "pgSigner", "garnet", "nssm" })
+                                values[key] = values[key].ToUpperInvariant();
+                            return values;
+                        }
+                    }
+                }
+                catch { return null; }
+            }
+        }
+        static bool HexValue(Dictionary<string, string> values, string key, int length)
+        {
+            string value;
+            return values.TryGetValue(key, out value) && Regex.IsMatch(value ?? "", "^[A-Fa-f0-9]{" + length + "}$");
+        }
+        internal static bool HasReleaseApprovals { get { return ReleaseApprovals != null; } }
+        internal static bool CanApply { get { return !PreviewBuild && HasPayload && HasReleaseApprovals; } }
+        internal static bool IsInstallableBuild
+        {
+            get
+            {
+                var approvals = ReleaseApprovals;
+                return CanApply && approvals != null && Installer.IsLauncherAuthenticodeValid(approvals["editor"]);
+            }
+        }
+        internal static bool IsRetailBuild { get { return !VmLabBuild && IsInstallableBuild; } }
         [STAThread]
         static void Main(string[] args)
         {
@@ -89,7 +142,8 @@ namespace Esterium.WindowsSetup
                 return;
             }
             if (args.Length > 0 && args[0] == "--self-test") { Environment.Exit(0); return; }
-            if (args.Length > 0 && args[0] == "--is-retail-build") { Environment.Exit(PreviewBuild ? 3 : 0); return; }
+            if (args.Length > 0 && args[0] == "--is-retail-build") { Environment.Exit(IsRetailBuild ? 0 : 3); return; }
+            if (args.Length > 0 && args[0] == "--has-release-approvals") { Environment.Exit(HasReleaseApprovals ? 0 : 2); return; }
             if (args.Length > 0 && args[0] == "--has-preview-approvals")
             {
                 using (var meta = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.PreviewApprovals"))
@@ -104,7 +158,36 @@ namespace Esterium.WindowsSetup
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            if (VmLabBuild && !IsVirtualBoxGuest())
+            {
+                MessageBox.Show("Esta build serve somente para homologação em uma VM VirtualBox. Nenhuma instalação foi iniciada.",
+                    "Esterium ERP - laboratório", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Environment.Exit(8);
+                return;
+            }
             Application.Run(new Installer());
+        }
+
+        static bool IsVirtualBoxGuest()
+        {
+            try
+            {
+                using (var searcher = new System.Management.ManagementObjectSearcher(
+                    "SELECT Manufacturer, Model FROM Win32_ComputerSystem"))
+                using (var rows = searcher.Get())
+                {
+                    foreach (System.Management.ManagementObject row in rows)
+                    {
+                        string identity = Convert.ToString(row["Manufacturer"]) + " " + Convert.ToString(row["Model"]);
+                        if (identity.IndexOf("virtualbox", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            identity.IndexOf("innotek", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            identity.IndexOf("oracle vm", StringComparison.OrdinalIgnoreCase) >= 0)
+                            return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
         }
     }
 
@@ -124,7 +207,7 @@ namespace Esterium.WindowsSetup
             Size = new Size(840, 735);
             MinimumSize = new Size(710, 620);
             Font = new Font("Segoe UI", 9);
-            var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 12,
+            var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 15,
                 AutoScroll = true, Padding = new Padding(14) };
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -133,27 +216,32 @@ namespace Esterium.WindowsSetup
                 Font = new Font("Segoe UI", 16, FontStyle.Bold) };
             table.Controls.Add(title, 0, 0); table.SetColumnSpan(title, 2);
             var detail = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
-                Text = Program.PreviewBuild ?
+                Text = Program.VmLabBuild ?
+                       "MODO DE HOMOLOGAÇÃO VM: assinatura temporária, sem valor comercial. Use apenas nesta VM VirtualBox isolada; nunca em cliente." :
+                       (Program.PreviewBuild ?
                        "CÓDIGO ABERTO / SEM ASSINATURA: hashes de referência carregados do build. " +
                        "Confira o SHA-256 do EXE por canal independente. Só verificar e planejar; NUNCA instalar." :
-                       "Instalação técnica protegida. Informe aprovações obtidas fora do próprio pacote. " +
-                       "O ERP só poderá entrar em operação após testes e homologação." };
+                       "Instalação técnica protegida. Hashes e publicador aprovado vêm fixados no pacote. " +
+                       "O ERP só poderá entrar em operação após testes e homologação.") };
             table.Controls.Add(detail, 0, 1); table.SetColumnSpan(detail, 2);
-            Add(table, 2, "Endereço HTTPS autorizado", "origin", "https://erp.exemplo.com");
+            Add(table, 2, "Endereço HTTPS autorizado", "origin", "https://erp.exemplo.com:8443");
             Add(table, 3, "SHA-256 do manifesto ERP", "manifest", "");
             Add(table, 4, "Certificado do editor (40 caracteres)", "editor", "");
             Add(table, 5, "SHA-256 PostgreSQL", "postgres", "");
-            Add(table, 6, Program.PreviewBuild && IsPostgresZipPreview ? "ZIP oficial: sem certificado do instalador EDB" : "Certificado do PostgreSQL", "pgSigner", "");
+            Add(table, 6, IsPostgresZipBuild ? "ZIP oficial: SHA-256 fixado, sem certificado EDB" : "Certificado do PostgreSQL", "pgSigner", "");
             Add(table, 7, "SHA-256 Garnet", "garnet", "");
             Add(table, 8, "SHA-256 NSSM", "nssm", "");
-            LoadPreviewApprovals();
+            Add(table, 9, "Certificado HTTPS da loja (PEM local)", "tlsCert", "");
+            Add(table, 10, "Chave HTTPS privada (PEM local)", "tlsKey", "");
+            Add(table, 11, "CIDR privado permitido (ex. 192.168.1.42/32)", "trustedRemote", "");
+            LoadBuildApprovals();
             var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
             check.Text = "Verificar arquivos"; check.AutoSize = true;
             plan.Text = "Ver plano"; plan.AutoSize = true;
-            plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
+            plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
             install.Text = Program.PreviewBuild ? "Instalação bloqueada (prévia)" : "Instalar";
             install.AutoSize = true;
-            install.Enabled = !Program.PreviewBuild;
+            install.Enabled = Program.CanApply;
             stageFiles.Text = "Preparar arquivos (não instala)"; stageFiles.AutoSize = true;
             stageFiles.Enabled = Program.PreviewBuild && Program.HasPayload;
             stageVendors.Text = "Preparar dependências (não instala)"; stageVendors.AutoSize = true;
@@ -176,21 +264,23 @@ namespace Esterium.WindowsSetup
             inspect.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
             actions.Controls.Add(stagePostgres); actions.Controls.Add(stageData);
             actions.Controls.Add(stageSecrets); actions.Controls.Add(inspect); actions.Controls.Add(install);
-            table.Controls.Add(actions, 0, 9); table.SetColumnSpan(actions, 2);
+            table.Controls.Add(actions, 0, 12); table.SetColumnSpan(actions, 2);
             var warning = new Label { AutoSize = true, MaximumSize = new Size(760, 0),
-                Text = Program.PreviewBuild ?
+                Text = Program.VmLabBuild ?
+                       "A build de laboratório só abre em VirtualBox. Apply instala serviços e grava dados de teste nesta VM; informe certificado e chave HTTPS válidos e limite o firewall ao CIDR privado de um único cliente." :
+                       (Program.PreviewBuild ?
                        "Preparar arquivos copia o ERP e Preparar dependências copia os binários de fornecedores " +
                        "para pastas protegidas. O ZIP oficial usa SHA-256 fixado; o EXE EDB usa assinatura. " +
                        "A etapa ZIP PostgreSQL extrai somente os binários. NÃO cria banco, serviços ou HTTPS. " +
                        "Inspecionar estado apenas verifica a estrutura; não repara nem retoma a instalação. " +
                        "Nunca repita uma etapa que falhou sem diagnóstico." :
                        "A instalação altera serviços Windows. Em caso de falha parcial, NÃO repita a instalação " +
-                       "nem apague banco ou dados. O instalador nunca libera automaticamente vendas." };
-            table.Controls.Add(warning, 0, 10); table.SetColumnSpan(warning, 2);
+                       "nem apague banco ou dados. O instalador nunca libera automaticamente vendas.") };
+            table.Controls.Add(warning, 0, 13); table.SetColumnSpan(warning, 2);
             output.Dock = DockStyle.Fill; output.Multiline = true; output.ScrollBars = ScrollBars.Vertical;
             output.ReadOnly = true; output.MinimumSize = new Size(200, 145);
-            table.Controls.Add(output, 0, 11); table.SetColumnSpan(output, 2);
-            for (int i = 0; i < 11; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            table.Controls.Add(output, 0, 14); table.SetColumnSpan(output, 2);
+            for (int i = 0; i < 14; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             check.Click += async (s, e) => await Run(false, false);
             plan.Click += async (s, e) => await Run(true, false);
@@ -203,27 +293,33 @@ namespace Esterium.WindowsSetup
             stageSecrets.Click += async (s, e) => await RunStageSecrets();
             inspect.Click += async (s, e) => await RunInspectState();
             Log(Program.PreviewBuild ?
-                (IsPostgresZipPreview ? "Prévia ZIP verificada: não executa serviços nem plano legado EDB. Instalar bloqueado." :
+                (IsPostgresZipPreview ? "Prévia ZIP: valida pacotes e apresenta o plano; não instala. Instalar bloqueado." :
                  "Versão sem assinatura: somente verificação e PLANO de instalação sem alterações. Instalar continua bloqueado.") :
-                "Edição assinada: aplique somente após aprovação independente e homologação.");
+                (Program.CanApply ? "Pacote completo: assinatura e integridade serão conferidas antes de Apply." :
+                 "Instalação bloqueada: faltam payload ou aprovações de release válidas."));
             FormClosing += (s, e) => { if (working) { e.Cancel = true; Log("Aguarde a conclusão da operação em andamento."); } };
             FormClosed += (s, e) => CleanTemporaryFiles();
         }
 
-        void LoadPreviewApprovals()
+        void LoadBuildApprovals()
         {
-            if (!Program.PreviewBuild) return;
-            using (var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.PreviewApprovals"))
+            Dictionary<string, string> approvals = Program.PreviewBuild ? null : Program.ReleaseApprovals;
+            if (Program.PreviewBuild)
             {
-                if (resource == null) return;
-                using (var reader = new StreamReader(resource, Encoding.UTF8))
+                using (var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("Esterium.PreviewApprovals"))
                 {
-                    var approvals = new JavaScriptSerializer().Deserialize<Dictionary<string,string>>(reader.ReadToEnd());
-                    foreach (var entry in approvals)
-                        if (inputs.ContainsKey(entry.Key) && entry.Key != "editor" && entry.Key != "origin")
-                            inputs[entry.Key].Text = entry.Value;
+                    if (resource != null)
+                    using (var reader = new StreamReader(resource, Encoding.UTF8))
+                        approvals = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(reader.ReadToEnd());
                 }
             }
+            if (approvals == null) return;
+            foreach (var entry in approvals)
+                if (inputs.ContainsKey(entry.Key) && entry.Key != "origin")
+                {
+                    inputs[entry.Key].Text = entry.Value;
+                    inputs[entry.Key].ReadOnly = !Program.PreviewBuild;
+                }
         }
         void Add(TableLayoutPanel t, int row, string label, string key, string value)
         {
@@ -380,13 +476,13 @@ namespace Esterium.WindowsSetup
             if (!Program.PreviewBuild) Hex("editor", values["editor"], 40);
             // EDB installer requires Authenticode. Official binary ZIP uses an
             // independently vendor-published SHA instead and is preview-only.
-            if (IsPostgresZipPreview) AssertOfficialPostgresZip(Path.Combine(staging, "vendor", EmbeddedPostgresName));
+            if (IsPostgresZipBuild) AssertOfficialPostgresZip(Path.Combine(staging, "vendor", EmbeddedPostgresName));
             else Hex("certificado PostgreSQL", values["pgSigner"], 40);
             Origin(values["origin"].Trim());
             return erp;
         }
 
-        static void CheckSignedLauncher(string publisher)
+        internal static bool IsLauncherAuthenticodeValid(string publisher)
         {
             // The signed EXE itself must be authenticated before elevation.
             // Keep paths and thumbprints in environment variables, never interpolate into PowerShell.
@@ -400,12 +496,25 @@ namespace Esterium.WindowsSetup
             };
             psi.EnvironmentVariables["ESTERIUM_SETUP_EXE"] = Assembly.GetExecutingAssembly().Location;
             psi.EnvironmentVariables["ESTERIUM_SETUP_PUBLISHER"] = publisher;
-            using (var p = Process.Start(psi))
+            try
             {
-                p.WaitForExit();
-                if (p.ExitCode != 0)
-                    throw new InvalidOperationException("EXE sem assinatura Authenticode válida do editor aprovado.");
+                using (var p = Process.Start(psi))
+                {
+                    if (p == null) return false;
+                    if (!p.WaitForExit(15000))
+                    {
+                        try { p.Kill(); p.WaitForExit(5000); } catch { }
+                        return false;
+                    }
+                    return p.ExitCode == 0;
+                }
             }
+            catch { return false; }
+        }
+        static void CheckSignedLauncher(string publisher)
+        {
+            if (!IsLauncherAuthenticodeValid(publisher))
+                throw new InvalidOperationException("EXE sem assinatura Authenticode válida do editor aprovado.");
         }
         static string Quote(string arg)
         {
@@ -413,16 +522,26 @@ namespace Esterium.WindowsSetup
                 throw new InvalidOperationException("Parâmetro inválido.");
             return "\"" + arg + "\"";
         }
-        ProcessStartInfo Build(string erp, bool apply)
+        static string LocalFileInput(string label, string value)
         {
+            string path = (value ?? "").Trim();
+            if (!Path.IsPathRooted(path) || path.StartsWith("\\\\", StringComparison.Ordinal) ||
+                !File.Exists(path) || (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException("Informe um arquivo local existente para " + label + ".");
+            return Path.GetFullPath(path);
+        }
+        ProcessStartInfo Build(string erp, bool apply, string tlsCert, string tlsKey, string trustedRemote)
+        {
+            string allowedOrigin = Origin(inputs["origin"].Text.Trim());
+            int httpsPort = new Uri(allowedOrigin, UriKind.Absolute).Port;
             string[] args = {
                 "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
                 Program.PreviewBuild ? "RemoteSigned" : "AllSigned", "-File",
                 Path.Combine(erp, "tools", "install-esterium-local-complete.ps1"),
-                "-SourceBundleDir", erp, "-AllowedOrigin", Origin(inputs["origin"].Text.Trim()),
-                "-PostgresInstaller", Path.Combine(staging, "vendor", "postgresql.exe"),
+                "-SourceBundleDir", erp, "-AllowedOrigin", allowedOrigin,
+                "-ListenAddress", "0.0.0.0:" + httpsPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "-PostgresInstaller", Path.Combine(staging, "vendor", EmbeddedPostgresName),
                 "-ExpectedPostgresSHA256", inputs["postgres"].Text.Trim(),
-                "-ExpectedPostgresPublisherThumbprint", inputs["pgSigner"].Text.Trim(),
                 "-GarnetPackage", Path.Combine(staging, "vendor", "garnet.zip"),
                 "-ExpectedGarnetSHA256", inputs["garnet"].Text.Trim(),
                 "-ServiceWrapperExe", Path.Combine(staging, "vendor", "nssm.exe"),
@@ -431,6 +550,10 @@ namespace Esterium.WindowsSetup
                 "-TrustedPublisherThumbprint", inputs["editor"].Text.Trim()
             };
             var list = new List<string>(args);
+            if (IsPostgresZipBuild) list.Add("-PostgresBinaryZip");
+            else list.AddRange(new[] { "-ExpectedPostgresPublisherThumbprint", inputs["pgSigner"].Text.Trim() });
+            if (apply) list.AddRange(new[] { "-TLSCertFile", tlsCert, "-TLSKeyFile", tlsKey,
+                "-TrustedRemoteAddress", trustedRemote });
             if (apply) list.Add("-Apply");
             return new ProcessStartInfo("powershell.exe", String.Join(" ", list.ConvertAll(Quote))) {
                 UseShellExecute = apply, Verb = apply ? "runas" : "",
@@ -454,12 +577,17 @@ namespace Esterium.WindowsSetup
         async Task Run(bool invoke, bool apply)
         {
             if (working) return;
-            if (apply && Program.PreviewBuild) { Log("BLOQUEADO: prévia técnica nunca executa instalação."); return; }
+            if (apply && !Program.CanApply) { Log("BLOQUEADO: pacote sem payload ou aprovações de release válidas."); return; }
             if (invoke && Program.PreviewBuild && !Program.HasPayload) { Log("BLOQUEADO: prévia sem payload."); return; }
-            if (invoke && IsPostgresZipPreview) { Log("BLOQUEADO: o coordenador EDB EXE ainda nao aceita ZIP. Use Verificar arquivos e Pre-checar Windows."); return; }
             working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = false;
+            string phase = "verificação dos arquivos";
             try
             {
+                if (apply)
+                {
+                    phase = "autenticação do instalador";
+                    CheckSignedLauncher(Program.ReleaseApprovals["editor"]);
+                }
                 // Capture UI state on its owning thread; hashing and extraction run off-thread.
                 var values = new Dictionary<string,string>();
                 foreach (var field in inputs) values[field.Key] = field.Value.Text;
@@ -467,39 +595,64 @@ namespace Esterium.WindowsSetup
                 string erp = await Task.Run(() => Prepare(values));
                 Log("PASS: integridade dos arquivos ERP e fornecedores conferida com os hashes informados.");
                 if (!invoke) return;
-                if (apply) CheckSignedLauncher(Hex("editor", inputs["editor"].Text, 40));
+                phase = apply ? "validação do plano de instalação" : "plano de instalação";
+                string tlsCert = "", tlsKey = "", trustedRemote = "";
+                if (apply)
+                {
+                    phase = "validação dos caminhos HTTPS e do CIDR privado";
+                    tlsCert = LocalFileInput("certificado HTTPS PEM", inputs["tlsCert"].Text);
+                    tlsKey = LocalFileInput("chave HTTPS PEM", inputs["tlsKey"].Text);
+                    trustedRemote = inputs["trustedRemote"].Text.Trim();
+                    if (trustedRemote.Length == 0 || trustedRemote.Length > 64 ||
+                        trustedRemote.IndexOfAny(new[] { '\r', '\n', '"' }) >= 0)
+                        throw new InvalidOperationException("Informe um CIDR IPv4 privado explícito.");
+                }
+                phase = apply ? "validação do plano de instalação" : "plano de instalação";
                 if (apply && MessageBox.Show(
+                    Program.VmLabBuild ?
+                    "Este pacote usa assinatura temporária de homologação e altera serviços e dados somente nesta VM VirtualBox. Não use em cliente. Confirma a instalação de teste?" :
                     "O processo irá alterar o Windows e criar serviços. Confirma a instalação técnica de um pacote comercial assinado e aprovado?",
                     "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-                ProcessStartInfo psi = Build(erp, apply);
+                ProcessStartInfo psi = Build(erp, apply, tlsCert, tlsKey, trustedRemote);
                 Log(apply ? "Solicitando UAC. Serviços continuarão desativados para vendas." :
                     (Program.PreviewBuild ? "Executando APENAS o plano técnico não elevado, sem Apply." :
                      "Verificando plano de instalação com PowerShell AllSigned."));
-                string message = "";
                 int exit = await Task.Run(() => {
                     using (var p = Process.Start(psi))
                     {
                         if (!apply)
                         {
-                            Task<string> o = p.StandardOutput.ReadToEndAsync();
-                            Task<string> e = p.StandardError.ReadToEndAsync();
+                            Task<string> stdout = p.StandardOutput.ReadToEndAsync();
+                            Task<string> stderr = p.StandardError.ReadToEndAsync();
                             p.WaitForExit();
-                            message = o.Result + Environment.NewLine + e.Result;
+                            Task.WaitAll(stdout, stderr);
                         }
                         else p.WaitForExit();
                         return p.ExitCode;
                     }
                 });
-                if (!apply && message.Length != 0) Log(message.Length > 12000 ? message.Substring(0, 12000) : message);
-                Log(exit == 0 ? (apply ? "Procedimento técnico finalizado. Ainda NÃO liberado para vendas." : "Plano concluído sem alterações.") :
-                    "FALHA (código " + exit + "). Não repita uma instalação parcial sem diagnóstico.");
+                if (!apply)
+                {
+                    if (exit == 0)
+                    {
+                        Log("Plano concluído sem alterações.");
+                        Log("PLANO: PostgreSQL 16, Garnet e ERP; TLS e banco novo; vendas permanecem desativadas.");
+                    }
+                    else Log("FALHA (código " + exit + ") na etapa do plano. Nenhuma alteração foi aplicada.");
+                }
+                else Log(exit == 0 ? "Procedimento técnico finalizado. Ainda NÃO liberado para vendas." :
+                    "FALHA (código " + exit + "). Preserve evidências e não repita automaticamente.");
             }
-            catch (Exception error) { Log("BLOQUEADO: " + error.Message); }
+            catch (Exception)
+            {
+                Log("BLOQUEADO: falha na etapa de " + phase + ".");
+                Log(apply ? "Preserve evidências e não repita automaticamente." : "Nenhuma alteração foi aplicada.");
+            }
             finally { working = false; check.Enabled = true;
-                      plan.Enabled = !Program.PreviewBuild || (Program.HasPayload && !IsPostgresZipPreview);
+                      plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
                       stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.PreviewBuild && Program.HasPayload;
                       stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
-                      install.Enabled = !Program.PreviewBuild; }
+                      install.Enabled = Program.CanApply; }
         }
     }
 }

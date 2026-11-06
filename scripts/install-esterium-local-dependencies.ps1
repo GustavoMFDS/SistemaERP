@@ -1,20 +1,23 @@
 #requires -Version 5.1
 <#
   Instalação técnica offline das dependências em Windows novo.
-  Pré-requisitos: opções EDB e configuração Garnet já geradas por
-  prepare-esterium-local-dependency-configs.ps1, ambas com ACL restrita.
+  Pré-requisitos: metadados PostgreSQL (opções EDB ou diretório ZIP vazio)
+  e configuração Garnet preparados com ACL restrita.
   Padrão: somente plano, sem executar programas. -Apply exige assinatura.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$PostgresInstaller,
     [Parameter(Mandatory=$true)][string]$ExpectedPostgresSHA256,
-    [Parameter(Mandatory=$true)][string]$ExpectedPostgresPublisherThumbprint,
+    [string]$ExpectedPostgresPublisherThumbprint='',
     [Parameter(Mandatory=$true)][string]$GarnetPackage,
     [Parameter(Mandatory=$true)][string]$ExpectedGarnetSHA256,
     [Parameter(Mandatory=$true)][string]$ServiceWrapperExe,
     [Parameter(Mandatory=$true)][string]$ExpectedServiceWrapperSHA256,
-    [Parameter(Mandatory=$true)][string]$PostgresOptionsFile,
+    [string]$PostgresOptionsFile='',
+    [string]$PostgresOptionsDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
+    [string]$PostgresSuperPasswordFile=(Join-Path $env:ProgramData 'Esterium\Secrets\pg-super.secret'),
+    [string]$PostgresServicePasswordFile=(Join-Path $env:ProgramData 'Esterium\Secrets\pg-service.secret'),
     [Parameter(Mandatory=$true)][string]$GarnetConfigFile,
     [string]$PostgresInstallDir=(Join-Path $env:ProgramFiles 'PostgreSQL\16'),
     [string]$PostgresDataDir=(Join-Path $env:ProgramData 'Esterium\PostgresData'),
@@ -26,6 +29,7 @@ param(
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [string]$TrustedPublisherThumbprint='',
     [switch]$SyntheticUnsignedCIFixture,
+    [switch]$PostgresBinaryZip,
     [switch]$Apply
 )
 $ErrorActionPreference='Stop'
@@ -100,12 +104,27 @@ function Assert-NewDestination([string]$value,[string]$root) {
 $pg=Get-SafeFile $PostgresInstaller
 $zip=Get-SafeFile $GarnetPackage
 $wrapper=Get-SafeFile $ServiceWrapperExe
-$options=Get-SafeFile $PostgresOptionsFile
+$optionsDir=[IO.Path]::GetFullPath($PostgresOptionsDir).TrimEnd('\')
+$optionsBase=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')
+if(-not $optionsDir.StartsWith($optionsBase+'\',[StringComparison]::OrdinalIgnoreCase)){
+    throw 'PostgreSQL first-install metadata must remain under ProgramData Esterium.'
+}
+if($optionsDir.IndexOf([char]34) -ge 0 -or $optionsDir.IndexOf([char]13) -ge 0 -or $optionsDir.IndexOf([char]10) -ge 0){
+    throw 'PostgreSQL metadata path contains unsupported characters.'
+}
+$options=''
+if(-not $PostgresBinaryZip){
+    $options=Get-SafeFile $PostgresOptionsFile
+    if(-not [string]::Equals([IO.Path]::GetDirectoryName($options),$optionsDir,[StringComparison]::OrdinalIgnoreCase)){
+        throw 'EDB option file must be in its protected first-install directory.'
+    }
+}
 $configPath=Get-SafeFile $GarnetConfigFile
-if ([IO.Path]::GetExtension($pg).ToLowerInvariant() -ne '.exe' -or
+if ((-not $PostgresBinaryZip -and [IO.Path]::GetExtension($pg).ToLowerInvariant() -ne '.exe') -or
+    ($PostgresBinaryZip -and [IO.Path]::GetExtension($pg).ToLowerInvariant() -ne '.zip') -or
     [IO.Path]::GetExtension($zip).ToLowerInvariant() -ne '.zip' -or
     [IO.Path]::GetExtension($wrapper).ToLowerInvariant() -ne '.exe') {
-    throw 'Exigidos PostgreSQL .exe, Garnet .zip e wrapper Windows .exe.'
+    throw 'Pacotes exigem PostgreSQL no formato aprovado, Garnet .zip e wrapper Windows .exe.'
 }
 $pgDir=Assert-NewDestination $PostgresInstallDir $env:ProgramFiles
 $pgData=Assert-NewDestination $PostgresDataDir (Join-Path $env:ProgramData 'Esterium')
@@ -184,31 +203,35 @@ $packageArgs=@{
     GarnetPackage=$zip
     ExpectedGarnetSHA256=$ExpectedGarnetSHA256
 }
+if($PostgresBinaryZip){$packageArgs.PostgresBinaryZip=$true}
 if ($SyntheticUnsignedCIFixture) { $packageArgs.SyntheticUnsignedCIFixture=$true }
 & $checker @packageArgs | Out-Null
 $allowedKeys=@('mode','prefix','datadir','serverport','servicename','serviceaccount',
     'superaccount','superpassword','servicepassword','enable-components','enable_acledit','create_shortcuts','unattendedmodeui')
-$lines=@([IO.File]::ReadAllLines($options))
-$seen=@{}
-foreach ($line in $lines) {
-    if ($line -notmatch '^([a-z_-]+)=(.*)$') { throw 'Opções EDB inválidas.' }
-    $key=$matches[1]
-    if ($key -notin $allowedKeys -or $seen.ContainsKey($key)) {
-        throw 'Opções EDB duplicadas ou extras.'
+$lines=@()
+if(-not $PostgresBinaryZip){
+    $lines=@([IO.File]::ReadAllLines($options))
+    $seen=@{}
+    foreach ($line in $lines) {
+        if ($line -notmatch '^([a-z_-]+)=(.*)$') { throw 'Opções EDB inválidas.' }
+        $key=$matches[1]
+        if ($key -notin $allowedKeys -or $seen.ContainsKey($key)) {
+            throw 'Opções EDB duplicadas ou extras.'
+        }
+        $seen[$key]=$true
     }
-    $seen[$key]=$true
-}
-if ($seen.Count -ne $allowedKeys.Count) { throw 'Opções EDB incompletas.' }
-$required=@{
-    mode='unattended';prefix=$pgDir;datadir=$pgData
-    servicename=$PostgresServiceName;serverport=[string]$PostgresPort
-    serviceaccount=$PostgresServiceAccount
-    'enable-components'='server,commandlinetools';enable_acledit='1';'create_shortcuts'='0'
-    unattendedmodeui='minimal';superaccount='postgres'
-}
-foreach ($entry in $required.GetEnumerator()) {
-    if (@($lines | Where-Object { $_ -ceq ($entry.Key+'='+$entry.Value) }).Count -ne 1) {
-        throw 'Opções EDB não correspondem aos destinos e portas selecionados.'
+    if ($seen.Count -ne $allowedKeys.Count) { throw 'Opções EDB incompletas.' }
+    $required=@{
+        mode='unattended';prefix=$pgDir;datadir=$pgData
+        servicename=$PostgresServiceName;serverport=[string]$PostgresPort
+        serviceaccount=$PostgresServiceAccount
+        'enable-components'='server,commandlinetools';enable_acledit='1';'create_shortcuts'='0'
+        unattendedmodeui='minimal';superaccount='postgres'
+    }
+    foreach ($entry in $required.GetEnumerator()) {
+        if (@($lines | Where-Object { $_ -ceq ($entry.Key+'='+$entry.Value) }).Count -ne 1) {
+            throw 'Opções EDB não correspondem aos destinos e portas selecionados.'
+        }
     }
 }
 function Assert-Readers([string]$p,[string[]]$allowed,[string]$mustRead) {
@@ -230,7 +253,23 @@ function Assert-Readers([string]$p,[string[]]$allowed,[string]$mustRead) {
     }
     if (-not $found) { throw 'Arquivo protegido não possui acesso esperado.' }
 }
-Assert-Readers $options @('S-1-5-18','S-1-5-32-544') 'S-1-5-18'
+if($PostgresBinaryZip){
+    if(-not(Test-Path -LiteralPath $optionsDir -PathType Container) -or
+       ((Get-Item -LiteralPath $optionsDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+        throw 'PostgreSQL ZIP first-install metadata directory is missing or linked.'
+    }
+    $optionsAcl=Get-Acl -LiteralPath $optionsDir
+    if(-not $optionsAcl.AreAccessRulesProtected){throw 'PostgreSQL marker directory ACL must be protected.'}
+    foreach($ace in $optionsAcl.Access){
+        if($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow){continue}
+        $sid=$ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if($sid -notin @('S-1-5-18','S-1-5-32-544')){
+            throw 'PostgreSQL marker directory permits an unapproved reader.'
+        }
+    }
+}else{
+    Assert-Readers $options @('S-1-5-18','S-1-5-32-544') 'S-1-5-18'
+}
 Assert-Readers $configPath @('S-1-5-18','S-1-5-32-544','S-1-5-20') 'S-1-5-20'
 $config=Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
 if ($config.Address -cne '127.0.0.1' -or [int]$config.Port -ne $GarnetPort -or
@@ -324,13 +363,13 @@ if ($Apply) {
         if ($null -ne $certificate) { $certificate.Dispose() }
     }
 }
-$freshMarker=Join-Path ([IO.Path]::GetDirectoryName($options)) ('PostgresFresh-'+$PostgresServiceName+'.marker')
+$freshMarker=Join-Path $optionsDir ('PostgresFresh-'+$PostgresServiceName+'.marker')
 if (Test-Path -LiteralPath $freshMarker) {
     throw 'Existing PostgreSQL fresh-cluster attestation: never reinstall automatically.'
 }
 if (-not $Apply) {
     Write-Output 'PLAN: pacotes, fontes, portas e configurações validados sem alteração no PC.'
-    Write-Output 'NEXT: -Apply instalará EDB silenciosamente e registrará Garnet parado (ainda sem banco/schema TLS comercial).'
+    Write-Output ('NEXT: -Apply instalará PostgreSQL '+$(if($PostgresBinaryZip){'do ZIP oficial e criará conta/cluster'}else{'pelo EDB'})+' e registrará Garnet parado; banco/schema TLS comercial ainda não estão prontos.')
     return
 }
 # Revalidate trusted third-party artifacts immediately before execution.
@@ -342,6 +381,7 @@ if ((Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash -cne
 }
 Write-Output '1/3: instalando PostgreSQL 16 sem interface...'
 $proc=$null
+if(-not $PostgresBinaryZip){
 try {
     # Passwords stay in the restricted EDB option file, not shell arguments.
     $proc=Start-Process -FilePath $pg -ArgumentList @('--mode','unattended','--unattendedmodeui','none','--optionfile',('"' + $options + '"')) -Wait -PassThru -ErrorAction Stop
@@ -373,6 +413,190 @@ try {
 if ($null -eq $proc -or $proc.ExitCode -ne 0) {
     throw 'Instalador EDB não concluiu: conferir serviço/dados parciais; não reinstalar automaticamente.'
 }
+}else{
+    # The ZIP bytes and archive layout have just been rechecked against the
+    # fixed official SHA-256. Stage under Program Files with a protected ACL
+    # before extraction; preserve a published partial install for inspection.
+    # Keep the temporary extraction root short to stay below legacy Windows
+    # MAX_PATH after appending the vendor archive's relative paths.
+    $pgStage=Join-Path ([IO.Path]::GetPathRoot($pgDir)) ('EsteriumPG-'+[Guid]::NewGuid().ToString('N'))
+    $pgPublished=$false
+    try{
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $pgDir))|Out-Null
+        [IO.Directory]::CreateDirectory($pgStage)|Out-Null
+        & icacls.exe $pgStage '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Não foi possível proteger a extração temporária PostgreSQL.'}
+        if((Get-FileHash -LiteralPath $pg -Algorithm SHA256).Hash -cne
+            '43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'){
+            throw 'ZIP PostgreSQL mudou antes da extração.'
+        }
+        Expand-Archive -LiteralPath $pg -DestinationPath $pgStage -ErrorAction Stop
+        foreach($entry in @(Get-ChildItem -LiteralPath $pgStage -Recurse -Force)){
+            if(($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'ZIP PostgreSQL extraído contém link/junção proibido.'
+            }
+        }
+        $roots=@(Get-ChildItem -LiteralPath $pgStage -Force)
+        $stagedPg=Join-Path $pgStage 'pgsql'
+        if($roots.Count -ne 1 -or $roots[0].Name -cne 'pgsql' -or -not $roots[0].PSIsContainer){
+            throw 'ZIP PostgreSQL não contém a raiz binária esperada.'
+        }
+        foreach($relative in @('bin\postgres.exe','bin\initdb.exe','bin\pg_ctl.exe',
+            'bin\psql.exe','bin\pg_isready.exe','bin\pg_config.exe')){
+            $file=Join-Path $stagedPg $relative
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf) -or
+               ((Get-Item -LiteralPath $file -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+                throw 'ZIP PostgreSQL não contém todos os binários necessários.'
+            }
+        }
+        $pgVersion=@(& (Join-Path $stagedPg 'bin\pg_config.exe') '--version' 2>&1)
+        if($LASTEXITCODE -ne 0 -or ($pgVersion -join ' ') -notmatch '^PostgreSQL 16\.15(?:\s|$)'){
+            throw 'A versão dos binários PostgreSQL não corresponde ao ZIP aprovado.'
+        }
+        if(Test-Path -LiteralPath $pgDir){throw 'Destino PostgreSQL foi criado durante a validação; não sobrescrever.'}
+        [IO.Directory]::Move($stagedPg,$pgDir)
+        $pgPublished=$true
+    }finally{
+        if(-not $pgPublished -and (Test-Path -LiteralPath $pgStage)){
+            if(((Get-Item -LiteralPath $pgStage -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){
+                Remove-Item -LiteralPath $pgStage -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }elseif(Test-Path -LiteralPath $pgStage){
+            Remove-Item -LiteralPath $pgStage -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $serviceSecret=''
+    $superPassword=''
+    $serviceSecure=$null
+    $credential=$null
+    $serviceCreated=$false
+    $passwordFile=Join-Path $optionsDir ('.initdb-'+[Guid]::NewGuid().ToString('N')+'.pw')
+    try{
+        foreach($secretPath in @($PostgresServicePasswordFile,$PostgresSuperPasswordFile)){
+            if(-not [IO.Path]::IsPathRooted($secretPath) -or
+               -not (Test-Path -LiteralPath $secretPath -PathType Leaf) -or
+               ((Get-Item -LiteralPath $secretPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+                throw 'Segredo PostgreSQL local ausente ou não protegido.'
+            }
+            $secretAcl=Get-Acl -LiteralPath $secretPath
+            if(-not $secretAcl.AreAccessRulesProtected){
+                throw 'ACL do segredo PostgreSQL ainda herda permissões externas.'
+            }
+            foreach($ace in $secretAcl.Access){
+                if($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow){continue}
+                $sid=$ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+                if($sid -notin @('S-1-5-18','S-1-5-32-544')){
+                    throw 'Segredo PostgreSQL permite acesso por identidade não aprovada.'
+                }
+            }
+        }
+        $serviceSecret=[IO.File]::ReadAllText($PostgresServicePasswordFile).TrimEnd([char]13,[char]10)
+        $superPassword=[IO.File]::ReadAllText($PostgresSuperPasswordFile).TrimEnd([char]13,[char]10)
+        if($serviceSecret -cnotmatch '^Q9_z[A-Za-z0-9_-]{64}$' -or
+           $superPassword -cnotmatch '^Q9_z[A-Za-z0-9_-]{64}$' -or
+           $serviceSecret -ceq $superPassword){
+            throw 'Segredos PostgreSQL não correspondem ao formato aleatório aprovado.'
+        }
+        $serviceSecure=ConvertTo-SecureString $serviceSecret -AsPlainText -Force
+        $user=New-LocalUser -Name $PostgresServiceAccount -Password $serviceSecure `
+            -Description 'Esterium PostgreSQL service identity' -AccountNeverExpires `
+            -PasswordNeverExpires -UserMayNotChangePassword -ErrorAction Stop
+        if($null -eq $user -or $null -eq $user.SID){throw 'Conta local de serviço PostgreSQL não foi criada.'}
+        $serviceSid=[string]$user.SID.Value
+        if($serviceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){
+            throw 'SID da conta PostgreSQL não é uma identidade local aprovada.'
+        }
+        $adminGroup=Get-LocalGroup -SID 'S-1-5-32-544' -ErrorAction Stop
+        if(@(Get-LocalGroupMember -Group $adminGroup.Name -ErrorAction Stop | Where-Object {
+            $_.SID.Value -ceq $serviceSid
+        }).Count){throw 'Conta de serviço PostgreSQL não pode pertencer a Administradores.'}
+        $credential=[PSCredential]::new(($env:COMPUTERNAME+'\'+$PostgresServiceAccount),$serviceSecure)
+
+        $lsaSource=@'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+public static class EsteriumPostgresLsa {
+    [StructLayout(LayoutKind.Sequential)] private struct OA { public uint Length; public IntPtr RootDirectory; public IntPtr ObjectName; public uint Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService; }
+    [StructLayout(LayoutKind.Sequential)] private struct US { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }
+    [DllImport("advapi32.dll")] private static extern uint LsaOpenPolicy(IntPtr systemName, ref OA attrs, uint access, out IntPtr handle);
+    [DllImport("advapi32.dll")] private static extern uint LsaAddAccountRights(IntPtr policy, IntPtr sid, [In] US[] rights, uint count);
+    [DllImport("advapi32.dll")] private static extern uint LsaEnumerateAccountRights(IntPtr policy, IntPtr sid, out IntPtr rights, out uint count);
+    [DllImport("advapi32.dll")] private static extern uint LsaFreeMemory(IntPtr buffer);
+    [DllImport("advapi32.dll")] private static extern uint LsaClose(IntPtr handle);
+    [DllImport("advapi32.dll")] private static extern uint LsaNtStatusToWinError(uint status);
+    private static IntPtr SidPtr(string value) { var sid=new SecurityIdentifier(value); var bytes=new byte[sid.BinaryLength]; sid.GetBinaryForm(bytes,0); var ptr=Marshal.AllocHGlobal(bytes.Length); Marshal.Copy(bytes,0,ptr,bytes.Length); Array.Clear(bytes,0,bytes.Length); return ptr; }
+    public static void GrantServiceLogon(string value) {
+        IntPtr sid=IntPtr.Zero, text=IntPtr.Zero, policy=IntPtr.Zero;
+        try { sid=SidPtr(value); string right="SeServiceLogonRight"; text=Marshal.StringToHGlobalUni(right); var entry=new US { Length=(ushort)(right.Length*2), MaximumLength=(ushort)((right.Length+1)*2), Buffer=text }; var attrs=new OA(); attrs.Length=(uint)Marshal.SizeOf(typeof(OA)); uint status=LsaOpenPolicy(IntPtr.Zero,ref attrs,0x810,out policy); if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status)); status=LsaAddAccountRights(policy,sid,new US[]{entry},1); if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status)); }
+        finally { if(policy!=IntPtr.Zero)LsaClose(policy); if(text!=IntPtr.Zero)Marshal.FreeHGlobal(text); if(sid!=IntPtr.Zero)Marshal.FreeHGlobal(sid); }
+    }
+    public static bool HasRight(string value,string expected) {
+        IntPtr sid=IntPtr.Zero, policy=IntPtr.Zero, rights=IntPtr.Zero;
+        try { sid=SidPtr(value); var attrs=new OA(); attrs.Length=(uint)Marshal.SizeOf(typeof(OA)); uint status=LsaOpenPolicy(IntPtr.Zero,ref attrs,0x800,out policy); if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status)); uint count=0; status=LsaEnumerateAccountRights(policy,sid,out rights,out count); if(status==0xC0000034)return false; if(status!=0)throw new Win32Exception((int)LsaNtStatusToWinError(status)); int size=Marshal.SizeOf(typeof(US)); for(uint i=0;i<count;i++){var entry=(US)Marshal.PtrToStructure(IntPtr.Add(rights,checked((int)i*size)),typeof(US)); if(String.Equals(Marshal.PtrToStringUni(entry.Buffer,entry.Length/2),expected,StringComparison.OrdinalIgnoreCase))return true;} return false; }
+        finally { if(rights!=IntPtr.Zero)LsaFreeMemory(rights); if(policy!=IntPtr.Zero)LsaClose(policy); if(sid!=IntPtr.Zero)Marshal.FreeHGlobal(sid); }
+    }
+}
+'@
+        if($null -eq ([Management.Automation.PSTypeName]'EsteriumPostgresLsa').Type){
+            Add-Type -TypeDefinition $lsaSource -ErrorAction Stop
+        }
+        [EsteriumPostgresLsa]::GrantServiceLogon($serviceSid)
+        if(-not [EsteriumPostgresLsa]::HasRight($serviceSid,'SeServiceLogonRight') -or
+           [EsteriumPostgresLsa]::HasRight($serviceSid,'SeDenyServiceLogonRight')){
+            throw 'Direito local de serviço PostgreSQL não pôde ser verificado com segurança.'
+        }
+        if(Test-Path -LiteralPath $pgData){throw 'Pasta de dados PostgreSQL foi criada durante a validação; não adotar.'}
+        [IO.Directory]::CreateDirectory($pgData)|Out-Null
+        & icacls.exe $pgData '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ('*'+$serviceSid+':(OI)(CI)M')|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'ACL privada do cluster PostgreSQL não pôde ser aplicada.'}
+        & icacls.exe $pgDir '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'ACL base dos binários PostgreSQL não pôde ser protegida.'}
+        & icacls.exe $pgDir '/grant:r' ('*'+$serviceSid+':(OI)(CI)RX') '/T' '/C'|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Conta PostgreSQL não recebeu somente leitura/execução dos binários.'}
+        $pwBytes=[Text.UTF8Encoding]::new($false).GetBytes($superPassword+[Environment]::NewLine)
+        try{
+            $pwStream=[IO.File]::Open($passwordFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            try{$pwStream.Write($pwBytes,0,$pwBytes.Length);$pwStream.Flush($true)}finally{$pwStream.Dispose()}
+        }finally{[Array]::Clear($pwBytes,0,$pwBytes.Length)}
+        & icacls.exe $passwordFile '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' ('*'+$serviceSid+':R')|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Arquivo temporário de senha initdb não pôde ser protegido.'}
+        $initdb=Join-Path $pgDir 'bin\initdb.exe'
+        $initArgs='-D '+('"'+$pgData+'"')+' -U postgres --auth-local=scram-sha-256 --auth-host=scram-sha-256 --encoding=UTF8 --pwfile '+('"'+$passwordFile+'"')+' --no-instructions'
+        $initOut=Join-Path $optionsDir 'postgres-initdb.stdout.log'
+        $initErr=Join-Path $optionsDir 'postgres-initdb.stderr.log'
+        $initProc=Start-Process -FilePath $initdb -Credential $credential -ArgumentList $initArgs `
+            -Wait -PassThru -RedirectStandardOutput $initOut -RedirectStandardError $initErr -ErrorAction Stop
+        if($null -eq $initProc -or $initProc.ExitCode -ne 0){throw 'PostgreSQL initdb não concluiu; dados parciais exigem inspeção manual.'}
+        $initProc.Dispose()
+        if(-not(Test-Path -LiteralPath (Join-Path $pgData 'PG_VERSION') -PathType Leaf) -or
+           ([IO.File]::ReadAllText((Join-Path $pgData 'PG_VERSION'))).Trim() -cne '16'){
+            throw 'initdb não confirmou um cluster PostgreSQL 16.'
+        }
+        $serviceCommand='"'+(Join-Path $pgDir 'bin\pg_ctl.exe')+'" runservice -N "'+$PostgresServiceName+'" -D "'+$pgData+'" -w'
+        New-Service -Name $PostgresServiceName -BinaryPathName $serviceCommand -Credential $credential `
+            -StartupType Disabled -DisplayName 'Esterium PostgreSQL 16' -ErrorAction Stop|Out-Null
+        $serviceCreated=$true
+    }finally{
+        $serviceSecret=$null
+        $superPassword=$null
+        $serviceSecure=$null
+        if(Test-Path -LiteralPath $passwordFile){Remove-Item -LiteralPath $passwordFile -Force -ErrorAction Stop}
+        $newService=if($serviceCreated){Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue}else{$null}
+        if($null -ne $newService){
+            try{
+                Set-Service -Name $PostgresServiceName -StartupType Disabled -ErrorAction Stop
+                if($newService.Status -ne 'Stopped'){
+                    Stop-Service -Name $PostgresServiceName -ErrorAction Stop
+                    (Get-Service -Name $PostgresServiceName -ErrorAction Stop).WaitForStatus(
+                        [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+                }
+            }catch{throw 'Falha ao proteger PostgreSQL parcial: serviço deve permanecer desabilitado e parado.'}
+        }
+    }
+    $credential=$null
+}
 if (-not (Test-Path -LiteralPath (Join-Path $pgDir 'bin\pg_isready.exe')) -or
     -not (Test-Path -LiteralPath (Join-Path $pgData 'PG_VERSION')) -or
     ([IO.File]::ReadAllText((Join-Path $pgData 'PG_VERSION'))).Trim() -cne '16' -or
@@ -388,6 +612,12 @@ $pgIdentity=[string]$pgService[0].StartName
 $localAccounts=@($PostgresServiceAccount,('.\'+$PostgresServiceAccount),($env:COMPUTERNAME+'\'+$PostgresServiceAccount))
 if ($pgIdentity -notin $localAccounts) {
     throw 'Servico PostgreSQL nao pertence a conta Windows dedicada aprovada.'
+}
+if($PostgresBinaryZip){
+    $expectedServiceCommand='"'+(Join-Path $pgDir 'bin\pg_ctl.exe')+'" runservice -N "'+$PostgresServiceName+'" -D "'+$pgData+'" -w'
+    if($pgService[0].PathName -cne $expectedServiceCommand){
+        throw 'Serviço PostgreSQL ZIP não aponta exatamente aos binários e dados aprovados.'
+    }
 }
 # A listener should not survive shutdown; reject a port still occupied
 # instead of inferring that the new service is ready for production.
@@ -411,7 +641,7 @@ try {
 } finally { [Array]::Clear($markerBytes,0,$markerBytes.Length) }
 & icacls.exe $freshMarker '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Fresh PostgreSQL attestation ACL could not be protected.' }
-Write-Output 'PASS 1/3: PostgreSQL 16 instalado, serviço desabilitado e parado para configuração de TLS/SCRAM.'
+Write-Output ('PASS 1/3: PostgreSQL 16 '+$(if($PostgresBinaryZip){'ZIP oficial instalado com conta local dedicada'}else{'EDB instalado'})+'; serviço desabilitado e parado para configuração TLS/SCRAM.')
 Write-Output '2/3: instalando binários e serviço Garnet...'
 $stage=$garnetDir+'.staging-'+[Guid]::NewGuid().ToString('N')
 $published=$false
