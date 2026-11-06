@@ -277,6 +277,20 @@ try {
     if ($PostgresBinaryZip -and -not (Test-Path -LiteralPath (Join-Path $licenseRoot 'archives\postgresql\archive-notice-inventory.txt') -PathType Leaf)) {
         throw 'ZIP Setup package is missing the PostgreSQL vendor notice inventory.'
     }
+    if ($PostgresBinaryZip) {
+        $postgresNoticeRoot=Join-Path $licenseRoot 'archives\postgresql'
+        $postgresNoticeFilesRoot=Join-Path $postgresNoticeRoot 'pgsql'
+        $postgresInventory=Join-Path $postgresNoticeRoot 'archive-notice-inventory.txt'
+        $postgresNoticePaths=@(Get-Content -LiteralPath $postgresInventory | Select-Object -Skip 1 |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if (@($postgresNoticePaths | Where-Object { $_ -match '(?i)\.doctree$' }).Count -gt 0) {
+            throw 'PostgreSQL notice inventory contains a generated documentation cache file.'
+        }
+        $postgresNoticeFiles=@(Get-ChildItem -LiteralPath $postgresNoticeFilesRoot -Force -Recurse -File)
+        if ($postgresNoticePaths.Count -ne $postgresNoticeFiles.Count) {
+            throw 'PostgreSQL notice inventory does not match the packaged notice files.'
+        }
+    }
     $licenseEvidence=Join-Path $env:RUNNER_TEMP 'esterium-third-party-license-evidence'
     [IO.Directory]::CreateDirectory($licenseEvidence) | Out-Null
     Copy-Item -Path (Join-Path $licenseRoot '*') -Destination $licenseEvidence -Recurse -Force

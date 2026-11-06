@@ -63,6 +63,8 @@ function Export-ArchiveNoticeFiles {
     try {
         $entries=@($archive.Entries | Where-Object {
             -not [string]::IsNullOrEmpty($_.Name) -and
+            # Sphinx doctrees are generated documentation caches, not license notices.
+            -not [IO.Path]::GetExtension($_.Name).Equals('.doctree',[StringComparison]::OrdinalIgnoreCase) -and
             [Regex]::IsMatch($_.Name,'(?i)^(?:(license|licence|notice|copyright|copying|patents?)(?:[._ -].*)?|third.?party.*(?:notice|license|licence).*)$')
         } | Sort-Object FullName)
         if ($entries.Count -gt 300) { throw ($Component+' archive has too many license/notice entries.') }
