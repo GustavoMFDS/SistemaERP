@@ -91,7 +91,9 @@ try {
             $found=@($files.Keys | Where-Object {
                 $_ -like 'vendor/*' -and $_ -match '(?i)(license|licence|notice|copyright|copying|patent)'
             } | Sort-Object | Select-Object -First 40)
-            throw ('Embedded third-party notice missing: '+$notice+'; found: '+($found -join '; '))
+            $vendorPaths=@($files.Keys | Where-Object { $_ -like 'vendor/*' } | Sort-Object | Select-Object -First 60)
+            throw ('Embedded third-party notice missing: '+$notice+'; found: '+($found -join '; ')+
+                '; vendor sample: '+($vendorPaths -join '; '))
         }
     }
     Write-Output ('PASS: embedded ERP, PostgreSQL, Garnet, NSSM - '+$files.Count+' files, read-only.')
