@@ -66,6 +66,12 @@ jobs:
               -not (Test-Path "$env:GITHUB_WORKSPACE\release-preview\THIRD_PARTY_NOTICES.md")) {
             throw 'Unsigned MIT preview must ship its copyright and vendor notices'
           }
+          foreach ($notice in @('PostgreSQL-LICENSE.txt','Garnet-2.2.3-LICENSE.txt',
+              'Garnet-2.2.3-NOTICE.md','NSSM-2.24-LICENSE.txt')) {
+            if (-not (Test-Path (Join-Path "$env:GITHUB_WORKSPACE\release-preview\third-party-notices" $notice))) {
+              throw ('Missing third-party license file: '+$notice)
+            }
+          }
           $test = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
           if ($test.ExitCode -ne 0) { throw 'Bootstrap self-test failed' }
           $payload = Start-Process -FilePath $exe -ArgumentList '--has-payload' -Wait -PassThru

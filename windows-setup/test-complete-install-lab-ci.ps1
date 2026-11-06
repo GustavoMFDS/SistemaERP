@@ -266,6 +266,18 @@ try {
         -ExpectedServiceWrapperSHA256 $nssmHash
     $setupExe = Join-Path $setupExeDir 'EsteriumERP-Setup.exe'
     if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) { throw 'Full signed-mode Setup.exe was not built.' }
+    $licenseRoot=Join-Path $setupExeDir 'third-party-notices'
+    foreach ($notice in @('static\PostgreSQL-LICENSE.txt','static\Garnet-2.2.3-LICENSE.txt',
+        'static\Garnet-2.2.3-NOTICE.md','static\NSSM-2.24-LICENSE.txt',
+        'dotnet\LICENSE.txt','dotnet\ThirdPartyNotices.txt','archives\garnet\archive-notice-inventory.txt')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $licenseRoot $notice) -PathType Leaf)) {
+            throw ('Full Setup package is missing a third-party license/notice: '+$notice)
+        }
+    }
+    if ($PostgresBinaryZip -and -not (Test-Path -LiteralPath (Join-Path $licenseRoot 'archives\postgresql\archive-notice-inventory.txt') -PathType Leaf)) {
+        throw 'ZIP Setup package is missing the PostgreSQL vendor notice inventory.'
+    }
+    Write-Output 'PASS: third-party license texts, runtime notices, and archive inventories are beside the distributable Setup EXE.'
     $setupSignature = Set-AuthenticodeSignature -LiteralPath $setupExe -Certificate $signer -HashAlgorithm SHA256
     if ($setupSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or $setupSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $signerThumbprint) {
         throw 'The disposable CI Setup.exe did not retain the expected test publisher signature.'
