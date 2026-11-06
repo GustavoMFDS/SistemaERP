@@ -5,7 +5,9 @@ using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -482,36 +484,73 @@ namespace Esterium.WindowsSetup
             return erp;
         }
 
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct WinTrustFileInfo
+        {
+            public uint cbStruct;
+            public IntPtr pcwszFilePath;
+            public IntPtr hFile;
+            public IntPtr pgKnownSubject;
+        }
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct WinTrustData
+        {
+            public uint cbStruct;
+            public IntPtr pPolicyCallbackData;
+            public IntPtr pSIPClientData;
+            public uint dwUIChoice;
+            public uint fdwRevocationChecks;
+            public uint dwUnionChoice;
+            public IntPtr pFile;
+            public uint dwStateAction;
+            public IntPtr hWVTStateData;
+            public IntPtr pwszURLReference;
+            public uint dwProvFlags;
+            public uint dwUIContext;
+            public IntPtr pSignatureSettings;
+        }
+        [DllImport("wintrust.dll", ExactSpelling = true, SetLastError = true)]
+        static extern int WinVerifyTrust(IntPtr hwnd, ref Guid action, ref WinTrustData data);
         internal static bool IsLauncherAuthenticodeValid(string publisher)
         {
-            // The signed EXE itself must be authenticated before elevation.
-            // Keep paths and thumbprints in environment variables, never interpolate into PowerShell.
-            const string check = "$s=Get-AuthenticodeSignature -LiteralPath $env:ESTERIUM_SETUP_EXE; " +
-                "if($s.Status -ne 'Valid' -or $null -eq $s.SignerCertificate -or " +
-                "$s.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $env:ESTERIUM_SETUP_PUBLISHER){exit 1}; exit 0";
-            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(check));
-            var psi = new ProcessStartInfo("powershell.exe",
-                "-NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded) {
-                UseShellExecute = false, CreateNoWindow = true
-            };
-            psi.EnvironmentVariables["ESTERIUM_SETUP_EXE"] = Assembly.GetExecutingAssembly().Location;
-            psi.EnvironmentVariables["ESTERIUM_SETUP_PUBLISHER"] = publisher;
+            // Verify the full bundled EXE through Windows trust APIs. A subprocess
+            // can stall while PowerShell re-hashes this large file; keep the GUI responsive.
+            string file = Assembly.GetExecutingAssembly().Location;
+            IntPtr path = IntPtr.Zero;
+            IntPtr fileInfoPtr = IntPtr.Zero;
             try
             {
-                using (var p = Process.Start(psi))
+                path = Marshal.StringToCoTaskMemUni(file);
+                var fileInfo = new WinTrustFileInfo {
+                    cbStruct = (uint)Marshal.SizeOf(typeof(WinTrustFileInfo)),
+                    pcwszFilePath = path
+                };
+                fileInfoPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WinTrustFileInfo)));
+                Marshal.StructureToPtr(fileInfo, fileInfoPtr, false);
+                var data = new WinTrustData {
+                    cbStruct = (uint)Marshal.SizeOf(typeof(WinTrustData)),
+                    dwUIChoice = 2, // WTD_UI_NONE
+                    fdwRevocationChecks = 0, // WTD_REVOKE_NONE
+                    dwUnionChoice = 1, // WTD_CHOICE_FILE
+                    pFile = fileInfoPtr,
+                    dwStateAction = 0, // WTD_STATEACTION_IGNORE
+                    dwProvFlags = 0x00001000 // WTD_CACHE_ONLY_URL_RETRIEVAL
+                };
+                var action = new Guid("00AAC56B-CD44-11D0-8CC2-00C04FC295EE");
+                if (WinVerifyTrust(IntPtr.Zero, ref action, ref data) != 0) return false;
+                using (var raw = X509Certificate.CreateFromSignedFile(file))
+                using (var certificate = new X509Certificate2(raw))
                 {
-                    if (p == null) return false;
-                    // The signed all-in-one EXE contains the complete ERP bundle;
-                    // hashing several hundred megabytes can exceed a short timeout.
-                    if (!p.WaitForExit(120000))
-                    {
-                        try { p.Kill(); p.WaitForExit(5000); } catch { }
-                        return false;
-                    }
-                    return p.ExitCode == 0;
+                    return String.Equals(certificate.Thumbprint, publisher,
+                        StringComparison.OrdinalIgnoreCase);
                 }
             }
             catch { return false; }
+            finally
+            {
+                if (fileInfoPtr != IntPtr.Zero) Marshal.FreeHGlobal(fileInfoPtr);
+                if (path != IntPtr.Zero) Marshal.FreeCoTaskMem(path);
+            }
         }
         static void CheckSignedLauncher(string publisher)
         {
