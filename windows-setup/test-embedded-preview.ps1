@@ -10,7 +10,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedManifestSHA256,
     [Parameter(Mandatory=$true)][string]$ExpectedPostgresSHA256,
     [Parameter(Mandatory=$true)][string]$ExpectedGarnetSHA256,
-    [Parameter(Mandatory=$true)][string]$ExpectedNssmSHA256
+    [Parameter(Mandatory=$true)][string]$ExpectedNssmSHA256,
+    [switch]$RequireThirdPartyNotices
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -79,25 +80,27 @@ try {
     foreach($file in @('erp/esterium-server.exe','erp/web/index.html','erp/tools/install-esterium-local-complete.ps1')){
         if(-not $files.ContainsKey($file)){throw "ERP bundle missing $file"}
     }
-    $noticeRoot='vendor/third-party-notices/'
-    $requiredNotices=@(
-        'static/PostgreSQL-LICENSE.txt','static/Garnet-2.2.3-LICENSE.txt',
-        'static/Garnet-2.2.3-NOTICE.md','static/NSSM-2.24-LICENSE.txt',
-        'dotnet/LICENSE.txt','dotnet/ThirdPartyNotices.txt',
-        'archives/garnet/archive-notice-inventory.txt')
-    if($format -eq 'zip'){$requiredNotices+='archives/postgresql/archive-notice-inventory.txt'}
-    foreach($notice in $requiredNotices){
-        if(-not $files.ContainsKey($noticeRoot+$notice)){
-            $found=@($files.Keys | Where-Object {
-                $_ -like 'vendor/*' -and $_ -match '(?i)(license|licence|notice|copyright|copying|patent)'
-            } | Sort-Object | Select-Object -First 40)
-            $vendorPaths=@($files.Keys | Where-Object { $_ -like 'vendor/*' } | Sort-Object | Select-Object -First 60)
-            throw ('Embedded third-party notice missing: '+$notice+'; found: '+($found -join '; ')+
-                '; vendor sample: '+($vendorPaths -join '; '))
+    if($RequireThirdPartyNotices){
+        $noticeRoot='vendor/third-party-notices/'
+        $requiredNotices=@(
+            'static/PostgreSQL-LICENSE.txt','static/Garnet-2.2.3-LICENSE.txt',
+            'static/Garnet-2.2.3-NOTICE.md','static/NSSM-2.24-LICENSE.txt',
+            'dotnet/LICENSE.txt','dotnet/ThirdPartyNotices.txt',
+            'archives/garnet/archive-notice-inventory.txt')
+        if($format -eq 'zip'){$requiredNotices+='archives/postgresql/archive-notice-inventory.txt'}
+        foreach($notice in $requiredNotices){
+            if(-not $files.ContainsKey($noticeRoot+$notice)){
+                $found=@($files.Keys | Where-Object {
+                    $_ -like 'vendor/*' -and $_ -match '(?i)(license|licence|notice|copyright|copying|patent)'
+                } | Sort-Object | Select-Object -First 40)
+                $vendorPaths=@($files.Keys | Where-Object { $_ -like 'vendor/*' } | Sort-Object | Select-Object -First 60)
+                throw ('Embedded third-party notice missing: '+$notice+'; found: '+($found -join '; ')+
+                    '; vendor sample: '+($vendorPaths -join '; '))
+            }
         }
+        Write-Output ('PASS: embedded ERP, PostgreSQL, Garnet, NSSM - '+$files.Count+' files, read-only.')
+        Write-Output 'PASS: third-party notices and archive inventories are embedded with the vendor payload.'
     }
-    Write-Output ('PASS: embedded ERP, PostgreSQL, Garnet, NSSM - '+$files.Count+' files, read-only.')
-    Write-Output 'PASS: third-party notices and archive inventories are embedded with the vendor payload.'
     Write-Output 'NOT RELEASED: preview permanently blocks installation and is not a signed commercial package.'
 }finally{
     if($zip){$zip.Dispose()}else{$resource.Dispose()}

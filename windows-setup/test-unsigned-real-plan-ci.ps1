@@ -227,7 +227,7 @@ if($PostgresBinaryZip){
 $exe=Join-Path $exeDir 'EsteriumERP-Setup-TECHNICAL-PREVIEW.exe'
 if (-not (Test-Path $exe -PathType Leaf)) {throw 'Missing integrated unsigned EXE'}
 # Inspect hashes INSIDE the complete EXE, including official ZIP format.
-& (Join-Path $root 'windows-setup/test-embedded-preview.ps1') -Exe $exe -ExpectedManifestSHA256 $manifest -ExpectedPostgresSHA256 $edbHash -ExpectedGarnetSHA256 $garnetHash -ExpectedNssmSHA256 $nssmHash
+& (Join-Path $root 'windows-setup/test-embedded-preview.ps1') -Exe $exe -ExpectedManifestSHA256 $manifest -ExpectedPostgresSHA256 $edbHash -ExpectedGarnetSHA256 $garnetHash -ExpectedNssmSHA256 $nssmHash -RequireThirdPartyNotices
 if($PostgresBinaryZip){
     $bad=$build.Clone()
     $bad.OutputDir=Join-Path $dest 'reject-bad-zip-hash'
