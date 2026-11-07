@@ -45,7 +45,7 @@ namespace Esterium.WindowsSetup
                     var data = new JavaScriptSerializer().Deserialize<Dictionary<string,string>>(
                         reader.ReadToEnd());
                     if (data == null || !data.ContainsKey("manifest") ||
-                        !data.ContainsKey("garnet") || !data.ContainsKey("nssm"))
+                        !data.ContainsKey("garnet") || !data.ContainsKey("winsw"))
                         throw new InvalidOperationException("Aprovacoes de arquivos incompletas.");
                     return data;
                 }
@@ -102,7 +102,7 @@ namespace Esterium.WindowsSetup
             var approval = PreviewPins();
             Bundle(erp, Hex("manifesto", approval["manifest"], 64));
             foreach (var kv in new Dictionary<string, string> {
-                { "garnet.zip", "garnet" }, { "nssm.exe", "nssm" } })
+                { "garnet.zip", "garnet" }, { "winsw.exe", "winsw" } })
             {
                 string path = Path.Combine(vendor, kv.Key);
                 if (!File.Exists(path) ||

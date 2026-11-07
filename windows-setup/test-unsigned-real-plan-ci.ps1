@@ -144,36 +144,15 @@ function Test-CIOnlyStrictJournalRejection([string]$Exe,[string]$Journal,[string
 
 $edbHash=if($PostgresBinaryZip){'43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'}else{'DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'}
 $garnetHash='5CD130686AB415B13C59D36D048A6FADED81E707FFE6DA5953F98BEEB79F9F16'
-$nssmArchiveHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
-$nssmHash='EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'
+$winswHash='923111C7142B3DC783A3C722B19B8A21BCB78222D7A136AC33F0CA8A29F4CB66'
 $edbCert='7BEDD1269FCCF7A5D95F18274750B79893C06C70'
 $pg=Join-Path $dest $(if($PostgresBinaryZip){'postgresql-binaries.zip'}else{'postgresql.exe'})
 $gn=Join-Path $dest 'garnet.zip'
-$nupkg=Join-Path $dest 'nssm.nupkg'
-$nz=Join-Path $dest 'nssm.zip'
-$nssm=Join-Path $dest 'nssm.exe'
+$winsw=Join-Path $dest 'winsw.exe'
 $pgURL=if($PostgresBinaryZip){'https://get.enterprisedb.com/postgresql/postgresql-16.15-5-windows-x64-binaries.zip'}else{'https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64.exe'}
 DownloadPinned $pgURL $pg $edbHash
 DownloadPinned 'https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip' $gn $garnetHash
-# Chocolatey is only a byte transport; the extracted NSSM ZIP must match
-# the independently pinned WinGet hash.
-& curl.exe -fLsS --retry 2 --connect-timeout 25 --max-time 120 -o $nupkg 'https://community.chocolatey.org/api/v2/package/NSSM/2.24.101-g897c7ad'
-if ($LASTEXITCODE -ne 0) {throw 'NSSM upstream transport unavailable'}
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip=[IO.Compression.ZipFile]::OpenRead($nupkg)
-try {
-    $entry=@($zip.Entries | Where-Object { $_.FullName -ceq 'tools/nssm-2.24-101-g897c7ad.zip' })
-    if ($entry.Count -ne 1) { throw 'Chocolatey transport lacks pinned NSSM ZIP' }
-    $input=$entry[0].Open(); $output=[IO.File]::Create($nz)
-    try {$input.CopyTo($output)} finally {$input.Dispose();$output.Dispose()}
-} finally { $zip.Dispose() }
-if ((Get-FileHash -LiteralPath $nz -Algorithm SHA256).Hash -cne $nssmArchiveHash) {
-    throw 'NSSM archive differs from independently pinned WinGet hash'
-}
-$extract=Join-Path $dest 'nssm-unpacked'
-Expand-Archive -LiteralPath $nz -DestinationPath $extract -ErrorAction Stop
-Copy-Item -LiteralPath (Join-Path $extract 'nssm-2.24-101-g897c7ad\win64\nssm.exe') -Destination $nssm -ErrorAction Stop
-if ((Get-FileHash -LiteralPath $nssm -Algorithm SHA256).Hash -cne $nssmHash) {throw 'Unexpected x64 NSSM'}
+DownloadPinned 'https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW.NET4.exe' $winsw $winswHash
 if (-not $PostgresBinaryZip){
     $sig=Get-AuthenticodeSignature -LiteralPath $pg
     if ($sig.Status -ne [Management.Automation.SignatureStatus]::Valid -or
@@ -190,8 +169,8 @@ if ($before.Count -ne 0) {throw 'Runner has unexpected existing services'}
 $args=@{ SourceBundleDir=$bundle; AllowedOrigin='https://erp.example.org';
     PostgresInstaller=$pg; ExpectedPostgresSHA256=$edbHash;
     ExpectedPostgresPublisherThumbprint=$edbCert; GarnetPackage=$gn;
-    ExpectedGarnetSHA256=$garnetHash; ServiceWrapperExe=$nssm;
-    ExpectedServiceWrapperSHA256=$nssmHash; ApprovedManifestSHA256=$manifest }
+    ExpectedGarnetSHA256=$garnetHash; ServiceWrapperExe=$winsw;
+    ExpectedServiceWrapperSHA256=$winswHash; ApprovedManifestSHA256=$manifest }
 # Invoke the tools embedded in the built ERP bundle, never unbuilt source scripts.
 if(-not $PostgresBinaryZip){
     & (Join-Path $bundle 'tools/install-esterium-local-complete.ps1') @args
@@ -202,7 +181,7 @@ $after=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumER
 if ($after.Count -ne 0) {throw 'Read-only plan unexpectedly modified services'}
 if($PostgresBinaryZip){
     Write-Output 'PASS: native MIT ZIP preview deliberately skips unsupported legacy EDB installer plan.'
-}else{ Write-Output 'PASS: unsigned real ERP + EDB/Garnet/NSSM plan on disposable Windows.' }
+}else{ Write-Output 'PASS: unsigned real ERP + EDB/Garnet/WinSW plan on disposable Windows.' }
 Write-Output 'NOT INSTALLED: no -Apply, no bypass of privileged Authenticode checks.'
 
 # PHASE ONE ONLY: integrated unsigned native EXE may copy verified ERP to a
@@ -217,7 +196,7 @@ $build=@{
     PostgresInstaller=$pg;ExpectedPostgresSHA256=$edbHash
     ExpectedPostgresPublisherThumbprint=$edbCert
     GarnetPackage=$gn;ExpectedGarnetSHA256=$garnetHash
-    ServiceWrapperExe=$nssm;ExpectedServiceWrapperSHA256=$nssmHash
+    ServiceWrapperExe=$winsw;ExpectedServiceWrapperSHA256=$winswHash
 }
 if($PostgresBinaryZip){
     $build.Remove('ExpectedPostgresPublisherThumbprint')
@@ -227,7 +206,7 @@ if($PostgresBinaryZip){
 $exe=Join-Path $exeDir 'EsteriumERP-Setup-TECHNICAL-PREVIEW.exe'
 if (-not (Test-Path $exe -PathType Leaf)) {throw 'Missing integrated unsigned EXE'}
 # Inspect hashes INSIDE the complete EXE, including official ZIP format.
-& (Join-Path $root 'windows-setup/test-embedded-preview.ps1') -Exe $exe -ExpectedManifestSHA256 $manifest -ExpectedPostgresSHA256 $edbHash -ExpectedGarnetSHA256 $garnetHash -ExpectedNssmSHA256 $nssmHash -RequireThirdPartyNotices
+& (Join-Path $root 'windows-setup/test-embedded-preview.ps1') -Exe $exe -ExpectedManifestSHA256 $manifest -ExpectedPostgresSHA256 $edbHash -ExpectedGarnetSHA256 $garnetHash -ExpectedServiceWrapperSHA256 $winswHash -RequireThirdPartyNotices
 if($PostgresBinaryZip){
     $bad=$build.Clone()
     $bad.OutputDir=Join-Path $dest 'reject-bad-zip-hash'
@@ -272,7 +251,7 @@ Write-Output 'PASS: unsigned native EXE staged verified ERP into admin-only Prog
 Write-Output 'PASS: second run rejected without altering staging; vendor, SQL and services not installed.'
 
 
-# PHASE 2A: stage real, independently pinned EDB/Garnet/NSSM files in
+# PHASE 2A: stage real, independently pinned EDB/Garnet/WinSW files in
 # a separate Program Files directory. NEVER run vendors or register SCM.
 $vendorStage=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage'
 if (Test-Path -LiteralPath $vendorStage) { throw 'Disposable runner has preexisting vendor staging' }
@@ -281,7 +260,7 @@ if ($prepared.ExitCode -ne 0) { throw "Native vendor preparation failed: $($prep
 $items=@(
     @{name=$(if($PostgresBinaryZip){'postgresql-binaries.zip'}else{'postgresql.exe'});hash=$edbHash},
     @{name='garnet.zip';hash=$garnetHash},
-    @{name='nssm.exe';hash=$nssmHash}
+    @{name='winsw.exe';hash=$winswHash}
 )
 $found=@(Get-ChildItem -LiteralPath $vendorStage -File -Force)
 if ($found.Count -ne $items.Count) {throw 'Vendor stage has unexpected file count'}
@@ -314,8 +293,8 @@ $retry=Start-Process -FilePath $exe -ArgumentList '--stage-oss-vendors' -Wait -P
 if ($retry.ExitCode -ne 5) {throw 'Vendor stage unexpectedly allowed second execution'}
 $services=@(Get-Service -Name @('EsteriumPostgreSQL16','EsteriumGarnet','EsteriumERP') -ErrorAction SilentlyContinue)
 if ($services.Count -ne 0) {throw 'Vendor preparation created an unexpected service'}
-if($PostgresBinaryZip){Write-Output 'PASS: unsigned EXE staged official PostgreSQL binaries ZIP, Garnet and NSSM.'}
-else{Write-Output 'PASS: unsigned native EXE staged genuine EDB/Garnet/NSSM under protected Program Files.'}
+if($PostgresBinaryZip){Write-Output 'PASS: unsigned EXE staged official PostgreSQL binaries ZIP, Garnet and WinSW.'}
+else{Write-Output 'PASS: unsigned native EXE staged genuine EDB/Garnet/WinSW under protected Program Files.'}
 if($PostgresBinaryZip){Write-Output 'PASS: Official EDB binary ZIP independently pinned SHA-256 and admin-only ACL.'}
 else{Write-Output 'PASS: EDB trusted Authenticode signer, pinned hashes and admin-only ACL.'}
 Write-Output 'PASS: vendor-stage reinstallation blocked; database/credentials/services unchanged.'

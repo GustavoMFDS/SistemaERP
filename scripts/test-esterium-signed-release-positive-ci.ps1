@@ -157,10 +157,10 @@ try {
     $vendors=Join-Path $root 'vendor-plan-only'
     [IO.Directory]::CreateDirectory($vendors) | Out-Null
     $pg=Join-Path $vendors 'postgresql-16-plan-only.exe'
-    $wrapper=Join-Path $vendors 'nssm-plan-only.exe'
+    $wrapper=Join-Path $vendors 'winsw-plan-only.exe'
     $garnet=Join-Path $vendors 'garnet-plan-only.zip'
     [IO.File]::WriteAllText($pg,'CI inert EDB fixture NEVER RUN')
-    [IO.File]::WriteAllText($wrapper,'CI inert NSSM fixture NEVER RUN')
+    [IO.File]::WriteAllText($wrapper,'CI inert WinSW fixture NEVER RUN')
     $zipSource=Join-Path $vendors 'src'
     [IO.Directory]::CreateDirectory($zipSource) | Out-Null
     [IO.File]::WriteAllText((Join-Path $zipSource 'GarnetServer.exe'),'CI inert Garnet fixture NEVER RUN')

@@ -20,6 +20,7 @@ param(
     [string]$PostgresOptionsDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
     [string]$PostgresTlsPolicyDir=(Join-Path $env:ProgramData 'Esterium\PostgresTlsPolicy'),
     [string]$GarnetConfigDir=(Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
+    [string]$GarnetLogsDir=(Join-Path $env:ProgramData 'Esterium\GarnetLogs'),
     [string]$PostgresInstallDir=(Join-Path $env:ProgramFiles 'PostgreSQL\16'),
     [string]$PostgresDataDir=(Join-Path $env:ProgramData 'Esterium\PostgresData'),
     [string]$GarnetInstallDir=(Join-Path $env:ProgramFiles 'EsteriumGarnet'),
@@ -59,7 +60,7 @@ $existingAccounts=@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='
 if ($existingAccounts.Count -ne 0) { throw 'Conta PostgreSQL existente: nao sobrescrever.' }
 $pgBase=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')
 $programBase=[IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\')
-foreach ($candidate in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresDataDir)) {
+foreach ($candidate in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$GarnetLogsDir,$PostgresDataDir)) {
     if (-not [IO.Path]::GetFullPath($candidate).StartsWith($pgBase+'\',[StringComparison]::OrdinalIgnoreCase)) {
         throw 'Dados e configuracoes devem ficar sob ProgramData Esterium.'
     }
@@ -69,7 +70,7 @@ foreach ($candidate in @($PostgresInstallDir,$GarnetInstallDir)) {
         throw 'Executaveis devem ficar sob Program Files.'
     }
 }
-foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir)) {
+foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$GarnetLogsDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir)) {
     if (-not [IO.Path]::IsPathRooted($dir) -or $dir.StartsWith('\\')) {
         throw 'Destino de instalacao deve usar disco local absoluto.'
     }
@@ -77,14 +78,14 @@ foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$Garn
         throw 'Ha arquivos anteriores de instalacao: nao sobrescrever.'
     }
 }
-$allPaths=@($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir) |
+$allPaths=@($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$GarnetLogsDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir) |
     ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') }
 for ($i=0;$i -lt $allPaths.Count;$i++) {
     for ($j=$i+1;$j -lt $allPaths.Count;$j++) {
         if ([string]::Equals($allPaths[$i],$allPaths[$j],[StringComparison]::OrdinalIgnoreCase) -or
             $allPaths[$i].StartsWith($allPaths[$j]+'\',[StringComparison]::OrdinalIgnoreCase) -or
             $allPaths[$j].StartsWith($allPaths[$i]+'\',[StringComparison]::OrdinalIgnoreCase)) {
-            throw 'Instalador exige seis pastas novas e isoladas.'
+            throw 'Instalador exige pastas novas e isoladas.'
         }
     }
 }
@@ -165,7 +166,7 @@ if ($ExpectedServiceWrapperSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
     -not (Test-Path -LiteralPath $ServiceWrapperExe -PathType Leaf) -or
     (Get-FileHash -LiteralPath $ServiceWrapperExe -Algorithm SHA256).Hash -cne
         $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
-    throw 'Gerenciador de serviço NSSM não possui hash aprovado de fonte independente.'
+    throw 'WinSW não possui hash aprovado de fonte independente.'
 }
 $bootstrapArgs=@{DestinationDir=$BootstrapDir;GarnetPort=$GarnetPort}
 & $bootstrap @bootstrapArgs | Out-Null
@@ -223,6 +224,7 @@ $installArgs=@{
     PostgresServiceAccount=$PostgresServiceAccount
     GarnetServiceName=$GarnetServiceName
     GarnetInstallDir=$GarnetInstallDir
+    GarnetLogsDir=$GarnetLogsDir
     PostgresPort=$PostgresPort
     GarnetPort=$GarnetPort
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint

@@ -25,6 +25,7 @@ param(
     [string]$PostgresServiceAccount='esterium_pgsvc',
     [string]$GarnetServiceName='EsteriumGarnet',
     [string]$GarnetInstallDir=(Join-Path $env:ProgramFiles 'EsteriumGarnet'),
+    [string]$GarnetLogsDir=(Join-Path $env:ProgramData 'Esterium\GarnetLogs'),
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [string]$TrustedPublisherThumbprint='',
@@ -129,6 +130,7 @@ if ((-not $PostgresBinaryZip -and [IO.Path]::GetExtension($pg).ToLowerInvariant(
 $pgDir=Assert-NewDestination $PostgresInstallDir $env:ProgramFiles
 $pgData=Assert-NewDestination $PostgresDataDir (Join-Path $env:ProgramData 'Esterium')
 $garnetDir=Assert-NewDestination $GarnetInstallDir $env:ProgramFiles
+$garnetLogsDir=Assert-NewDestination $GarnetLogsDir (Join-Path $env:ProgramData 'Esterium')
 if ($pgDir.StartsWith($garnetDir+'\',[StringComparison]::OrdinalIgnoreCase) -or
     $garnetDir.StartsWith($pgDir+'\',[StringComparison]::OrdinalIgnoreCase)) {
     throw 'Binários de PostgreSQL e Garnet devem ficar em pastas separadas.'
@@ -645,7 +647,7 @@ Write-Output ('PASS 1/3: PostgreSQL 16 '+$(if($PostgresBinaryZip){'ZIP oficial i
 Write-Output '2/3: instalando binários e serviço Garnet...'
 $stage=$garnetDir+'.staging-'+[Guid]::NewGuid().ToString('N')
 $published=$false
-$created=$false
+$registrationAttempted=$false
 try {
     [IO.Directory]::CreateDirectory($stage) | Out-Null
     # Restrict the empty staging directory BEFORE extracting or copying any
@@ -680,7 +682,7 @@ try {
     }elseif(@(Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object {$_.Name -in @('GarnetServer.runtimeconfig.json','GarnetServer.deps.json')}).Count -gt 0){
         throw 'Pacote Garnet contém metadados framework-dependent sem GarnetServer.dll.'
     }
-    $stagedWrapper=Join-Path $stage 'esterium-service-wrapper.exe'
+    $stagedWrapper=Join-Path $stage 'EsteriumGarnet.exe'
     Copy-Item -LiteralPath $wrapper -Destination $stagedWrapper -ErrorAction Stop
     $dotnetStage=Join-Path $stage 'dotnet'
     if (Test-Path -LiteralPath $dotnetStage) {
@@ -719,7 +721,7 @@ try {
     if (Test-Path -LiteralPath $garnetDir) { throw 'Outro instalador criou a pasta de destino.' }
     Move-Item -LiteralPath $stage -Destination $garnetDir -ErrorAction Stop
     $published=$true
-    $serviceExe=Join-Path $garnetDir 'esterium-service-wrapper.exe'
+    $serviceExe=Join-Path $garnetDir 'EsteriumGarnet.exe'
     $garnetExe=Join-Path $garnetDir $relative
     $garnetServerDll=Join-Path $garnetDir $relativeAssembly
     $dotnetRuntimeDir=Join-Path $garnetDir 'dotnet'
@@ -766,34 +768,71 @@ try {
         throw 'Windows PowerShell launcher is unavailable for the private Garnet runtime.'
     }
     $appParameters='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$launcherScript+'"'
-    $appDirectory=$garnetDir
-    & $serviceExe install $GarnetServiceName $serviceApplication $appParameters | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'NSSM não registrou Garnet.' }
-    $created=$true
-    foreach ($command in @(
-        @('set',$GarnetServiceName,'ObjectName','NT AUTHORITY\NetworkService'),
-        @('set',$GarnetServiceName,'Start','SERVICE_DISABLED'),
-        @('set',$GarnetServiceName,'AppDirectory',$appDirectory),
-        @('set',$GarnetServiceName,'AppExit','Default','Restart'),
-        @('set',$GarnetServiceName,'AppRestartDelay','5000')
-    )) {
-        & $serviceExe @command | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'Falha ao restringir o serviço Garnet.' }
-    }
+    if (Test-Path -LiteralPath $garnetLogsDir) { throw 'Garnet log directory appeared during setup; refuse overwrite.' }
+    New-Item -ItemType Directory -Path $garnetLogsDir -ErrorAction Stop | Out-Null
+    & icacls.exe $garnetLogsDir '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)M' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Não foi possível proteger a pasta de logs Garnet.' }
+    $xmlName=[Security.SecurityElement]::Escape($GarnetServiceName)
+    $xmlExe=[Security.SecurityElement]::Escape($serviceApplication)
+    $xmlArguments=[Security.SecurityElement]::Escape($appParameters)
+    $xmlWorkingDirectory=[Security.SecurityElement]::Escape($garnetDir)
+    $xmlLogs=[Security.SecurityElement]::Escape($garnetLogsDir)
+    $serviceConfig=@"
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <id>$xmlName</id>
+  <name>Esterium Garnet</name>
+  <description>Esterium local cache service</description>
+  <executable>$xmlExe</executable>
+  <arguments>$xmlArguments</arguments>
+  <workingdirectory>$xmlWorkingDirectory</workingdirectory>
+  <startmode>Manual</startmode>
+  <stoptimeout>30sec</stoptimeout>
+  <onfailure action="restart" delay="5sec" />
+  <serviceaccount><domain>NT AUTHORITY</domain><user>NetworkService</user></serviceaccount>
+  <logpath>$xmlLogs</logpath>
+  <log mode="roll" />
+</service>
+"@
+    $serviceConfigPath=Join-Path $garnetDir 'EsteriumGarnet.xml'
+    [IO.File]::WriteAllText($serviceConfigPath,$serviceConfig,[Text.UTF8Encoding]::new($false))
+    # Arm ownership-safe rollback before install: WinSW may register the SCM
+    # entry and still return an error, so cleanup must inspect PathName either way.
+    $registrationAttempted=$true
+    & $serviceExe install | Out-Null
+    $installExit=$LASTEXITCODE
+    $service=Get-CimInstance -ClassName Win32_Service -Filter "Name='$GarnetServiceName'" -ErrorAction SilentlyContinue
+    $serviceOwned=$null -ne $service -and $service.PathName -and
+        $service.PathName.IndexOf($serviceExe,[StringComparison]::OrdinalIgnoreCase) -ge 0
+    if ($installExit -ne 0 -or -not $serviceOwned) { throw 'WinSW não registrou Garnet.' }
+    Set-Service -Name $GarnetServiceName -StartupType Disabled -ErrorAction Stop
     $service=Get-CimInstance -ClassName Win32_Service -Filter "Name='$GarnetServiceName'"
     if ($null -eq $service -or
         $service.StartName -notin @('NT AUTHORITY\NetworkService','NT AUTHORITY\NETWORK SERVICE') -or
         $service.StartMode -cne 'Disabled' -or $service.State -cne 'Stopped' -or
-        [int]$service.ProcessId -ne 0) {
-        throw 'Garnet nao esta desabilitado, parado e restrito a NETWORK SERVICE.'
+        [int]$service.ProcessId -ne 0 -or
+        $service.PathName.IndexOf($serviceExe,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw 'Garnet não está desabilitado, parado e restrito a NETWORK SERVICE via WinSW.'
     }
     Write-Output 'PASS 3/3: PostgreSQL instalado e Garnet registrado desabilitado e parado, sem ativar banco ou PDV.'
     Write-Output 'GATE: ainda são necessários TLS/SCRAM/HBA PostgreSQL, usuários SQL, migrações e testes reais de ACL/Lua.'
 } catch {
-    if ($created) {
+    if ($registrationAttempted) {
         try {
-            & (Join-Path $garnetDir 'esterium-service-wrapper.exe') remove $GarnetServiceName confirm | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Warning 'Rollback do serviço Garnet falhou; intervenção técnica necessária.' }
+            $serviceExe=Join-Path $garnetDir 'EsteriumGarnet.exe'
+            $service=Get-CimInstance -ClassName Win32_Service -Filter "Name='$GarnetServiceName'" -ErrorAction SilentlyContinue
+            if ($null -ne $service -and $service.PathName -and
+                $service.PathName.IndexOf($serviceExe,[StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                Set-Service -Name $GarnetServiceName -StartupType Disabled -ErrorAction Stop
+                $registered=Get-Service -Name $GarnetServiceName -ErrorAction Stop
+                if ($registered.Status -ne 'Stopped') {
+                    Stop-Service -Name $GarnetServiceName -Force -ErrorAction Stop
+                    (Get-Service -Name $GarnetServiceName -ErrorAction Stop).WaitForStatus(
+                        [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+                }
+                & $serviceExe uninstall | Out-Null
+                if ($LASTEXITCODE -ne 0) { Write-Warning 'Rollback do serviço Garnet via WinSW falhou; intervenção técnica necessária.' }
+            }
         } catch { Write-Warning 'Rollback do serviço Garnet falhou; intervenção técnica necessária.' }
     }
     throw

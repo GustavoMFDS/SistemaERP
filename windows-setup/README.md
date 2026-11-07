@@ -9,7 +9,7 @@ Framework. No computador da loja nao exige Go, Docker nem Node.
 1. Compilar backend e frontend via scripts/build-esterium-local-windows.ps1 em
    uma maquina de build Windows, gerando o bundle ERP.
 2. Escolher PostgreSQL EDB EXE (hash + Authenticode) ou o ZIP binário oficial
-   PostgreSQL 16.15-5 (SHA-256 fixo), além de Garnet (ZIP) e NSSM (EXE).
+   PostgreSQL 16.15-5 (SHA-256 fixo), além de Garnet (ZIP) e WinSW 2.12.0 (EXE).
    A aprovação deve vir de um canal independente do pacote.
 3. Para distribuição funcional, a rota escolhida é pedir assinatura gratuita
    à SignPath Foundation, se o projeto e o pacote forem aceitos. Assinar ali
@@ -30,12 +30,12 @@ Framework. No computador da loja nao exige Go, Docker nem Node.
    Para a previa, reutilize os parametros do exemplo abaixo, mas SUBSTITUA
    -TrustedPublisherThumbprint EDITOR_APROVADO por -TechnicalPreviewPayload.
    A previa NUNCA declara um editor comercial: usa o manifesto tecnico real
-   e os hashes independentes PostgreSQL, Garnet e NSSM. Nao permite instalacao.
+   e os hashes independentes PostgreSQL, Garnet e WinSW. Nao permite instalacao.
 
 6. Gerar o EXE UNICO com o bundle assinado e os tres fornecedores. O thumbprint
    aprovado da SignPath Foundation deve ser passado como `TrustedPublisherThumbprint`:
 
-    powershell.exe -NoProfile -File .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir C:\releases\setup-completo-novo -BundleDir C:\releases\erp-assinado -ApprovedManifestSHA256 SHA256_APROVADO -TrustedPublisherThumbprint EDITOR_APROVADO -PostgresInstaller C:\vendors\postgresql.exe -ExpectedPostgresSHA256 SHA256_PG -ExpectedPostgresPublisherThumbprint EDITOR_PG -GarnetPackage C:\vendors\garnet.zip -ExpectedGarnetSHA256 SHA256_GARNET -ServiceWrapperExe C:\vendors\nssm.exe -ExpectedServiceWrapperSHA256 SHA256_NSSM
+    powershell.exe -NoProfile -File .\windows-setup\build-esterium-setup-exe.ps1 -OutputDir C:\releases\setup-completo-novo -BundleDir C:\releases\erp-assinado -ApprovedManifestSHA256 SHA256_APROVADO -TrustedPublisherThumbprint EDITOR_APROVADO -PostgresInstaller C:\vendors\postgresql.exe -ExpectedPostgresSHA256 SHA256_PG -ExpectedPostgresPublisherThumbprint EDITOR_PG -GarnetPackage C:\vendors\garnet.zip -ExpectedGarnetSHA256 SHA256_GARNET -ServiceWrapperExe C:\vendors\WinSW.NET4.exe -ExpectedServiceWrapperSHA256 SHA256_WINSW
 
    Para usar o ZIP PostgreSQL no pacote assinado, informe o arquivo oficial,
    seu SHA-256 fixo e `-PostgresBinaryZip`; não informe thumbprint EDB.
@@ -100,7 +100,7 @@ com o mesmo publicador aprovado, além dos testes em Windows descartável e da
 prova de recuperação/backup. A assinatura SignPath, se aprovada, satisfaz a
 rota gratuita sem remover ou contornar essas verificações.
 
-Garnet (MIT), NSSM (dominio publico), PostgreSQL e o empacotamento EDB
+Garnet (MIT), WinSW (MIT), PostgreSQL e o empacotamento EDB
 tem seus proprios termos. Revisar os avisos e a autorizacao de
 redistribuicao de binarios de terceiros, em especial o EXE do EDB,
 antes de fazer upload de pacote offline grande nos Releases. O
@@ -117,7 +117,7 @@ A versão -TechnicalPreviewPayload com todos os arquivos permite agora
 ações separadas:
 
 - Verificar arquivos: confere manifesto ERP e os hashes de PostgreSQL,
-  Garnet e NSSM, sem privilégios de administrador.
+  Garnet e WinSW, sem privilégios de administrador.
 - Ver plano: confere o fluxo existente de dependências e bootstrap em
   modo somente leitura, sem -Apply.
 - Preparar arquivos (não instala): após confirmação e UAC, o próprio
@@ -166,7 +166,7 @@ fixada. Depois guarda exatamente:
 
 - postgresql.exe — EDB original, assinatura válida e SHA-256 fixado;
 - garnet.zip — arquivo de fornecedor cujo SHA-256 foi fixado;
-- nssm.exe — binário de fornecedor cujo SHA-256 foi fixado.
+- winsw.exe — WinSW 2.12.0 cujo SHA-256 foi fixado.
 
 Pasta final isolada: C:\Program Files\EsteriumOpenSourceVendorStage,
 com ACL sem herança que concede acesso somente ao SYSTEM e aos
@@ -317,7 +317,7 @@ o EXE Esterium continua exigindo assinatura do editor aprovado. A rota EDB
 continua disponível com seu certificado Authenticode.
 
 O unico executavel tecnicamente integrado passa a carregar o recurso
-`vendor/postgresql-binaries.zip` ao lado de Garnet/NSSM e do ERP.
+`vendor/postgresql-binaries.zip` ao lado de Garnet/WinSW e do ERP.
 Ele verifica a integridade do arquivo interno, a lista e os caminhos
 das entradas PostgreSQL ZIP, os binarios essenciais, o manifesto ERP
 e os fornecedores. A preparacao de arquivos e fornecedores continua
@@ -437,7 +437,7 @@ testes *reais* no Windows GitHub hospedado, mantendo os componentes isolados:
   e limpeza de serviço/conta/permissões;
 - `garnet-oss-real-tls-aof-smoke`: Garnet 2.2.3 com TLS, ACL negando
   autenticação indevida, Lua, AOF recuperado após encerramento forçado,
-  NSSM executado como NETWORK SERVICE e serviço finalmente parado/desativado;
+  WinSW executado como NETWORK SERVICE e serviço finalmente parado/desativado;
 - `postgres-oss-tls-schema-smoke`: ZIP 16.15-5 com TLS verify-full, SCRAM,
   conta de aplicação do ERP sem privilégios, migrações reais, rejeição de
   replay e recuperação do banco em outro cluster. Teste de
@@ -498,7 +498,7 @@ O job `unsigned-integrated-zip-preview` na PR passou a executar,
 **somente em Windows GitHub hospedado descartável**, a cadeia:
 
 1. Empacota e verifica o próprio EXE integrado com ERP + ZIP original
-   PostgreSQL 16.15-5 + Garnet/NSSM;
+   PostgreSQL 16.15-5 + Garnet/WinSW;
 2. O próprio EXE `--stage-oss-files`, `--stage-oss-vendors`,
    `--preflight-oss`, `--stage-oss-postgres` extrai/verifica os
    binários dentro de Program Files, sem criar serviços/contas;
@@ -540,9 +540,9 @@ foi ampliado para testar de forma sequencial:
 3. PostgreSQL TLS verify-full/SCRAM, migrações completas do ERP, WAL e
    restauração num segundo cluster, utilizando o executável \`initdb\`
    que o próprio \`.exe\` extraiu (sem segundo download ZIP);
-4. Garnet TLS/ACL/Lua e AOF com recuperação após falha e serviço NSSM
-   NetworkService, utilizando Garnet ZIP e NSSM que o EXE preparou.
-   O arquivo NSSM é copiado para uma pasta CI somente-leitura do
+4. Garnet TLS/ACL/Lua e AOF com recuperação após falha e serviço WinSW
+   NetworkService, utilizando Garnet ZIP e WinSW que o EXE preparou.
+   O arquivo WinSW é copiado para uma pasta CI somente-leitura do
    NetworkService, sem conceder acesso adicional ao vendor-stage;
 5. Registro do \`esterium-server.exe\` real, vindo do bundle preparado
    pelo EXE, como serviço \`EsteriumERP\` **parado/manual**,
@@ -604,7 +604,7 @@ credenciais, valida \`initdb.exe\` e \`postgres.exe\` no mesmo ambiente
 e configura caminho explícito de DLLs \`pgsql/bin\` e \`pgsql/lib\`.
 A rota integrada segue não homologada até obter CI verde.
 
-O workflow também valida Garnet TLS/ACL/Lua/AOF e serviço NSSM
+O workflow também valida Garnet TLS/ACL/Lua/AOF e serviço WinSW
 com os mesmos arquivos do EXE, e um teste de registro do ERP
 \`esterium-server.exe\` real como LocalService parado/manual, com
 dados de login fictícios, fiscal/SEFAZ desabilitado. Nenhum dos
@@ -627,7 +627,7 @@ MIT experimental.
 
 A etapa exige Administrador/UAC, repete a auditoria de integridade
 de **todos** os binários PostgreSQL extraídos em Program Files, e
-revalida manifesto ERP, Garnet e NSSM por hashes embutidos.
+revalida manifesto ERP, Garnet e WinSW por hashes embutidos.
 Recusa pasta `C:\ProgramData\Esterium` já existente e os serviços
 `EsteriumPostgreSQL16`, `EsteriumGarnet` e `EsteriumERP`
 quando registrados.

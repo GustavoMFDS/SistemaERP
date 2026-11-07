@@ -34,8 +34,8 @@ namespace Esterium.WindowsSetup
             }
             if (pins == null) throw new InvalidOperationException("Hashes incorporados invalidos.");
             string manifestHash = Hex("manifesto", pins["manifest"], 64);
-            var filenames = new[] { EmbeddedPostgresName, "garnet.zip", "nssm.exe" };
-            var keys = new[] { "postgres", "garnet", "nssm" };
+            var filenames = new[] { EmbeddedPostgresName, "garnet.zip", "winsw.exe" };
+            var keys = new[] { "postgres", "garnet", "winsw" };
 
             string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             if (String.IsNullOrWhiteSpace(programFiles) || !Path.IsPathRooted(programFiles))

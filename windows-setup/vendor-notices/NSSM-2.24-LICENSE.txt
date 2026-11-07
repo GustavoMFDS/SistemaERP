@@ -1,5 +1,0 @@
-NSSM 2.24-101-g897c7ad
-
-NSSM is public domain. You may unconditionally use it and/or its source code for any purpose you wish.
-
-Source: https://www.nssm.cc/download

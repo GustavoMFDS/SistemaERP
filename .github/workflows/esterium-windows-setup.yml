@@ -67,7 +67,9 @@ jobs:
             throw 'Unsigned MIT preview must ship its copyright and vendor notices'
           }
           foreach ($notice in @('PostgreSQL-LICENSE.txt','Garnet-2.2.3-LICENSE.txt',
-              'Garnet-2.2.3-NOTICE.md','NSSM-2.24-LICENSE.txt')) {
+              'Garnet-2.2.3-NOTICE.md','WinSW-2.12.0-LICENSE.txt',
+              'log4net-2.0.12-LICENSE.txt','log4net-2.0.12-NOTICE.txt',
+              'YamlDotNet-8.1.2-LICENSE.txt')) {
             if (-not (Test-Path (Join-Path "$env:GITHUB_WORKSPACE\release-preview\third-party-notices" $notice))) {
               throw ('Missing third-party license file: '+$notice)
             }
@@ -113,7 +115,7 @@ jobs:
           }
           $files = @('erp\bundle-manifest.json','erp\esterium-server.exe','erp\web\index.html',
                      'erp\tools\install-esterium-local-complete.ps1',
-                     'vendor\postgresql.exe','vendor\garnet.zip','vendor\nssm.exe')
+                     'vendor\postgresql.exe','vendor\garnet.zip','vendor\winsw.exe')
           foreach ($file in $files) {
             Set-Content -LiteralPath (Join-Path (Join-Path $dir 'payload') $file) -Value "SYNTHETIC CI ONLY $file" -Encoding Ascii
           }
@@ -152,7 +154,7 @@ jobs:
             ExpectedManifestSHA256=(Get-FileHash (Join-Path $dir 'payload\erp\bundle-manifest.json') -Algorithm SHA256).Hash;
             ExpectedPostgresSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\postgresql.exe') -Algorithm SHA256).Hash;
             ExpectedGarnetSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\garnet.zip') -Algorithm SHA256).Hash;
-            ExpectedNssmSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\nssm.exe') -Algorithm SHA256).Hash}
+            ExpectedServiceWrapperSHA256=(Get-FileHash (Join-Path $dir 'payload\vendor\winsw.exe') -Algorithm SHA256).Hash}
           & .\windows-setup\test-embedded-preview.ps1 @checks
           $rejected = $false
           $checks.ExpectedGarnetSHA256 = ('A' * 64)
@@ -344,7 +346,7 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Test real Garnet TLS ACL Lua AOF NSSM from native MIT EXE vendor staging
+      - name: Test real Garnet TLS ACL Lua AOF WinSW from native MIT EXE vendor staging
         shell: pwsh
         timeout-minutes: 14
         env:
@@ -366,7 +368,7 @@ jobs:
 
   garnet-oss-real-tls-aof-smoke:
     # Reuse the existing CI proof: actual Garnet TLS+ACL+Lua+AOF recovery,
-    # then NSSM as NETWORK SERVICE, disabled at rest. Ephemeral runner only.
+    # then WinSW as NETWORK SERVICE, disabled at rest. Ephemeral runner only.
     # No ERP/customer database or sales/fiscal services are touched.
     if: github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
@@ -376,21 +378,9 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Restore vendor NSSM cache (must match pinned SHA-256)
-        id: nssm-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
-          key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
-      - name: Prove real Garnet TLS, ACL, Lua, AOF crash recovery and NSSM SCM
+      - name: Prove real Garnet TLS, ACL, Lua, AOF crash recovery and WinSW SCM
         shell: pwsh
         run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
-      - name: Save verified NSSM cache only after successful service test
-        if: success() && steps.nssm-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
-          key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
 
   postgres-oss-tls-schema-smoke:
     # Reuse the existing first-install PostgreSQL TLS/schema E2E test.

@@ -20,11 +20,9 @@ $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-garnet-aof-'+$id)
 $destination=Join-Path $env:ProgramData ('Esterium\GarnetAofCI-'+$id)
 $zip=Join-Path $root 'garnet.zip'
-$nssmZip=Join-Path $root 'nssm.zip'
-$nssmDir=Join-Path $root 'nssm'
-$nssmExe=Join-Path $nssmDir 'nssm-2.24-101-g897c7ad\\win64\\nssm.exe'
-$nssmService='EstGarCI'+$id.Substring(0,12)
-$nssmRegistered=$false
+$winswService='EstGarCI'+$id.Substring(0,12)
+$winswExe=Join-Path $root ($winswService+'.exe')
+$winswRegistrationAttempted=$false
 $bin=Join-Path $root 'bin'
 $dotnetRuntimeRoot=Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\tools\dotnet'
 $script:dotnetRuntimeCopy=$null
@@ -260,27 +258,26 @@ try {
             throw 'Integrated Garnet smoke requires the disposable hosted Windows MIT setup CI guards.'
         }
         $sourceZip=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\garnet.zip'
-        $sourceNssm=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\nssm.exe'
+        $sourceWinSW=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\winsw.exe'
         if(-not(Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\bundle-manifest.json') -PathType Leaf) -or
            -not(Test-Path -LiteralPath $sourceZip -PathType Leaf) -or
-           -not(Test-Path -LiteralPath $sourceNssm -PathType Leaf) -or
-           (Get-FileHash -LiteralPath $sourceNssm -Algorithm SHA256).Hash -cne
-             'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'){
-            throw 'Protected native EXE Garnet/NSSM staged bytes not present or pin invalid.'
+           -not(Test-Path -LiteralPath $sourceWinSW -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $sourceWinSW -Algorithm SHA256).Hash -cne
+             '923111C7142B3DC783A3C722B19B8A21BCB78222D7A136AC33F0CA8A29F4CB66'){
+            throw 'Protected native EXE Garnet/WinSW staged bytes not present or pin invalid.'
         }
         Copy-Item -LiteralPath $sourceZip -Destination $zip -ErrorAction Stop
         # The original vendor staging is admin-only by design. A service
-        # running as NetworkService must get RX, never write, to the NSSM
+        # running as NetworkService must get RX, never write, to the WinSW
         # executable. Copy pinned bytes into this isolated CI fixture whose
         # parent has explicit NetworkService RX, rather than relaxing the
         # protected publisher staging ACL.
-        $nssmExe=Join-Path $root 'nssm.exe'
-        Copy-Item -LiteralPath $sourceNssm -Destination $nssmExe -ErrorAction Stop
-        if((Get-FileHash -LiteralPath $nssmExe -Algorithm SHA256).Hash -cne
-          'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848') {
-            throw 'Copied native-exe NSSM file failed independent SHA-256 verification.'
+        Copy-Item -LiteralPath $sourceWinSW -Destination $winswExe -ErrorAction Stop
+        if((Get-FileHash -LiteralPath $winswExe -Algorithm SHA256).Hash -cne
+          '923111C7142B3DC783A3C722B19B8A21BCB78222D7A136AC33F0CA8A29F4CB66') {
+            throw 'Copied native-exe WinSW file failed pinned SHA-256 verification.'
         }
-        Write-Output 'PASS: Garnet CI uses the Garnet/NSSM bytes extracted from the native MIT EXE.'
+        Write-Output 'PASS: Garnet CI uses the Garnet/WinSW bytes extracted from the native MIT EXE.'
     }else{
         $url='https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip'
         Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
@@ -329,70 +326,25 @@ try {
     } finally {
         $connection.reader.Dispose();$connection.ssl.Dispose();$connection.tcp.Dispose()
     }
-    # The console process passed AOF recovery. Now prove exactly the same
-    # protected Garnet executable/configuration under REAL Windows SCM/NSSM.
-    # NSSM 2.24-101 is the Windows 10+ compatible upstream pre-release;
-    # the SHA-256 was independently pinned by WinGet's version manifest.
+    # The console process passed AOF recovery. Now prove the protected Garnet
+    # executable/configuration under real Windows SCM with the pinned WinSW.
     Stop-Process -Id $server.Id -Force
     $server.WaitForExit()
     $server=$null
     if(-not $FromIntegratedStage){
-        $nssmHash='99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
-        $cacheRoot=Join-Path $env:GITHUB_WORKSPACE '.vendor-cache'
-        $cacheFile=Join-Path $cacheRoot 'nssm-2.24-101-g897c7ad.zip'
-        $downloaded=$false
-        # GitHub Actions cache is an UNTRUSTED byte source. Its content must pass
-        # the same independently pinned vendor SHA-256 as direct upstream bytes.
-        if (Test-Path -LiteralPath $cacheFile -PathType Leaf) {
-            $cacheHash=(Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash
-            if ($cacheHash -cne $nssmHash) {
-                throw 'Cached NSSM ZIP differs from approved upstream SHA-256; refuse cache and installation.'
-            }
-            Copy-Item -LiteralPath $cacheFile -Destination $nssmZip -ErrorAction Stop
-            $downloaded=$true
-            Write-Output 'PASS: reused SHA-256 verified official NSSM ZIP from ephemeral CI cache.'
-        }
-        # Publisher-only fallback for a cold cache. The downloaded binary is
-        # cached only AFTER immutable SHA-256 verification and a full successful
-        # live Windows service test; it is never signed on behalf of the vendor.
-        if (-not $downloaded) {
-          foreach ($nssmUrl in @(
-            'https://www.nssm.cc/ci/nssm-2.24-101-g897c7ad.zip',
-            'https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip'
-        )) {
-            for ($attempt=0; $attempt -lt 3; $attempt++) {
-                try {
-                    if (Test-Path -LiteralPath $nssmZip) {
-                        Remove-Item -LiteralPath $nssmZip -Force
-                    }
-                    Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -TimeoutSec 90 -ErrorAction Stop
-                    $downloaded=$true
-                    break
-                } catch {
-                    if ($attempt -lt 2) { Start-Sleep -Seconds @(2,6,14)[$attempt] }
-                }
-            }
-            if ($downloaded) { break }
-          }
-        }
-        if (-not $downloaded) {
-            throw 'Publisher unavailable and no verified NSSM cache exists; service proof is blocked.'
-        }
-        if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmHash) {
-            throw 'NSSM package differs from independently approved upstream WinGet SHA-256.'
-        }
-        Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmDir -ErrorAction Stop
-        if (-not (Test-Path -LiteralPath $nssmExe -PathType Leaf)) {
-            throw 'Pinned NSSM ZIP has no required Windows x64 executable.'
+        Invoke-WebRequest -Uri 'https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW.NET4.exe' -OutFile $winswExe -TimeoutSec 90 -ErrorAction Stop
+        if ((Get-FileHash -LiteralPath $winswExe -Algorithm SHA256).Hash -cne
+            '923111C7142B3DC783A3C722B19B8A21BCB78222D7A136AC33F0CA8A29F4CB66') {
+            throw 'WinSW release asset hash differs from the fixed upstream SHA-256.'
         }
     }else{
-        if(-not (Test-Path -LiteralPath $nssmExe -PathType Leaf) -or
-           (Get-FileHash -LiteralPath $nssmExe -Algorithm SHA256).Hash -cne
-             'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'){
-            throw 'NSSM from native MIT EXE does not match the approved x64 SHA-256.'
+        if(-not (Test-Path -LiteralPath $winswExe -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $winswExe -Algorithm SHA256).Hash -cne
+             '923111C7142B3DC783A3C722B19B8A21BCB78222D7A136AC33F0CA8A29F4CB66'){
+            throw 'WinSW from native MIT EXE does not match the pinned SHA-256.'
         }
     }
-    if ($null -ne (Get-Service -Name $nssmService -ErrorAction SilentlyContinue)) {
+    if ($null -ne (Get-Service -Name $winswService -ErrorAction SilentlyContinue)) {
         throw 'Disposable Garnet service identity is already registered.'
     }
     $garnetExe=@(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter 'GarnetServer.exe')
@@ -446,27 +398,67 @@ try {
         }
         $appParameters='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$launcherScriptPath+'"'
         $serviceWorkingDir=$root
-        & $nssmExe install $nssmService $serviceApplication $appParameters | Out-Null
     }else{
         $frameworkDependent=$false
         $garnetServerDll=''
         $serviceApplication=$garnetExe[0].FullName
         $serviceWorkingDir=$garnetExe[0].DirectoryName
-        & $nssmExe install $nssmService $garnetExe[0].FullName '--config-import-path' $confPath | Out-Null
+        $appParameters='--config-import-path "'+$confPath+'"'
     }
-    if ($LASTEXITCODE -ne 0) { throw 'NSSM did not register Garnet Windows service.' }
-    $nssmRegistered=$true
+    $serviceLogs=Join-Path $root 'winsw-logs'
+    New-Item -ItemType Directory -Path $serviceLogs -ErrorAction Stop | Out-Null
+    & icacls.exe $serviceLogs '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)M' | Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Could not protect WinSW disposable service logs.'}
+    $xmlName=[Security.SecurityElement]::Escape($winswService)
+    $xmlExe=[Security.SecurityElement]::Escape($serviceApplication)
+    $xmlArguments=[Security.SecurityElement]::Escape($appParameters)
+    $xmlWorkingDirectory=[Security.SecurityElement]::Escape($serviceWorkingDir)
+    $xmlLogs=[Security.SecurityElement]::Escape($serviceLogs)
+    $serviceConfigPath=Join-Path $root ($winswService+'.xml')
+    $serviceConfig=@"
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <id>$xmlName</id>
+  <name>Esterium Garnet CI</name>
+  <description>Disposable Garnet integration test service</description>
+  <executable>$xmlExe</executable>
+  <arguments>$xmlArguments</arguments>
+  <workingdirectory>$xmlWorkingDirectory</workingdirectory>
+  <startmode>Manual</startmode>
+  <stoptimeout>30sec</stoptimeout>
+  <onfailure action="restart" delay="5sec" />
+  <serviceaccount><domain>NT AUTHORITY</domain><user>NetworkService</user></serviceaccount>
+  <logpath>$xmlLogs</logpath>
+  <log mode="roll" />
+</service>
+"@
+    [IO.File]::WriteAllText($serviceConfigPath,$serviceConfig,[Text.UTF8Encoding]::new($false))
+    # Arm cleanup before install because WinSW can register then fail while
+    # reporting success; cleanup only removes an SCM path owned by this fixture.
+    $winswRegistrationAttempted=$true
+    & $winswExe install | Out-Null
+    $installExit=$LASTEXITCODE
+    $registeredService=Get-CimInstance Win32_Service -Filter "Name='$winswService'" -ErrorAction SilentlyContinue
+    if($null -ne $registeredService -and
+       $registeredService.PathName.IndexOf($winswExe,[StringComparison]::OrdinalIgnoreCase) -ge 0){
+    }
+    if ($installExit -ne 0 -or $null -eq $registeredService -or
+        -not $registeredService.PathName -or
+        $registeredService.PathName.IndexOf($winswExe,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw 'WinSW did not register Garnet Windows service.'
+    }
+    Set-Service -Name $winswService -StartupType Disabled -ErrorAction Stop
     if($FromIntegratedStage){
-        $scmCommand=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
-        $serviceAppPath=@(& $nssmExe get $nssmService Application 2>&1) -join ''
-        $serviceParameters=@(& $nssmExe get $nssmService AppParameters 2>&1) -join ' '
+        $scmCommand=@(Get-CimInstance Win32_Service -Filter "Name='$winswService'" -ErrorAction Stop)
+        $serviceConfigData=[xml][IO.File]::ReadAllText($serviceConfigPath)
+        $serviceParameters=[string]$serviceConfigData.service.arguments
         $launcherContent=[IO.File]::ReadAllText($launcherScriptPath)
         $expectedAssembly=if($frameworkDependent){[IO.Path]::GetFullPath($garnetServerDll)}else{''}
         $expectedRuntimeLiteral=& $quotePowerShellLiteral $dotnetRuntimeDir
         $expectedConfigLiteral=& $quotePowerShellLiteral $confPath
         $expectedExecutableLiteral=& $quotePowerShellLiteral $launchExecutable
         $expectedAssemblyLiteral=if($frameworkDependent){& $quotePowerShellLiteral $expectedAssembly}else{''}
-        $appPathMatches=[String]::Equals($serviceAppPath,$serviceApplication,[StringComparison]::OrdinalIgnoreCase)
+        $appPathMatches=[String]::Equals([string]$serviceConfigData.service.executable,$serviceApplication,[StringComparison]::OrdinalIgnoreCase)
         $hasLauncherPath=$serviceParameters.IndexOf($launcherScriptPath,[StringComparison]::OrdinalIgnoreCase) -ge 0
         $hasConfigSwitch=$launcherContent -match '(?i)--config-import-path'
         $hasConfigPath=$launcherContent.IndexOf($expectedConfigLiteral,[StringComparison]::OrdinalIgnoreCase) -ge 0
@@ -475,28 +467,18 @@ try {
         $hasRuntimeX64=$launcherContent.IndexOf(('$env:DOTNET_ROOT_X64 = '+$expectedRuntimeLiteral),[StringComparison]::OrdinalIgnoreCase) -ge 0
         $hasRuntime=$launcherContent.IndexOf(('$env:DOTNET_ROOT = '+$expectedRuntimeLiteral),[StringComparison]::OrdinalIgnoreCase) -ge 0
         if($scmCommand.Count -ne 1 -or
-           $scmCommand[0].PathName -notlike ('*'+$nssmExe+'*') -or
+           $scmCommand[0].PathName -notlike ('*'+$winswExe+'*') -or
            -not $appPathMatches -or -not $hasLauncherPath -or -not $hasAssemblyPath -or
            -not $hasExecutable -or -not $hasConfigSwitch -or -not $hasConfigPath -or
            -not $hasRuntimeX64 -or -not $hasRuntime){
-            throw ('NSSM Garnet launcher mismatch: serviceCount='+$scmCommand.Count+
+            throw ('WinSW Garnet launcher mismatch: serviceCount='+$scmCommand.Count+
                 ' appPathMatches='+$appPathMatches+' launcherPath='+$hasLauncherPath+
                 ' assemblyPath='+$hasAssemblyPath+' executable='+$hasExecutable+
                 ' configSwitch='+$hasConfigSwitch+' configPath='+$hasConfigPath+
                 ' runtimeX64='+$hasRuntimeX64+' runtime='+$hasRuntime+
-                ' appPath='+$serviceAppPath+' parameters='+$serviceParameters)
+                ' appPath='+[string]$serviceConfigData.service.executable+' parameters='+$serviceParameters)
         }
         Write-Output 'PASS: real Garnet SCM command uses a PowerShell launcher that sets the private .NET runtime before Garnet.'
-    }
-    foreach ($cmd in @(
-        @('set',$nssmService,'ObjectName','NT AUTHORITY\NetworkService'),
-        @('set',$nssmService,'Start','SERVICE_DISABLED'),
-        @('set',$nssmService,'AppDirectory',$serviceWorkingDir),
-        @('set',$nssmService,'AppExit','Default','Restart'),
-        @('set',$nssmService,'AppRestartDelay','5000')
-    )) {
-        & $nssmExe @cmd | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'NSSM refused restricted Garnet SCM settings.' }
     }
     if($FromIntegratedStage){
         & icacls.exe $script:dotnetRuntimeCopy '/grant:r' '*S-1-5-20:(OI)(CI)RX' '/T' '/C' | Out-Null
@@ -504,17 +486,17 @@ try {
             throw 'Could not grant the disposable NetworkService account read access to the private Garnet runtime.'
         }
     }
-    $scm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
+    $scm=@(Get-CimInstance Win32_Service -Filter "Name='$winswService'" -ErrorAction Stop)
     if ($scm.Count -ne 1 -or $scm[0].StartMode -cne 'Disabled' -or
         $scm[0].State -cne 'Stopped' -or $scm[0].StartName -notin
         @('NT AUTHORITY\NetworkService','NT AUTHORITY\NETWORK SERVICE')) {
-        throw 'NSSM Garnet service is not disabled/stopped with NetworkService identity.'
+        throw 'WinSW Garnet service is not disabled/stopped with NetworkService identity.'
     }
     # Only on an ephemeral CI runner, turn the previously disabled fixture on
     # long enough to validate its real TLS/ACL/AOF runtime and SCM transitions.
-    Set-Service -Name $nssmService -StartupType Manual -ErrorAction Stop
-    Start-Service -Name $nssmService -ErrorAction Stop
-    (Get-Service -Name $nssmService).WaitForStatus(
+    Set-Service -Name $winswService -StartupType Manual -ErrorAction Stop
+    Start-Service -Name $winswService -ErrorAction Stop
+    (Get-Service -Name $winswService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
     $ready=$false
     for($attempt=0; $attempt -lt 45; $attempt++) {
@@ -525,25 +507,25 @@ try {
         } catch {} finally { $tcp.Dispose() }
         Start-Sleep -Milliseconds 800
     }
-    if (-not $ready) { throw 'NSSM Garnet service did not expose local TLS on its expected port.' }
+    if (-not $ready) { throw 'WinSW Garnet service did not expose local TLS on its expected port.' }
     if($FromIntegratedStage){
-        $serviceScm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
-        if($serviceScm.Count -ne 1){throw 'Could not identify the NSSM Garnet service process.'}
+        $serviceScm=@(Get-CimInstance Win32_Service -Filter "Name='$winswService'" -ErrorAction Stop)
+        if($serviceScm.Count -ne 1){throw 'Could not identify the WinSW Garnet service process.'}
         $launcherName=Split-Path -Leaf $serviceApplication
         $launchers=@(Get-CimInstance Win32_Process -Filter "Name='$launcherName'" -ErrorAction Stop |
             Where-Object {$_.ParentProcessId -eq [int]$serviceScm[0].ProcessId -and
                 [String]::Equals([string]$_.ExecutablePath,$serviceApplication,[StringComparison]::OrdinalIgnoreCase) -and
                 ([string]$_.CommandLine).IndexOf($launcherScriptPath,[StringComparison]::OrdinalIgnoreCase) -ge 0})
-        if($launchers.Count -ne 1){throw 'Could not identify the private runtime launcher child of the NSSM service.'}
+        if($launchers.Count -ne 1){throw 'Could not identify the private runtime launcher child of the WinSW service.'}
         $workerName=Split-Path -Leaf $workerExecutable
         $garnetWorkers=@(Get-CimInstance Win32_Process -Filter "Name='$workerName'" -ErrorAction Stop |
             Where-Object {$_.ParentProcessId -eq [int]$launchers[0].ProcessId -and
                 [String]::Equals([string]$_.ExecutablePath,$workerExecutable,[StringComparison]::OrdinalIgnoreCase) -and
                 ((-not $frameworkDependent) -or ([string]$_.CommandLine).IndexOf($expectedAssembly,[StringComparison]::OrdinalIgnoreCase) -ge 0)})
         if($garnetWorkers.Count -ne 1){
-            throw 'Could not identify the pinned Garnet worker launched by the NSSM private runtime script.'
+            throw 'Could not identify the pinned Garnet worker launched by the WinSW private runtime script.'
         }
-        Assert-PrivateDotnetRuntime -workerPid ([int]$garnetWorkers[0].ProcessId) -phase 'NSSM service'
+        Assert-PrivateDotnetRuntime -workerPid ([int]$garnetWorkers[0].ProcessId) -phase 'WinSW service'
     }
     $serviceConnection=Open-Redis
     try {
@@ -552,7 +534,7 @@ try {
             throw 'Real NetworkService Garnet could not use its protected ACL.'
         }
         if ((Send-Redis $serviceConnection.ssl $serviceConnection.reader @('GET',('esterium:smoke:'+$id))) -ne 'committed-value') {
-            throw 'NSSM-wrapped Garnet lost its durable AOF data.'
+            throw 'WinSW-wrapped Garnet lost its durable AOF data.'
         }
     } finally {
         $serviceConnection.reader.Dispose()
@@ -567,17 +549,17 @@ try {
             $env:ESTERIUM_CI_GARNET_PASSWORD=$password
             $env:ESTERIUM_CI_GARNET_CERT_FILE=$garnetPublicCert
             $env:ESTERIUM_CI_GARNET_PORT=[string]$port
-            $env:ESTERIUM_CI_GARNET_SERVICE=$nssmService
+            $env:ESTERIUM_CI_GARNET_SERVICE=$winswService
             & (Join-Path $PSScriptRoot '..\windows-setup\test-oss-erp-runtime-ci.ps1')
             if(-not $?){throw 'Live ERP service start, login or dependency restart smoke failed.'}
         }finally{
             foreach($entry in $oldLab.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
         }
     }
-    Stop-Service -Name $nssmService -ErrorAction Stop
-    (Get-Service -Name $nssmService).WaitForStatus(
+    Stop-Service -Name $winswService -ErrorAction Stop
+    (Get-Service -Name $winswService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
-    Set-Service -Name $nssmService -StartupType Disabled -ErrorAction Stop
+    Set-Service -Name $winswService -StartupType Disabled -ErrorAction Stop
     # SCM can report 'Stopped' slightly before the wrapped child closes TCP.
     $portClosed=$false
     for ($attempt=0; $attempt -lt 30; $attempt++) {
@@ -587,53 +569,38 @@ try {
         }
         Start-Sleep -Milliseconds 500
     }
-    if (-not $portClosed) { throw 'Stopped NSSM wrapper left the child Garnet TLS port open.' }
-    $scm=@(Get-CimInstance Win32_Service -Filter "Name='$nssmService'" -ErrorAction Stop)
+    if (-not $portClosed) { throw 'Stopped WinSW wrapper left the child Garnet TLS port open.' }
+    $scm=@(Get-CimInstance Win32_Service -Filter "Name='$winswService'" -ErrorAction Stop)
     if ($scm.Count -ne 1 -or $scm[0].State -cne 'Stopped' -or
         $scm[0].StartMode -cne 'Disabled' -or [int]$scm[0].ProcessId -ne 0 -or
         @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -ne 0) {
         throw 'SCM service shutdown left Garnet running or its local TLS port open.'
     }
-    # The integrated path uses the already SHA-256-approved NSSM executable
-    # provided by the MIT EXE. It has NO upstream NSSM archive or cacheFile;
-    # do not read undefined variables or fabricate an archive from the EXE.
-    if (-not $FromIntegratedStage) {
-        if (-not (Test-Path -LiteralPath $cacheFile)) {
-            if (Test-Path -LiteralPath $cacheRoot) {
-                $cacheDir=Get-Item -LiteralPath $cacheRoot -Force -ErrorAction Stop
-                if (($cacheDir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-                    throw 'Refuse NSSM CI cache through a symbolic link or junction.'
-                }
-            } else {
-                [IO.Directory]::CreateDirectory($cacheRoot) | Out-Null
-            }
-            # Copy only after the genuine SCM/TLS/ACL/AOF proof passed.
-            Copy-Item -LiteralPath $nssmZip -Destination $cacheFile -ErrorAction Stop
-            if ((Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash -cne $nssmHash) {
-                throw 'NSSM vendor cache bytes changed while preparing GitHub upload.'
-            }
-        }
-    }
-    Write-Output 'PASS: upstream WinGet-pinned NSSM runs authenticated Garnet TLS under NetworkService and stops disabled with no listener.'
+    Write-Output 'PASS: pinned WinSW runs authenticated Garnet TLS under NetworkService and stops disabled with no listener.'
     Write-Output 'PASS: pinned Garnet TLS, default user rejection, ACL, atomic Lua and AOF recovery survived hard Windows restart.'
 } finally {
-    if ($nssmRegistered) {
+    if ($winswRegistrationAttempted) {
         # Never leave a CI service startable on error; only this randomly named
         # fixture can be removed, never any pre-existing Windows service.
         try {
-            $svc=Get-Service -Name $nssmService -ErrorAction SilentlyContinue
+            $svc=Get-Service -Name $winswService -ErrorAction SilentlyContinue
             if ($null -ne $svc) {
-                Set-Service -Name $nssmService -StartupType Disabled -ErrorAction Stop
+                $serviceRecord=Get-CimInstance Win32_Service -Filter "Name='$winswService'" -ErrorAction Stop
+                if($null -eq $serviceRecord -or -not $serviceRecord.PathName -or
+                   $serviceRecord.PathName.IndexOf($winswExe,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+                    throw 'Refuse to remove a service not registered by this WinSW fixture.'
+                }
+                Set-Service -Name $winswService -StartupType Disabled -ErrorAction Stop
                 if ($svc.Status -ne 'Stopped') {
-                    Stop-Service -Name $nssmService -Force -ErrorAction Stop
-                    (Get-Service -Name $nssmService).WaitForStatus(
+                    Stop-Service -Name $winswService -Force -ErrorAction Stop
+                    (Get-Service -Name $winswService).WaitForStatus(
                         [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
                 }
-                & $nssmExe remove $nssmService confirm | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw 'NSSM did not remove disposable Garnet CI service.' }
+                & $winswExe uninstall | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw 'WinSW did not remove disposable Garnet CI service.' }
             }
         } catch {
-            Write-Warning 'NSSM CI service cleanup failed: discard this hosted runner.'
+            Write-Warning 'WinSW CI service cleanup failed: discard this hosted runner.'
             throw
         }
     }

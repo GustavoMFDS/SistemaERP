@@ -56,8 +56,8 @@ namespace Esterium.WindowsSetup
                                     !String.Equals(values["postgres"], Installer.OfficialPostgresZipSHA256,
                                         StringComparison.OrdinalIgnoreCase))) ||
                                 (pgFormat != "edb" && pgFormat != "zip") ||
-                                !HexValue(values, "garnet", 64) || !HexValue(values, "nssm", 64)) return null;
-                            foreach (string key in new[] { "manifest", "editor", "postgres", "pgSigner", "garnet", "nssm" })
+                                !HexValue(values, "garnet", 64) || !HexValue(values, "winsw", 64)) return null;
+                            foreach (string key in new[] { "manifest", "editor", "postgres", "pgSigner", "garnet", "winsw" })
                                 values[key] = values[key].ToUpperInvariant();
                             return values;
                         }
@@ -232,7 +232,7 @@ namespace Esterium.WindowsSetup
             Add(table, 5, "SHA-256 PostgreSQL", "postgres", "");
             Add(table, 6, IsPostgresZipBuild ? "ZIP oficial: SHA-256 fixado, sem certificado EDB" : "Certificado do PostgreSQL", "pgSigner", "");
             Add(table, 7, "SHA-256 Garnet", "garnet", "");
-            Add(table, 8, "SHA-256 NSSM", "nssm", "");
+            Add(table, 8, "SHA-256 WinSW", "winsw", "");
             Add(table, 9, "Certificado HTTPS da loja (PEM local)", "tlsCert", "");
             Add(table, 10, "Chave HTTPS privada (PEM local)", "tlsKey", "");
             Add(table, 11, "CIDR privado permitido (ex. 192.168.1.42/32)", "trustedRemote", "");
@@ -466,8 +466,8 @@ namespace Esterium.WindowsSetup
             if (staging == null) { staging = Unpack(); ownsStaging = true; }
             string erp = Path.Combine(staging, "erp");
             Bundle(erp, Hex("manifesto", values["manifest"], 64));
-            string[] names = { EmbeddedPostgresName, "garnet.zip", "nssm.exe" };
-            string[] keys = { "postgres", "garnet", "nssm" };
+            string[] names = { EmbeddedPostgresName, "garnet.zip", "winsw.exe" };
+            string[] keys = { "postgres", "garnet", "winsw" };
             for (int i = 0; i < names.Length; i++)
             {
                 string file = Path.Combine(staging, "vendor", names[i]);
@@ -585,8 +585,8 @@ namespace Esterium.WindowsSetup
                 "-ExpectedPostgresSHA256", inputs["postgres"].Text.Trim(),
                 "-GarnetPackage", Path.Combine(staging, "vendor", "garnet.zip"),
                 "-ExpectedGarnetSHA256", inputs["garnet"].Text.Trim(),
-                "-ServiceWrapperExe", Path.Combine(staging, "vendor", "nssm.exe"),
-                "-ExpectedServiceWrapperSHA256", inputs["nssm"].Text.Trim(),
+                "-ServiceWrapperExe", Path.Combine(staging, "vendor", "winsw.exe"),
+                "-ExpectedServiceWrapperSHA256", inputs["winsw"].Text.Trim(),
                 "-ApprovedManifestSHA256", inputs["manifest"].Text.Trim(),
                 "-TrustedPublisherThumbprint", inputs["editor"].Text.Trim()
             };

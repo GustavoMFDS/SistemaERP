@@ -3,7 +3,7 @@
 **Estado: pré-lançamento.** A entrada `scripts/install-esterium-local-complete.ps1`
 foi criada para encadear, em um procedimento técnico único, as duas etapas
 **já existentes** de primeira instalação. Não é instalador gráfico para
-consumidores nem prova de que EDB.exe / NSSM funcionem em todas as máquinas.
+consumidores nem prova de que EDB.exe / WinSW funcionem em todas as máquinas.
 
 ## Pré-requisitos de uma distribuição aprovada
 
@@ -13,7 +13,7 @@ consumidores nem prova de que EDB.exe / NSSM funcionem em todas as máquinas.
   **independentemente conhecido** e por assinatura Authenticode de editor
   aprovado. Sem certificado real aprovado, **não executar `-Apply`**.
 - Instalador EDB PostgreSQL 16 e assinatura do fornecedor, Garnet ZIP e
-  serviço NSSM, todos com hash SHA-256 aprovado **fora do próprio ZIP**.
+  serviço WinSW, todos com hash SHA-256 aprovado **fora do próprio ZIP**.
 - Origem HTTPS do navegador preparada e validada independentemente, sem
   usar uma conexão HTTP na LAN. A tela do cliente não é liberada nesta etapa.
 - Instalação obrigatoriamente nova: pastas, contas, serviços e portas livres.
@@ -33,8 +33,8 @@ $setup = @{
   ExpectedPostgresPublisherThumbprint = '<CERTIFICADO_EDB_APROVADO>'
   GarnetPackage = 'C:\Install\Vendor\garnet.zip'
   ExpectedGarnetSHA256 = '<SHA256_GARNET_APROVADO_EXTERNO>'
-  ServiceWrapperExe = 'C:\Install\Vendor\nssm.exe'
-  ExpectedServiceWrapperSHA256 = '<SHA256_NSSM_APROVADO_EXTERNO>'
+  ServiceWrapperExe = 'C:\Install\Vendor\winsw.exe'
+  ExpectedServiceWrapperSHA256 = '<SHA256_WINSW_APROVADO_EXTERNO>'
   ApprovedManifestSHA256 = '<SHA256_MANIFESTO_RELEASE_APROVADO_EXTERNO>'
   TrustedPublisherThumbprint = '<EDITOR_ESTERIUM_APROVADO>'
 }
@@ -66,7 +66,7 @@ a instalação parcial deve ser examinada por um técnico.
 O CI valida sintaxe, rejeição de assinatura e origem/portas inseguras,
 conteúdo obrigatório do bundle e provas sintéticas/independentes de
 PostgreSQL/Garnet. **Não comprova** a execução completa do EDB EXE ou
-NSSM autênticos em um Windows novo com certificado comercial.
+WinSW autêntico em um Windows novo com certificado comercial.
 
 Para liberar instalação real faltam: instalação em VM/PC limpo com
 distribuição assinada, validação HTTPS dos clientes, restauração de backup

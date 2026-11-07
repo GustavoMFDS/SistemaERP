@@ -1,5 +1,5 @@
 #requires -Version 5.1
-# Disposable Windows CI: fixture never executes an EDB/Garnet/NSSM binary.
+# Disposable Windows CI: fixture never executes an EDB/Garnet/WinSW binary.
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
@@ -18,8 +18,9 @@ if (@($parseErrors).Count -gt 0) {
 }
 $implementation=[IO.File]::ReadAllText($tool)
 if (-not $implementation.Contains('Set-Service -Name $PostgresServiceName -StartupType Disabled') -or
-    -not $implementation.Contains("'Start','SERVICE_DISABLED'")) {
-    throw 'Unattended dependency installer must leave PostgreSQL and Garnet disabled.'
+    -not $implementation.Contains('Set-Service -Name $GarnetServiceName -StartupType Disabled') -or
+    -not $implementation.Contains('<domain>NT AUTHORITY</domain><user>NetworkService</user></serviceaccount>')) {
+    throw 'Unattended dependency installer must leave PostgreSQL and Garnet disabled under the restricted service identities.'
 }
 $runtimeLaunchTokens=@(
     '$dotnetRuntimeSource=Join-Path $PSScriptRoot ''dotnet''',
@@ -31,6 +32,8 @@ $runtimeLaunchTokens=@(
     '$launchExecutable=$dotnetExe',
     '$launchExecutable=$garnetExe',
     '$launcherScript=Join-Path $garnetDir ''esterium-garnet-launcher.ps1''',
+    '$serviceExe=Join-Path $garnetDir ''EsteriumGarnet.exe''',
+    '$serviceConfigPath=Join-Path $garnetDir ''EsteriumGarnet.xml''',
     '$serviceApplication=Join-Path $env:WINDIR',
     'WindowsPowerShell',
     '$env:DOTNET_ROOT_X64 = ',
@@ -38,7 +41,8 @@ $runtimeLaunchTokens=@(
     '$env:DOTNET_MULTILEVEL_LOOKUP = ',
     '$quotePowerShellLiteral={param([string]$value) return (',
     '[Text.UTF8Encoding]::new($true)',
-    '& $serviceExe install $GarnetServiceName $serviceApplication $appParameters'
+    '& $serviceExe install | Out-Null',
+    'onfailure action="restart" delay="5sec"'
 )
 foreach($token in $runtimeLaunchTokens){
     if(-not $implementation.Contains($token)){
@@ -50,7 +54,7 @@ $root=Join-Path $env:RUNNER_TEMP ('esterium-install-'+$testId)
 $fixtureOptionsDir=Join-Path $env:ProgramData ('Esterium\OptionsFixtureCI-'+$testId)
 $pg=Join-Path $root 'postgresql-16.exe'
 $garnet=Join-Path $root 'garnet.zip'
-$wrapper=Join-Path $root 'nssm.exe'
+$wrapper=Join-Path $root 'winsw.exe'
 $options=Join-Path $fixtureOptionsDir 'postgresql-unattended.options'
 $config=Join-Path $root 'garnet.conf'
 $aclFile=Join-Path $root 'garnet.acl'
@@ -67,7 +71,7 @@ try {
     & icacls.exe $fixtureOptionsDir '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Synthetic PostgreSQL option directory ACL failed.' }
     [IO.File]::WriteAllText($pg,'fake EDB installer never executed')
-    [IO.File]::WriteAllText($wrapper,'fake NSSM never executed')
+    [IO.File]::WriteAllText($wrapper,'fake WinSW never executed')
     [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.exe'),'fake Garnet server never executed')
     [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.dll'),'fake Garnet assembly never executed')
     [IO.File]::WriteAllText((Join-Path $unpacked 'GarnetServer.runtimeconfig.json'),'{}')

@@ -261,7 +261,7 @@ try {
         ExpectedPostgresPublisherThumbprint=('0'*40)
         GarnetPackage=(Join-Path $fakeRoot 'garnet.zip')
         ExpectedGarnetSHA256=('0'*64)
-        ServiceWrapperExe=(Join-Path $fakeRoot 'nssm.exe')
+        ServiceWrapperExe=(Join-Path $fakeRoot 'winsw.exe')
         ExpectedServiceWrapperSHA256=('0'*64)
         ApprovedManifestSHA256=('0'*64)
         TrustedPublisherThumbprint=('0'*40)
@@ -301,4 +301,4 @@ try {
 Write-Output 'PASS: single-command installer parses and refuses unsigned Apply, missing approval and unsafe origin/ports.'
 
 Write-Output 'PASS: first-run runtime probe parses and refuses unsigned Apply before touching Windows services.'
-Write-Output 'NOT EXECUTED: genuine signed EDB/NSSM SCM startup remains a vendor pilot gate.'
+Write-Output 'NOT EXECUTED: genuine signed EDB/WinSW SCM startup remains a vendor pilot gate.'

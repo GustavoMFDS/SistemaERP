@@ -150,13 +150,13 @@ try {
         if ($ExpectedServiceWrapperSHA256 -cnotmatch '^[A-Fa-f0-9]{64}$' -or
             -not [IO.Path]::IsPathRooted($ServiceWrapperExe) -or
             (Get-FileHash -LiteralPath $ServiceWrapperExe -Algorithm SHA256).Hash -cne
-                $ExpectedServiceWrapperSHA256.ToUpperInvariant()) { throw 'NSSM hash mismatch.' }
+                $ExpectedServiceWrapperSHA256.ToUpperInvariant()) { throw 'WinSW hash mismatch.' }
         $stage=Join-Path ([IO.Path]::GetTempPath()) ('esterium-stage-'+[Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path (Join-Path $stage 'vendor') -Force | Out-Null
         Copy-Item -LiteralPath $bundle -Destination (Join-Path $stage 'erp') -Recurse -ErrorAction Stop
         Copy-Item -LiteralPath $PostgresInstaller -Destination (Join-Path (Join-Path $stage 'vendor') $pgName) -ErrorAction Stop
         Copy-Item -LiteralPath $GarnetPackage -Destination (Join-Path $stage 'vendor/garnet.zip') -ErrorAction Stop
-        Copy-Item -LiteralPath $ServiceWrapperExe -Destination (Join-Path $stage 'vendor/nssm.exe') -ErrorAction Stop
+        Copy-Item -LiteralPath $ServiceWrapperExe -Destination (Join-Path $stage 'vendor/winsw.exe') -ErrorAction Stop
         $verify.BundleDir=Join-Path $stage 'erp'
         if ($TechnicalPreviewPayload) {
             & (Join-Path $root 'scripts/verify-esterium-bundle.ps1') -BundleDir $verify.BundleDir | Out-Null
@@ -167,7 +167,7 @@ try {
         }
         foreach ($item in @(@($pgName,$ExpectedPostgresSHA256),
                             @('garnet.zip',$ExpectedGarnetSHA256),
-                            @('nssm.exe',$ExpectedServiceWrapperSHA256))) {
+                            @('winsw.exe',$ExpectedServiceWrapperSHA256))) {
             $digest=(Get-FileHash -LiteralPath (Join-Path (Join-Path $stage 'vendor') $item[0]) -Algorithm SHA256).Hash
             if ($digest -cne $item[1].ToUpperInvariant()) { throw 'Staged vendor hash mismatch.' }
         }
@@ -213,7 +213,7 @@ try {
             postgres=$ExpectedPostgresSHA256.ToUpperInvariant()
             pgSigner=if ($usePostgresZip) { '' } else { $ExpectedPostgresPublisherThumbprint.ToUpperInvariant() }
             garnet=$ExpectedGarnetSHA256.ToUpperInvariant()
-            nssm=$ExpectedServiceWrapperSHA256.ToUpperInvariant()
+            winsw=$ExpectedServiceWrapperSHA256.ToUpperInvariant()
         } | ConvertTo-Json -Compress | Set-Content -LiteralPath $previewApprovals -Encoding UTF8
         $arguments+=('/resource:'+$previewApprovals+',Esterium.PreviewApprovals')
     }
@@ -226,7 +226,7 @@ try {
             postgres=$ExpectedPostgresSHA256.ToUpperInvariant()
             pgSigner=if ($usePostgresZip) { '' } else { $ExpectedPostgresPublisherThumbprint.ToUpperInvariant() }
             garnet=$ExpectedGarnetSHA256.ToUpperInvariant()
-            nssm=$ExpectedServiceWrapperSHA256.ToUpperInvariant()
+            winsw=$ExpectedServiceWrapperSHA256.ToUpperInvariant()
         } | ConvertTo-Json -Compress | Set-Content -LiteralPath $releaseApprovals -Encoding UTF8
         $arguments+=('/resource:'+$releaseApprovals+',Esterium.ReleaseApprovals')
     }
@@ -258,7 +258,9 @@ try {
             -Destination $releaseNotices -Recurse -ErrorAction Stop
     }
     foreach ($name in @('PostgreSQL-LICENSE.txt','Garnet-2.2.3-LICENSE.txt',
-                        'Garnet-2.2.3-NOTICE.md','NSSM-2.24-LICENSE.txt')) {
+                        'Garnet-2.2.3-NOTICE.md','WinSW-2.12.0-LICENSE.txt',
+                        'log4net-2.0.12-LICENSE.txt','log4net-2.0.12-NOTICE.txt',
+                        'YamlDotNet-8.1.2-LICENSE.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $releaseNotices 'static') $name) -PathType Leaf) -and
             -not (Test-Path -LiteralPath (Join-Path $releaseNotices $name) -PathType Leaf)) {
             throw ('Required third-party notice was not packaged: '+$name)
@@ -283,7 +285,7 @@ try {
     } elseif ($VMHomologationBuild) {
         Write-Output 'VM HOMOLOGATION ONLY: VirtualBox-gated, temporary test publisher, not retail, not a release.'
     } elseif ($full) {
-        Write-Output ('BUNDLE: ERP, PostgreSQL '+$(if($usePostgresZip){'official ZIP'}else{'EDB installer'})+', Garnet, NSSM and verified release approvals embedded in one executable.')
+        Write-Output ('BUNDLE: ERP, PostgreSQL '+$(if($usePostgresZip){'official ZIP'}else{'EDB installer'})+', Garnet, WinSW and verified release approvals embedded in one executable.')
         Write-Output 'NOT RELEASED: Authenticode-sign the FINAL EXE and validate clean-Windows physical pilot.'
     } else {
         Write-Output 'PREVIEW ONLY: executable has no embedded payload; retail installation blocked.'

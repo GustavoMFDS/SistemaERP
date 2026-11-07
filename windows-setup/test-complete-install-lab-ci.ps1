@@ -219,36 +219,15 @@ try {
     $postgresHash = if($PostgresBinaryZip){'43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'}else{'DE926FEFAD00E313E212CD438C0F04BF033E200099AD56C012724EFCEBED79F2'}
     $postgresSigner = if($PostgresBinaryZip){''}else{'7BEDD1269FCCF7A5D95F18274750B79893C06C70'}
     $garnetHash = '5CD130686AB415B13C59D36D048A6FADED81E707FFE6DA5953F98BEEB79F9F16'
-    $nssmArchiveHash = '99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8'
-    $nssmHash = 'EEE9C44C29C2BE011F1F1E43BB8C3FCA888CB81053022EC5A0060035DE16D848'
+    $winswHash = '923111C7142B3DC783A3C722B19B8A21BCB78222D7A136AC33F0CA8A29F4CB66'
     $postgresPackage = if($PostgresBinaryZip){Join-Path $vendor 'postgresql-16.15-5-windows-x64-binaries.zip'}else{Join-Path $vendor 'postgresql-16.15-1-windows-x64.exe'}
     $garnetZip = Join-Path $vendor 'garnet-2.2.3-win-x64.zip'
-    $nupkg = Join-Path $vendor 'nssm-2.24.101-g897c7ad.nupkg'
-    $nssmZip = Join-Path $vendor 'nssm-2.24-101-g897c7ad.zip'
-    $nssmExtract = Join-Path $vendor 'nssm-unpacked'
-    $nssmExe = Join-Path $vendor 'nssm.exe'
-    Write-Output ('Downloading and verifying PostgreSQL '+$(if($PostgresBinaryZip){'official ZIP'}else{'EDB installer'})+', Garnet, and NSSM inputs.')
+    $winswExe = Join-Path $vendor 'winsw.exe'
+    Write-Output ('Downloading and verifying PostgreSQL '+$(if($PostgresBinaryZip){'official ZIP'}else{'EDB installer'})+', Garnet, and WinSW inputs.')
     $postgresUrl=if($PostgresBinaryZip){'https://get.enterprisedb.com/postgresql/postgresql-16.15-5-windows-x64-binaries.zip'}else{'https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64.exe'}
     Invoke-PinnedDownload $postgresUrl $postgresPackage $postgresHash
     Invoke-PinnedDownload 'https://github.com/microsoft/garnet/releases/download/v2.2.3/win-x64-based-readytorun.zip' $garnetZip $garnetHash
-    & curl.exe '-fLsS' '--retry' '2' '--connect-timeout' '25' '--max-time' '180' '-o' $nupkg 'https://community.chocolatey.org/api/v2/package/NSSM/2.24.101-g897c7ad'
-    if ($LASTEXITCODE -ne 0) { throw 'Pinned NSSM transport package download failed.' }
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $packageArchive = [IO.Compression.ZipFile]::OpenRead($nupkg)
-    try {
-        $entries = @($packageArchive.Entries | Where-Object { $_.FullName -ceq 'tools/nssm-2.24-101-g897c7ad.zip' })
-        if ($entries.Count -ne 1) { throw 'NSSM transport did not contain exactly one expected inner archive.' }
-        $inputStream = $entries[0].Open()
-        $outputStream = [IO.File]::Create($nssmZip)
-        try { $inputStream.CopyTo($outputStream) }
-        finally { $outputStream.Dispose(); $inputStream.Dispose() }
-    }
-    finally { $packageArchive.Dispose() }
-    if ((Get-FileHash -LiteralPath $nssmZip -Algorithm SHA256).Hash -cne $nssmArchiveHash) { throw 'The NSSM archive differs from the independently pinned release.' }
-    Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmExtract -Force
-    $nssmSource = Join-Path $nssmExtract 'nssm-2.24-101-g897c7ad\win64\nssm.exe'
-    Copy-Item -LiteralPath $nssmSource -Destination $nssmExe -ErrorAction Stop
-    if ((Get-FileHash -LiteralPath $nssmExe -Algorithm SHA256).Hash -cne $nssmHash) { throw 'The x64 NSSM service wrapper differs from the independently pinned release.' }
+    Invoke-PinnedDownload 'https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW.NET4.exe' $winswExe $winswHash
     if(-not $PostgresBinaryZip){
         $edbSignature = Get-AuthenticodeSignature -LiteralPath $postgresPackage
         if ($edbSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or $null -eq $edbSignature.SignerCertificate -or $edbSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $postgresSigner) {
@@ -262,13 +241,15 @@ try {
         -ApprovedManifestSHA256 $manifestSHA256 -TrustedPublisherThumbprint $signerThumbprint `
         -PostgresInstaller $postgresPackage -ExpectedPostgresSHA256 $postgresHash `
         -ExpectedPostgresPublisherThumbprint $postgresSigner -PostgresBinaryZip:$PostgresBinaryZip -GarnetPackage $garnetZip `
-        -ExpectedGarnetSHA256 $garnetHash -ServiceWrapperExe $nssmExe `
-        -ExpectedServiceWrapperSHA256 $nssmHash
+        -ExpectedGarnetSHA256 $garnetHash -ServiceWrapperExe $winswExe `
+        -ExpectedServiceWrapperSHA256 $winswHash
     $setupExe = Join-Path $setupExeDir 'EsteriumERP-Setup.exe'
     if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) { throw 'Full signed-mode Setup.exe was not built.' }
     $licenseRoot=Join-Path $setupExeDir 'third-party-notices'
     foreach ($notice in @('static\PostgreSQL-LICENSE.txt','static\Garnet-2.2.3-LICENSE.txt',
-        'static\Garnet-2.2.3-NOTICE.md','static\NSSM-2.24-LICENSE.txt',
+        'static\Garnet-2.2.3-NOTICE.md','static\WinSW-2.12.0-LICENSE.txt',
+        'static\log4net-2.0.12-LICENSE.txt','static\log4net-2.0.12-NOTICE.txt',
+        'static\YamlDotNet-8.1.2-LICENSE.txt',
         'dotnet\LICENSE.txt','dotnet\ThirdPartyNotices.txt','archives\garnet\archive-notice-inventory.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path $licenseRoot $notice) -PathType Leaf)) {
             throw ('Full Setup package is missing a third-party license/notice: '+$notice)
@@ -322,8 +303,8 @@ try {
         ExpectedPostgresPublisherThumbprint = $postgresSigner
         GarnetPackage = $garnetZip
         ExpectedGarnetSHA256 = $garnetHash
-        ServiceWrapperExe = $nssmExe
-        ExpectedServiceWrapperSHA256 = $nssmHash
+        ServiceWrapperExe = $winswExe
+        ExpectedServiceWrapperSHA256 = $winswHash
         ListenAddress = '0.0.0.0:' + $httpsPort
         TLSCertFile = $httpsCertPem
         TLSKeyFile = $httpsKeyPem

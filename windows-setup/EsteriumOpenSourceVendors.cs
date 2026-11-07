@@ -37,7 +37,7 @@ namespace Esterium.WindowsSetup
             var manifest = Hex("manifesto ERP", pins["manifest"], 64);
             string postgres = Hex("PostgreSQL", pins["postgres"], 64);
             string garnet = Hex("Garnet", pins["garnet"], 64);
-            string nssm = Hex("NSSM", pins["nssm"], 64);
+            string winsw = Hex("WinSW", pins["winsw"], 64);
             string publisher = IsPostgresZipPreview ? "" : Hex("Editor PostgreSQL", pins["pgSigner"], 40);
 
             string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -55,8 +55,8 @@ namespace Esterium.WindowsSetup
 
             string extracted = null, partial = null;
             bool committed = false;
-            var files = new [] { EmbeddedPostgresName, "garnet.zip", "nssm.exe" };
-            var hashes = new [] { postgres, garnet, nssm };
+            var files = new [] { EmbeddedPostgresName, "garnet.zip", "winsw.exe" };
+            var hashes = new [] { postgres, garnet, winsw };
             try
             {
                 extracted = Unpack();
@@ -134,7 +134,9 @@ namespace Esterium.WindowsSetup
                 Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
             var required = new List<string> {
                 "static/PostgreSQL-LICENSE.txt", "static/Garnet-2.2.3-LICENSE.txt",
-                "static/Garnet-2.2.3-NOTICE.md", "static/NSSM-2.24-LICENSE.txt",
+                "static/Garnet-2.2.3-NOTICE.md", "static/WinSW-2.12.0-LICENSE.txt",
+                "static/log4net-2.0.12-LICENSE.txt", "static/log4net-2.0.12-NOTICE.txt",
+                "static/YamlDotNet-8.1.2-LICENSE.txt",
                 "dotnet/LICENSE.txt", "dotnet/ThirdPartyNotices.txt",
                 "archives/garnet/archive-notice-inventory.txt"
             };
@@ -199,7 +201,7 @@ namespace Esterium.WindowsSetup
                 ownsStaging = false;
                 if (MessageBox.Show(
                     "PREPARAR DEPENDENCIAS, NAO INSTALAR.\n\n" +
-                    "Exige ERP ja preparado. Copia PostgreSQL, Garnet e NSSM " +
+                    "Exige ERP ja preparado. Copia PostgreSQL, Garnet e WinSW " +
                     "para pasta protegida e confere hashes; ZIP oficial usa SHA-256 EDB, " +
                     "instalador EXE usa assinatura Authenticode.\n" +
                     "NAO executa instaladores, cria contas, configura SQL nem registra servicos.\n" +

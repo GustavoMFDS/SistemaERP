@@ -82,7 +82,7 @@ function Assert-RunningService([string]$name) {
     }
     # Windows process command-line details might embed credentials: NEVER echo PathName.
 }
-# A service wrapper (NSSM) holds the SCM PID, while the wrapped Garnet
+# A service wrapper (WinSW) holds the SCM PID, while the wrapped Garnet
 # listener is a child. Permit only a bounded process ancestry under NETWORK
 # SERVICE; do not weaken PostgreSQL's direct owner check.
 function Assert-GarnetServiceDescendant([int]$listenerPid, [int]$servicePid) {

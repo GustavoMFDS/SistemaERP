@@ -42,8 +42,8 @@ namespace Esterium.WindowsSetup
             OrdinaryTree(erp);
             OrdinaryTree(vendor);
             Bundle(erp, Hex("manifesto", pins["manifest"], 64));
-            string[] files = { EmbeddedPostgresName, "garnet.zip", "nssm.exe" };
-            string[] keys = { "postgres", "garnet", "nssm" };
+            string[] files = { EmbeddedPostgresName, "garnet.zip", "winsw.exe" };
+            string[] keys = { "postgres", "garnet", "winsw" };
             if (Directory.GetFiles(vendor, "*", SearchOption.AllDirectories).Length != 3 ||
                 Directory.GetDirectories(vendor, "*", SearchOption.AllDirectories).Length != 0)
                 throw new InvalidOperationException("Pasta de fornecedores possui arquivo extra.");
@@ -73,6 +73,7 @@ namespace Esterium.WindowsSetup
                 Path.Combine(programData, "Esterium", "PostgresTlsPolicy"),
                 Path.Combine(programData, "Esterium", "DependencyBootstrap"),
                 Path.Combine(programData, "Esterium", "GarnetConfig"),
+                Path.Combine(programData, "Esterium", "GarnetLogs"),
                 Path.Combine(programData, "Esterium", "PostgresApplication"),
                 Path.Combine(programData, "Esterium", "Secrets")
             };

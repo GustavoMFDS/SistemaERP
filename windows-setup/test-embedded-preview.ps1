@@ -10,12 +10,12 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedManifestSHA256,
     [Parameter(Mandatory=$true)][string]$ExpectedPostgresSHA256,
     [Parameter(Mandatory=$true)][string]$ExpectedGarnetSHA256,
-    [Parameter(Mandatory=$true)][string]$ExpectedNssmSHA256,
+    [Parameter(Mandatory=$true)][string]$ExpectedServiceWrapperSHA256,
     [switch]$RequireThirdPartyNotices
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
-foreach($value in @($ExpectedManifestSHA256,$ExpectedPostgresSHA256,$ExpectedGarnetSHA256,$ExpectedNssmSHA256)){
+foreach($value in @($ExpectedManifestSHA256,$ExpectedPostgresSHA256,$ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)){
     if($value -cnotmatch '^[0-9a-fA-F]{64}$') { throw 'Expected hashes must be SHA-256 values.' }
 }
 $path=(Resolve-Path -LiteralPath $Exe -ErrorAction Stop).Path
@@ -66,7 +66,7 @@ try {
         @{name='erp/bundle-manifest.json';hash=$ExpectedManifestSHA256},
         @{name=$pgName;hash=$ExpectedPostgresSHA256},
         @{name='vendor/garnet.zip';hash=$ExpectedGarnetSHA256},
-        @{name='vendor/nssm.exe';hash=$ExpectedNssmSHA256}
+        @{name='vendor/winsw.exe';hash=$ExpectedServiceWrapperSHA256}
     )){
         if(-not $files.ContainsKey($pair.name)){ throw "Missing embedded file: $($pair.name)"}
         $stream=$files[$pair.name].Open()
@@ -84,7 +84,9 @@ try {
         $noticeRoot='vendor/third-party-notices/'
         $requiredNotices=@(
             'static/PostgreSQL-LICENSE.txt','static/Garnet-2.2.3-LICENSE.txt',
-            'static/Garnet-2.2.3-NOTICE.md','static/NSSM-2.24-LICENSE.txt',
+            'static/Garnet-2.2.3-NOTICE.md','static/WinSW-2.12.0-LICENSE.txt',
+            'static/log4net-2.0.12-LICENSE.txt','static/log4net-2.0.12-NOTICE.txt',
+            'static/YamlDotNet-8.1.2-LICENSE.txt',
             'dotnet/LICENSE.txt','dotnet/ThirdPartyNotices.txt',
             'archives/garnet/archive-notice-inventory.txt')
         if($format -eq 'zip'){$requiredNotices+='archives/postgresql/archive-notice-inventory.txt'}
@@ -98,7 +100,7 @@ try {
                     '; vendor sample: '+($vendorPaths -join '; '))
             }
         }
-        Write-Output ('PASS: embedded ERP, PostgreSQL, Garnet, NSSM - '+$files.Count+' files, read-only.')
+        Write-Output ('PASS: embedded ERP, PostgreSQL, Garnet, WinSW - '+$files.Count+' files, read-only.')
         Write-Output 'PASS: third-party notices and archive inventories are embedded with the vendor payload.'
     }
     Write-Output 'NOT RELEASED: preview permanently blocks installation and is not a signed commercial package.'
