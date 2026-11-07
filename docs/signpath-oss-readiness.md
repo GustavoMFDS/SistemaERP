@@ -74,3 +74,13 @@ Assinatura pública válida reduz o aviso de “publicador desconhecido”, mas 
 ## Próximo passo externo
 
 O proprietário precisará criar a conta SignPath, confirmar equipe/papéis, ativar MFA e submeter o projeto quando a release funcional, os avisos e a política estiverem prontos. Nenhuma inscrição, alteração remota, publicação, assinatura ou release foi feita nesta preparação. PR #216 continua Draft.
+
+## Revalidação após a migração para WinSW (07/11/2026)
+
+- Código validado: `bb75d4f3b3b72fb3eca47258271197aa0c55dce6`. CI [42331313371](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42331313371) passou em **20/20 jobs**.
+- Windows Setup [42331313342](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42331313342) passou em prévia unsigned, integração ZIP, primeira instalação completa EDB e ZIP e gate agregado. Quatro jobs exclusivos de `workflow_dispatch` foram ignorados.
+- Os dois laboratórios Windows hospedados instalaram PostgreSQL, Garnet e o ERP em runners descartáveis; passaram por TLS, migrações, login/HTTPS, reparo, remoção conservadora e atualização/rollback somente do aplicativo. O teste integrado também validou Garnet via WinSW/NetworkService, ACL, TLS, Lua, AOF e recuperação após reinício.
+- Evidências desta execução: [capturas de telas](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42331313342/artifacts/13558012643), [instalação completa ZIP](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42331313342/artifacts/13558331449), [instalação completa EDB](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42331313342/artifacts/13558247632), [avisos/licenças do ZIP](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42331313342/artifacts/13558026882) e [avisos/licenças EDB](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42331313342/artifacts/13558102687). Os artefatos expiram em 14/11/2026.
+- A checagem de listener agora tolera a janela entre `Running` e o primeiro bind, espera até 30 segundos e falha fechada se a porta não aparecer. O fluxo ZIP passou depois dessa correção.
+- A assinatura usada para aplicar o pacote nos runners é temporária e exclusiva da CI. Não é a assinatura pública SignPath nem o instalador da VM do usuário. A captura da VM comprova apenas **Verificar arquivos** e **Ver plano**; `Aplicar` continua bloqueado na prévia sem assinatura.
+- Permanecem abertos para uma distribuição pública: revisão humana/jurídica das dependências, release funcional pública no formato escolhido, política e privacidade finais, MFA/papéis, inscrição e aprovação discricionária da SignPath, configuração do projeto de assinatura, assinatura Authenticode de produção e piloto físico. Nenhuma publicação, assinatura de produção ou merge foi feita; PR #216 segue aberta e Draft.
