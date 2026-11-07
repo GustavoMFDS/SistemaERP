@@ -42,6 +42,13 @@ O repositório contém licença MIT em `LICENSE`, mas isso sozinho não comprova
 - O coletor exclui o cache documental gerado pelo Sphinx; o laboratório de CI exige que inventário e arquivos empacotados tenham contagens iguais. Parser PowerShell, fixture focada e `git diff --check` passaram.
 - Isso fecha a discrepância técnica do inventário/artefato. Não fecha a revisão jurídica de todas as dependências, a decisão de elegibilidade da SignPath, a política final de assinatura nem a homologação funcional na VM. Os workflows e artefatos são de runners descartáveis.
 
+## Checagem de licença do wrapper de serviço (06/11/2026)
+
+- O aviso empacotado para NSSM declara domínio público, conforme a [página oficial do NSSM](https://nssm.cc/download). Os [termos da SignPath Foundation](https://signpath.org/terms.html) exigem licença open source aprovada pela OSI para todos os componentes. A [OSI explica](https://opensource.org/faq) que domínio público não é uma licença e não pode ser aprovado pela OSI. Portanto, incluir NSSM no pacote cria incompatibilidade literal com o critério publicado; não presumo que a SignPath abrirá exceção.
+- Alternativa a validar: [WinSW v2.12.0](https://github.com/winsw/winsw/releases/tag/v2.12.0), release estável sob MIT. O projeto v2 fixa `log4net` 2.0.12 e `YamlDotNet` 8.1.2, cujas licenças são Apache-2.0 e MIT. Os avisos correspondentes também precisariam acompanhar o Setup; substituir o binário sem migrar e testar configuração, conta, recuperação e parada do serviço não basta.
+- A release pública do Esterium continua sendo a prévia gráfica “NÃO INSTALA”; não atende ao critério de release funcional no formato que se pretende assinar. A evidência recente da VM fecha apenas Verificar arquivos e Ver plano; `Aplicar` continua bloqueado na prévia sem assinatura.
+- Resultado: rota SignPath ainda não elegível para submissão. Próximo item técnico é migrar o wrapper e provar o fluxo Windows completo; revisão humana das licenças do ZIP PostgreSQL segue separada e aberta. Nenhum contato, inscrição, publicação ou release foi feito.
+
 ## Papéis propostos
 
 - **Autor e mantenedor:** `GustavoMFDS`, proprietário visível do repositório.
