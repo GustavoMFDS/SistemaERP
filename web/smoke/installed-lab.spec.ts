@@ -209,13 +209,26 @@ test('installed HTTPS login opens all 17 screens and both route redirects', asyn
     path: screenEvidencePath(test.info().project.name, '/login', evidenceDir),
     fullPage: true,
   })
-  await loginUi(page)
+  const adminToken = await loginUi(page)
   await expect(page.getByRole('navigation', { name: 'Navegação principal' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Resumo da semana' })).toBeVisible()
+
+  const emptyProductList = expectBody<{ items: unknown }>(
+    await browserApi(
+      page,
+      `/api/v1/products?query=${encodeURIComponent(`esterium-empty-${crypto.randomUUID()}`)}&limit=1&offset=0`,
+      adminToken,
+    ),
+    'empty product list',
+  )
+  expect(emptyProductList.items, 'empty product lists must serialize as arrays').toEqual([])
 
   for (const [path, heading] of screens.slice(1)) {
     await page.goto(path)
     await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible()
+    if (path === '/purchases' || path === '/pdv') {
+      await expect(page.locator('body')).not.toContainText('Cannot read properties of null')
+    }
     await page.screenshot({
       path: screenEvidencePath(test.info().project.name, path, evidenceDir),
       fullPage: true,

@@ -360,7 +360,7 @@ export default function PDVPage() {
     setLoading(true)
     try {
       const data = await apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0')
-      const active = data.items.filter((p) => p.active)
+      const active = (data.items ?? []).filter((p) => p.active)
       setProducts(active)
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
       if (cacheKey) {
@@ -776,7 +776,7 @@ export default function PDVPage() {
     if (navigator.onLine) {
       try {
         const data = await apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0')
-        catalog = data.items.filter((product) => product.active)
+        catalog = (data.items ?? []).filter((product) => product.active)
         setProducts(catalog)
         const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
         if (cacheKey) {
