@@ -1,6 +1,6 @@
 # Homologação do Esterium ERP em VM Windows
 
-**Atualizado em:** 07/11/2026, 01:48 BRT
+**Atualizado em:** 07/11/2026, 02:50 BRT
 **Resultado geral:** **EM ANDAMENTO — CI verde no head testado; Verify/Plan confirmados sem alterações; mídia VM-LAB preparada; instalação GUI e 19 áreas pendentes**
 
 ## Histórico da fase inicial (04/11/2026, 21:47 BRT)
@@ -24,7 +24,7 @@ A captura das 21:47 ainda não mostrava o desktop; Windows e OOBE foram concluí
 | Disco | VDI dinâmico de 80 GB, com VDI diferencial da sessão atual |
 | Firmware e segurança | EFI e Secure Boot ativos; TPM 2.0 não confirmado na configuração efetiva |
 | Rede | NAT; nenhum teste de acesso LAN executado |
-| Mídia | ISO técnica UDF 1.02 da build corrigida anexada; ISO oficial foi usada para concluir o Windows |
+| Mídia | ISO técnica UDF 1.02 da build corrigida anexada; ISO VM-LAB nova do run `42340706284` preparada localmente, ainda não anexada; ISO oficial foi usada para concluir o Windows |
 | Snapshot | `Base vazia antes do Windows - 2026-11-03`, UUID `fde9f7b6-c88c-49da-a148-cdc691bd54a7` |
 
 A descrição textual antiga do snapshot menciona 1 vCPU; a configuração ativa e a barra de estado mostram 4 vCPUs. A divergência documental não foi alterada.
@@ -38,11 +38,11 @@ O Gerenciador também lista `Treino` como **Inacessível**. O registro global ap
 | Item | Resultado |
 |---|---|
 | Branch | `codex/integration-212-215-20261101` |
-| Head documental local/remoto | `5eaebb52218bb24f66b87bce0758ec1fec166332` |
+| Head documental local/remoto | `b6892a1e8af5f3ac9a86b230e90bc81a83a3ba7c` |
 | Código aprovado em CI | `ac83fe5b7e21ffaf1043f25a7a6a66de2c8c3a50` |
-| PR #216 | Aberta, Draft, sem merge; head igual ao branch acima |
-| CI do head atual da PR | [41913534237](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41913534237), 20/20 jobs concluídos com sucesso no head `5eaebb52218bb24f66b87bce0758ec1fec166332` |
-| Windows Setup em runner descartável | [41913534238](https://github.com/GustavoMFDS/SistemaERP/actions/runs/41913534238), 4 jobs concluídos com sucesso e 4 ignorados; `complete-first-install-lab`, prévia e gate de componentes passaram. Isso não é prova da VM local |
+| PR #216 | Aberta, Draft, sem merge; head `b6892a1e8af5f3ac9a86b230e90bc81a83a3ba7c` |
+| CI do head atual da PR | [42340706286](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42340706286), 20/20 jobs concluídos com sucesso no head `b6892a1e8af5f3ac9a86b230e90bc81a83a3ba7c` |
+| Windows Setup em runner descartável | [42340706284](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42340706284), cinco jobs concluídos com sucesso (prévia, integração ZIP, primeira instalação EDB/ZIP e gate agregado) e quatro jobs manuais ignorados. Isso não é prova da VM local |
 | Prévia técnica do Setup da CI | ZIP local conferido: SHA-256 `315ABD762764CD4F14F208FB2EC972CA273B997184C78D769EEBB1293A370475`; contém `EsteriumERP-Setup.exe` de 91.136 bytes, sem bundle/fornecedores; botão Instalar desativado no modo preview; não executado |
 | Insumos do laboratório GUI | ZIP local SHA-256 `7DECBB77A67B8318BCF4FCFCFEF6BE8023C4F72A04356BAFC71AC58DE6CE9E71`, igual ao sidecar; inclui bundle do commit `a02551f4b34a38afba6d8e840f48aa4912615a3b` e fornecedores verificados; proveniência declara insumos apenas |
 | Prévia técnica com payload real, compilada no host | `D:\ERP\evidencias\esterium-vm\instalacao\technical-preview-payload-pr216-20261104\EsteriumERP-Setup-TECHNICAL-PREVIEW.exe`; 463.227.904 bytes; SHA-256 `0095C1C3B66B050A48C39940362D7E7852D4BA91EFBC5B5D7677D2A6FA308011`; inclui bundle e fornecedores fixados; botão Apply continua permanentemente desativado |
@@ -51,8 +51,8 @@ O Gerenciador também lista `Treino` como **Inacessível**. O registro global ap
 | ISO UDF da build corrigida | `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-Technical-Preview-Payload-PR216-FIXED-ROOT-20261105.iso`; 464.388.096 bytes; SHA-256 `3102B13FE1759173440AA9EF40EFC88F8464B87B397FEF9D4131ABEDC1437121`; UDF 1.02; `7z t` passou; quatro arquivos na raiz |
 | Mídia virtual da prévia anterior | `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-Technical-Preview-Payload-PR216-20261104.iso`; UDF 1.02, 4 arquivos; `7z t` passou; SHA-256 `BA25F9DE1153EE6ADD28D073E45DE2B2418E833507A70E939C9850AB504C4162`; montada após OOBE |
 | Smoke checks do executável de prévia, no host | `--self-test`, `--has-payload`, `--has-preview-approvals` retornaram `0`; `--is-retail-build` retornou `3`; todos os gates esperados passaram. Não é execução GUI nem prova na VM |
-| Instalador do Esterium aplicado à VM local | Não; OOBE local concluído; Verify passou e Plan da prévia anterior falhou por porta; nova build ainda não foi reaberta na GUI |
-| Setup completo de laboratório construído/executado nesta VM | Não; usuário não tem EXE completo com assinatura aprovada, e harness de Apply continua restrito ao runner GitHub |
+| Instalador do Esterium aplicado à VM local | Não; nenhuma instalação/serviço foi criada; a tela da VM precisa ser revalidada após a última troca de ISO |
+| Setup completo VM-LAB | Artefato `13562460313` baixado e ISO local preparada; não executado na VM. O certificado temporário ainda precisa ser conferido dentro do convidado |
 | Atualização VirtualBox no host | Concluída pelo instalador Oracle 7.2.22; saída `0`; versão `7.2.22r175245`. VM limpa em execução; VM original e snapshot-base preservados |
 
 ## Verificações locais do checkout (04/11/2026)
@@ -307,3 +307,12 @@ Continuam externos à homologação local: Authenticode comercial, autorização
 - Leitura local somente leitura do `.vbox` às 01:48 BRT confirmou `currentSnapshot={780d7489-e774-4218-984a-0be11b17aadf}`; snapshot-base `Blank baseline before Windows - 2026-11-04` (`0f4c1246-b139-44bd-9f94-8ad5bb1c848a`) segue registrado. DVD continua na prévia antiga `Esterium-Technical-Preview-PR216-CURRENT-HEAD-20261105.iso` (`ec38e138-5830-4924-9126-4856ee5a3526`); a nova ISO ainda não foi anexada. A consulta de processos não encontrou `VirtualBox`, `VirtualBoxVM` ou `VBoxHeadless`; nenhum convidado estava executando naquele instante. Não alterei a configuração.
 - Esta etapa não anexou ISO, iniciou a VM, confiou certificados ou instalou serviços. Quando houver acesso ao PC, revalidar estado da VM; importar as duas raízes de teste nos stores Current User do convidado; confirmar Authenticode `Valid`; então executar Verify, Plan e instalação pela GUI com confirmação manual.
 - Após instalação continuam obrigatórios os testes das 19 áreas, reboot e recuperação dos serviços, backup/restauração, rede e segurança. Não há homologação funcional concluída, merge ou release.
+
+## Mídia VM-LAB atualizada; VM aguardando revalidação ao vivo (07/11/2026)
+
+- Reconsulta ao GitHub: PR #216 segue aberta, Draft e sem merge; head `b6892a1e8af5f3ac9a86b230e90bc81a83a3ba7c`. CI `42340706286` passou 20/20. Windows Setup `42340706284` concluiu com sucesso a prévia unsigned, integração ZIP e laboratórios completos EDB/ZIP; quatro jobs exclusivos de `workflow_dispatch` foram ignorados e o gate agregado passou.
+- Artefato VM-LAB `13562460313` do Windows Setup tem SHA-256 `949FAF7ECB621966789BEDC864EBB19CEE59DA95377A03C63FF5E4C9CB5DE172`, conferido localmente. EXE: `0A99AEE537688C2A196280D062EC5D1ADE3B5BBE082B983487ABE5102BE9648B`; certificado público bate com o manifesto, thumbprint `7D445C63ABC9001AFF84441670149A5E09CA53B9`, expira em `2026-11-21T04:59:00Z`. No host, Authenticode retorna `UnknownError` porque a raiz temporária não é confiável; não alterei trust stores. A validação final do editor segue para a VM isolada.
+- Gerei a mídia local `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-VM-LAB-Homologacao-20261107-r42340706284.iso`, 464.977.920 bytes, SHA-256 `1C7EDE9DBB70DC5106ACDD8E7351C4274E3AA7D6CEE05534B7E32258E7FF8F77`. `7z t` passou; os 23 arquivos extraídos da ISO coincidem por SHA-256 com a pasta de origem; o EXE da ISO bate com o manifesto. Recibo: `D:\ERP\evidencias\esterium-vm\instalacao\VM-LAB-MEDIA-RECEIPT-20261107-r42340706284.json`. A ISO anterior foi preservada. Esta ISO nova não foi anexada à VM.
+- Os quatro arquivos TLS são byte idênticos aos da mídia anterior, cujo par PEM passou `tls.LoadX509KeyPair` e cuja cadeia/SAN `10.0.2.15` foi validada. O endereço ainda precisa ser confirmado no convidado.
+- O usuário informou que não pode liberar o PC agora. Não enviei comandos ao VirtualBox/VM, não anexei mídia, não alterei snapshots ou certificados. O último estado documentado da VM limpa era `running`, com tela preta após troca de ISO, observado às 00:45 BRT; não revalidei esse estado ao vivo neste checkpoint.
+- Permanecem pendentes instalação GUI e validação Authenticode dentro da VM, todas as 19 áreas, reboot pós-instalação, backup/restauração, recuperação de serviços, LAN, segurança/periféricos e respectivas evidências. Sem instalação ou homologação funcional local; PR continua Draft, sem merge ou release.
