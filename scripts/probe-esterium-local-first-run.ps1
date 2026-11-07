@@ -320,7 +320,42 @@ try {
     }
     $probeStage='verify dependency ownership'
     Write-CIDiagnosticStage $probeStage
-    & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -ListenerReadyTimeoutSeconds 30 -RequireServiceOwnership | Out-Null
+    try {
+        & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -ListenerReadyTimeoutSeconds 30 -RequireServiceOwnership | Out-Null
+    } catch {
+        # Keep production diagnostics generic. A disposable hosted Windows
+        # runner may emit only a fixed reason code, never arbitrary exception
+        # text, process command lines, paths, or protected settings.
+        $messages=@()
+        for($exception=$_.Exception;$null -ne $exception;$exception=$exception.InnerException){
+            $messages+=([string]$exception.Message)
+        }
+        $failureText=$messages -join ' '
+        $reason=switch -Regex ($failureText) {
+            'A declared local dependency Windows service is missing or ambiguous\.' { 'service-registration-missing'; break }
+            'A declared local dependency Windows service is not running\.' { 'service-not-running'; break }
+            'Dependency service does not expose a running process' { 'service-process-unavailable'; break }
+            'PostgreSQL service process cannot be verified' { 'postgres-process-unavailable'; break }
+            'PostgreSQL service account cannot be verified' { 'postgres-identity-unavailable'; break }
+            'Garnet listener process ancestry is invalid' { 'garnet-ancestry-invalid'; break }
+            'Garnet listener process is missing' { 'garnet-process-unavailable'; break }
+            'Garnet listener must run under NETWORK SERVICE' { 'garnet-identity-mismatch'; break }
+            'PostgreSQL listener process ancestry is invalid' { 'postgres-ancestry-invalid'; break }
+            'PostgreSQL listener must run under the declared service account' { 'postgres-identity-mismatch'; break }
+            'PostgreSQL listener is not descended from its Windows service' { 'postgres-service-ancestry-mismatch'; break }
+            'Garnet listener is not descended from its Windows service' { 'garnet-service-ancestry-mismatch'; break }
+            'exposed on a non-loopback address' { 'non-loopback-listener'; break }
+            'No listener is bound to required local dependency port' { 'listener-unavailable'; break }
+            'Dependency listener cannot be tied to its declared service' { 'listener-owner-mismatch'; break }
+            'PostgreSQL tool is missing|PostgreSQL tool is empty or a symbolic link' { 'postgres-binary-layout-invalid'; break }
+            default { 'unclassified-dependency-check-failure' }
+        }
+        if ($env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -eq '1' -and
+            $env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+            Write-Host ('CI diagnostic: dependency ownership reason - '+$reason)
+        }
+        throw
+    }
     $probeStage='run ERP dependency preflight'
     Write-CIDiagnosticStage $probeStage
     $process=[Diagnostics.ProcessStartInfo]::new()
