@@ -289,3 +289,10 @@ Continuam externos à homologação local: Authenticode comercial, autorização
 - Esta captura prova somente boot e acesso ao desktop. O registro anterior de 05/11 documenta Verify/Plan da prévia técnica local; não executei novamente o Setup nesta retomada. A automação não conseguiu abrir o Explorador no guest (`SendInput sent 0 of 1 events; GetLastError=87`), portanto nenhuma ação de instalação foi enviada.
 - No head documental `437cc468cc84155a5f883fcfab007db757870582`, CI `42284131373` passou 20/20 jobs e Windows Setup `42284131392` concluiu os gates de instalação/integração; quatro jobs exclusivos de `workflow_dispatch` foram ignorados. Essas provas vêm de runners descartáveis, não da VM.
 - A instalação funcional, as 19 áreas, reboot pós-instalação, backup/restauração, LAN, segurança e periféricos continuam sem prova local. A prévia unsigned mantém `Apply` bloqueado; PR #216 segue aberta e Draft.
+
+## Verify e Plan da prévia técnica (06/11/2026)
+
+- A captura enviada pelo usuário mostra `Verificar arquivos` com `PASS` (hashes do ERP e fornecedores) e `Ver plano` concluído sem alterações. O plano lista PostgreSQL 16, Garnet e ERP, com TLS e banco novos; vendas permanecem desativadas.
+- A versão sem assinatura mantém `Aplicar` bloqueado. Nenhum serviço/banco foi instalado nesta etapa; o resultado comprova apenas integridade e planejamento.
+- Evidência arquivada em [`evidencias/esterium-vm/verify-plan-pass-20261106.png`](../evidencias/esterium-vm/verify-plan-pass-20261106.png), SHA-256 `B24C78AC1AFCA10D5A050889E0D30B3601D77F349D276A3B5D19D6C0CCF56929`.
+- Permanecem pendentes a instalação funcional, os testes das 19 áreas e as verificações pós-instalação descritas acima.

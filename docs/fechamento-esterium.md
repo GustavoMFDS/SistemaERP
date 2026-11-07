@@ -575,3 +575,4 @@ Para retomar no mesmo host, uma atualização oficial do [VirtualBox 7.2.22](htt
 
 - A captura enviada pelo usuário mostra **Verificar arquivos: PASS** duas vezes, conferindo hashes do ERP e dos fornecedores; **Ver plano: PASS**, “concluído sem alterações”. O plano lista PostgreSQL 16, Garnet e ERP, com TLS e banco novo; vendas continuam desativadas.
 - A tela confirma que a versão sem assinatura permite somente verificação e plano; `Aplicar` segue bloqueado. Esta etapa somente leitura está concluída. Preparar, Aplicar, instalação funcional e homologação completa da VM seguem pendentes.
+- Capturei a evidência enviada em [`evidencias/esterium-vm/verify-plan-pass-20261106.png`](../evidencias/esterium-vm/verify-plan-pass-20261106.png), SHA-256 `B24C78AC1AFCA10D5A050889E0D30B3601D77F349D276A3B5D19D6C0CCF56929`. Ela registra os dois `PASS`, o plano sem alterações e o bloqueio de `Apply`.
