@@ -22,6 +22,9 @@ $global:ESTERIUM_TEST_PG_PID_MISSING = $false
 $global:ESTERIUM_TEST_GARNET_WRAPPED = $false
 $global:ESTERIUM_TEST_GARNET_WRONG_OWNER = $false
 $global:ESTERIUM_TEST_GARNET_WRONG_PARENT = $false
+$global:ESTERIUM_TEST_LISTENER_DELAY_CALLS = 0
+$global:ESTERIUM_TEST_LISTENER_NEVER_PORT = 0
+$global:ESTERIUM_TEST_LISTENER_READS = @{}
 function Get-CimInstance {
     [CmdletBinding()]
     param([string]$ClassName, [string]$Filter)
@@ -89,6 +92,15 @@ function Get-NetTCPConnection {
     if ($State -ne 'Listen' -or $LocalPort -notin @(5432, 6379)) {
         throw 'Unexpected TCP inventory request.'
     }
+    if ($global:ESTERIUM_TEST_LISTENER_NEVER_PORT -eq $LocalPort) { return }
+    if ($global:ESTERIUM_TEST_LISTENER_DELAY_CALLS -gt 0) {
+        $key=[string]$LocalPort
+        if (-not $global:ESTERIUM_TEST_LISTENER_READS.ContainsKey($key)) {
+            $global:ESTERIUM_TEST_LISTENER_READS[$key]=0
+        }
+        $global:ESTERIUM_TEST_LISTENER_READS[$key]++
+        if ($global:ESTERIUM_TEST_LISTENER_READS[$key] -le $global:ESTERIUM_TEST_LISTENER_DELAY_CALLS) { return }
+    }
     $pidValue = if ($LocalPort -eq 5432) {
         if ($global:ESTERIUM_TEST_PG_WRAPPED) { 28104 } else { 28101 }
     } else { 28102 }
@@ -124,10 +136,18 @@ try {
         if (-not $rejected) { throw "Inventory unexpectedly accepted $reason, or failed for another reason: $actualError" }
     }
     $inventoryParameters.RequireServiceOwnership = $true
+    $inventoryParameters.ListenerReadyTimeoutSeconds = 2
+    $global:ESTERIUM_TEST_LISTENER_DELAY_CALLS = 1
+    $global:ESTERIUM_TEST_LISTENER_READS = @{}
     $strictResult = @(& $checker @inventoryParameters) -join ' '
-    if ($strictResult -notmatch 'strict ownership mode') {
+    if ($strictResult -notmatch 'strict ownership mode' -or
+        $global:ESTERIUM_TEST_LISTENER_READS['5432'] -lt 2 -or
+        $global:ESTERIUM_TEST_LISTENER_READS['6379'] -lt 2) {
         throw 'Synthetic strict dependency listener ownership was not checked.'
     }
+    $global:ESTERIUM_TEST_LISTENER_DELAY_CALLS = 0
+    $global:ESTERIUM_TEST_LISTENER_READS = @{}
+    $inventoryParameters.Remove('ListenerReadyTimeoutSeconds')
     $global:ESTERIUM_TEST_PG_WRAPPED = $true
     $wrappedPostgres = @(& $checker @inventoryParameters) -join ' '
     if ($wrappedPostgres -notmatch 'strict ownership mode') {
@@ -155,6 +175,11 @@ try {
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $true
     Assert-Reject 'a different executable listening on the Redis port' 'Garnet listener process is missing'
     $global:ESTERIUM_TEST_PORT_OWNER_MISMATCH = $false
+    $inventoryParameters.ListenerReadyTimeoutSeconds = 1
+    $global:ESTERIUM_TEST_LISTENER_NEVER_PORT = 5432
+    Assert-Reject 'a service that never opens its database listener' 'No listener is bound to required local dependency port 5432'
+    $global:ESTERIUM_TEST_LISTENER_NEVER_PORT = 0
+    $inventoryParameters.Remove('ListenerReadyTimeoutSeconds')
     $global:ESTERIUM_TEST_PG_PID_MISSING = $true
     Assert-Reject 'a service without a live owning process' 'does not expose a running process'
     $global:ESTERIUM_TEST_PG_PID_MISSING = $false
@@ -179,7 +204,7 @@ try {
     Write-Output 'PASS: synthetic Windows dependency inventory rejects LAN exposure, invalid or missing services, and missing backup tooling.'
 } finally {
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_PG_WRAPPED', 'ESTERIUM_TEST_PG_WRONG_OWNER', 'ESTERIUM_TEST_PG_WRONG_PARENT', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING', 'ESTERIUM_TEST_PORT_OWNER_MISMATCH', 'ESTERIUM_TEST_PG_PID_MISSING', 'ESTERIUM_TEST_GARNET_WRAPPED', 'ESTERIUM_TEST_GARNET_WRONG_OWNER', 'ESTERIUM_TEST_GARNET_WRONG_PARENT')) {
+    foreach ($name in @('ESTERIUM_TEST_PG_RUNNING', 'ESTERIUM_TEST_PG_WRAPPED', 'ESTERIUM_TEST_PG_WRONG_OWNER', 'ESTERIUM_TEST_PG_WRONG_PARENT', 'ESTERIUM_TEST_REDIS_RUNNING', 'ESTERIUM_TEST_LAN_BIND', 'ESTERIUM_TEST_PG_MISSING', 'ESTERIUM_TEST_PORT_OWNER_MISMATCH', 'ESTERIUM_TEST_PG_PID_MISSING', 'ESTERIUM_TEST_GARNET_WRAPPED', 'ESTERIUM_TEST_GARNET_WRONG_OWNER', 'ESTERIUM_TEST_GARNET_WRONG_PARENT', 'ESTERIUM_TEST_LISTENER_DELAY_CALLS', 'ESTERIUM_TEST_LISTENER_NEVER_PORT', 'ESTERIUM_TEST_LISTENER_READS')) {
         Remove-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
     }
 }

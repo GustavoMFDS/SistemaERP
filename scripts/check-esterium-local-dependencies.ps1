@@ -10,6 +10,7 @@ param(
     [Parameter(Mandatory = $true)][string]$PostgresBin,
     [ValidateRange(1, 65535)][int]$PostgresPort = 5432,
     [ValidateRange(1, 65535)][int]$RedisPort = 6379,
+    [ValidateRange(0, 60)][int]$ListenerReadyTimeoutSeconds = 0,
     [switch]$RequireServiceOwnership
 )
 $ErrorActionPreference = 'Stop'
@@ -130,10 +131,18 @@ function Assert-PostgresServiceDescendant([int]$listenerPid, [int]$servicePid) {
     throw 'PostgreSQL listener is not descended from its Windows service.'
 }
 function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
-    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
-    if ($listeners.Count -eq 0) {
-        throw "No listener is bound to required local dependency port $port."
-    }
+    # A service can report Running just before binding its socket. Only an
+    # absent listener is retried; an exposed or incorrectly owned listener
+    # still fails immediately below.
+    $deadline = [DateTime]::UtcNow.AddSeconds($ListenerReadyTimeoutSeconds)
+    do {
+        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
+        if ($listeners.Count -gt 0) { break }
+        if ([DateTime]::UtcNow -ge $deadline) {
+            throw "No listener is bound to required local dependency port $port."
+        }
+        Start-Sleep -Milliseconds 500
+    } while ($true)
     foreach ($listener in $listeners) {
         if ([string]$listener.LocalAddress -notin @('127.0.0.1', '::1')) {
             throw "Local dependency port $port is exposed on a non-loopback address."

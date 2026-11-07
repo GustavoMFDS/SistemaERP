@@ -49,6 +49,7 @@ if ($text.Contains('-LiteralPath $config -Algorithm SHA256')) {
 }
 foreach ($required in @('finally {','-StartupType Disabled','--check-dependencies',
     'NFCE_SEFAZ_PRODUCTION_ENABLED','FailOnRecoveryError','-RequireServiceOwnership',
+    '-ListenerReadyTimeoutSeconds 30',
     'First-run probe required local item is missing:','GetFileName($missingCursor)','TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar','$missing=$missing -replace',
     'function Write-CIDiagnosticStage','CI diagnostic: first-run stage - ',
     '$postgresConf=Assert-Local','$pgHbaConf=Assert-Local',

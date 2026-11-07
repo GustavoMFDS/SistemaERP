@@ -320,7 +320,7 @@ try {
     }
     $probeStage='verify dependency ownership'
     Write-CIDiagnosticStage $probeStage
-    & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -RequireServiceOwnership | Out-Null
+    & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -ListenerReadyTimeoutSeconds 30 -RequireServiceOwnership | Out-Null
     $probeStage='run ERP dependency preflight'
     Write-CIDiagnosticStage $probeStage
     $process=[Diagnostics.ProcessStartInfo]::new()

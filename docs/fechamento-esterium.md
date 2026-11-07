@@ -565,8 +565,13 @@ Para retomar no mesmo host, uma atualização oficial do [VirtualBox 7.2.22](htt
 
 ## Retomada da VM e inventário de avisos (06/11/2026, 21:08 BRT)
 
-- Na VM `Esterium-Windows-Lab-Fresh-20261104`, o usuário informou que executou **Verificar arquivos** e **Ver plano**. Observei a prévia técnica aberta, com `Aplicar` bloqueado. O texto de resultado não ficou legível na captura; não registro novo `PASS` para essas duas ações. Não houve `Preparar` nem `Aplicar` nesta etapa.
+- Na VM `Esterium-Windows-Lab-Fresh-20261104`, o usuário informou que executou **Verificar arquivos** e **Ver plano**. Observei a prévia técnica aberta, com `Aplicar` bloqueado. O texto de resultado não ficou legível na captura; não registrei novo `PASS` para essas duas ações naquela hora. Não houve `Preparar` nem `Aplicar` nesta etapa.
 - O ajuste do inventário exclui `licence.doctree`, cache gerado pelo Sphinx, e valida que caminhos listados coincidam com avisos empacotados. Parser PowerShell, fixture focada e `git diff --check` passaram. O artefato da reexecução [13551295165](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42312733399/artifacts/13551295165) contém 270 caminhos e 270 arquivos, sem `.doctree`; SHA-256 `C817BEA62666CC101A9AD3DE33A8856053EE4F57B1F6BC3DB152421533DA6DD9`.
 - CI [42312733314](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42312733314) e Windows Setup [42312733399](https://github.com/GustavoMFDS/SistemaERP/actions/runs/42312733399) passaram. Incluem runners descartáveis; não substituem a instalação/homologação da VM.
 - PR #216 segue aberta, Draft e sem merge no head `dd5fecda2a39135f14c0077a19278a5b530c6f04`. Nenhuma release foi publicada.
 - Ainda pendem: resultado legível de Verify/Plan na VM, instalação funcional com mídia aprovada, 19 áreas, reboot/recuperação, backup/restauração, rede e periféricos; revisão jurídica das dependências; release funcional e inscrição/aprovação SignPath; política final e MFA.
+
+## Resultado da prévia técnica na VM (06/11/2026, 21:24 BRT)
+
+- A captura enviada pelo usuário mostra **Verificar arquivos: PASS** duas vezes, conferindo hashes do ERP e dos fornecedores; **Ver plano: PASS**, “concluído sem alterações”. O plano lista PostgreSQL 16, Garnet e ERP, com TLS e banco novo; vendas continuam desativadas.
+- A tela confirma que a versão sem assinatura permite somente verificação e plano; `Aplicar` segue bloqueado. Esta etapa somente leitura está concluída. Preparar, Aplicar, instalação funcional e homologação completa da VM seguem pendentes.
