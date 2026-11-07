@@ -1,7 +1,7 @@
 # Homologação do Esterium ERP em VM Windows
 
-**Atualizado em:** 05/11/2026, 13:04 BRT
-**Resultado geral:** **EM ANDAMENTO — VM Windows retomada; prévia pronta, Verify/Plan pendentes, Apply desativado**
+**Atualizado em:** 07/11/2026, 01:48 BRT
+**Resultado geral:** **EM ANDAMENTO — CI verde no head testado; Verify/Plan confirmados sem alterações; mídia VM-LAB preparada; instalação GUI e 19 áreas pendentes**
 
 ## Histórico da fase inicial (04/11/2026, 21:47 BRT)
 
@@ -296,3 +296,14 @@ Continuam externos à homologação local: Authenticode comercial, autorização
 - A versão sem assinatura mantém `Aplicar` bloqueado. Nenhum serviço/banco foi instalado nesta etapa; o resultado comprova apenas integridade e planejamento.
 - Evidência arquivada em [`evidencias/esterium-vm/verify-plan-pass-20261106.png`](../evidencias/esterium-vm/verify-plan-pass-20261106.png), SHA-256 `B24C78AC1AFCA10D5A050889E0D30B3601D77F349D276A3B5D19D6C0CCF56929`.
 - Permanecem pendentes a instalação funcional, os testes das 19 áreas e as verificações pós-instalação descritas acima.
+
+## Mídia VM-LAB preparada; instalação ainda pendente (07/11/2026)
+
+- Na checagem de 07/11, PR #216 estava aberta e Draft no head testado `cceb6ed57d124d4b4040d430f4294dfaa262a572`. CI `42336526506` concluiu **20/20 jobs com sucesso**. Windows Setup `42336526606` passou todos os jobs aplicáveis, incluindo os laboratórios completos ZIP/EDB; quatro jobs manuais foram ignorados.
+- O usuário reenviou a captura de Verify/Plan. SHA-256 `B24C78AC1AFCA10D5A050889E0D30B3601D77F349D276A3B5D19D6C0CCF56929` coincide com a captura arquivada na seção anterior. Ela comprova hashes conferidos e plano sem alterações; não comprova Apply ou instalação.
+- Baixei o artefato `esterium-vm-lab-installer` do run `42336526606` e conferi o SHA-256 do ZIP `7FAD424AE6E2F9DA08820C1A3F594EBC4C6889897DB41B769A4F175917685980`. EXE VM-LAB: SHA-256 `1C6057D8CF57EA7F617E614CE6EBECB1DD865FA91DABB4A27597AE4040ADAE96`; publicador temporário `8DDC59B25C86EE45C6FF66014C4E3F009154B409`, validade até `2026-11-21T04:01:47Z`.
+- Preparei ISO local `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-VM-LAB-Homologacao-20261107.iso`, 463.755.264 bytes, SHA-256 `9175DF6039F60F0EC77069ED630195DCF442106C50853A80E8E9BA87C7E18C73`. `7z t` validou todos os arquivos; EXE extraído da ISO coincide com o SHA-256 do pacote. A ISO contém EXE, manifestos, certificado público do editor, TLS de laboratório e instruções. O relatório de mídia local é `D:\ERP\evidencias\esterium-vm\instalacao\VM-LAB-MEDIA-RECEIPT-20261107.json`.
+- Certificado TLS foi criado em memória, sem importar certificados nem alterar trust stores do host. O par PEM passou pelo mesmo `tls.LoadX509KeyPair` usado no backend e a cadeia/SAN foi verificada para `10.0.2.15`. Certificado de raiz a importar manualmente apenas na VM: thumbprint `9B3E5774EF029944A0C51C311658A65305B9A048`, SHA-256 `B116E932BCB2D7F9DD339DBEBDD539AA0CA9D7CD4435B047B2C98A1463F4804D`. Esse endereço é hipótese da rede NAT padrão e precisa ser confirmado dentro do convidado antes do Apply.
+- Leitura local somente leitura do `.vbox` às 01:48 BRT confirmou `currentSnapshot={780d7489-e774-4218-984a-0be11b17aadf}`; snapshot-base `Blank baseline before Windows - 2026-11-04` (`0f4c1246-b139-44bd-9f94-8ad5bb1c848a`) segue registrado. DVD continua na prévia antiga `Esterium-Technical-Preview-PR216-CURRENT-HEAD-20261105.iso` (`ec38e138-5830-4924-9126-4856ee5a3526`); a nova ISO ainda não foi anexada. A consulta de processos não encontrou `VirtualBox`, `VirtualBoxVM` ou `VBoxHeadless`; nenhum convidado estava executando naquele instante. Não alterei a configuração.
+- Esta etapa não anexou ISO, iniciou a VM, confiou certificados ou instalou serviços. Quando houver acesso ao PC, revalidar estado da VM; importar as duas raízes de teste nos stores Current User do convidado; confirmar Authenticode `Valid`; então executar Verify, Plan e instalação pela GUI com confirmação manual.
+- Após instalação continuam obrigatórios os testes das 19 áreas, reboot e recuperação dos serviços, backup/restauração, rede e segurança. Não há homologação funcional concluída, merge ou release.
