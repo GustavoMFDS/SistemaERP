@@ -145,6 +145,13 @@ namespace Esterium.WindowsSetup
             }
             if (args.Length > 0 && args[0] == "--self-test") { Environment.Exit(0); return; }
             if (args.Length > 0 && args[0] == "--is-retail-build") { Environment.Exit(IsRetailBuild ? 0 : 3); return; }
+            if (args.Length > 0 && args[0] == "--is-vm-lab-build") { Environment.Exit(VmLabBuild ? 0 : 3); return; }
+            if (args.Length > 0 && args[0] == "--check-vm-lab-guest")
+            {
+                if (!VmLabBuild) { Environment.Exit(3); return; }
+                Environment.Exit(IsVirtualBoxGuest() ? 0 : 8);
+                return;
+            }
             if (args.Length > 0 && args[0] == "--has-release-approvals") { Environment.Exit(HasReleaseApprovals ? 0 : 2); return; }
             if (args.Length > 0 && args[0] == "--has-preview-approvals")
             {

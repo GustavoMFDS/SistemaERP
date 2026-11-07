@@ -488,6 +488,14 @@ jobs:
           path: ${{ runner.temp }}/esterium-full-install-evidence
           if-no-files-found: ignore
           retention-days: 7
+      - name: Upload temporary VirtualBox-only VM-LAB package
+        if: success() && matrix.postgres == 'edb'
+        uses: actions/upload-artifact@v4
+        with:
+          name: esterium-vm-lab-installer
+          path: ${{ runner.temp }}/esterium-vm-lab-package
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload third-party license evidence
         if: always()
         uses: actions/upload-artifact@v4

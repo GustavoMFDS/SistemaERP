@@ -293,6 +293,74 @@ try {
         throw 'Signed-mode Setup.exe payload, Authenticode retail flag, preview-metadata, or embedded release-approval gate failed.'
     }
     Write-Output 'PASS: signed non-preview Setup.exe embeds actual ERP, vendor payload and release approvals and reports retail mode under disposable CI signer.'
+
+    if (-not $PostgresBinaryZip) {
+        $vmLabExeDir = Join-Path $tempRoot 'vm-lab-setup-exe'
+        & $setupBuilder -OutputDir $vmLabExeDir -BundleDir $bundle `
+            -ApprovedManifestSHA256 $manifestSHA256 -TrustedPublisherThumbprint $signerThumbprint `
+            -PostgresInstaller $postgresPackage -ExpectedPostgresSHA256 $postgresHash `
+            -ExpectedPostgresPublisherThumbprint $postgresSigner -GarnetPackage $garnetZip `
+            -ExpectedGarnetSHA256 $garnetHash -ServiceWrapperExe $winswExe `
+            -ExpectedServiceWrapperSHA256 $winswHash -VMHomologationBuild
+        $vmLabSetup = Join-Path $vmLabExeDir 'EsteriumERP-Setup-VM-LAB.exe'
+        if (-not (Test-Path -LiteralPath $vmLabSetup -PathType Leaf)) { throw 'VM-LAB Setup.exe was not built.' }
+        $vmLabSignature = Set-AuthenticodeSignature -LiteralPath $vmLabSetup -Certificate $signer -HashAlgorithm SHA256
+        if ($vmLabSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+            $null -eq $vmLabSignature.SignerCertificate -or
+            $vmLabSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $signerThumbprint) {
+            throw 'VM-LAB Setup.exe did not retain the temporary test publisher signature.'
+        }
+        $vmLabPayloadProbe = Start-Process -FilePath $vmLabSetup -ArgumentList '--has-payload' -Wait -PassThru
+        $vmLabRetailProbe = Start-Process -FilePath $vmLabSetup -ArgumentList '--is-retail-build' -Wait -PassThru
+        $vmLabBuildProbe = Start-Process -FilePath $vmLabSetup -ArgumentList '--is-vm-lab-build' -Wait -PassThru
+        $vmLabGuestProbe = Start-Process -FilePath $vmLabSetup -ArgumentList '--check-vm-lab-guest' -Wait -PassThru
+        $vmLabApprovalProbe = Start-Process -FilePath $vmLabSetup -ArgumentList '--has-release-approvals' -Wait -PassThru
+        if ($vmLabPayloadProbe.ExitCode -ne 0 -or $vmLabRetailProbe.ExitCode -ne 3 -or
+            $vmLabBuildProbe.ExitCode -ne 0 -or $vmLabGuestProbe.ExitCode -ne 8 -or
+            $vmLabApprovalProbe.ExitCode -ne 0) {
+            throw 'VM-LAB Setup must contain payload and approvals, remain non-retail, and reject non-VirtualBox hosts.'
+        }
+
+        $vmLabPackage = Join-Path $env:RUNNER_TEMP 'esterium-vm-lab-package'
+        if (Test-Path -LiteralPath $vmLabPackage) { throw 'VM-LAB package output already exists; refusing to overwrite it.' }
+        [IO.Directory]::CreateDirectory($vmLabPackage) | Out-Null
+        $vmLabHash = (Get-FileHash -LiteralPath $vmLabSetup -Algorithm SHA256).Hash
+        $certPath = Join-Path $vmLabPackage 'Esterium-VM-LAB-Test-Publisher.cer'
+        Export-Certificate -Cert $signer -FilePath $certPath -Force | Out-Null
+        $certHash = (Get-FileHash -LiteralPath $certPath -Algorithm SHA256).Hash
+        Copy-Item -LiteralPath $vmLabSetup -Destination $vmLabPackage -ErrorAction Stop
+        "SHA256 $vmLabHash  EsteriumERP-Setup-VM-LAB.exe" | Set-Content -LiteralPath (Join-Path $vmLabPackage 'EsteriumERP-Setup-VM-LAB.sha256.txt') -Encoding Ascii
+        Copy-Item -LiteralPath (Join-Path $vmLabExeDir 'LICENSE.txt') -Destination $vmLabPackage -ErrorAction Stop
+        Copy-Item -LiteralPath (Join-Path $vmLabExeDir 'THIRD_PARTY_NOTICES.md') -Destination $vmLabPackage -ErrorAction Stop
+        Copy-Item -LiteralPath (Join-Path $vmLabExeDir 'third-party-notices') -Destination $vmLabPackage -Recurse -ErrorAction Stop
+        $vmLabManifest = [ordered]@{
+            packageMode = 'VM-LAB only; not retail; not a release'
+            sourceCommit = $env:GITHUB_SHA
+            setupFile = 'EsteriumERP-Setup-VM-LAB.exe'
+            setupSha256 = $vmLabHash
+            signerSubject = $signer.Subject
+            signerThumbprint = $signerThumbprint
+            signerExpiresUtc = $signer.NotAfter.ToUniversalTime().ToString('o')
+            publicCertificateFile = 'Esterium-VM-LAB-Test-Publisher.cer'
+            publicCertificateSha256 = $certHash
+            privateKeyIncluded = $false
+        }
+        $vmLabManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $vmLabPackage 'VM-LAB-MANIFEST.json') -Encoding UTF8
+        @"
+ESTERIUM ERP - PACOTE TEMPORARIO DE HOMOLOGACAO VM-LAB
+
+Este pacote e exclusivamente para testes na VM isolada Esterium-Windows-Lab-Fresh-20261104, em Oracle VirtualBox.
+Nao e release comercial, nao e assinatura SignPath e nao deve ser instalado no Windows principal nem distribuido a clientes.
+
+O certificado publico Esterium-VM-LAB-Test-Publisher.cer precisa ser confiado SOMENTE dentro da VM, nos stores Current User de Trusted Root Certification Authorities e Trusted Publishers. O Windows mostra um aviso ao confiar nesta raiz de teste. Confira o thumbprint no VM-LAB-MANIFEST.json antes de aceitar.
+
+O certificado expira em $($signer.NotAfter.ToUniversalTime().ToString('u')). A chave privada nao esta no pacote e e removida do runner descartavel ao fim do job. Depois da homologacao, remova o certificado da VM.
+
+Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assinatura Authenticode. A build termina sem instalar se nao detectar uma VM Oracle VirtualBox.
+"@ | Set-Content -LiteralPath (Join-Path $vmLabPackage 'LEIA-ME-VM-LAB.txt') -Encoding UTF8
+        Write-Output ('PASS: VirtualBox-only test installer packaged for the disposable local VM; SHA256=' + $vmLabHash)
+    }
+
     Write-Output 'Applying the real complete first-install coordinator on this disposable runner.'
     $completeInstaller = Join-Path $bundle 'tools\install-esterium-local-complete.ps1'
     $installArgs = @{
