@@ -148,10 +148,12 @@ function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
     Write-OwnershipCIDiagnostic ($listenerLabel+'-listener-query')
     # A service can report Running just before binding its socket. Only an
     # absent listener is retried; an exposed or incorrectly owned listener
-    # still fails immediately below.
+    # still fails immediately below. NetTCP cmdlets may emit a no-match CIM
+    # error before the first bind; treat that one inventory result as empty,
+    # then fail closed if no listener appears before the bounded deadline.
     $deadline = [DateTime]::UtcNow.AddSeconds($ListenerReadyTimeoutSeconds)
     do {
-        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
+        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
         if ($listeners.Count -gt 0) { break }
         if ([DateTime]::UtcNow -ge $deadline) {
             throw "No listener is bound to required local dependency port $port."
