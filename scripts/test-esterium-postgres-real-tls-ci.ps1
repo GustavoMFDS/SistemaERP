@@ -1,15 +1,22 @@
 #requires -Version 5.1
+[CmdletBinding()]
+param([switch]$FromIntegratedStage,[switch]$RunIntegratedERPStartupSmoke)
 <#
   Real PostgreSQL 16 smoke, only on disposable GitHub-hosted Windows runner.
   Downloads vendor-published SHA-256-pinned community ZIP (not EDB installer);
-  starts a temporary scratch cluster, verifies local TLS/SCRAM and recovery.
-  NEVER touches installed services, customer databases or the main branch.
+  validates TLS/SCRAM, migrations and recovery on a unique scratch cluster.
+  Integrated mode temporarily registers that cluster as EsteriumPostgreSQL16
+  under a unique non-admin account, then removes the service and account.
+  Never touches pre-existing services, customer databases or the main branch.
 #>
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or
     $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw 'Real PostgreSQL TLS verification requires disposable hosted Windows CI.'
+}
+if($RunIntegratedERPStartupSmoke -and (-not $FromIntegratedStage -or $env:ESTERIUM_SCM_DISPOSABLE_CI -ne '1' -or $env:ESTERIUM_PG_ZIP_DISPOSABLE_CI -ne '1')){
+    throw 'Integrated ERP startup smoke requires the extracted EXE and disposable Windows CI guards.'
 }
 $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-postgres-real-'+$id)
@@ -41,6 +48,14 @@ $pgCtl=$null
 $psql=$null
 $started=$false
 $secondStarted=$false
+$pgServiceName='EsteriumPostgreSQL16'
+$pgServiceCreated=$false
+$pgServiceLogonRightGranted=$false
+$pgServiceAccountCreated=$false
+$pgServiceAccountName=''
+$pgServiceAccountSid=''
+$pgServiceCredential=$null
+$pgServicePasswordSecure=$null
 $secondData=Join-Path $root 'recovery-independent-cluster'
 $secondLog=Join-Path $root 'recovery-independent.log'
 $oldEnv=@{}
@@ -98,29 +113,126 @@ try {
     $policyConfig=Join-Path $policy 'postgresql.conf'
     $policyHba=Join-Path $policy 'pg_hba.conf'
     & (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf $policyConfig -PgHbaConf $policyHba | Out-Null
-    Write-Host 'PostgreSQL CI: downloading pinned EDB Windows ZIP and validating its SHA-256.'
-    # Hash independently published by EnterpriseDB for the exact 16.15-1 ZIP.
-    $url='https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip'
-    Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
-    $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($hash -cne '25e6fcdfb8caec38691bf461125e7564508760666f7b8e5dc6a5f0818f58f81e') {
-        throw 'Vendor PostgreSQL Windows ZIP hash mismatch: no third-party binary can execute.'
+    if($FromIntegratedStage) {
+        # Use the actual files created and verified by the MIT setup EXE.
+        # The TLS test is still CI-only and cannot execute on a user's PC.
+        if($env:ESTERIUM_PG_ZIP_DISPOSABLE_CI -ne '1' -or
+           $env:ESTERIUM_OPEN_SOURCE_PLAN_DISPOSABLE_CI -ne '1') {
+            throw 'Integrated TLS/schema CI requires both ephemeral Windows CI guards.'
+        }
+        $bin=Join-Path $env:ProgramFiles 'EsteriumOpenSourcePostgresBin\pgsql\bin'
+        $vendorZip=Join-Path $env:ProgramFiles 'EsteriumOpenSourceVendorStage\postgresql-binaries.zip'
+        $erp=Join-Path $env:ProgramFiles 'EsteriumOpenSourceStage\bundle-manifest.json'
+        if(-not (Test-Path -LiteralPath $erp -PathType Leaf) -or
+           -not (Test-Path -LiteralPath $vendorZip -PathType Leaf) -or
+           (Get-FileHash -LiteralPath $vendorZip -Algorithm SHA256).Hash -cne
+                '43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281' -or
+           -not (Test-Path -LiteralPath (Join-Path $bin 'initdb.exe') -PathType Leaf)) {
+            throw 'Native MIT ZIP stage or independently vendor-pinned SHA missing for TLS test.'
+        }
+        # The initial PostgreSQL service smoke already proves in-place
+        # execution under a non-admin CI SID from this Program Files stage.
+        # Isolate the later TLS/schema fixture in RUNNER_TEMP to avoid Windows
+        # DLL-loader/ACL differences in PowerShell 7, but copy ONLY the same
+        # native EXE-staged binaries. No separate vendor download is allowed.
+        $stageRoot=Split-Path -Parent $bin
+        if ((Get-Item -LiteralPath $stageRoot -Force).Attributes -band
+            [IO.FileAttributes]::ReparsePoint) {
+            throw 'Refuse symlinked PostgreSQL source in native stage.'
+        }
+        Copy-Item -LiteralPath $stageRoot -Destination $unpacked -Recurse -ErrorAction Stop
+        $copiedRoot=$unpacked
+        $sourceFiles=@(Get-ChildItem -LiteralPath $stageRoot -Recurse -File -ErrorAction Stop)
+        $copiedFiles=@(Get-ChildItem -LiteralPath $copiedRoot -Recurse -File -ErrorAction Stop)
+        if($sourceFiles.Count -lt 20 -or $sourceFiles.Count -ne $copiedFiles.Count){
+            throw 'Second PostgreSQL fixture is incomplete or unexpected.'
+        }
+        foreach($sourceFile in $sourceFiles){
+            if (($sourceFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'Unexpected reparse point in native PostgreSQL stage.'
+            }
+            $relative=$sourceFile.FullName.Substring($stageRoot.Length).TrimStart('\')
+            $copy=Join-Path $copiedRoot $relative
+            if(-not (Test-Path -LiteralPath $copy -PathType Leaf) -or
+               (Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -cne
+                (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash){
+                throw ('Second PostgreSQL fixture differs from the pinned native stage: '+$relative)
+            }
+        }
+        $bin=Join-Path $copiedRoot 'bin'
+        $initdb=Join-Path $bin 'initdb.exe'
+        Write-Output 'PASS: TLS/schema fixture is a byte-for-byte checked CI copy of PostgreSQL from the native MIT EXE.'
+    } else {
+        Write-Host 'PostgreSQL CI: downloading pinned EDB Windows ZIP and validating its SHA-256.'
+        # Hash independently published by EnterpriseDB for the exact 16.15-5 ZIP:
+        # https://github.com/EnterpriseDB/edb-installers/issues/731 .
+        $url='https://get.enterprisedb.com/postgresql/postgresql-16.15-5-windows-x64-binaries.zip'
+        Invoke-WebRequest -Uri $url -OutFile $zip -ErrorAction Stop
+        $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($hash -cne '43bb45f173a6f08cf1d29a97a6d8deb119e8e8093a24c00d2d1001a0ccaa8281') {
+            throw 'Vendor PostgreSQL Windows ZIP hash mismatch: no third-party binary can execute.'
+        }
+        Expand-Archive -LiteralPath $zip -DestinationPath $unpacked -ErrorAction Stop
+        $initdbMatches=@(Get-ChildItem -LiteralPath $unpacked -Recurse -Filter 'initdb.exe' -File)
+        if ($initdbMatches.Count -ne 1) { throw 'Expected exactly one PostgreSQL initdb.exe in approved ZIP.' }
+        $bin=$initdbMatches[0].DirectoryName
+        $initdb=$initdbMatches[0].FullName
     }
-    Expand-Archive -LiteralPath $zip -DestinationPath $unpacked -ErrorAction Stop
-    $initdbMatches=@(Get-ChildItem -LiteralPath $unpacked -Recurse -Filter 'initdb.exe' -File)
-    if ($initdbMatches.Count -ne 1) { throw 'Expected exactly one PostgreSQL initdb.exe in approved ZIP.' }
-    $bin=$initdbMatches[0].DirectoryName
-    $initdb=$initdbMatches[0].FullName
     $pgCtl=Join-Path $bin 'pg_ctl.exe'
     $psql=Join-Path $bin 'psql.exe'
     if (-not (Test-Path -LiteralPath $pgCtl -PathType Leaf) -or
         -not (Test-Path -LiteralPath $psql -PathType Leaf)) {
         throw 'Approved PostgreSQL binary ZIP lacks pg_ctl or psql.'
     }
-    $env:PATH=$bin+';'+$oldEnv['PATH']
+    # Some EDB Windows binary subcomponents reside beside pgsql/bin under
+    # pgsql/lib. Set the private ZIP runtime search path explicitly rather
+    # than relying on the shell's global machine PATH.
+    $lib=Join-Path (Split-Path -Parent $bin) 'lib'
+    $env:PATH=$bin+';'+$lib+';'+$oldEnv['PATH']
+    foreach($tool in @('initdb.exe','postgres.exe')) {
+        $full=Join-Path $bin $tool
+        if(-not(Test-Path -LiteralPath $full -PathType Leaf)){
+            throw ('Pinned PostgreSQL runtime binary missing: '+$tool)
+        }
+        # Read-only smoke in this SAME pwsh process as initdb: catches DLL
+        # loader failures before trying to initialize a second test cluster.
+        $output=@(& $full '--version' 2>&1)
+        if($LASTEXITCODE -ne 0 -or ($output -join ' ') -notmatch '16\.15'){
+            throw ('Staged PostgreSQL runtime cannot execute '+$tool+' in pwsh; exit '+$LASTEXITCODE)
+        }
+    }
     Write-Host 'PostgreSQL CI: initializing new isolated database cluster.'
-    & $initdb '-D' $data '--username=postgres' ('--pwfile='+$passwordFile) '--auth-host=scram-sha-256' '--auth-local=scram-sha-256' '--encoding=UTF8' '--no-instructions' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Real PostgreSQL initdb failed on isolated Windows host.' }
+    # Capture only bounded, redacted diagnostic output on test failure.
+    # The password travels exclusively through --pwfile, NEVER argv/logs.
+    $initInfo=[Diagnostics.ProcessStartInfo]::new()
+    $initInfo.FileName=$initdb
+    $initInfo.UseShellExecute=$false
+    $initInfo.CreateNoWindow=$true
+    $initInfo.RedirectStandardOutput=$true
+    $initInfo.RedirectStandardError=$true
+    foreach($value in @('-D',$data,'--username=postgres',('--pwfile='+$passwordFile),
+        '--auth-host=scram-sha-256','--auth-local=scram-sha-256',
+        '--encoding=UTF8','--no-instructions')){
+        [void]$initInfo.ArgumentList.Add($value)
+    }
+    $initProc=[Diagnostics.Process]::Start($initInfo)
+    if($null -eq $initProc){throw 'Could not start PostgreSQL initdb process.'}
+    try {
+        $initOut=$initProc.StandardOutput.ReadToEnd()
+        $initErr=$initProc.StandardError.ReadToEnd()
+        if(-not $initProc.WaitForExit(120000)){
+            try{$initProc.Kill()}catch{}
+            throw 'PostgreSQL initdb timed out on ephemeral CI.'
+        }
+        if($initProc.ExitCode -ne 0){
+            $diagnostic=($initErr+[Environment]::NewLine+$initOut).
+                Replace($pass,'[REDACTED]').
+                Replace($appPassword,'[REDACTED]')
+            if($diagnostic.Length -gt 2400){$diagnostic=$diagnostic.Substring(0,2400)}
+            Write-Warning ('CI-only PostgreSQL initdb diagnostic, redacted: '+$diagnostic)
+            throw ('PostgreSQL initdb failed on isolated Windows CI, exit '+$initProc.ExitCode)
+        }
+    }finally{$initProc.Dispose()}
     # Exercise the exact first-install config installer, not a CI-only
     # Copy-Item shortcut. The vendor cluster is fresh and service is never
     # registered; only the hosted fixture bypasses SCM signature checks.
@@ -472,7 +584,329 @@ SELECT
     Write-Output 'PASS: Windows archive preflight inspected real PostgreSQL backup and rejected bad archive or binary hashes.'
 
     Write-Output "PASS: PostgreSQL 16 TLS verify-full, SCRAM, nonprivileged ERP role, protected URL, initial schema version $expectedVersion and crash recovery."
+    if($RunIntegratedERPStartupSmoke){
+        # Recovery tests deliberately populate the main DB. First-admin setup
+        # needs a separate migrated database with only the placeholder tenant.
+        $firstAdminDatabase='esterium_first_admin_ci'
+        $firstAdminDatabaseURLFile=Join-Path $dbInit 'database-url-first-admin.secret'
+        if(Test-Path -LiteralPath $firstAdminDatabaseURLFile){throw 'First-admin CI URL file already exists.'}
+        $savedAdminEnv=@{}
+        foreach($key in @('PGHOST','PGPORT','PGUSER','PGDATABASE','PGPASSWORD','PGSSLMODE','PGSSLROOTCERT','PGHOSTADDR')){
+            $savedAdminEnv[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+        }
+        try{
+            $env:PGHOST='localhost';$env:PGPORT=[string]$port;$env:PGUSER='postgres'
+            $env:PGDATABASE='postgres';$env:PGPASSWORD=$pass;$env:PGSSLMODE='verify-full'
+            $env:PGSSLROOTCERT=Join-Path $policy 'certificates\root.crt'
+            Remove-Item Env:PGHOSTADDR -ErrorAction SilentlyContinue
+            if((Run-Psql "SELECT count(*) FROM pg_database WHERE datname='$firstAdminDatabase'") -cne '0'){
+                throw 'Disposable first-admin database name unexpectedly exists.'
+            }
+            $null=Run-Psql "CREATE DATABASE $firstAdminDatabase OWNER esterium_app"
+            $sourceURL=[IO.File]::ReadAllText($urlFile).Trim()
+            $firstAdminURL=[regex]::Replace($sourceURL,'/esterium(?=\?sslmode=verify-full&sslrootcert=)','/'+$firstAdminDatabase,1)
+            if($firstAdminURL -eq $sourceURL){throw 'Could not derive the isolated first-admin database URL.'}
+            [IO.File]::WriteAllText($firstAdminDatabaseURLFile,$firstAdminURL+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+            & icacls.exe $firstAdminDatabaseURLFile '/inheritance:r' '/grant:r' ('*'+$runnerSID+':R') '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not protect the isolated first-admin URL file.'}
+            $firstAdminSchema=@{
+                DatabaseURLFile=$firstAdminDatabaseURLFile;PsqlExe=$psql;MigrateExe=$migrateTool
+                MigrationsDir=$migrationFolder;DatabaseName=$firstAdminDatabase
+                UnsignedDisposableCIFixture=$true;Apply=$true
+            }
+            & $schemaTool @firstAdminSchema | Out-Null
+            if(-not $?){throw 'Fresh first-admin schema migrations failed.'}
+            $env:PGUSER='esterium_app';$env:PGDATABASE=$firstAdminDatabase;$env:PGPASSWORD=$appPassword
+            $env:PGSSLMODE='verify-full';$env:PGSSLROOTCERT=Join-Path $policy 'certificates\root.crt'
+            $freshVersion=Run-Psql "SELECT version::text||':'||dirty::text FROM public.schema_migrations;"
+            if($freshVersion -cne "${expectedVersion}:false"){throw 'Fresh first-admin database migration state is invalid.'}
+            Write-Output "PASS: isolated first-admin database migrated to ${expectedVersion}; recovery fixture database remains unchanged."
+        }finally{
+            foreach($entry in $savedAdminEnv.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+        }
+        # The ERP activation path requires a real PostgreSQL SCM service.
+        # Rehost only this fresh scratch cluster under a unique non-admin account
+        # created on the disposable runner; all permissions stay inside its
+        # binaries, TLS policy, and data directories.
+        if(Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue){
+            throw 'Disposable runner already contains the reserved Esterium PostgreSQL service name.'
+        }
+        $pgServiceAccountName='epg'+$id.Substring(0,12)
+        if(Get-LocalUser -Name $pgServiceAccountName -ErrorAction SilentlyContinue){
+            throw 'Generated disposable PostgreSQL service account already exists.'
+        }
+        $servicePasswordBytes=New-Object byte[] 48
+        $servicePasswordRng=[Security.Cryptography.RandomNumberGenerator]::Create()
+        try{
+            $servicePasswordRng.GetBytes($servicePasswordBytes)
+            $servicePassword='Q9_z'+[Convert]::ToBase64String($servicePasswordBytes).Replace('+','-').Replace('/','_').TrimEnd('=')
+        }finally{
+            $servicePasswordRng.Dispose()
+            [Array]::Clear($servicePasswordBytes,0,$servicePasswordBytes.Length)
+        }
+        $pgServicePasswordSecure=ConvertTo-SecureString $servicePassword -AsPlainText -Force
+        $servicePassword=$null
+        $serviceUser=New-LocalUser -Name $pgServiceAccountName -Password $pgServicePasswordSecure -Description 'Esterium PostgreSQL CI service' -AccountNeverExpires -PasswordNeverExpires -UserMayNotChangePassword -ErrorAction Stop
+        if($null -eq $serviceUser -or $null -eq $serviceUser.SID){
+            throw 'Could not create the disposable non-admin PostgreSQL service identity.'
+        }
+        $pgServiceAccountCreated=$true
+        $pgServiceAccountSid=[string]$serviceUser.SID.Value
+        if(@(Get-LocalGroupMember -Group 'Administrators' -ErrorAction Stop |
+            Where-Object {$_.SID.Value -ceq $pgServiceAccountSid}).Count -ne 0){
+            throw 'Disposable PostgreSQL identity unexpectedly belongs to Administrators.'
+        }
+        $serviceCredentialName=$env:COMPUTERNAME+'\'+$pgServiceAccountName
+        $pgServiceCredential=[PSCredential]::new($serviceCredentialName,$pgServicePasswordSecure)
+        $lsaHelper=Join-Path $PSScriptRoot '../windows-setup/test-postgres-oss-lsa-ci.ps1'
+        if(-not(Test-Path -LiteralPath $lsaHelper -PathType Leaf)){
+            throw 'Disposable PostgreSQL service logon-right helper is missing.'
+        }
+        & $lsaHelper -Action Grant -Sid $pgServiceAccountSid | Out-Null
+        if(-not $?){throw 'Could not grant service logon to the disposable PostgreSQL account.'}
+        $pgServiceLogonRightGranted=$true
+        $programDataEsterium=Join-Path $env:ProgramData 'Esterium'
+        foreach($path in @($root,$programDataEsterium)){
+            if(-not(Test-Path -LiteralPath $path -PathType Container)){
+                throw 'PostgreSQL service ACL parent is missing from the disposable runner.'
+            }
+            & icacls.exe $path '/grant:r' ('*'+$pgServiceAccountSid+':RX') | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not grant PostgreSQL service path traversal.'}
+        }
+        foreach($entry in @(
+            @{Path=$unpacked;Rights='(OI)(CI)RX'},
+            @{Path=$policy;Rights='(OI)(CI)RX'},
+            @{Path=$data;Rights='(OI)(CI)M'}
+        )){
+            if(-not(Test-Path -LiteralPath $entry.Path -PathType Container)){
+                throw 'PostgreSQL service ACL target is missing.'
+            }
+            & icacls.exe $entry.Path '/grant:r' ('*'+$pgServiceAccountSid+':'+$entry.Rights) '/T' '/C' | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not apply scoped PostgreSQL service ACLs.'}
+        }
+        # The TLS policy deliberately protects the certificate directory with a
+        # non-inheriting ACL. Match the production staging contract explicitly:
+        # grant traversal on the exact folders and read on each certificate file.
+        foreach($folder in @($policy,$tlsDir)){
+            & icacls.exe $folder '/grant:r' ('*'+$pgServiceAccountSid+':RX') | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Could not grant PostgreSQL service certificate-directory traversal.'}
+        }
+        foreach($name in @('server.crt','server.key','root.crt')){
+            $certificatePath=Join-Path $tlsDir $name
+            if(-not(Test-Path -LiteralPath $certificatePath -PathType Leaf)){
+                throw ('PostgreSQL TLS fixture certificate is missing: '+$name)
+            }
+            & icacls.exe $certificatePath '/grant:r' ('*'+$pgServiceAccountSid+':R') | Out-Null
+            if($LASTEXITCODE -ne 0){throw ('Could not grant PostgreSQL service read access to '+$name+'.')}
+        }
+        $pgCtlBinary=[IO.Path]::GetFullPath($pgCtl)
+        $expectedPgServiceCommand='"'+$pgCtlBinary+'" runservice -N "'+$pgServiceName+'" -D "'+[IO.Path]::GetFullPath($data)+'" -w'
+        New-Service -Name $pgServiceName -BinaryPathName $expectedPgServiceCommand -Credential $pgServiceCredential -StartupType Disabled -DisplayName 'Esterium disposable PostgreSQL 16 integrated lab' -ErrorAction Stop | Out-Null
+        $pgServiceCreated=$true
+        if($null -ne $pgServicePasswordSecure){$pgServicePasswordSecure.Dispose();$pgServicePasswordSecure=$null}
+        $pgServiceCredential=$null
+        $registeredPg=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop)
+        if($registeredPg.Count -ne 1){
+            throw ('Expected one disposable PostgreSQL SCM entry; observed '+$registeredPg.Count+'.')
+        }
+        $pgObserved=$registeredPg[0]
+        $pgObservedStartName=([string]$pgObserved.StartName).Trim()
+        $pgObservedAuthority=''
+        $pgObservedAccountName=''
+        $pgObservedSeparator=$pgObservedStartName.LastIndexOf([char]92)
+        if($pgObservedSeparator -gt 0 -and $pgObservedSeparator -lt ($pgObservedStartName.Length-1)){
+            $pgObservedAuthority=$pgObservedStartName.Substring(0,$pgObservedSeparator)
+            $pgObservedAccountName=$pgObservedStartName.Substring($pgObservedSeparator+1)
+        }
+        $expectedPgAccountName=[string]$serviceUser.Name
+        $pgAuthorityMatches=[String]::Equals($pgObservedAuthority,'.',[StringComparison]::OrdinalIgnoreCase) -or
+            [String]::Equals($pgObservedAuthority,[string]$env:COMPUTERNAME,[StringComparison]::OrdinalIgnoreCase)
+        $pgAccountNameMatches=[String]::Equals($pgObservedAccountName,$expectedPgAccountName,[StringComparison]::OrdinalIgnoreCase)
+        $pgObservedAccountSid=''
+        if($pgAuthorityMatches -and $pgAccountNameMatches){
+            $pgLocalAccount=Get-LocalUser -Name $pgObservedAccountName -ErrorAction SilentlyContinue
+            if($null -ne $pgLocalAccount){$pgObservedAccountSid=[string]$pgLocalAccount.SID.Value}
+        }
+        $pgIdentityMatches=$pgObservedAccountSid -ceq $pgServiceAccountSid
+        $pgModeMatches=[String]::Equals([string]$pgObserved.StartMode,'Disabled',[StringComparison]::OrdinalIgnoreCase)
+        $pgStateMatches=[String]::Equals([string]$pgObserved.State,'Stopped',[StringComparison]::OrdinalIgnoreCase)
+        $pgProcessMatches=([int]$pgObserved.ProcessId -eq 0)
+        $pgPathMatches=[String]::Equals([string]$pgObserved.PathName,[string]$expectedPgServiceCommand,[StringComparison]::OrdinalIgnoreCase)
+        $pgMetadataFailures=@()
+        if(-not $pgIdentityMatches){$pgMetadataFailures+='account name'}
+        if(-not $pgModeMatches){$pgMetadataFailures+='startup mode'}
+        if(-not $pgStateMatches){$pgMetadataFailures+='state'}
+        if(-not $pgProcessMatches){$pgMetadataFailures+='process ID'}
+        if(-not $pgPathMatches){$pgMetadataFailures+='binary/cluster path'}
+        Write-Host ('PostgreSQL SCM observation: StartName=['+$pgObservedStartName+'], Authority=['+$pgObservedAuthority+'], Account=['+$pgObservedAccountName+'], ObservedSID=['+$pgObservedAccountSid+'], ExpectedSID=['+$pgServiceAccountSid+'], IdentityMatch=['+$pgIdentityMatches+'], ModeOK=['+$pgModeMatches+'], StateOK=['+$pgStateMatches+'], PIDOK=['+$pgProcessMatches+'], PathOK=['+$pgPathMatches+']')
+        if($pgMetadataFailures.Count -gt 0){
+            throw ('PostgreSQL SCM metadata mismatch: '+($pgMetadataFailures -join ', ')+'.')
+        }
+        Write-Host 'PostgreSQL CI: switching isolated TLS cluster from pg_ctl to restricted-account SCM service.'
+        Invoke-PgCtl -argList @('-D',$data,'-m','fast','-w','stop') -phase 'handoff to PostgreSQL Windows service'
+        $started=$false
+        Set-Service -Name $pgServiceName -StartupType Manual -ErrorAction Stop
+        $pgServiceStartAt=Get-Date
+        $pgStartRecord=Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop
+        $pgStartResult=Invoke-CimMethod -InputObject $pgStartRecord -MethodName StartService -ErrorAction Stop
+        if([int]$pgStartResult.ReturnValue -ne 0){
+            throw ('PostgreSQL integrated service failed to start, Win32 code '+$pgStartResult.ReturnValue)
+        }
+        try{
+            (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+                [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
+        }catch{
+            $failedPgService=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction SilentlyContinue)
+            if($failedPgService.Count -eq 1){
+                Write-Host ('PostgreSQL CI SCM start failure: State=['+$failedPgService[0].State+'], Win32ExitCode=['+
+                    $failedPgService[0].ExitCode+'], ServiceSpecificExitCode=['+$failedPgService[0].ServiceSpecificExitCode+
+                    '], ProcessId=['+$failedPgService[0].ProcessId+'], StartName=['+$failedPgService[0].StartName+']')
+            }
+            foreach($eventLogName in @('System','Application')){
+                try{
+                    $pgServiceEvents=@(Get-WinEvent -FilterHashtable @{
+                        LogName=$eventLogName
+                        StartTime=$pgServiceStartAt
+                    } -ErrorAction Stop | Where-Object {
+                        $_.ProviderName -match 'Service Control Manager|PostgreSQL|pg_ctl'
+                    } | Select-Object -First 12)
+                    foreach($pgServiceEvent in $pgServiceEvents){
+                        $eventMessage=([string]$pgServiceEvent.Message).Replace($pass,'[REDACTED]').Replace($appPassword,'[REDACTED]')
+                        if($eventMessage.Length -gt 1200){$eventMessage=$eventMessage.Substring(0,1200)}
+                        Write-Host ('PostgreSQL CI event: Log=['+$eventLogName+'], Provider=['+$pgServiceEvent.ProviderName+
+                            '], Id=['+$pgServiceEvent.Id+'], Message=['+$eventMessage+']')
+                    }
+                }catch{
+                    Write-Host ('PostgreSQL CI could not read recent '+$eventLogName+' service events.')
+                }
+            }
+            foreach($postgresLog in @($log,(Join-Path $data 'log'),(Join-Path $data 'pg_log'))){
+                if(Test-Path -LiteralPath $postgresLog -PathType Leaf){
+                    Write-Host ('PostgreSQL CI service diagnostic log ['+$postgresLog+'] (last 30 lines):')
+                    foreach($line in @(Get-Content -LiteralPath $postgresLog -Tail 30)){
+                        Write-Host (([string]$line).Replace($pass,'[REDACTED]').Replace($appPassword,'[REDACTED]'))
+                    }
+                }elseif(Test-Path -LiteralPath $postgresLog -PathType Container){
+                    foreach($file in @(Get-ChildItem -LiteralPath $postgresLog -File -ErrorAction SilentlyContinue |
+                        Sort-Object LastWriteTime -Descending | Select-Object -First 2)){
+                        Write-Host ('PostgreSQL CI service diagnostic log ['+$file.FullName+'] (last 30 lines):')
+                        foreach($line in @(Get-Content -LiteralPath $file.FullName -Tail 30)){
+                            Write-Host (([string]$line).Replace($pass,'[REDACTED]').Replace($appPassword,'[REDACTED]'))
+                        }
+                    }
+                }
+            }
+            throw
+        }
+        $runningPg=@(Get-CimInstance Win32_Service -Filter "Name='$pgServiceName'" -ErrorAction Stop)
+        if($runningPg.Count -ne 1 -or $runningPg[0].State -cne 'Running' -or
+           $runningPg[0].StartMode -cne 'Manual' -or [int]$runningPg[0].ProcessId -le 0){
+            throw 'PostgreSQL SCM service did not reach its expected running state.'
+        }
+        # Isolate the postmaster PID recorded in this exact data directory.
+        # The independent restore cluster uses the same staged postgres.exe and
+        # remains running for the comparison, so an executable-path-only scan
+        # would also include its runner-owned processes.
+        $postmasterPidPath=Join-Path $data 'postmaster.pid'
+        if(-not(Test-Path -LiteralPath $postmasterPidPath -PathType Leaf)){
+            throw 'PostgreSQL service did not create its expected postmaster PID file.'
+        }
+        $postmasterPidText=([string](Get-Content -LiteralPath $postmasterPidPath -TotalCount 1)).Trim()
+        $expectedPostmasterPid=0
+        if(-not[int]::TryParse($postmasterPidText,[ref]$expectedPostmasterPid) -or $expectedPostmasterPid -le 0){
+            throw 'PostgreSQL service postmaster PID file is invalid.'
+        }
+        $pgProcesses=@(Get-CimInstance Win32_Process -Filter "ProcessId=$expectedPostmasterPid" -ErrorAction Stop |
+            Where-Object {
+                [String]::Equals([string]$_.Name,'postgres.exe',[StringComparison]::OrdinalIgnoreCase) -and
+                [String]::Equals([string]$_.ExecutablePath,(Join-Path $bin 'postgres.exe'),[StringComparison]::OrdinalIgnoreCase)
+            })
+        if($pgProcesses.Count -ne 1){
+            throw 'PostgreSQL postmaster PID does not identify one server from the verified staged binary.'
+        }
+        foreach($process in $pgProcesses){
+            $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+            $ownerMatches=[int]$owner.ReturnValue -eq 0 -and
+                [String]::Equals([string]$owner.User,$pgServiceAccountName,[StringComparison]::OrdinalIgnoreCase) -and
+                [String]::Equals([string]$owner.Domain,[string]$env:COMPUTERNAME,[StringComparison]::OrdinalIgnoreCase)
+            Write-Host ('PostgreSQL CI postmaster identity: PID=['+$process.ProcessId+'], OwnerResult=['+
+                $owner.ReturnValue+'], User=['+$owner.User+'], Domain=['+$owner.Domain+'], ExpectedUser=['+
+                $pgServiceAccountName+'], ExpectedDomain=['+$env:COMPUTERNAME+'], Match=['+$ownerMatches+']')
+            if(-not $ownerMatches){
+                throw 'PostgreSQL postmaster is not running under its dedicated non-admin Windows account.'
+            }
+        }
+        if((Run-Psql 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()') -cne 't' -or
+           (Run-Psql "SELECT count(*) FROM ci_durable WHERE id=17") -cne '1'){
+            throw 'PostgreSQL SCM handoff lost TLS or committed synthetic ERP data.'
+        }
+        $durabilityBeforeRestart=Run-Psql "SELECT md5(string_agg(id::text||':'||value,'|' ORDER BY id)) FROM ci_durable;"
+        Stop-Service -Name $pgServiceName -ErrorAction Stop
+        (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
+        if(@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'PostgreSQL service retained its loopback listener after stop.'
+        }
+        Start-Service -Name $pgServiceName -ErrorAction Stop
+        (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
+        if((Run-Psql "SELECT md5(string_agg(id::text||':'||value,'|' ORDER BY id)) FROM ci_durable;") -cne $durabilityBeforeRestart){
+            throw 'PostgreSQL Windows service restart did not preserve the acknowledged synthetic transactions.'
+        }
+        Write-Output 'PASS: PostgreSQL 16 TLS cluster ran as a dedicated non-admin Windows service; SQL survived SCM restart.'
+        $labKeys=@('ESTERIUM_CI_DATABASE_URL_FILE','ESTERIUM_CI_POSTGRES_PORT','ESTERIUM_CI_POSTGRES_ACCOUNT')
+        $oldLab=@{}
+        foreach($key in $labKeys){$oldLab[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+        try{
+            $env:ESTERIUM_CI_DATABASE_URL_FILE=$firstAdminDatabaseURLFile
+            $env:ESTERIUM_CI_POSTGRES_PORT=[string]$port
+            $env:ESTERIUM_CI_POSTGRES_ACCOUNT=$pgServiceAccountName
+            & (Join-Path $PSScriptRoot 'test-esterium-garnet-real-aof-ci.ps1') -FromIntegratedStage -RunERPStartupSmoke
+            if(-not $?){throw 'Integrated Garnet and ERP service runtime proof failed.'}
+        }finally{
+            foreach($entry in $oldLab.GetEnumerator()){[Environment]::SetEnvironmentVariable($entry.Key,$entry.Value,'Process')}
+        }
+    }
 } finally {
+    if($pgServiceCreated){
+        try{
+            $pgSvc=Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue
+            if($null -ne $pgSvc -and $pgSvc.Status -ne 'Stopped'){
+                Stop-Service -Name $pgServiceName -Force -ErrorAction Stop
+                (Get-Service -Name $pgServiceName -ErrorAction Stop).WaitForStatus(
+                    [ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(50))
+            }
+            if($null -ne (Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue)){
+                Set-Service -Name $pgServiceName -StartupType Disabled -ErrorAction Stop
+                & sc.exe delete $pgServiceName | Out-Null
+                if($LASTEXITCODE -ne 0){throw 'SCM refused to remove the disposable PostgreSQL service.'}
+                for($attempt=0;$attempt -lt 20;$attempt++){
+                    if($null -eq (Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue)){break}
+                    Start-Sleep -Milliseconds 500
+                }
+                if($null -ne (Get-Service -Name $pgServiceName -ErrorAction SilentlyContinue)){
+                    throw 'Disposable PostgreSQL service remained registered after cleanup.'
+                }
+            }
+            $pgServiceCreated=$false
+        }catch{
+            throw 'Disposable PostgreSQL service could not be stopped and deregistered; discard the hosted runner.'
+        }
+    }
+    if($pgServiceLogonRightGranted -and $pgServiceAccountSid){
+        $lsaHelper=Join-Path $PSScriptRoot '../windows-setup/test-postgres-oss-lsa-ci.ps1'
+        & $lsaHelper -Action Revoke -Sid $pgServiceAccountSid | Out-Null
+        if(-not $?){throw 'Could not revoke the disposable PostgreSQL service logon right.'}
+        $pgServiceLogonRightGranted=$false
+    }
+    if($pgServiceAccountCreated){
+        Remove-LocalUser -Name $pgServiceAccountName -ErrorAction Stop
+        if(Get-LocalUser -Name $pgServiceAccountName -ErrorAction SilentlyContinue){
+            throw 'Disposable PostgreSQL service account remained after cleanup.'
+        }
+        $pgServiceAccountCreated=$false
+    }
+    if($null -ne $pgServicePasswordSecure){$pgServicePasswordSecure.Dispose()}
     if ($secondStarted -and $pgCtl -and (Test-Path -LiteralPath $pgCtl)) {
         try { Invoke-PgCtl -argList @('-D',$secondData,'-m','immediate','-w','stop') -phase 'second cluster cleanup' }
         catch { Write-Warning 'Disposable recovery cluster needs runner teardown.' }

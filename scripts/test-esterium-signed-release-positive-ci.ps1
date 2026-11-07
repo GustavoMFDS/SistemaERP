@@ -16,6 +16,18 @@ try {
     [IO.Directory]::CreateDirectory($toolsDir) | Out-Null
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'web')) | Out-Null
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'migrations')) | Out-Null
+    $runtimeFiles=@(
+        'tools/dotnet/dotnet.exe',
+        'tools/dotnet/LICENSE.txt',
+        'tools/dotnet/ThirdPartyNotices.txt',
+        'tools/dotnet/host/fxr/10.0.14/hostfxr.dll',
+        'tools/dotnet/shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll'
+    )
+    foreach ($relative in $runtimeFiles) {
+        $runtimeFile=Join-Path $bundle ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $runtimeFile)) | Out-Null
+        [IO.File]::WriteAllText($runtimeFile,'Synthetic runtime placeholder; never executed.')
+    }
     [IO.File]::WriteAllText((Join-Path $bundle 'web\index.html'),'<html>synthetic signed fixture</html>')
     [IO.File]::WriteAllText((Join-Path $bundle 'README_LOCAL.md'),'Synthetic disposable CI-only release.')
     [IO.File]::WriteAllText((Join-Path $bundle 'migrations\0001_fixture.up.sql'),'-- synthetic only')
@@ -29,6 +41,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not build synthetic Windows server fixture.' }
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-migrate.exe')
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe')
+    Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-bootstrap-admin.exe')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $toolsDir 'seed.prod.sql')
     # Match the manifest's exhaustive curator, but never copy package secrets.
     $required=@(
         'register-esterium-windows-service.ps1',
@@ -62,9 +76,13 @@ try {
         'bootstrap-esterium-local-schema.ps1',
         'stage-esterium-approved-windows-release.ps1',
         'probe-esterium-local-first-run.ps1',
+        'activate-esterium-local-first-install.ps1',
+        'repair-esterium-local-install.ps1',
+        'uninstall-esterium-local-app.ps1',
         'finish-esterium-local-first-install.ps1',
         'install-esterium-local-complete.ps1',
-        'apply-esterium-initial-schema.ps1'
+        'apply-esterium-initial-schema.ps1',
+        'bootstrap-esterium-first-admin.ps1'
     )
     foreach ($tool in $required) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool)
@@ -139,10 +157,10 @@ try {
     $vendors=Join-Path $root 'vendor-plan-only'
     [IO.Directory]::CreateDirectory($vendors) | Out-Null
     $pg=Join-Path $vendors 'postgresql-16-plan-only.exe'
-    $wrapper=Join-Path $vendors 'nssm-plan-only.exe'
+    $wrapper=Join-Path $vendors 'winsw-plan-only.exe'
     $garnet=Join-Path $vendors 'garnet-plan-only.zip'
     [IO.File]::WriteAllText($pg,'CI inert EDB fixture NEVER RUN')
-    [IO.File]::WriteAllText($wrapper,'CI inert NSSM fixture NEVER RUN')
+    [IO.File]::WriteAllText($wrapper,'CI inert WinSW fixture NEVER RUN')
     $zipSource=Join-Path $vendors 'src'
     [IO.Directory]::CreateDirectory($zipSource) | Out-Null
     [IO.File]::WriteAllText((Join-Path $zipSource 'GarnetServer.exe'),'CI inert Garnet fixture NEVER RUN')
@@ -238,6 +256,26 @@ try {
     catch { $wrongSigner=$_.Exception.Message -match 'lacks approved Authenticode signature' }
     if (-not $wrongSigner) { throw 'Signing gate accepted an unapproved publisher identity.' }
     $checks.ExpectedPublisherThumbprint=$certThumb
+    # A freshly rehashed bundle without the runtime must still fail the signed-release gate.
+    $runtimeRoot=Join-Path $toolsDir 'dotnet'
+    Remove-Item -LiteralPath $runtimeRoot -Recurse -Force
+    Remove-Item -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Force
+    & $writer -BundleDir $bundle | Out-Null
+    $checks.ExpectedManifestSHA256=(Get-FileHash -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Algorithm SHA256).Hash
+    $missingRuntimeRefusal=''
+    try { & $gate @checks | Out-Null }
+    catch { $missingRuntimeRefusal=$_.Exception.Message }
+    if ($missingRuntimeRefusal -notmatch 'pinned .NET runtime is incomplete') {
+        throw 'Signed-release gate accepted a rehashed bundle without its pinned .NET runtime.'
+    }
+    foreach ($relative in $runtimeFiles) {
+        $runtimeFile=Join-Path $bundle ($relative.Replace('/', '\\'))
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $runtimeFile)) | Out-Null
+        [IO.File]::WriteAllText($runtimeFile,'Synthetic runtime placeholder; never executed.')
+    }
+    Remove-Item -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Force
+    & $writer -BundleDir $bundle | Out-Null
+    Write-Output 'PASS: signed-release gate rejects a rehashed bundle without the pinned .NET runtime.'
     $modified=Join-Path $toolsDir 'install-esterium-local.ps1'
     $priorStatus=Get-AuthenticodeSignature -LiteralPath $modified
     if ($null -eq $priorStatus.SignerCertificate -or

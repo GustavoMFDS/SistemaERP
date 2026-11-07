@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiJson, errorMessage } from '../lib/api'
 import type { ReactNode } from 'react'
+import { APP_BRAND_NAME } from '../lib/brand'
 
 type GuideReadiness = {
   tenant_id: string
@@ -406,7 +407,7 @@ export default function FiscalSetupGuide({
               informe os dados solicitados da IE, o CPF do responsável autorizado e a senha
               pessoal; também existe acesso por certificado digital. O contador ou
               representante autorizado pode orientar o procedimento.
-              Esse login é feito no portal do governo, não no Esterium ERP.</p>
+              Esse login é feito no portal do governo, não no {APP_BRAND_NAME}.</p>
             <p><strong>O que fazer:</strong> verificar se o CNPJ/IE está credenciado
               para emitir NFC-e modelo 65 e, se necessário, seguir as instruções
               oficiais de credenciamento. Confirme a situação antes de avançar.</p>

@@ -85,7 +85,10 @@ function New-Secret {
     $rng=[Security.Cryptography.RandomNumberGenerator]::Create()
     try { $rng.GetBytes($bytes) }
     finally { $rng.Dispose() }
-    try { return [Convert]::ToBase64String($bytes).Replace('+','-').Replace('/','_').TrimEnd('=') }
+    # Windows service-account password complexity must not be probabilistic.
+    # Fixed safe mixed-case/digit/punctuation prefix + 384 bits of CSPRNG
+    # entropy; underscore stays valid for Redis URLs, ACL and PFX passwords.
+    try { return 'Q9_z'+[Convert]::ToBase64String($bytes).Replace('+','-').Replace('/','_').TrimEnd('=') }
     finally { [Array]::Clear($bytes,0,$bytes.Length) }
 }
 function Write-Secret([string]$path,[string]$value,[bool]$networkRead,[bool]$localRead=$false) {

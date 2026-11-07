@@ -125,7 +125,7 @@ try {
     }
     $installed=$true
     Write-Output 'PASS: EDB EXE unattended install, PostgreSQL 16 cluster, dedicated Windows service/account, stopped/disabled SCM and closed port.'
-    Write-Output 'NOT PROVEN: signed Esterium bundle, Garnet NSSM, ERP TLS/SQL bootstrap, two-box LAN, external backup or commercial release.'
+    Write-Output 'NOT PROVEN: signed Esterium bundle, Garnet WinSW, ERP TLS/SQL bootstrap, two-box LAN, external backup or commercial release.'
 } finally {
     # If EDB registered a partially configured service, disable and stop it
     # even if installation, verification or shutdown failed. Hosted runners

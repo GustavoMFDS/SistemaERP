@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { cashTest as test, expect } from './fixtures'
 
 test('cash movement retries reuse the committed result', async ({ page }) => {
   await page.goto('/login')

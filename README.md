@@ -103,7 +103,7 @@ Frontend: `http://localhost:5173` | API: `http://localhost:8080`.
 
 **Banco e senhas locais:** `.env.example` fornece `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` e `DATABASE_URL` compatíveis entre si. A senha é **apenas de desenvolvimento**: substitua por segredo próprio fora do ambiente de teste. Se já existir um volume PostgreSQL inicializado com outra senha, alterar `.env` **não altera** automaticamente o usuário do banco; ajuste as credenciais ou recrie **somente um volume de teste descartável**. Nunca use `docker compose down -v` em dados reais.
 
-**Seed:** `backend/seed/seed.sql` é **somente para demo/desenvolvimento**, não execute em homologação ou produção. O serviço `seed` no Compose é explicitamente destinado a esse uso. `backend/seed/seed.prod.sql` não cria administrador com senha padrão.
+**Seed:** `backend/seed/seed.sql` é **somente para demo/desenvolvimento**, não execute em homologação ou produção. O serviço `seed` no Compose é explicitamente destinado a esse uso. `backend/seed/seed.prod.sql` cria apenas RBAC, sem empresa, usuário, senha ou dados demo. Em uma instalação Windows limpa, o bootstrap de primeiro admin valida o banco vazio e recebe a senha em prompt protegido.
 
 ## Configuração importante
 
@@ -176,4 +176,8 @@ A **produção** depende de credenciamento, dados reais por CNPJ, certificado ad
 
 ## Licença e contribuição
 
-Ainda não há licença definida no repositório. Isso **não** significa permissão automática para redistribuição. Mudanças significativas devem seguir por branch e PR com validação no HEAD final, sem merge com testes pendentes.
+O código deste repositório está sob a licença MIT (`LICENSE`). Isso não altera as licenças nem concede automaticamente direitos de redistribuição dos componentes de terceiros incluídos no instalador. Mudanças significativas devem seguir por branch e PR com validação no HEAD final, sem merge com testes pendentes.
+
+## Política de assinatura de código (Code signing policy)
+
+O projeto pretende solicitar assinatura Authenticode gratuita da SignPath Foundation para software open source. A inscrição ainda não foi aceita, não há certificado aprovado nem instalador funcional assinado; a prévia pública atual é somente demonstrativa e não instala. O publicador, se aprovada, aparecerá como SignPath Foundation. Consulte o [estado de preparação do SignPath OSS](docs/signpath-oss-readiness.md); esta preparação ainda não é uma política ativa nem autorização para distribuir o EXE.

@@ -1,4 +1,4 @@
-# Frontend do SistemaERP (interface ainda identificada como SistemaEmGo)
+# Frontend do Esterium ERP
 
 Aplicação React 19 + TypeScript + Vite + Tailwind, com PDV, catálogo, estoque, compras, clientes, financeiro, fiscal e suporte de instalação como PWA.
 
@@ -15,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Interface: http://localhost:5173. API local padrão: http://localhost:8080. Use `VITE_API_BASE_URL` no ambiente do Vite ou em `web/.env.local` para sobrescrever a URL; **o `.env` da raiz é usado pelo Docker Compose, não carregado automaticamente pelo Vite neste subdiretório**.
+Interface: http://localhost:5173. API local padrão: http://localhost:8080. Use `VITE_API_BASE_URL` para trocar a URL da API e `VITE_APP_BRAND_NAME` para definir a marca pública do build; a marca padrão é `Esterium ERP`. O `.env` da raiz é usado pelo Docker Compose, não carregado automaticamente pelo Vite neste subdiretório.
 
 ## Qualidade
 
@@ -32,4 +32,4 @@ A fila local preserva intenções de venda antes do envio e tenta sincronizaçã
 
 A impressão do DANFE usa diálogo do navegador e só deve ficar disponível para documento fiscal efetivamente autorizado; não há impressão silenciosa por ESC/POS nativa. Detalhes em [PDV offline](../docs/offline-pdv.md) e [impressão fiscal semi-automática](../docs/pdv-impressao-fiscal-semi-automatica.md).
 
-A identidade visual ainda contém `SistemaEmGo` em chaves e textos por compatibilidade. A mudança definitiva deve ser feita em PR próprio.
+A marca pública usa `VITE_APP_BRAND_NAME` em títulos, metadados, navegação, telas de acesso e manifesto PWA. Sem configuração, permanece `Esterium ERP`. Nomes técnicos, tenant/CNPJ, IDs, chaves locais, banco e módulos Go permanecem inalterados. A aprovação legal de marca e domínio continua separada.

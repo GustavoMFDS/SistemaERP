@@ -119,9 +119,9 @@ export default function PurchasesPage() {
         apiJson<{ items: Product[]; total: number }>('/api/v1/products?limit=200&offset=0'),
         apiJson<{ items: Purchase[]; total: number }>('/api/v1/purchases?limit=200&offset=0'),
       ])
-      setSuppliers(supplierData.items)
-      setProducts(productData.items.filter((product) => product.active))
-      setPurchases(purchaseData.items)
+      setSuppliers(supplierData.items ?? [])
+      setProducts((productData.items ?? []).filter((product) => product.active))
+      setPurchases(purchaseData.items ?? [])
     } catch (e: unknown) {
       setError(errorMessage(e))
     } finally {

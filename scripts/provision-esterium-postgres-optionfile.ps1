@@ -1,14 +1,12 @@
 #requires -Version 5.1
 <#
-  Generate a protected option file for a NEW PostgreSQL 16 EDB Windows
-  installer. Never execute, download or trust the third-party installer.
-  Default is read-only. Apply creates ONLY a new restricted configuration.
-  Superuser/OS-service passwords are written to an ACL-protected option
-  file because EDB reads them there; never put them on a command line.
+  Prepare protected first-install metadata for a NEW PostgreSQL 16 setup.
+  EDB mode writes an ACL-protected unattended option file. ZIP mode creates
+  only its ACL-protected marker directory; initdb uses a short-lived pwfile.
 #>
 param(
-    [Parameter(Mandatory=$true)][string]$SuperPasswordFile,
-    [Parameter(Mandatory=$true)][string]$ServicePasswordFile,
+    [string]$SuperPasswordFile='',
+    [string]$ServicePasswordFile='',
     [string]$DestinationDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
     [string]$PostgresInstallDir=(Join-Path $env:ProgramFiles 'PostgreSQL\16'),
     [string]$DataDir=(Join-Path $env:ProgramData 'Esterium\PostgresData'),
@@ -17,7 +15,8 @@ param(
     [ValidateRange(1,65535)][int]$Port=5432,
     [switch]$Apply,
     [string]$TrustedPublisherThumbprint = '',
-    [switch]$UnsignedDisposableCIFixture
+    [switch]$UnsignedDisposableCIFixture,
+    [switch]$PostgresBinaryZip
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -95,7 +94,7 @@ if (@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='$ServiceAccoun
 if (@(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'PostgreSQL TCP port already occupied.'
 }
-$secrets=@($SuperPasswordFile,$ServicePasswordFile)
+$secrets=if($PostgresBinaryZip){@()}else{@($SuperPasswordFile,$ServicePasswordFile)}
 $normalized=@()
 foreach ($source in $secrets) {
     if (-not [IO.Path]::IsPathRooted($source) -or
@@ -122,13 +121,16 @@ foreach ($source in $secrets) {
     }
     $normalized+= $path
 }
-if ($normalized[0] -eq $normalized[1]) {
+if (-not $PostgresBinaryZip -and ($normalized.Count -ne 2 -or $normalized[0] -eq $normalized[1])) {
     throw 'Superuser and Windows service passwords must be distinct files.'
 }
 if (-not $Apply) {
-    Write-Output 'PLAN: generate an ACL-protected offline PostgreSQL 16 installer option file for a new service and empty data location.'
-    Write-Output 'PLAN: unattended server and command-line tools only; no pgAdmin/StackBuilder or shortcuts.'
-    Write-Output 'PLAN: passwords will be stored only in the restricted file, not shell arguments or logs.'
+    if($PostgresBinaryZip){
+        Write-Output 'PLAN: create an ACL-protected first-install marker directory; PostgreSQL ZIP initdb uses a temporary protected password file.'
+    }else{
+        Write-Output 'PLAN: generate an ACL-protected offline PostgreSQL 16 installer option file for a new service and empty data location.'
+        Write-Output 'PLAN: passwords will be stored only in the restricted file, not shell arguments or logs.'
+    }
     Write-Output 'PLAN: no database, Windows service, program, network or fiscal action performed.'
     return
 }
@@ -144,7 +146,7 @@ foreach ($path in $normalized) {
     }
     $passwords+= $secret
 }
-if ($passwords[0] -ceq $passwords[1]) {
+if (-not $PostgresBinaryZip -and $passwords[0] -ceq $passwords[1]) {
     throw 'PostgreSQL and service passwords must be different.'
 }
 $icacls=Join-Path $env:SystemRoot 'System32\icacls.exe'
@@ -156,34 +158,41 @@ try {
     [IO.Directory]::CreateDirectory($stage) | Out-Null
     & $icacls $stage '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Could not restrict PostgreSQL installer option directory.' }
-    $text=@(
-        'mode=unattended'
-        ('prefix=' + $prefix)
-        ('datadir=' + $data)
-        ('serverport=' + $Port)
-        ('servicename=' + $ServiceName)
-        ('serviceaccount=' + $ServiceAccount)
-        'superaccount=postgres'
-        ('superpassword=' + $passwords[0])
-        ('servicepassword=' + $passwords[1])
-        'enable-components=server,commandlinetools'
-        'enable_acledit=1'
-        'create_shortcuts=0'
-        'unattendedmodeui=minimal'
-    ) -join [Environment]::NewLine
-    $out=Join-Path $stage 'postgresql-unattended.options'
-    $bytes=[Text.UTF8Encoding]::new($false).GetBytes($text + [Environment]::NewLine)
-    $handle=[IO.File]::Open($out,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-    try { $handle.Write($bytes,0,$bytes.Length); $handle.Flush($true) }
-    finally { $handle.Dispose(); [Array]::Clear($bytes,0,$bytes.Length) }
-    & $icacls $out '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not restrict PostgreSQL installer options.' }
+    if(-not $PostgresBinaryZip){
+        $text=@(
+            'mode=unattended'
+            ('prefix=' + $prefix)
+            ('datadir=' + $data)
+            ('serverport=' + $Port)
+            ('servicename=' + $ServiceName)
+            ('serviceaccount=' + $ServiceAccount)
+            'superaccount=postgres'
+            ('superpassword=' + $passwords[0])
+            ('servicepassword=' + $passwords[1])
+            'enable-components=server,commandlinetools'
+            'enable_acledit=1'
+            'create_shortcuts=0'
+            'unattendedmodeui=minimal'
+        ) -join [Environment]::NewLine
+        $out=Join-Path $stage 'postgresql-unattended.options'
+        $bytes=[Text.UTF8Encoding]::new($false).GetBytes($text + [Environment]::NewLine)
+        $handle=[IO.File]::Open($out,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try { $handle.Write($bytes,0,$bytes.Length); $handle.Flush($true) }
+        finally { $handle.Dispose(); [Array]::Clear($bytes,0,$bytes.Length) }
+        & $icacls $out '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Could not restrict PostgreSQL installer options.' }
+    }
     if (Test-Path -LiteralPath $target) { throw 'Another process created PostgreSQL options.' }
     Move-Item -LiteralPath $stage -Destination $target -ErrorAction Stop
     $published=$true
-    Write-Output 'PASS: new protected PostgreSQL 16 unattended installer option file created.'
-    Write-Output 'NOT INSTALLED: PostgreSQL service, data cluster, TLS, application database or SEFAZ.'
-    Write-Output 'Before any vendor installer execution, verify its signed origin and ensure passwords/options are securely retired afterward.'
+    if($PostgresBinaryZip){
+        Write-Output 'PASS: new ACL-protected PostgreSQL first-install marker directory created; no installer options or passwords stored there.'
+        Write-Output 'NOT INSTALLED: PostgreSQL service, data cluster, TLS, application database or SEFAZ.'
+    }else{
+        Write-Output 'PASS: new protected PostgreSQL 16 unattended installer option file created.'
+        Write-Output 'NOT INSTALLED: PostgreSQL service, data cluster, TLS, application database or SEFAZ.'
+        Write-Output 'Before any vendor installer execution, verify its signed origin and ensure passwords/options are securely retired afterward.'
+    }
 } finally {
     $passwords=@()
     if (-not $published -and (Test-Path -LiteralPath $stage)) {
