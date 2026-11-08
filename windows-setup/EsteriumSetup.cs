@@ -583,7 +583,7 @@ namespace Esterium.WindowsSetup
             string allowedOrigin = Origin(inputs["origin"].Text.Trim());
             int httpsPort = new Uri(allowedOrigin, UriKind.Absolute).Port;
             string[] args = {
-                "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+                "-NoLogo", "-NoProfile", "-ExecutionPolicy",
                 Program.PreviewBuild ? "RemoteSigned" : "AllSigned", "-File",
                 Path.Combine(erp, "tools", "install-esterium-local-complete.ps1"),
                 "-SourceBundleDir", erp, "-AllowedOrigin", allowedOrigin,
@@ -598,6 +598,9 @@ namespace Esterium.WindowsSetup
                 "-TrustedPublisherThumbprint", inputs["editor"].Text.Trim()
             };
             var list = new List<string>(args);
+            // Read-only plans stay noninteractive. Apply must allow the signed
+            // first-admin bootstrap to collect company/admin details with Read-Host.
+            if (!apply) list.Insert(2, "-NonInteractive");
             if (IsPostgresZipBuild) list.Add("-PostgresBinaryZip");
             else list.AddRange(new[] { "-ExpectedPostgresPublisherThumbprint", inputs["pgSigner"].Text.Trim() });
             if (apply) list.AddRange(new[] { "-TLSCertFile", tlsCert, "-TLSKeyFile", tlsKey,
@@ -663,7 +666,7 @@ namespace Esterium.WindowsSetup
                     "O processo irá alterar o Windows e criar serviços. Confirma a instalação técnica de um pacote comercial assinado e aprovado?",
                     "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
                 ProcessStartInfo psi = Build(erp, apply, tlsCert, tlsKey, trustedRemote);
-                Log(apply ? "Solicitando UAC. Serviços continuarão desativados para vendas." :
+                Log(apply ? "Solicitando UAC. Depois, preencha os dados iniciais na janela do PowerShell. Vendas continuam desativadas." :
                     (Program.PreviewBuild ? "Executando APENAS o plano técnico não elevado, sem Apply." :
                      "Verificando plano de instalação com PowerShell AllSigned."));
                 int exit = await Task.Run(() => {

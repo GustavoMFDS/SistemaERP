@@ -327,3 +327,26 @@ Continuam externos à homologação local: Authenticode comercial, autorização
 - A cadeia TLS e o par certificado/chave passaram validação local para `10.0.2.15`, `serverAuth` e `tls.LoadX509KeyPair`. Nenhuma trust store do host foi alterada.
 - A ISO **não foi anexada nem executada** e nenhuma VM, snapshot ou configuração foi alterada. Antes de instalar, revalidar ao vivo a identidade/estado da VM e o snapshot. A instalação GUI e todos os testes reais descritos nesta missão — 19 áreas, reboot, recuperação, backup/restauração, LAN, segurança e periféricos — continuam pendentes.
 - Revisão das capturas suplementares do runner encontrou a exceção `Cannot read properties of null (reading 'filter')` no PDV e em Compras quando o catálogo de produtos está vazio. A raiz era o JSON `null` emitido por uma slice nil no repositório de produtos. O patch da branch garante `[]`, adiciona fallback nas duas telas e inclui regressão E2E com busca sem resultados; ainda aguarda build web e CI, sem validação na VM.
+
+## Retomada de homologação — CI verde, VM aguardando acesso (07/11/2026)
+
+- No head `dadb08278be0a4e059965db7ce2e67de881d43fd`, CI `42349104030` passou 20/20; Windows Setup `42349104037` passou nos gates aplicáveis. E2E EDB e ZIP passaram em runners descartáveis.
+- Corrigido o catálogo vazio em PDV/Compras (`null` para `[]`, fallback de tela e regressão E2E). Artefato EDB `13565068655`: 76 imagens em 19 pastas. Revisei só as capturas desktop do PDV e Compras, ambas sem tela de exceção. Isso não comprova a VM.
+- ISO v3 preparada offline: `D:\ERP\evidencias\esterium-vm\instalacao\Esterium-VM-LAB-Homologacao-20261107-r42349104037-v3.iso`, SHA-256 `CEE4A093190C020D80F44A4A99E1954B8B286EFB5EEF4CA5BAB81F1A106B8C14`; teste UDF 1.02 e comparação dos 22 arquivos passaram. Não anexada nem executada.
+- O inventário de hoje leu três entradas no `VirtualBox.xml` e não encontrou processos VirtualBox/VMware/Hyper-V. Consultas de estado ao VBoxManage e Hyper-V falharam com `E_ACCESSDENIED`/acesso CIM negado; estado de energia não confirmado. O `.vbox` da VM Fresh mantém o snapshot `Before Esterium VM-LAB Apply - 2026-11-07` (`780d7489-e774-4218-984a-0be11b17aadf`) e a ISO técnica antiga. Nenhuma configuração foi alterada.
+- O usuário não pode liberar o PC agora. Aguardar acesso antes de qualquer operação GUI. Na retomada, confirmar estado e snapshot no Manager, validar a mídia e o editor dentro do guest; então instalar pela interface e preencher `D:\ERP\evidencias\esterium-vm\instalacao\VM-LAB-CHECKLIST-19-AREAS.md` com evidências observadas no guest.
+- Instalação funcional, 19 áreas, reboot e recuperação, backup/restauração, rede e segurança continuam pendentes. PR #216 permanece Draft, sem merge ou release.
+
+## Proteção da VM original — 07/11/2026
+
+- Verificação somente leitura: disco-base, disco do snapshot e NVRAM atual/snapshot (quatro arquivos) mantêm os hashes da cópia de 03/11. Os XML `.vbox`/`.vbox-prev` diferem porque a cópia descrevia a VM vazia antes do Windows.
+- O registro da VM original contém estado salvo presente (21.512.767 bytes) e ISO oficial do Windows anexada. Não tocar nessa VM. A VM Fresh é separada e tem seu snapshot próprio; estado de energia segue sem confirmação do hipervisor.
+- Nenhum arquivo foi alterado. A mídia v3 continua desanexada.
+
+## Resultado real do Apply e bloqueio encontrado — 07/11/2026
+
+- Correção cronológica: a ISO v3 foi posteriormente anexada à VM Fresh e o usuário autorizou o Apply. A interface retornou `FALHA (código 1)` após mostrar progresso do EDB/PostgreSQL. A evidência de Serviços confirma três entradas Esterium com início **Disabled**, mas não mostra o Status.
+- A captura de `C:\ProgramData\Esterium` mostra `DependencyBootstrap`, `GarnetConfig`, `GarnetLogs`, `PostgresApplication`, `PostgresData`, `PostgresInstallOptions`, `PostgresTlsPolicy` e `Secrets`; não mostra `FirstRunReadiness` nem `Installation`. Nenhum conteúdo de segredo foi aberto. As pastas não comprovam banco íntegro ou serviço funcionando.
+- Causa provável pela sequência do código: o launcher usava `-NonInteractive` e o bootstrap do primeiro administrador exige entradas `Read-Host`; esse bootstrap ocorre antes do probe e da ativação. É uma inferência alinhada às evidências, não uma mensagem de erro capturada do guest.
+- Corrigi localmente o launcher: planos permanecem não interativos e o Apply permite as perguntas do primeiro administrador. Uma asserção de regressão foi incluída no laboratório descartável. A compilação de fumaça da interface sem payload e a checagem local do contrato passaram; isso não é um instalador funcional. A correção ainda aguarda novo pacote e reteste.
+- A VM permanece em estado parcial. Não executar outro Apply nem restaurar o snapshot automaticamente. As 19 áreas e os testes de reboot, recuperação, backup/restauração, LAN e segurança continuam sem aceite no guest. PR #216 continua Draft, sem merge ou release.

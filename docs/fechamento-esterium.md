@@ -596,3 +596,25 @@ Para retomar no mesmo host, uma atualização oficial do [VirtualBox 7.2.22](htt
 - O certificado do instalador é temporário de CI e não comercial. Authenticode no host retorna `UnknownError` porque a raiz não é confiável; stores do host permaneceram intactos. TLS de laboratório e par chave/certificado foram validados sem importar certificados.
 - O usuário não pode liberar o PC neste momento. ISO não anexada; nenhuma VM ou snapshot foi alterada. A última observação local registrada em 01:48 BRT não encontrou processo VirtualBox; estado atual precisa ser revalidado ao vivo antes de instalar.
 - A matriz de issue #43 permanece sem aceite na VM: nenhuma das 19 áreas foi testada no guest. Instalação GUI, reboot pós-instalação, recuperação, backup/restauração, rede, segurança e periféricos seguem pendentes; não inferir isso dos gates CI.
+
+## Atualização da homologação VM-LAB e correção de catálogo — 07/11/2026
+
+- PR #216 segue aberta, Draft e sem merge no head `dadb08278be0a4e059965db7ce2e67de881d43fd`. CI `42349104030` passou 20/20; Windows Setup `42349104037` concluiu com sucesso nos gates aplicáveis; jobs exclusivos de execução manual foram ignorados.
+- A revisão das capturas anteriores encontrou erro em PDV e Compras quando a listagem de produtos vazia chegava como `null`. O repositório agora serializa lista vazia (`[]`), as duas telas usam fallback e os E2E cobrem consulta sem resultados e ausência da exceção. Os dois laboratórios de instalação descartáveis passaram.
+- O artefato EDB `13565068655` contém 76 PNGs em 19 áreas; ZIP SHA-256 `75884D500FC677D49833322DAB5CDA4E18B8AA6B1B0D4A5DE5C2C7B2B18F6C98`. Recibo local: `D:\ERP\evidencias\esterium-vm\instalacao\WINDOWS-LAB-SCREENS-RECEIPT-42349104037-EDB.json`. A inspeção visual desta rodada cobre somente PDV e Compras desktop em runner descartável.
+- A ISO VM-LAB v3 foi montada e validada offline: `Esterium-VM-LAB-Homologacao-20261107-r42349104037-v3.iso`, SHA-256 `CEE4A093190C020D80F44A4A99E1954B8B286EFB5EEF4CA5BAB81F1A106B8C14`, 22 arquivos UDF 1.02. Recibo local: `D:\ERP\evidencias\esterium-vm\instalacao\VM-LAB-MEDIA-RECEIPT-20261107-r42349104037-v3.json`.
+- Inventário somente leitura: três entradas no `VirtualBox.xml`; nenhum processo de hipervisor correspondente foi encontrado. `VBoxManage list vms` retornou `E_ACCESSDENIED` e `Get-VM` não acessou CIM, portanto o estado de energia continua sem confirmação pelo hipervisor. O arquivo da VM Fresh registra snapshot `{780d7489-e774-4218-984a-0be11b17aadf}` (“Before Esterium VM-LAB Apply - 2026-11-07”) e ISO técnica antiga. A mídia v3 não foi anexada; não houve alteração de VM, snapshot ou trust store do host.
+- O usuário não pode liberar o PC agora. Permanecem pendentes instalação GUI na VM, validação do editor no guest, 19 áreas no guest, reboot pós-instalação, recuperação de serviços, backup/restauração, rede e segurança. Capturas e instalações de runner não equivalem a homologação local. Sem merge ou release.
+
+## Preservação da VM original — checagem somente leitura (07/11/2026)
+
+- SHA-256 de quatro arquivos de disco/NVRAM da VM original coincidem com `backup-with-snapshot-20261103.sha256.txt`. Os arquivos `.vbox` e `.vbox-prev` diferem da cópia anterior à instalação do Windows.
+- A VM original registra ISO Windows anexada e arquivo de estado salvo existente (`Snapshots/2026-11-04T22-25-53-236949100Z.sav`, 21.512.767 bytes). Ela não deve ser aberta, restaurada ou sobrescrita nesta homologação.
+- A VM Fresh é separada e registra o snapshot “Before Esterium VM-LAB Apply - 2026-11-07”; sua energia segue por confirmar no VirtualBox Manager. Nenhuma VM ou arquivo foi alterado nesta checagem.
+
+## Apply incompleto e correção do fluxo interativo — 07/11/2026
+
+- A VM Fresh executou o Apply autorizado, mas o assistente retornou `FALHA (código 1)`. O print de Serviços mostra ERP, Garnet e PostgreSQL com inicialização **Disabled**, sem Status legível. Captura posterior de `C:\ProgramData\Esterium` mostra oito pastas de preparação e não mostra `FirstRunReadiness` nem `Installation`; dados e estado real dos serviços não foram validados.
+- A revisão do código encontrou uma causa provável: a interface lançava o PowerShell com `-NonInteractive`, mas o bootstrap do primeiro administrador usa `Read-Host` após registrar o serviço ERP e antes dos recibos de prontidão/ativação. A evidência do guest é compatível com esse conflito; não há log capturado que prove o erro exato.
+- Corrigi o launcher para usar `-NonInteractive` apenas em Ver plano. O Apply abre a etapa interativa do primeiro administrador. O teste de instalação descartável agora protege esse contrato. A compilação de fumaça da interface sem payload passou; isso não é um instalador funcional. A correção ainda não foi empacotada com o payload assinado nem retestada em VM.
+- Não repetir o Apply na VM parcial, não iniciar ou reparar serviços e não restaurar o snapshot sem uma decisão explícita. Para reteste, será preciso pacote novo e um guest limpo; a homologação das 19 áreas, reboot, recuperação, backup/restauração, rede e segurança continua pendente. PR #216 permanece Draft, sem merge ou release.

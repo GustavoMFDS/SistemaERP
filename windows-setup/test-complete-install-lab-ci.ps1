@@ -6,6 +6,12 @@ Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -ne '1' -or [string]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE) -or [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
     throw 'Complete installation is allowed only on the explicitly enabled disposable GitHub Windows runner.'
 }
+$guiLauncherSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'EsteriumSetup.cs') -Raw
+if ($guiLauncherSource -match '"-NoProfile"\s*,\s*"-NonInteractive"' -or
+    $guiLauncherSource -notmatch 'if\s*\(!apply\)\s*list\.Insert\(2,\s*"-NonInteractive"\);') {
+    throw 'GUI Apply must stay interactive for the first-admin prompts; only read-only plans may use -NonInteractive.'
+}
+Write-Output 'PASS: read-only GUI plans stay noninteractive and Apply permits first-admin prompts.'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'The disposable Windows installation lab requires its hosted-runner administrator.' }
 $repo = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
