@@ -10,10 +10,17 @@ param(
     [Parameter(Mandatory = $true)][string]$PostgresBin,
     [ValidateRange(1, 65535)][int]$PostgresPort = 5432,
     [ValidateRange(1, 65535)][int]$RedisPort = 6379,
+    [ValidateRange(0, 60)][int]$ListenerReadyTimeoutSeconds = 0,
     [switch]$RequireServiceOwnership
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+function Write-OwnershipCIDiagnostic([string]$Stage) {
+    if ($env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -eq '1' -and
+        $env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+        Write-Host ('CI diagnostic: dependency ownership step - '+$Stage)
+    }
+}
 if ($env:OS -ne 'Windows_NT') { throw 'The local dependency inventory requires Windows.' }
 foreach ($name in @($PostgresServiceName, $RedisServiceName)) {
     if ($name -cnotmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$') {
@@ -52,27 +59,45 @@ foreach ($exe in @('postgres.exe', 'pg_dump.exe', 'pg_restore.exe', 'psql.exe'))
     }
 }
 $servicePids = @{}
+$serviceOwnerSids = @{}
 function Assert-RunningService([string]$name) {
+    $serviceLabel=if ($name -eq $PostgresServiceName) { 'postgres' } else { 'garnet' }
+    Write-OwnershipCIDiagnostic ($serviceLabel+'-service-query')
     $service = @(Get-CimInstance -ClassName Win32_Service -Filter "Name='$name'" -ErrorAction Stop)
     if ($service.Count -ne 1) {
         throw 'A declared local dependency Windows service is missing or ambiguous.'
     }
+    Write-OwnershipCIDiagnostic ($serviceLabel+'-service-state')
     if ($service[0].State -ne 'Running') {
         throw 'A declared local dependency Windows service is not running.'
     }
     if ($RequireServiceOwnership) {
+        Write-OwnershipCIDiagnostic ($serviceLabel+'-service-process')
         $pidOfService = [int]$service[0].ProcessId
         if ($pidOfService -le 0) {
             throw 'Dependency service does not expose a running process for strict port ownership.'
         }
         $servicePids[$name] = $pidOfService
+        if ($name -eq $PostgresServiceName) {
+            Write-OwnershipCIDiagnostic 'postgres-service-identity'
+            $serviceProcess = @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$pidOfService" -ErrorAction Stop)
+            if ($serviceProcess.Count -ne 1) {
+                throw 'PostgreSQL service process cannot be verified for strict port ownership.'
+            }
+            $serviceOwner = Invoke-CimMethod -InputObject $serviceProcess[0] -MethodName GetOwnerSid -ErrorAction Stop
+            if ($serviceOwner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($serviceOwner.Sid)) {
+                throw 'PostgreSQL service account cannot be verified for strict port ownership.'
+            }
+            $serviceOwnerSids[$name] = [string]$serviceOwner.Sid
+        }
     }
     # Windows process command-line details might embed credentials: NEVER echo PathName.
 }
-# A service wrapper (NSSM) holds the SCM PID, while the wrapped Garnet
+# A service wrapper (WinSW) holds the SCM PID, while the wrapped Garnet
 # listener is a child. Permit only a bounded process ancestry under NETWORK
 # SERVICE; do not weaken PostgreSQL's direct owner check.
 function Assert-GarnetServiceDescendant([int]$listenerPid, [int]$servicePid) {
+    Write-OwnershipCIDiagnostic 'garnet-process-ancestry'
     $currentPid = $listenerPid
     $visited = @{}
     for ($depth = 0; $depth -lt 6; $depth++) {
@@ -91,26 +116,77 @@ function Assert-GarnetServiceDescendant([int]$listenerPid, [int]$servicePid) {
     }
     throw 'Garnet listener is not descended from its Windows service.'
 }
-function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
-    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
-    if ($listeners.Count -eq 0) {
-        throw "No listener is bound to required local dependency port $port."
+function Assert-PostgresServiceDescendant([int]$listenerPid, [int]$servicePid) {
+    Write-OwnershipCIDiagnostic 'postgres-process-ancestry'
+    $expectedSid = [string]$serviceOwnerSids[$PostgresServiceName]
+    if ([string]::IsNullOrWhiteSpace($expectedSid)) {
+        throw 'PostgreSQL service account is unavailable for strict port ownership.'
     }
+    $currentPid = $listenerPid
+    $visited = @{}
+    for ($depth = 0; $depth -lt 6; $depth++) {
+        if ($currentPid -eq $servicePid) { return }
+        if ($currentPid -le 0 -or $visited.ContainsKey($currentPid)) {
+            throw 'PostgreSQL listener process ancestry is invalid.'
+        }
+        $visited[$currentPid] = $true
+        $processes = @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$currentPid" -ErrorAction Stop)
+        if ($processes.Count -ne 1) { throw 'PostgreSQL listener process is missing.' }
+        if ($currentPid -eq $listenerPid -and $processes[0].Name -cne 'postgres.exe') {
+            throw 'PostgreSQL port is not owned by postgres.exe.'
+        }
+        $owner = Invoke-CimMethod -InputObject $processes[0] -MethodName GetOwnerSid -ErrorAction Stop
+        if ($owner.ReturnValue -ne 0 -or $owner.Sid -cne $expectedSid) {
+            throw 'PostgreSQL listener must run under the declared service account.'
+        }
+        $currentPid = [int]$processes[0].ParentProcessId
+    }
+    throw 'PostgreSQL listener is not descended from its Windows service.'
+}
+function Assert-LoopbackListener([int]$port, [int]$expectedPid) {
+    $listenerLabel=if ($port -eq $PostgresPort) { 'postgres' } else { 'garnet' }
+    Write-OwnershipCIDiagnostic ($listenerLabel+'-listener-query')
+    # A service can report Running just before binding its socket. Only an
+    # absent listener is retried; an exposed or incorrectly owned listener
+    # still fails immediately below. NetTCP cmdlets may emit a no-match CIM
+    # error before the first bind; treat that one inventory result as empty,
+    # then fail closed if no listener appears before the bounded deadline.
+    $deadline = [DateTime]::UtcNow.AddSeconds($ListenerReadyTimeoutSeconds)
+    do {
+        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
+        if ($listeners.Count -gt 0) { break }
+        if ([DateTime]::UtcNow -ge $deadline) {
+            throw "No listener is bound to required local dependency port $port."
+        }
+        Start-Sleep -Milliseconds 500
+    } while ($true)
+    Write-OwnershipCIDiagnostic ($listenerLabel+'-listener-address')
     foreach ($listener in $listeners) {
         if ([string]$listener.LocalAddress -notin @('127.0.0.1', '::1')) {
             throw "Local dependency port $port is exposed on a non-loopback address."
         }
         if ($RequireServiceOwnership -and [int]$listener.OwningProcess -ne $expectedPid) {
-            if ($port -ne $RedisPort) {
-                throw 'Dependency listener process does not belong to its declared Windows service.'
+            Write-OwnershipCIDiagnostic ($listenerLabel+'-listener-owner')
+            if ($port -eq $RedisPort) {
+                Assert-GarnetServiceDescendant ([int]$listener.OwningProcess) $expectedPid
+            } elseif ($port -eq $PostgresPort) {
+                # EDB can keep pg_ctl.exe as SCM owner while postgres.exe
+                # child process owns the socket. Require bounded ancestry and
+                # the exact service account for every process in that chain.
+                Assert-PostgresServiceDescendant ([int]$listener.OwningProcess) $expectedPid
+            } else {
+                throw 'Dependency listener cannot be tied to its declared service.'
             }
-            Assert-GarnetServiceDescendant ([int]$listener.OwningProcess) $expectedPid
         }
     }
 }
+Write-OwnershipCIDiagnostic 'postgres-service'
 Assert-RunningService $PostgresServiceName
+Write-OwnershipCIDiagnostic 'garnet-service'
 Assert-RunningService $RedisServiceName
+Write-OwnershipCIDiagnostic 'postgres-listener'
 Assert-LoopbackListener $PostgresPort $(if ($RequireServiceOwnership) { $servicePids[$PostgresServiceName] } else { 0 })
+Write-OwnershipCIDiagnostic 'garnet-listener'
 Assert-LoopbackListener $RedisPort $(if ($RequireServiceOwnership) { $servicePids[$RedisServiceName] } else { 0 })
 Write-Output 'PASS: declared PostgreSQL and Redis-compatible services are running with loopback-only TCP listeners.'
 if ($RequireServiceOwnership) {

@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { cashTest as test, expect } from './fixtures'
 
 async function login(page: import('@playwright/test').Page) {
   await page.goto('/login')
@@ -29,6 +29,7 @@ test('double finalize intent produces only one sale request', async ({ page }) =
 
   await page.getByRole('link', { name: 'PDV' }).click()
   await page.getByRole('button', { name: 'Abrir' }).click()
+  await expect(page.getByRole('heading', { name: 'Caixa aberto' })).toBeVisible()
   await page.getByRole('region', { name: 'Produtos da venda' }).getByRole('combobox').first().selectOption({ index: 1 })
   await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
 
@@ -46,13 +47,24 @@ test('double finalize intent produces only one sale request', async ({ page }) =
   })
 
   await page.getByRole('checkbox', { name: 'Confirmei que o Pix foi recebido.' }).check()
-  await page.getByRole('button', { name: 'Finalizar venda' }).evaluate((element) => {
+  const finalizeButton = page.getByRole('button', { name: 'Finalizar venda' })
+  await expect(finalizeButton).toBeEnabled({ timeout: 10000 })
+  const saleResponsePromise = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === '/api/v1/sales' && response.request().method() === 'POST',
+    { timeout: 15000 },
+  )
+  await finalizeButton.evaluate((element) => {
     const button = element as HTMLButtonElement
     button.click()
     button.click()
   })
 
-  await expect(page.getByText(/Venda finalizada:/)).toBeVisible()
+  const saleResponse = await saleResponsePromise
+  if (!saleResponse.ok()) {
+    const responseBody = await saleResponse.text()
+    throw new Error(`Sale POST failed (${saleResponse.status()}): ${responseBody.slice(0, 500)}`)
+  }
+  await expect(page.getByText(/Venda finalizada:/)).toBeVisible({ timeout: 10000 })
   expect(salePosts).toBe(1)
   expect(keys).toHaveLength(1)
   expect(keys[0]).not.toBe('')

@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { cashTest as test, expect } from './fixtures'
 
 test('ambiguous cash movement key survives PDV reload', async ({ page }) => {
   await page.goto('/login')
