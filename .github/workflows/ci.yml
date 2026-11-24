@@ -2045,6 +2045,61 @@ jobs:
           (cd backend && go test -v -count=1 -run '^TestIdempotencyRetentionAllTables$' ./internal/app) | tee /tmp/esterium-retention-ci.log
           grep -F -- '--- PASS: TestIdempotencyRetentionAllTables ' /tmp/esterium-retention-ci.log
 
+      - name: Verify v54 financial relationships and role membership
+        run: |
+          set -euo pipefail
+          db=sistemaemgo_core54_ci
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='$db'")" != "0" ]; then
+            echo 'Refusing to reuse core54 database' >&2
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db OWNER sistemaemgo;"
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_core54_ci WITH (FORCE);"' EXIT
+          migrate_db() {
+            docker run --rm --network host -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+              -path=/migrations -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/$db?sslmode=disable" "$@"
+          }
+          psql_db() { docker compose exec -T db psql -U sistemaemgo -d "$db" -v ON_ERROR_STOP=1 "$@"; }
+          migrate_db goto 53
+          psql_db -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+          # Deliberately orphan a key in the v53 disposable schema.
+          psql_db <<'SQL'
+          INSERT INTO idempotency_keys(tenant_id,operation,idem_key,request_hash,sale_id,total)
+            SELECT id,'core54.ci','orphan','fixture',gen_random_uuid(),10
+            FROM companies WHERE cnpj='12345678000195';
+          SQL
+          if psql_db < backend/migrations/0054_finance_membership_relationships.up.sql > /tmp/esterium-core54-refusal.log 2>&1; then
+            echo 'v54 accepted historical orphan key' >&2
+            exit 1
+          fi
+          grep -F 'core54_idempotency_sale_fk' /tmp/esterium-core54-refusal.log
+          psql_db <<'SQL'
+          DO $verify$
+          BEGIN
+            IF NOT EXISTS(SELECT 1 FROM idempotency_keys WHERE operation='core54.ci' AND idem_key='orphan')
+              OR EXISTS(SELECT 1 FROM pg_constraint WHERE conname LIKE 'core54_%') THEN
+              RAISE EXCEPTION 'v54 refusal changed data or left constraints';
+            END IF;
+          END $verify$;
+          DELETE FROM idempotency_keys WHERE operation='core54.ci' AND idem_key='orphan';
+          SQL
+          migrate_db up 1
+          psql_db < backend/tests/integration/finance_membership_relationships.sql
+          migrate_db down 1
+          psql_db <<'SQL'
+          DO $verify$
+          BEGIN
+            IF EXISTS(SELECT 1 FROM pg_constraint WHERE conname LIKE 'core54_%')
+              OR to_regclass('public.core54_ledger_sale_idx') IS NOT NULL
+              OR NOT EXISTS(SELECT 1 FROM companies WHERE cnpj='12345678000195') THEN
+              RAISE EXCEPTION 'v54 rollback failed or changed seed';
+            END IF;
+          END $verify$;
+          SQL
+          migrate_db up 1
+          psql_db < backend/tests/integration/finance_membership_relationships.sql
+          psql_db -Atc "SELECT version || ':' || dirty FROM schema_migrations" | grep -Fx '54:false'
+
       - name: Run tagged integration tests twice against the same disposable database
         working-directory: backend
         env:
