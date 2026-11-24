@@ -22,3 +22,7 @@ Base #216 369b7bc. Estas são evidências estáticas de cobertura, não decisão
 | #215 | Lockfile Tailwind e plugin Vite 4.3.3, Vite usa tailwindcss(), remoção da config antiga aparece na lista de mudanças da #216. Fixture tem limpeza de caixa com guardas. | Migração central identificada; E2E visual e política de navegadores ainda precisam ser validados |
 
 A #216 possui 138 arquivos alterados (duas páginas de resultados conferidas); não interpretar 138 como funcionalidades. Revisar arquivos de instalador divergentes, manter #211 até #218 passar e checklist reconciliado, não fechar #212–215 sem prova do HEAD final. A decisão DEC-13 sem Docker continua requisito de instalação e não é afetada pelo CI Linux.
+
+## Atualização de segurança publicada
+
+Commit [38aea85](https://github.com/GustavoMFDS/SistemaERP/commit/38aea85bc5793e538b54762ffb935e7e7a14d48e) na #218: Go 1.26.11, OpenTelemetry 1.47.0 e dependências transitivas selecionadas pelo resolvedor Go. go get e go mod tidy concluídos com exit 0 em clone temporário isolado do repositório; go.mod/go.sum lidos desse clone, não fabricados. Pins dos dois workflows e README atualizados. Scanner govulncheck preservado. A comparação GitHub confirma cinco arquivos alterados. O novo HEAD ainda precisa passar pelo CI integral. A comparação do bloco fiscal de workflow da #214 com a #216 confirmou conteúdo idêntico, inclusive filtros e contagem explícita de dois PASS por teste. Não houve merge, fechamento de PR nem instalação em loja.
