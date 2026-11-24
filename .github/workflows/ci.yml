@@ -1965,6 +1965,69 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_cash_tender WITH (FORCE);"
 
+      - name: Verify v53 core tenant relationships, historical mismatch refusal and rollback
+        run: |
+          set -euo pipefail
+          db=sistemaemgo_core53_ci
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='$db'")" != "0" ]; then
+            echo "Refusing to reuse pre-existing core tenant test database" >&2
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db OWNER sistemaemgo;"
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_core53_ci WITH (FORCE);"' EXIT
+          migrate_db() {
+            docker run --rm --network host -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+              -path=/migrations -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/$db?sslmode=disable" "$@"
+          }
+          psql_db() { docker compose exec -T db psql -U sistemaemgo -d "$db" -v ON_ERROR_STOP=1 "$@"; }
+          migrate_db goto 52
+          psql_db -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+          # Synthetic historical cross-tenant link, allowed by v52.
+          psql_db <<'SQL'
+          INSERT INTO companies(legal_name,trade_name,cnpj)
+            VALUES ('CI mismatch A','CI mismatch A','00000000005303'),('CI mismatch B','CI mismatch B','00000000005304');
+          INSERT INTO categories(tenant_id,name)
+            SELECT id,'Core mismatch' FROM companies WHERE cnpj='00000000005304';
+          INSERT INTO products(tenant_id,category_id,sku,name,unit,price_cash)
+            SELECT a.id,c.id,'CORE53-MISMATCH','Core mismatch','UN',1
+            FROM companies a CROSS JOIN categories c
+            WHERE a.cnpj='00000000005303' AND c.name='Core mismatch';
+          SQL
+          # Raw transactional DDL must refuse mismatch without changing data or leaving partial constraints.
+          if psql_db < backend/migrations/0053_core_tenant_relationships.up.sql > /tmp/esterium-core53-refusal.log 2>&1; then
+            echo 'v53 unexpectedly accepted historical cross-tenant relationship' >&2
+            exit 1
+          fi
+          grep -F 'core53_products_category_id_fk' /tmp/esterium-core53-refusal.log
+          psql_db <<'SQL'
+          DO $verify$
+          BEGIN
+            IF NOT EXISTS(SELECT 1 FROM products WHERE sku='CORE53-MISMATCH' AND category_id IS NOT NULL)
+              OR EXISTS(SELECT 1 FROM pg_constraint WHERE conname LIKE 'core53_%')
+              OR to_regclass('public.core53_categories_tenant_id_uidx') IS NOT NULL THEN
+              RAISE EXCEPTION 'v53 refusal changed data or left partial DDL';
+            END IF;
+          END $verify$;
+          -- Only remove the deliberately invalid fixture in this dedicated CI database.
+          DELETE FROM products WHERE sku='CORE53-MISMATCH';
+          SQL
+          migrate_db up 1
+          psql_db < backend/tests/integration/core_tenant_relationships.sql
+          migrate_db down 1
+          psql_db <<'SQL'
+          DO $verify$
+          BEGIN
+            IF EXISTS(SELECT 1 FROM pg_constraint WHERE conname LIKE 'core53_%')
+              OR to_regclass('public.core53_categories_tenant_id_uidx') IS NOT NULL
+              OR NOT EXISTS(SELECT 1 FROM companies WHERE cnpj='00000000005303') THEN
+              RAISE EXCEPTION 'v53 downgrade did not preserve historical data or left constraints';
+            END IF;
+          END $verify$;
+          SQL
+          migrate_db up 1
+          psql_db < backend/tests/integration/core_tenant_relationships.sql
+          psql_db -Atc "SELECT version || ':' || dirty FROM schema_migrations" | grep -Fx '53:false'
+
       - name: Run tagged integration tests twice against the same disposable database
         working-directory: backend
         env:
