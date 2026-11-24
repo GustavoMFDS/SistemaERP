@@ -32,13 +32,14 @@ const money = (amount: number) => new Intl.NumberFormat('pt-BR', {
 }).format(Number(amount) || 0)
 
 function localDate(offsetDays = 0): string {
-  const day = new Date()
-  day.setDate(day.getDate() + offsetDays)
-  const year = day.getFullYear()
-  const month = String(day.getMonth() + 1).padStart(2, '0')
-  return `${year}-${month}-${String(day.getDate()).padStart(2, '0')}`
+  // Match the business date used by the finance API, even on a remote terminal.
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date())
+  const part = (type: string) => Number(parts.find((entry) => entry.type === type)?.value)
+  const day = new Date(Date.UTC(part('year'), part('month') - 1, part('day') + offsetDays))
+  return day.toISOString().slice(0, 10)
 }
-
 const quickLinks = [
   { to: '/setup', label: 'Configurar minha loja', permission: 'product:write', detail: 'Passo a passo para quem está começando' },
   { to: '/staff', label: 'Gerenciar funcionários', permission: 'team:manage', detail: 'Convidar pessoas e definir gerente ou caixa para esta loja' },
