@@ -30,3 +30,9 @@ Clone somente leitura da branch #217 HEAD 07f6910c4ba3799ea861977f3af7ddffdbafe9
 
 ## Gate seguinte
 Aguardar resultados dos runs integrais #216 e #227. Verificar relatórios Tailwind/artefatos, checklist #151 e provas do Setup. Reconciliar PRs históricas por comportamento e preservar migrações 0053/0054. Próximo pacote VM-LAB deve corresponder ao HEAD aprovado, assinatura de teste temporária somente na VM isolada. Homologar GUI, reboot, atualização, reparo, desinstalação conservadora, restore e LAN. Certificação comercial e fiscal continuam bloqueios externos; não alterar dados reais ou main.
+
+## Revisão adicional das PRs-fonte #211–215
+
+Comparação por caminho/blob do HEAD consolidado ed0095f: #211 0/5 exatos, #212 54/83, #213 5/10, #214 2/3, #215 8/12. Todos os caminhos não removidos presentes; divergência de blob não demonstra perda funcional. Diff local read-only entre #212 5813bf7c e ed0095f: os cinco componentes C# de staging/data/preflight/vendors/ZIP evoluíram de NSSM para WinSW; preflight acrescenta GarnetLogs, staging exige avisos de terceiros, ZIP oficial pode integrar release assinada com hash fixado, rejeita nomes perigosos, GUI fixa manifesto/publicador e impede VM-LAB fora de VirtualBox. Não reverter a NSSM nem a política de ZIP antiga. A revisão semântica do restante dos 29 arquivos divergentes da #212 ainda não está concluída. #213 PWA/Zod e #215 Tailwind exigem prova de artefatos e revisão de diferenças restantes; #214 já tem bloco fiscal conferido e reruns aprovados. Não encerrar PRs-fonte por simples igualdade de caminhos.
+
+Último snapshot: CI integral #216 9 success / 11 em andamento; Windows Setup #216 1 success / 3 em andamento / 4 skipped (gate agregado ainda não aparecia). #227 17 success / 7 em andamento / 4 skipped, zero failures. Consultar novamente antes de qualquer incorporação.
