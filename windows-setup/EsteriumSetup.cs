@@ -246,8 +246,8 @@ namespace Esterium.WindowsSetup
             LoadBuildApprovals();
             var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
             check.Text = "Verificar arquivos"; check.AutoSize = true;
-            plan.Text = "Ver plano"; plan.AutoSize = true;
-            plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
+            plan.Text = Program.PreviewBuild ? "Ver plano técnico (prévia)" : "Ver plano assinado"; plan.AutoSize = true;
+            plan.Enabled = Program.PreviewBuild ? Program.HasPayload : Program.CanApply;
             install.Text = Program.PreviewBuild ? "Instalação bloqueada (prévia)" : "Instalar";
             install.AutoSize = true;
             install.Enabled = Program.CanApply;
@@ -601,6 +601,7 @@ namespace Esterium.WindowsSetup
             // Read-only plans stay noninteractive. Apply must allow the signed
             // first-admin bootstrap to collect company/admin details with Read-Host.
             if (!apply) list.Insert(2, "-NonInteractive");
+            if (!apply && !Program.PreviewBuild) list.Add("-VerifyApprovedRelease");
             if (IsPostgresZipBuild) list.Add("-PostgresBinaryZip");
             else list.AddRange(new[] { "-ExpectedPostgresPublisherThumbprint", inputs["pgSigner"].Text.Trim() });
             if (apply) list.AddRange(new[] { "-TLSCertFile", tlsCert, "-TLSKeyFile", tlsKey,
@@ -628,13 +629,14 @@ namespace Esterium.WindowsSetup
         async Task Run(bool invoke, bool apply)
         {
             if (working) return;
+            if (invoke && !Program.PreviewBuild && !Program.CanApply) { Log("BLOQUEADO: pacote sem payload ou aprovações de release válidas."); return; }
             if (apply && !Program.CanApply) { Log("BLOQUEADO: pacote sem payload ou aprovações de release válidas."); return; }
             if (invoke && Program.PreviewBuild && !Program.HasPayload) { Log("BLOQUEADO: prévia sem payload."); return; }
             working = true; check.Enabled = plan.Enabled = install.Enabled = stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = false;
             string phase = "verificação dos arquivos";
             try
             {
-                if (apply)
+                if (invoke && !Program.PreviewBuild)
                 {
                     phase = "autenticação do instalador";
                     Log("Validando a assinatura digital do instalador...");
@@ -668,7 +670,7 @@ namespace Esterium.WindowsSetup
                 ProcessStartInfo psi = Build(erp, apply, tlsCert, tlsKey, trustedRemote);
                 Log(apply ? "Solicitando UAC. Depois, preencha os dados iniciais na janela do PowerShell. Vendas continuam desativadas." :
                     (Program.PreviewBuild ? "Executando APENAS o plano técnico não elevado, sem Apply." :
-                     "Verificando plano de instalação com PowerShell AllSigned."));
+                     "Verificando publicador e manifesto do plano assinado com PowerShell AllSigned."));
                 int exit = await Task.Run(() => {
                     using (var p = Process.Start(psi))
                     {
@@ -687,7 +689,9 @@ namespace Esterium.WindowsSetup
                 {
                     if (exit == 0)
                     {
-                        Log("Plano concluído sem alterações.");
+                        Log(Program.PreviewBuild ? "Plano técnico estrutural concluído; não aprova distribuição." :
+                            "Plano assinado concluído; manifesto e publicador conferidos. Não autoriza operação comercial.");
+                        Log("Nenhum serviço ou banco foi instalado pelo plano.");
                         Log("PLANO: PostgreSQL 16, Garnet e ERP; TLS e banco novo; vendas permanecem desativadas.");
                     }
                     else Log("FALHA (código " + exit + ") na etapa do plano. Nenhuma alteração foi aplicada.");
@@ -701,7 +705,7 @@ namespace Esterium.WindowsSetup
                 Log(apply ? "Preserve evidências e não repita automaticamente." : "Nenhuma alteração foi aplicada.");
             }
             finally { working = false; check.Enabled = true;
-                      plan.Enabled = !Program.PreviewBuild || Program.HasPayload;
+                      plan.Enabled = Program.PreviewBuild ? Program.HasPayload : Program.CanApply;
                       stageFiles.Enabled = stageVendors.Enabled = preflight.Enabled = Program.PreviewBuild && Program.HasPayload;
                       stagePostgres.Enabled = stageData.Enabled = stageSecrets.Enabled = Program.PreviewBuild && Program.HasPayload && IsPostgresZipPreview;
                       install.Enabled = Program.CanApply; }

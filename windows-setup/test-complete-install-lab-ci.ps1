@@ -12,6 +12,11 @@ if ($guiLauncherSource -match '"-NoProfile"\s*,\s*"-NonInteractive"' -or
     throw 'GUI Apply must stay interactive for the first-admin prompts; only read-only plans may use -NonInteractive.'
 }
 Write-Output 'PASS: read-only GUI plans stay noninteractive and Apply permits first-admin prompts.'
+if ($guiLauncherSource -notmatch 'if\s*\(!apply\s*&&\s*!Program\.PreviewBuild\)\s*list\.Add\("-VerifyApprovedRelease"\);' -or
+    $guiLauncherSource -notmatch 'if\s*\(invoke\s*&&\s*!Program\.PreviewBuild\)\s*\{\s*phase\s*=\s*"autenticação do instalador";') {
+    throw 'Signed GUI PLAN must authenticate the launcher and invoke the strict release gate; unsigned preview stays structural.'
+}
+Write-Output 'PASS: GUI signed PLAN is bound to launcher authentication and strict release verification.'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'The disposable Windows installation lab requires its hosted-runner administrator.' }
 $repo = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
@@ -390,6 +395,35 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
         Apply = $true
     }
     if($PostgresBinaryZip){$installArgs.PostgresBinaryZip=$true}
+    # Exercise strict signed read-only PLAN with the real trusted lab bundle
+    # and pinned vendor payload, not the inert synthetic PLAN fixture.
+    $strictPlanArgs = $installArgs.Clone()
+    [void]$strictPlanArgs.Remove('Apply')
+    $strictPlanArgs.VerifyApprovedRelease = $true
+    $watchedPaths = @(
+        (Join-Path $env:ProgramFiles 'EsteriumERP'),
+        (Join-Path $env:ProgramData 'Esterium\DependencyBootstrap'),
+        (Join-Path $env:ProgramData 'Esterium\Installation')
+    )
+    $beforePaths = @($watchedPaths | ForEach-Object { [bool](Test-Path -LiteralPath $_) })
+    $beforeServices = @(Get-Service | Where-Object Name -Like 'Esterium*' | Sort-Object Name | ForEach-Object { $_.Name + ':' + $_.Status })
+    $badPlan = $strictPlanArgs.Clone()
+    $badPlan.TrustedPublisherThumbprint = '0' * 40
+    $refusal = ''
+    try { & $completeInstaller @badPlan | Out-Null } catch { $refusal = $_.Exception.Message }
+    if ($refusal -notmatch 'sem assinatura do editor aprovado') { throw 'Strict signed PLAN failed to refuse a wrong publisher.' }
+    $planOutput = @(& $completeInstaller @strictPlanArgs) -join ' '
+    if ($planOutput -notmatch 'PASS: release completa com manifesto e assinatura aprovados independentemente' -or
+        $planOutput -notmatch 'nenhuma pasta, senha, banco ou servico foi alterado') {
+        throw 'Strict signed PLAN failed to prove both read-only delegates.'
+    }
+    $afterPaths = @($watchedPaths | ForEach-Object { [bool](Test-Path -LiteralPath $_) })
+    $afterServices = @(Get-Service | Where-Object Name -Like 'Esterium*' | Sort-Object Name | ForEach-Object { $_.Name + ':' + $_.Status })
+    if (($beforePaths -join ',') -cne ($afterPaths -join ',') -or
+        ($beforeServices -join ',') -cne ($afterServices -join ',')) {
+        throw 'Strict signed PLAN changed the observed installation state.'
+    }
+    Write-Output 'PASS: real trusted lab signed PLAN refused wrong publisher, verified release and left installation state unchanged.'
     & $completeInstaller @installArgs
     Assert-InstalledServices
     Wait-ERPReady $httpsPort 120

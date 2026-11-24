@@ -38,8 +38,8 @@ $setup = @{
   ApprovedManifestSHA256 = '<SHA256_MANIFESTO_RELEASE_APROVADO_EXTERNO>'
   TrustedPublisherThumbprint = '<EDITOR_ESTERIUM_APROVADO>'
 }
-# Primeiro, plano read-only, sem alterar a máquina.
-& 'C:\Install\EsteriumApproved\tools\install-esterium-local-complete.ps1' @setup
+# Primeiro, plano rigoroso read-only, sem instalar serviços ou banco.
+& 'C:\Install\EsteriumApproved\tools\install-esterium-local-complete.ps1' @setup -VerifyApprovedRelease
 # Só depois do aceite, com release real assinada e aprovação:
 # & 'C:\Install\EsteriumApproved\tools\install-esterium-local-complete.ps1' @setup -Apply
 ```
@@ -76,6 +76,8 @@ queda e aceite explícito do checklist [#151](https://github.com/GustavoMFDS/Sis
 Após a primeira instalação, a liberação/start automático continua
 deliberadamente **bloqueada** até passar pelos gates de operação.
 
-## Verificação rigorosa de release aprovada (proposta de reconciliação #211)
+## Verificação rigorosa de release aprovada (reconciliação #211)
 
 O PLAN padrão verifica a estrutura, os fornecedores e as condições locais sem escrever; não é aprovação comercial. Para um pacote de distribuição cujo manifesto SHA-256 e thumbprint do editor já foram obtidos por canal independente, execute o mesmo comando técnico com `-VerifyApprovedRelease` (sem `-Apply` e sem fixture). Execute somente a partir do diretório tools do pacote previamente autenticado. O coordenador valida sua própria assinatura, os delegados, a ativação, o verificador e o gate antes de invocar o gate completo de manifesto/assinaturas; somente depois executa os dois PLANs. `-Apply` também usa esse gate antes de qualquer PLAN ou escrita e mantém as validações TLS e firewall. Nenhuma etapa reduz os controles internos, aprova certificado novo, altera trust store ou autoriza venda. A prévia unsigned continua PLAN estrutural, sem Apply; não exige Docker, WSL, Go ou Node. A aprovação comercial e teste físico permanecem externos.
+
+Na interface Setup assinada, `Ver plano assinado` autentica o EXE pelo publicador fixado, executa PowerShell AllSigned e passa `-VerifyApprovedRelease`. `Verificar arquivos` continua somente conferência estrutural; a prévia sem assinatura mantém `Ver plano técnico (prévia)` e Apply bloqueado. O laboratório descartável usa certificado temporário apenas para provar o caminho de confiança e a recusa de editor errado com os payloads reais ZIP/EDB; não equivale a assinatura comercial ou teste GUI físico. A interface pode extrair payload em diretório temporário sem instalar serviços ou banco.
