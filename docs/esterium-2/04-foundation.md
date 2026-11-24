@@ -15,6 +15,9 @@ Objetivo: base integrada, testada e recuperável antes de piloto. Não autoriza 
 | FND-09 | Atualização e recuperação | Manifesto e assinatura verificados, backup recente, migração com preflight, falha simulada, recuperação testada e versão visível; automatizar só após prova |
 | FND-10 | Piloto controlado | Loja e responsáveis definidos, treinamento, critérios de interrupção e fallback, aceite documentado; sem substituir processo fiscal válido antes de liberação |
 
+## Requisito aprovado — instalação nativa (DEC-13)
+O PC da loja deve executar Setup único em Windows limpo, sem Docker Desktop, WSL, VM Linux, Go, Node ou Python. PostgreSQL nativo e Garnet gerenciados como serviços Windows; Go compilado e React estático servidos pelo ERP. Docker continua opcional em desenvolvimento/CI, não é pré-requisito de instalação. Testar instalação, reinício, reparo e atualização sem esses componentes; verificar o inventário do ambiente antes/depois. O instalador não deve remover Docker existente nem alterar uma instalação de banco de terceiros. PostgreSQL EXE/ZIP e runtime empacotado devem ter proveniência, licenças e compatibilidade verificadas. Nenhum bypass de assinatura ou instalação em loja antes do aceite.
+
 ## Sequência
 AUD-01 e FND-01 primeiro. Depois código e CI da versão candidata, laboratório descartável, Windows limpo, testes físicos, validação externa. Gates físicos e fiscais não são substituídos por aprovação de CI. Piloto não fiscal somente em condições autorizadas e sem transações comerciais que exijam emissão fiscal não disponível.
 
