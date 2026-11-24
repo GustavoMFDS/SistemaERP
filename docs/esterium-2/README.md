@@ -28,6 +28,7 @@ Transformar o Esterium em um ERP de varejo confiável para as lojas da família,
 | [18 — Isolamento relacional](18-foundation-isolamento-relacional.md) | Migration 0053, auditoria e gates |
 | [19 — Retenção e financeiro](19-foundation-retencao-financeiro.md) | CI do instalador, idempotência e data comercial |
 | [20 — Privacidade e financeiro](20-foundation-privacidade-financeiro.md) | Isolamento de identidades, migration 0054 e auditoria atômica |
+| [21 — Consolidação da candidata](21-foundation-consolidacao-candidata.md) | Fast-forward #216, gates e PLAN GUI |
 
 ## Fontes e autoridade
 Base técnica observada: main @ 69d5e205400d3f4b02c35dca9b164bdeaa9cf49c. Documentos anteriores permanecem históricos; este plano não substitui contratos implementados, runbooks ou requisitos fiscais oficiais. Em caso de conflito entre proposta e comportamento existente, registrar divergência antes de alterar código.

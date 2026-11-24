@@ -48,3 +48,18 @@ AUD-01 + FND-01 -> baseline validada -> incrementos de Retail/Management -> mét
 
 ## Gestão de tarefas
 IDs estáveis definidos nos documentos de fase. Decompor épicos em issues pequenas (ID, contexto, escopo/fora do escopo, dependências, contratos, critérios de aceite, testes, evidências, rollback). Não abrir todas as issues de expansão sem validar prioridade e evitar duplicidade. Estados: proposta, pronta, em implementação, em revisão, bloqueada, concluída com evidência; nunca confundir PR aberta com entrega.
+
+## Atualização de execução — 24/11/2026
+
+| ID | Estado atual | Evidência / próxima ação |
+|---|---|---|
+| FND-01A | Em revisão | #216 candidata consolidada ed0095f; CI integral e Windows Setup disparados |
+| FND-01B | Em revisão | #218 incorporada; #227 fecha lacuna de PLAN GUI de #211; comparar demais divergências de #212–215 |
+| FND-01C | Em revisão | #219–226 ancestrais da candidata, checks individuais aprovados; revisão histórica restante |
+| AUD-01B | Parcial validado | #220–226: replay, tenant, retenção, data comercial, privacidade e auditoria; não equivale a auditoria completa |
+| AUD-01C | Em revisão | 210 sucessos cumulativos; validar runs integrais por ID, não apenas SHA compartilhado |
+| FND-02 | Em andamento | 21 documentos existentes auditados, zero links relativos para caminhos ausentes; atualização #21 |
+| FND-03 | Em revisão | ZIP/EDB automatizados; PLAN GUI #227 pendente; assinatura comercial e VM física pendentes |
+| FND-04–10 | Não concluídos | Backup físico, LAN, periféricos, fiscal, performance, recuperação e piloto exigem gates próprios |
+
+Detalhes: [21 — consolidação da candidata](21-foundation-consolidacao-candidata.md). Nenhuma liberação comercial.
