@@ -21,6 +21,8 @@ Transformar o Esterium em um ERP de varejo confiável para as lojas da família,
 | [11 — Roadmap e backlog](11-roadmap-backlog.md) | Sequência, dependências, tarefas e aceite |
 | [12 — Governança e qualidade](12-governanca-qualidade.md) | Processo de PR, testes, evidências e documentação |
 | [13 — Decisões e questões abertas](13-decisoes.md) | Decisões existentes, propostas e questões de negócio |
+| [14 — Triagem de PRs](14-foundation-pr-triagem-inicial.md) | Evidências de reconciliação inicial |
+| [15 — Revalidação de CI](15-foundation-ci-revalidacao.md) | Bloqueios, correções e comparação funcional |
 
 ## Fontes e autoridade
 Base técnica observada: main @ 69d5e205400d3f4b02c35dca9b164bdeaa9cf49c. Documentos anteriores permanecem históricos; este plano não substitui contratos implementados, runbooks ou requisitos fiscais oficiais. Em caso de conflito entre proposta e comportamento existente, registrar divergência antes de alterar código.
