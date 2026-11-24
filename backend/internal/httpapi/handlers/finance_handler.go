@@ -9,8 +9,8 @@ import (
 
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/common"
-	"github.com/example/sistemaemgo/internal/platform"
 	finapp "github.com/example/sistemaemgo/internal/modules/finance/application"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/go-chi/chi/v5"
 )
 
