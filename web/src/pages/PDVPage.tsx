@@ -621,7 +621,11 @@ export default function PDVPage() {
   }
 
   async function retryAttention(id: string) {
-    if (!retryQueueItem(id)) return
+    if (!retryQueueItem(id)) {
+      refreshPending()
+      setError('Reenvio bloqueado. Confira a venda no servidor antes de qualquer ajuste.')
+      return
+    }
     await syncPending()
   }
 
@@ -642,7 +646,11 @@ export default function PDVPage() {
     ) {
       return
     }
-    if (!rebindQueueItemToCashSession(id, cashSessionId)) return
+    if (!rebindQueueItemToCashSession(id, cashSessionId)) {
+      refreshPending()
+      setError('Vinculação bloqueada. Confira a venda no servidor antes de qualquer ajuste.')
+      return
+    }
     await syncPending()
   }
 
@@ -1859,14 +1867,17 @@ export default function PDVPage() {
                 <div key={item.id} className="rounded-md border p-2 text-xs">
                   <div className="font-mono">{item.id}</div>
                   <div className="mt-1 text-gray-700">
-                    Motivo: {item.attentionReason === 'expired' ? 'Prazo de sincronização excedido' : item.attentionReason === 'request_rejected' ? 'Servidor pediu revisão' : item.attentionReason === 'legacy_migration' ? 'Venda de versão anterior' : 'Conferência necessária'} •{' '}
-                    Confira o registro antes de tentar novamente.
+                    Motivo: {item.attentionReason === 'expired' ? 'Prazo de sincronização excedido' : item.attentionReason === 'request_rejected' ? 'Servidor pediu revisão' : item.attentionReason === 'legacy_migration' ? 'Venda de versão anterior' : item.attentionReason === 'retention_expired' ? 'Prazo seguro de 28 dias excedido' : item.attentionReason === 'retention_unknown' ? 'Data original não confiável' : 'Conferência necessária'} •{' '}
+                    {item.attentionReason === 'retention_expired' || item.attentionReason === 'retention_unknown'
+                      ? 'Reenvio e vinculação bloqueados. Confira no servidor antes de descartar ou ajustar manualmente.'
+                      : 'Confira o registro antes de tentar novamente.'}
                   </div>
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
                       onClick={() => void retryAttention(item.id)}
-                      className="rounded-md border px-2 py-1"
+                      disabled={item.attentionReason === 'retention_expired' || item.attentionReason === 'retention_unknown'}
+                      className="rounded-md border px-2 py-1 disabled:opacity-50"
                     >
                       Tentar novamente
                     </button>
@@ -1874,7 +1885,8 @@ export default function PDVPage() {
                       <button
                         type="button"
                         onClick={() => void rebindAttentionToCurrentCash(item.id)}
-                        className="rounded-md border px-2 py-1"
+                        disabled={item.attentionReason === 'retention_expired' || item.attentionReason === 'retention_unknown'}
+                        className="rounded-md border px-2 py-1 disabled:opacity-50"
                       >
                         Usar caixa atual
                       </button>
