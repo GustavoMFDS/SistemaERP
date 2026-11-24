@@ -1,6 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param([switch]$FromIntegratedStage,[switch]$RunERPStartupSmoke)
+param([switch]$FromIntegratedStage,[switch]$RunERPStartupSmoke,[switch]$RunSecurityRecoveryContract)
 # Real Garnet smoke: disposable Windows CI, pinned upstream ZIP, no ERP data.
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -15,6 +15,9 @@ if($RunERPStartupSmoke -and (-not $FromIntegratedStage -or
 if($RunERPStartupSmoke -and (-not $FromIntegratedStage -or
    $env:ESTERIUM_CI_DATABASE_URL_FILE -notmatch 'database-url(?:-first-admin)?\.secret$')){
     throw 'ERP startup smoke requires the integrated PostgreSQL secret handoff.'
+}
+if ($RunSecurityRecoveryContract -and $FromIntegratedStage) {
+    throw 'Source-level recovery contract is restricted to the standalone hosted CI job.'
 }
 $id=[Guid]::NewGuid().ToString('N')
 $root=Join-Path $env:RUNNER_TEMP ('esterium-garnet-aof-'+$id)
@@ -36,6 +39,34 @@ $server=$null
 $thumbprint=''
 $port=64325
 $env:ESTERIUM_DEPENDENCY_CONFIG_DISPOSABLE_CI='1'
+$contractBinary=Join-Path $root 'garnet-security-contract.test.exe'
+function Invoke-SecurityRecoveryContract([string]$phase) {
+    if (-not $RunSecurityRecoveryContract) { return }
+    $variables=@{
+        ESTERIUM_TEST_GARNET_RECOVERY_STAGE=$phase
+        ESTERIUM_TEST_GARNET_RECOVERY_ID=$id
+        ESTERIUM_TEST_GARNET_RECOVERY_PASSWORD=$password
+        ESTERIUM_TEST_GARNET_RECOVERY_CERT=$garnetPublicCert
+    }
+    $previous=@{}
+    try {
+        foreach ($key in $variables.Keys) {
+            $previous[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+            [Environment]::SetEnvironmentVariable($key,$variables[$key],'Process')
+        }
+        $result=@(& $contractBinary '-test.run=^TestGarnetNativeSecurityRecovery$' '-test.v' '-test.count=1' '-test.timeout=45s')
+        if ($LASTEXITCODE -ne 0 -or ($result -join "`n") -notmatch '(?m)^--- PASS: TestGarnetNativeSecurityRecovery ') {
+            # Test output contains only fixed diagnostics; no credentials.
+            $result | Write-Output
+            throw ('Native Garnet ERP security contract failed or skipped: '+$phase)
+        }
+        Write-Output ('PASS: native Garnet ERP security contract '+$phase)
+    } finally {
+        foreach ($key in $previous.Keys) {
+            [Environment]::SetEnvironmentVariable($key,$previous[$key],'Process')
+        }
+    }
+}
 function Protect-Fixture([string]$path,[bool]$networkRead) {
     $grants=@('/inheritance:r','/grant:r','*S-1-5-18:F','*S-1-5-32-544:F')
     if ($networkRead) { $grants+='*S-1-5-20:R' }
@@ -287,6 +318,16 @@ try {
         throw 'Upstream official Garnet ZIP hash differs from independently pinned CI fixture.'
     }
     Expand-Archive -LiteralPath $zip -DestinationPath $bin -ErrorAction Stop
+    if ($RunSecurityRecoveryContract) {
+        # Compile before starting the cache so downloads cannot consume TTL.
+        Push-Location (Join-Path (Split-Path -Parent $PSScriptRoot) 'backend')
+        try {
+            go test -c -o $contractBinary ./internal/app
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $contractBinary -PathType Leaf)) {
+                throw 'Could not compile native Garnet ERP security contract.'
+            }
+        } finally { Pop-Location }
+    }
     $server=Start-Garnet $fresh 'fresh'
     Assert-PrivateDotnetRuntime -workerPid $server.Id -phase 'console'
     $connection=Open-Redis
@@ -306,6 +347,7 @@ try {
     } finally {
         $connection.reader.Dispose();$connection.ssl.Dispose();$connection.tcp.Dispose()
     }
+    Invoke-SecurityRecoveryContract 'write'
     Stop-Process -Id $server.Id -Force
     $server.WaitForExit()
     $server=$null
@@ -326,6 +368,7 @@ try {
     } finally {
         $connection.reader.Dispose();$connection.ssl.Dispose();$connection.tcp.Dispose()
     }
+    Invoke-SecurityRecoveryContract 'verify'
     # The console process passed AOF recovery. Now prove the protected Garnet
     # executable/configuration under real Windows SCM with the pinned WinSW.
     Stop-Process -Id $server.Id -Force
