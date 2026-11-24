@@ -75,3 +75,7 @@ queda e aceite explícito do checklist [#151](https://github.com/GustavoMFDS/Sis
 
 Após a primeira instalação, a liberação/start automático continua
 deliberadamente **bloqueada** até passar pelos gates de operação.
+
+## Verificação rigorosa de release aprovada (proposta de reconciliação #211)
+
+O PLAN padrão verifica a estrutura, os fornecedores e as condições locais sem escrever; não é aprovação comercial. Para um pacote de distribuição cujo manifesto SHA-256 e thumbprint do editor já foram obtidos por canal independente, execute o mesmo comando técnico com `-VerifyApprovedRelease` (sem `-Apply` e sem fixture). Execute somente a partir do diretório tools do pacote previamente autenticado. O coordenador valida sua própria assinatura, os delegados, a ativação, o verificador e o gate antes de invocar o gate completo de manifesto/assinaturas; somente depois executa os dois PLANs. `-Apply` também usa esse gate antes de qualquer PLAN ou escrita e mantém as validações TLS e firewall. Nenhuma etapa reduz os controles internos, aprova certificado novo, altera trust store ou autoriza venda. A prévia unsigned continua PLAN estrutural, sem Apply; não exige Docker, WSL, Go ou Node. A aprovação comercial e teste físico permanecem externos.

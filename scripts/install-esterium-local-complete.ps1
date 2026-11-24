@@ -26,6 +26,8 @@ param(
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [switch]$Apply,
+    # Strict, read-only approval of the complete signed release before either PLAN.
+    [switch]$VerifyApprovedRelease,
     [switch]$PostgresBinaryZip,
     # Absolutely no executable vendor/ERP installation is allowed with this
     # test-only option. It verifies ONLY the real two-stage PLAN path in CI.
@@ -34,7 +36,7 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'A instalacao completa exige Windows.' }
-if ($SyntheticPlanCIFixture -and ($Apply -or $env:GITHUB_ACTIONS -ne 'true' -or
+if ($SyntheticPlanCIFixture -and ($Apply -or $VerifyApprovedRelease -or $env:GITHUB_ACTIONS -ne 'true' -or
     $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     $env:ESTERIUM_SETUP_PLAN_DISPOSABLE_CI -ne '1')) {
     throw 'Plano sintetico restrito a CI Windows descartavel, proibido em Apply.'
@@ -77,7 +79,7 @@ foreach ($helper in @($setup,$finish,$activation)) {
         throw 'Instalador incompleto: falta etapa obrigatoria.'
     }
 }
-if ($Apply) {
+if ($Apply -or $VerifyApprovedRelease) {
     if ($ApprovedManifestSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
         $TrustedPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
         throw 'Execucao real exige manifesto e editor aprovados independentemente.'
@@ -88,9 +90,10 @@ if ($Apply) {
         [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Execucao real somente a partir das ferramentas do pacote assinado.'
     }
-    # Authorize this coordinator and both privileged delegates before PLAN
-    # or execution. Each delegate will independently recheck its own helpers.
-    foreach ($path in @($PSCommandPath,$setup,$finish,$activation)) {
+    # Authenticate the verification code itself before invoking it.
+    $verify=Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1'
+    $signedGate=Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'
+    foreach ($path in @($PSCommandPath,$setup,$finish,$activation,$verify,$signedGate)) {
         $signature=Get-AuthenticodeSignature -LiteralPath $path
         if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
             $null -eq $signature.SignerCertificate -or
@@ -99,6 +102,11 @@ if ($Apply) {
             throw 'Instalador completo sem assinatura do editor aprovado.'
         }
     }
+    # Verify the independent manifest digest and approved signatures BEFORE
+    # either delegate is invoked; delegates retain their own Apply checks.
+    & $signedGate -BundleDir $source -ExpectedManifestSHA256 $ApprovedManifestSHA256 -ExpectedPublisherThumbprint $TrustedPublisherThumbprint | Out-Null
+}
+if ($Apply) {
     if ([string]::IsNullOrWhiteSpace($TLSCertFile) -or [string]::IsNullOrWhiteSpace($TLSKeyFile)) {
         throw 'Apply exige certificado HTTPS confiavel e chave privada para o servico da loja.'
     }
@@ -143,6 +151,9 @@ $finishArgs=@{
 & $setup @setupArgs | Out-Null
 & $finish @finishArgs | Out-Null
 if (-not $Apply) {
+    if ($VerifyApprovedRelease) {
+        Write-Output 'PASS: release completa com manifesto e assinatura aprovados independentemente.'
+    }
     Write-Output 'PLAN: PostgreSQL 16, Garnet e ERP em um procedimento tecnico unico.'
     Write-Output 'PLAN: dependencias locais, TLS, banco novo e prova sem habilitar venda.'
     Write-Output 'PLAN: nenhuma pasta, senha, banco ou servico foi alterado.'

@@ -194,6 +194,26 @@ try {
             (Get-Service -Name 'EsteriumGarnet' -ErrorAction SilentlyContinue)) {
             throw 'Synthetic signed first-install PLAN changed a Windows installation.'
         }
+        # A synthetic PLAN is never eligible for commercial approval.
+        $planArgs.VerifyApprovedRelease=$true
+        $refusal=''
+        try { & $runOne @planArgs | Out-Null }
+        catch { $refusal=$_.Exception.Message }
+        if ($refusal -notmatch 'Plano sintetico restrito a CI Windows descartavel') {
+            throw 'Synthetic PLAN could request approved release verification.'
+        }
+        # Outside fixture mode, an explicitly wrong publisher must fail before PLAN delegates.
+        $planArgs.SyntheticPlanCIFixture=$false
+        $planArgs.TrustedPublisherThumbprint='0'*40
+        $refusal=''
+        try { & $runOne @planArgs | Out-Null }
+        catch { $refusal=$_.Exception.Message }
+        if ($refusal -notmatch 'sem assinatura do editor aprovado') {
+            throw 'Approved read-only PLAN accepted a wrong publisher.'
+        }
+        $planArgs.TrustedPublisherThumbprint=$certThumb
+        $planArgs.SyntheticPlanCIFixture=$true
+        $planArgs.VerifyApprovedRelease=$false
         $planArgs.Apply=$true
         $refusal=''
         try { & $runOne @planArgs | Out-Null }
