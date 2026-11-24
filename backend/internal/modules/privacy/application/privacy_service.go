@@ -5,6 +5,7 @@ import (
 	"net/mail"
 	"strings"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	"github.com/google/uuid"
 )
@@ -58,7 +59,7 @@ func (s *Service) GetRequest(ctx context.Context, tenantID, id string) (any, err
 	return s.repo.GetRequest(ctx, tenantID, id)
 }
 
-func (s *Service) UpdateRequestStatus(ctx context.Context, tenantID, id string, req UpdateStatusRequest) error {
+func (s *Service) UpdateRequestStatus(ctx context.Context, tenantID, id string, req UpdateStatusRequest, event audit.Event) error {
 	req.Status = strings.ToLower(strings.TrimSpace(req.Status))
 	if !isUUID(id) || !validStatus(req.Status) {
 		return common.ErrValidation
@@ -70,7 +71,9 @@ func (s *Service) UpdateRequestStatus(ctx context.Context, tenantID, id string, 
 	if !validStatusTransition(current.Status, req.Status) {
 		return common.ErrConflict
 	}
-	return s.repo.UpdateRequestStatus(ctx, tenantID, id, req.Status, req.Notes)
+	event = requestMutationEvent(event, tenantID, id, "privacy.request.update")
+	event.Metadata = map[string]any{"status": req.Status}
+	return s.repo.UpdateRequestStatus(ctx, tenantID, id, current.Status, req.Status, req.Notes, event)
 }
 
 func (s *Service) ExportSubjectData(ctx context.Context, tenantID, requestID string) (map[string]any, error) {
@@ -84,7 +87,7 @@ func (s *Service) ExportSubjectData(ctx context.Context, tenantID, requestID str
 	return s.repo.ExportSubjectData(ctx, tenantID, req.SubjectType, *req.SubjectID)
 }
 
-func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, requestID string) error {
+func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, requestID string, event audit.Event) error {
 	req, err := s.repo.GetRequest(ctx, tenantID, requestID)
 	if err != nil {
 		return err
@@ -92,10 +95,10 @@ func (s *Service) AnonymizeSubject(ctx context.Context, tenantID, requestID stri
 	if req.SubjectID == nil || strings.TrimSpace(*req.SubjectID) == "" {
 		return common.ErrValidation
 	}
-	return s.repo.AnonymizeSubject(ctx, tenantID, req.SubjectType, *req.SubjectID)
+	return s.repo.AnonymizeSubject(ctx, tenantID, req.SubjectType, *req.SubjectID, requestMutationEvent(event, tenantID, requestID, "privacy.subject.anonymize"))
 }
 
-func (s *Service) BlockSubject(ctx context.Context, tenantID, requestID string) error {
+func (s *Service) BlockSubject(ctx context.Context, tenantID, requestID string, event audit.Event) error {
 	req, err := s.repo.GetRequest(ctx, tenantID, requestID)
 	if err != nil {
 		return err
@@ -103,7 +106,18 @@ func (s *Service) BlockSubject(ctx context.Context, tenantID, requestID string) 
 	if req.SubjectID == nil || strings.TrimSpace(*req.SubjectID) == "" {
 		return common.ErrValidation
 	}
-	return s.repo.BlockSubject(ctx, tenantID, req.SubjectType, *req.SubjectID)
+	return s.repo.BlockSubject(ctx, tenantID, req.SubjectType, *req.SubjectID, requestMutationEvent(event, tenantID, requestID, "privacy.subject.block"))
+}
+
+// Derive event identity from the authorized request, never from JSON input.
+func requestMutationEvent(event audit.Event, tenantID, requestID, action string) audit.Event {
+	event.TenantID = tenantID
+	event.ResourceType = "data_subject_request"
+	event.ResourceID = requestID
+	event.Action = action
+	event.Outcome = "success"
+	event.Metadata = nil
+	return event
 }
 
 func (s *Service) RecordConsent(ctx context.Context, tenantID, requestID string, req ConsentCreateRequest) (string, error) {

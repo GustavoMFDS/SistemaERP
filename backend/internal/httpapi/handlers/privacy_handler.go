@@ -87,11 +87,10 @@ func (h *PrivacyHandler) UpdateRequestStatus(w http.ResponseWriter, r *http.Requ
 		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if err := h.svc.UpdateRequestStatus(r.Context(), au.TenantID, id, req); err != nil {
+	if err := h.svc.UpdateRequestStatus(r.Context(), au.TenantID, id, req, privacyMutationContext(r, au.UserID)); err != nil {
 		writePrivacyError(w, r, err)
 		return
 	}
-	h.record(r, au.TenantID, au.UserID, "privacy.request.update", "data_subject_request", id, "success", map[string]any{"status": req.Status})
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "updated"})
 }
 
@@ -112,14 +111,14 @@ func (h *PrivacyHandler) ExportSubject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PrivacyHandler) AnonymizeSubject(w http.ResponseWriter, r *http.Request) {
-	h.subjectAction(w, r, "privacy.subject.anonymize", func(tenantID, requestID string) error {
-		return h.svc.AnonymizeSubject(r.Context(), tenantID, requestID)
+	h.subjectAction(w, r, func(tenantID, requestID string, event audit.Event) error {
+		return h.svc.AnonymizeSubject(r.Context(), tenantID, requestID, event)
 	})
 }
 
 func (h *PrivacyHandler) BlockSubject(w http.ResponseWriter, r *http.Request) {
-	h.subjectAction(w, r, "privacy.subject.block", func(tenantID, requestID string) error {
-		return h.svc.BlockSubject(r.Context(), tenantID, requestID)
+	h.subjectAction(w, r, func(tenantID, requestID string, event audit.Event) error {
+		return h.svc.BlockSubject(r.Context(), tenantID, requestID, event)
 	})
 }
 
@@ -174,18 +173,22 @@ func (h *PrivacyHandler) RevokeConsent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "revoked"})
 }
 
-func (h *PrivacyHandler) subjectAction(w http.ResponseWriter, r *http.Request, action string, fn func(tenantID, requestID string) error) {
+func privacyMutationContext(r *http.Request, actorID string) audit.Event {
+	requestID, ip, userAgent := audit.RequestContext(r)
+	return audit.Event{ActorUserID: actorID, RequestID: requestID, IP: ip, UserAgent: userAgent}
+}
+
+func (h *PrivacyHandler) subjectAction(w http.ResponseWriter, r *http.Request, fn func(tenantID, requestID string, event audit.Event) error) {
 	au, ok := middleware.GetAuthUser(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "authentication_error", "nao autenticado", nil)
 		return
 	}
 	id := chi.URLParam(r, "id")
-	if err := fn(au.TenantID, id); err != nil {
+	if err := fn(au.TenantID, id, privacyMutationContext(r, au.UserID)); err != nil {
 		writePrivacyError(w, r, err)
 		return
 	}
-	h.record(r, au.TenantID, au.UserID, action, "data_subject_request", id, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "processed"})
 }
 

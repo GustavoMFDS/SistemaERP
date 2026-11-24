@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
 	privacy "github.com/example/sistemaemgo/internal/modules/privacy/domain"
@@ -71,21 +72,48 @@ func (r *Repo) GetRequest(ctx context.Context, tenantID, id string) (privacy.Dat
 	return items[0], nil
 }
 
-func (r *Repo) UpdateRequestStatus(ctx context.Context, tenantID, id, status string, notes *string) error {
-	tag, err := r.db.Exec(ctx, `
+func (r *Repo) UpdateRequestStatus(ctx context.Context, tenantID, id, previousStatus, status string, notes *string, event audit.Event) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `
 		UPDATE data_subject_requests
 		SET status=$3,
 		    notes=COALESCE($4, notes),
 		    resolved_at=CASE WHEN $3 IN ('completed', 'rejected', 'cancelled') THEN now() ELSE resolved_at END
-		WHERE tenant_id=$1 AND id=$2
-	`, tenantID, id, status, notes)
+		WHERE tenant_id=$1 AND id=$2 AND status=$5
+	`, tenantID, id, status, notes, previousStatus)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
+	if tag.RowsAffected() != 1 {
+		var exists bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM data_subject_requests WHERE tenant_id=$1 AND id=$2)", tenantID, id).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return pgx.ErrNoRows
+		}
+		return common.ErrConflict
 	}
-	return nil
+	if event.ResourceID != id {
+		return common.ErrValidation
+	}
+	return r.commitMutation(ctx, tx, tenantID, "privacy.request.update", event)
+}
+
+// Commit only when the required audit event is persisted in the same transaction.
+func (r *Repo) commitMutation(ctx context.Context, tx pgx.Tx, tenantID, action string, event audit.Event) error {
+	if event.TenantID != tenantID || event.Action != action || event.ActorUserID == "" ||
+		event.ResourceType != "data_subject_request" || event.ResourceID == "" || event.Outcome != "success" {
+		return common.ErrValidation
+	}
+	if err := audit.New(r.db, nil).RecordTx(ctx, tx, event); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repo) ExportSubjectData(ctx context.Context, tenantID, subjectType, subjectID string) (map[string]any, error) {
@@ -99,10 +127,15 @@ func (r *Repo) ExportSubjectData(ctx context.Context, tenantID, subjectType, sub
 	}
 }
 
-func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subjectID string, event audit.Event) error {
 	switch subjectType {
 	case "customer":
-		tag, err := r.db.Exec(ctx, `
+		tx, err := r.db.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		tag, err := tx.Exec(ctx, `
 			UPDATE customers
 			SET name='Titular anonimizado', document=NULL, email=NULL, phone=NULL, updated_at=now()
 			WHERE tenant_id=$1 AND id=$2
@@ -113,24 +146,24 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 		if tag.RowsAffected() == 0 {
 			return pgx.ErrNoRows
 		}
-		return nil
+		return r.commitMutation(ctx, tx, tenantID, "privacy.subject.anonymize", event)
 	case "user":
-		return r.mutateUserSubject(ctx, tenantID, subjectID, true)
+		return r.mutateUserSubject(ctx, tenantID, subjectID, true, event)
 	default:
 		return fmt.Errorf("unsupported subject type")
 	}
 }
 
-func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectID string, event audit.Event) error {
 	if subjectType != "user" {
 		return common.ErrValidation
 	}
-	return r.mutateUserSubject(ctx, tenantID, subjectID, false)
+	return r.mutateUserSubject(ctx, tenantID, subjectID, false, event)
 }
 
 // User identity is global, membership is tenant-local. A privacy action in
 // one store must not disable or anonymize an identity used by another store.
-func (r *Repo) mutateUserSubject(ctx context.Context, tenantID, subjectID string, anonymize bool) error {
+func (r *Repo) mutateUserSubject(ctx context.Context, tenantID, subjectID string, anonymize bool, event audit.Event) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -192,7 +225,11 @@ func (r *Repo) mutateUserSubject(ctx context.Context, tenantID, subjectID string
 			return pgx.ErrNoRows
 		}
 	}
-	return tx.Commit(ctx)
+	action := "privacy.subject.block"
+	if anonymize {
+		action = "privacy.subject.anonymize"
+	}
+	return r.commitMutation(ctx, tx, tenantID, action, event)
 }
 
 func (r *Repo) RecordConsent(ctx context.Context, tenantID, requestID string, req privacyapp.ConsentCreateRequest) (string, error) {
