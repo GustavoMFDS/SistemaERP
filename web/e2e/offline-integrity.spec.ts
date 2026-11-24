@@ -334,7 +334,7 @@ test('offline replay respects original intent age and never sends ambiguous lega
       sub: 'retention-user', tenant_id: 'retention-tenant',
       exp: Math.floor(Date.now() / 1000) + 3600,
     }))
-    auth.setToken('x.' + payload.replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '') + '.x')
+    auth.setToken('x.' + payload.replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '') + '.x')
     const day = 24 * 60 * 60 * 1000
     const now = Date.now()
     const key = auth.scopedStorageKey('sistemaemgo:offlineQueue:v2')
