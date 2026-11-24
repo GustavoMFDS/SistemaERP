@@ -2028,6 +2028,23 @@ jobs:
           psql_db < backend/tests/integration/core_tenant_relationships.sql
           psql_db -Atc "SELECT version || ':' || dirty FROM schema_migrations" | grep -Fx '53:false'
 
+      - name: Prove actual idempotency maintenance across four disposable tables
+        run: |
+          set -euo pipefail
+          db=sistemaemgo_retention_ci
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='$db'")" != "0" ]; then
+            echo "Refusing to reuse retention database" >&2
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db OWNER sistemaemgo;"
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_retention_ci WITH (FORCE);"' EXIT
+          export TEST_IDEMPOTENCY_RETENTION_DATABASE_URL="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/$db?sslmode=disable"
+          docker run --rm --network host -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations -database="$TEST_IDEMPOTENCY_RETENTION_DATABASE_URL" up
+          docker compose exec -T db psql -U sistemaemgo -d "$db" -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+          (cd backend && go test -v -count=1 -run '^TestIdempotencyRetentionAllTables$' ./internal/app) | tee /tmp/esterium-retention-ci.log
+          grep -F -- '--- PASS: TestIdempotencyRetentionAllTables ' /tmp/esterium-retention-ci.log
+
       - name: Run tagged integration tests twice against the same disposable database
         working-directory: backend
         env:
