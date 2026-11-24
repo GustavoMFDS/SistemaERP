@@ -24,3 +24,20 @@ Classificação provisória: cobertura não demonstrada. Comparar semântica do 
 
 ## Próxima ação
 FND-01A/B permanece em andamento: completar diffs paginados, comparar #212–215, verificar checks exigidos e avaliar #211. FND-01C (históricas) e AUD-01 detalhada continuam pendentes. Nenhuma release liberada.
+
+## Continuação — 24/11/2026
+DEC-13 aprovado pelo usuário: instalação nativa Windows sem Docker/WSL, com PostgreSQL/Garnet e ERP compilado; gate em 04-foundation.md.
+
+Comparação de blobs de todos os arquivos modificados nas PRs de origem com árvore #216 HEAD 369b7bc (igualdade de conteúdo ou remoção equivalente; não demonstra equivalência funcional dos divergentes):
+
+| PR | Arquivos | Iguais | Divergentes | Classificação |
+|---|---:|---:|---:|---|
+| #211 | 5 | 0 | 5 | Gate externo não equivalente; reconciliação em #218 |
+| #212 | 83 | 54 | 29 | Instalador consolidado em parte; revisar diferenças |
+| #213 | 10 | 5 | 5 | Revisar CI, lockfile, dependências, PWA e relatório |
+| #214 | 3 | 2 | 1 | Testes fiscais idênticos; CI divergente |
+| #215 | 12 | 8 | 4 | Revisar workflow, fixture, package.json e Vite |
+ 
+Nenhum caminho de origem ausente na árvore candidata. #216 contém 138 arquivos alterados; não fechar PRs por mera presença de caminhos. #216 tem gate completo nos delegados somente em Apply; coordenador antes dos PLANs autenticava apenas coordenador/setup/finish/activation. #211 também exige modo rigoroso de verificação read-only e autenticação do próprio verificador. Proposta de correção em [#218](https://github.com/GustavoMFDS/SistemaERP/pull/218), HEAD dbbbf4d8abfcae6a55f69b5d8ef440f2c9c65ee4, base branch de #216: preserva recursos novos, inclui testes negativos e mantém fixture limitada a PLAN estrutural. 4 arquivos alterados, 56 adições e 6 remoções conforme diff. Sem CI executada por esta sessão; gate Windows e prova externa pendentes. #211 permanece aberta.
+
+Documentação de #216 registra rota SignPath OSS ainda sujeita a aceitação, e VM Verify/Plan sem alterações (não instalação). Não confundir instalação sem Docker com release assinada ou homologada. Próximo: revisar diferenças das PRs #212–215, checks de #218, checklist de #211, inventário AUD-01.
