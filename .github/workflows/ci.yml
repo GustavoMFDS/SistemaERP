@@ -23,7 +23,8 @@ jobs:
         run: go test -v -count=1 -timeout=2m ./cmd/api
 
   local-built-spa-origin-smoke:
-    runs-on: ubuntu-latest
+    # Playwright's pinned browser release does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -2038,7 +2039,8 @@ jobs:
 
   e2e:
     name: E2E disposable run ${{ matrix.isolation }}
-    runs-on: ubuntu-latest
+    # Playwright's pinned browser release does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -2158,7 +2160,8 @@ jobs:
 
 
   e2e-prodlike:
-    runs-on: ubuntu-latest
+    # Playwright's pinned browser release does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
