@@ -25,6 +25,7 @@ Transformar o Esterium em um ERP de varejo confiável para as lojas da família,
 | [15 — Revalidação de CI](15-foundation-ci-revalidacao.md) | Bloqueios, correções e comparação funcional |
 | [16 — PRs históricas](16-foundation-prs-historicas.md) | Cobertura e lacunas históricas |
 | [17 — Integridade transacional](17-foundation-integridade-transacional.md) | Replay offline, retenção e isolamento |
+| [18 — Isolamento relacional](18-foundation-isolamento-relacional.md) | Migration 0053, auditoria e gates |
 
 ## Fontes e autoridade
 Base técnica observada: main @ 69d5e205400d3f4b02c35dca9b164bdeaa9cf49c. Documentos anteriores permanecem históricos; este plano não substitui contratos implementados, runbooks ou requisitos fiscais oficiais. Em caso de conflito entre proposta e comportamento existente, registrar divergência antes de alterar código.
