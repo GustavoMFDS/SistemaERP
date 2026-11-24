@@ -1,0 +1,17 @@
+-- Revert only constraints/indexes introduced by 0053; retain all rows.
+BEGIN;
+ALTER TABLE cash_session_reconciliations DROP CONSTRAINT core53_cash_session_reconciliations_cash_session_id_fk;
+ALTER TABLE cash_movements DROP CONSTRAINT core53_cash_movements_cash_session_id_fk;
+ALTER TABLE payments DROP CONSTRAINT core53_payments_sale_id_fk;
+ALTER TABLE sale_items DROP CONSTRAINT core53_sale_items_product_id_fk;
+ALTER TABLE sale_items DROP CONSTRAINT core53_sale_items_sale_id_fk;
+ALTER TABLE sales DROP CONSTRAINT core53_sales_customer_id_fk;
+ALTER TABLE sales DROP CONSTRAINT core53_sales_cash_session_id_fk;
+ALTER TABLE cash_sessions DROP CONSTRAINT core53_cash_sessions_cash_register_id_fk;
+ALTER TABLE inventory_movements DROP CONSTRAINT core53_inventory_movements_product_id_fk;
+ALTER TABLE inventory_balances DROP CONSTRAINT core53_inventory_balances_product_id_fk;
+ALTER TABLE products DROP CONSTRAINT core53_products_category_id_fk;
+DROP INDEX core53_cash_registers_tenant_id_uidx;
+DROP INDEX core53_customers_tenant_id_uidx;
+DROP INDEX core53_categories_tenant_id_uidx;
+COMMIT;

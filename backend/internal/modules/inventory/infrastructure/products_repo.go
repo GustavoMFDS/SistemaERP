@@ -75,7 +75,7 @@ func (r *ProductsRepo) List(ctx context.Context, tenantID string, query string, 
 	}
 	defer rows.Close()
 
-	var items []inv.Product
+	items := make([]inv.Product, 0)
 	for rows.Next() {
 		var p inv.Product
 		var categoryID *string

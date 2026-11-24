@@ -26,7 +26,7 @@ O que funciona e o que ainda está pendente consta em [docs/catalogo-funcional-s
 
 | Área | Tecnologia / local |
 | --- | --- |
-| Backend | Go 1.26.10, API HTTP em `backend/cmd/api`, módulos em `backend/internal` |
+| Backend | Go 1.26.11, API HTTP em `backend/cmd/api`, módulos em `backend/internal` |
 | Frontend | React 19, TypeScript, Vite, Tailwind, em `web/` |
 | Persistência | PostgreSQL 16, migrações incrementais em `backend/migrations/` |
 | Sessões e cache | Redis |
@@ -34,7 +34,7 @@ O que funciona e o que ainda está pendente consta em [docs/catalogo-funcional-s
 | Testes | Go (unitários e integração), ESLint, TypeScript, Vite e Playwright em `web/e2e` |
 | Documentação | `docs/` (API, implantação, segurança, fiscal, operação e relatórios de validação) |
 
-**Para desenvolvimento e compilação:** Go **1.26.10**, Node.js **22.x**, npm compatível e Docker com Compose, ou PostgreSQL e Redis configurados separadamente. **O pacote técnico Windows** já compila Go e React e não exige Go/Node/Docker para abrir a interface na loja, mas PostgreSQL/Redis ainda exigem provisionamento seguro separado.
+**Para desenvolvimento e compilação:** Go **1.26.11**, Node.js **22.x**, npm compatível e Docker com Compose, ou PostgreSQL e Redis configurados separadamente. **O pacote técnico Windows** já compila Go e React e não exige Go/Node/Docker para abrir a interface na loja, mas PostgreSQL/Redis ainda exigem provisionamento seguro separado.
 
 ## Esterium Local para Windows (estágio técnico, sem instalação comercial)
 
@@ -103,7 +103,7 @@ Frontend: `http://localhost:5173` | API: `http://localhost:8080`.
 
 **Banco e senhas locais:** `.env.example` fornece `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` e `DATABASE_URL` compatíveis entre si. A senha é **apenas de desenvolvimento**: substitua por segredo próprio fora do ambiente de teste. Se já existir um volume PostgreSQL inicializado com outra senha, alterar `.env` **não altera** automaticamente o usuário do banco; ajuste as credenciais ou recrie **somente um volume de teste descartável**. Nunca use `docker compose down -v` em dados reais.
 
-**Seed:** `backend/seed/seed.sql` é **somente para demo/desenvolvimento**, não execute em homologação ou produção. O serviço `seed` no Compose é explicitamente destinado a esse uso. `backend/seed/seed.prod.sql` não cria administrador com senha padrão.
+**Seed:** `backend/seed/seed.sql` é **somente para demo/desenvolvimento**, não execute em homologação ou produção. O serviço `seed` no Compose é explicitamente destinado a esse uso. `backend/seed/seed.prod.sql` cria apenas RBAC, sem empresa, usuário, senha ou dados demo. Em uma instalação Windows limpa, o bootstrap de primeiro admin valida o banco vazio e recebe a senha em prompt protegido.
 
 ## Configuração importante
 
@@ -172,8 +172,12 @@ A **produção** depende de credenciamento, dados reais por CNPJ, certificado ad
 - [PDV offline](docs/offline-pdv.md), [privacidade/LGPD](docs/privacy/data-inventory.md).
 - [Auditoria de manutenção e código morto](docs/auditoria-codigo-20261015.md).
 
-**Segurança do runtime (outubro/2026):** o CI usa Go **1.26.10** e dependências `golang.org/x/*` atualizadas devido a correções de segurança. Não execute a API com Go 1.25.x nem com versões 1.26 anteriores à 1.26.10. O scanner `govulncheck` continua obrigatório.
+**Segurança do runtime (novembro/2026):** o CI usa Go **1.26.11** e OpenTelemetry 1.47.0 e dependências `golang.org/x/*` atualizadas devido a correções de segurança. Não execute a API com Go 1.25.x nem com versões 1.26 anteriores à 1.26.11. O scanner `govulncheck` continua obrigatório.
 
 ## Licença e contribuição
 
-Ainda não há licença definida no repositório. Isso **não** significa permissão automática para redistribuição. Mudanças significativas devem seguir por branch e PR com validação no HEAD final, sem merge com testes pendentes.
+O código deste repositório está sob a licença MIT (`LICENSE`). Isso não altera as licenças nem concede automaticamente direitos de redistribuição dos componentes de terceiros incluídos no instalador. Mudanças significativas devem seguir por branch e PR com validação no HEAD final, sem merge com testes pendentes.
+
+## Política de assinatura de código (Code signing policy)
+
+O projeto pretende solicitar assinatura Authenticode gratuita da SignPath Foundation para software open source. A inscrição ainda não foi aceita, não há certificado aprovado nem instalador funcional assinado; a prévia pública atual é somente demonstrativa e não instala. O publicador, se aprovada, aparecerá como SignPath Foundation. Consulte o [estado de preparação do SignPath OSS](docs/signpath-oss-readiness.md); esta preparação ainda não é uma política ativa nem autorização para distribuir o EXE.

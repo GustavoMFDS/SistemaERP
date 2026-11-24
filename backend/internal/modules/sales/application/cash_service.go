@@ -73,6 +73,59 @@ func (s *CashService) CurrentSession(ctx context.Context, tenantID string) (sale
 	return s.cash.GetOpenSession(ctx, tenantID)
 }
 
+func (s *CashService) CurrentSessionWithExpectedCash(ctx context.Context, tenantID string) (sales.CashSession, platform.Money, error) {
+	session, err := s.cash.GetOpenSession(ctx, tenantID)
+	if err != nil {
+		return sales.CashSession{}, 0, err
+	}
+
+	tx, err := s.uow.Begin(ctx)
+	if err != nil {
+		return sales.CashSession{}, 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	session, err = s.cash.GetSession(ctx, tx, tenantID, session.ID)
+	if err != nil || session.Status != "open" {
+		return sales.CashSession{}, 0, common.ErrCashSessionClosed
+	}
+	expected, err := s.expectedByMethod(ctx, tx, tenantID, session)
+	if err != nil {
+		return sales.CashSession{}, 0, err
+	}
+	return session, expected["cash"], nil
+}
+
+func (s *CashService) expectedByMethod(ctx context.Context, tx db.DBTX, tenantID string, session sales.CashSession) (map[string]platform.Money, error) {
+	payments, err := s.cash.SumPaymentsByMethod(ctx, tx, tenantID, session.ID)
+	if err != nil {
+		return nil, err
+	}
+	supply, withdrawal, err := s.cash.SumMovements(ctx, tx, tenantID, session.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	expected := make(map[string]platform.Money, len(cashReconciliationMethods))
+	for _, method := range cashReconciliationMethods {
+		expected[method] = payments[method]
+	}
+	expectedCash, err := session.OpeningAmount.AddChecked(payments["cash"])
+	if err != nil {
+		return nil, common.ErrValidation
+	}
+	expectedCash, err = expectedCash.AddChecked(supply)
+	if err != nil {
+		return nil, common.ErrValidation
+	}
+	expectedCash, err = expectedCash.SubChecked(withdrawal)
+	if err != nil {
+		return nil, common.ErrValidation
+	}
+	expected["cash"] = expectedCash
+	return expected, nil
+}
+
 func (s *CashService) OpenSession(ctx context.Context, tenantID string, userID string, req CashOpenRequest) (string, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return "", common.ErrValidation
@@ -244,32 +297,10 @@ func (s *CashService) CloseSession(ctx context.Context, tenantID string, userID,
 		return sales.CashCloseResult{}, common.ErrCashSessionClosed
 	}
 
-	payments, err := s.cash.SumPaymentsByMethod(ctx, tx, tenantID, sessionID)
+	expected, err := s.expectedByMethod(ctx, tx, tenantID, session)
 	if err != nil {
 		return sales.CashCloseResult{}, err
 	}
-	supply, withdrawal, err := s.cash.SumMovements(ctx, tx, tenantID, sessionID)
-	if err != nil {
-		return sales.CashCloseResult{}, err
-	}
-
-	expected := make(map[string]platform.Money, len(cashReconciliationMethods))
-	for _, method := range cashReconciliationMethods {
-		expected[method] = payments[method]
-	}
-	expectedCash, err := session.OpeningAmount.AddChecked(payments["cash"])
-	if err != nil {
-		return sales.CashCloseResult{}, common.ErrValidation
-	}
-	expectedCash, err = expectedCash.AddChecked(supply)
-	if err != nil {
-		return sales.CashCloseResult{}, common.ErrValidation
-	}
-	expectedCash, err = expectedCash.SubChecked(withdrawal)
-	if err != nil {
-		return sales.CashCloseResult{}, common.ErrValidation
-	}
-	expected["cash"] = expectedCash
 
 	declared := make(map[string]platform.Money, len(cashReconciliationMethods))
 	if len(req.ClosingByMethod) == 0 {

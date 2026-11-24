@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { APP_BRAND_NAME } from '../lib/brand'
+import { buildNonFiscalReceiptHtml, type NonFiscalReceiptLine } from '../lib/nonFiscalReceipt'
 import type { FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, apiOpenPrintable, errorMessage } from '../lib/api'
 import { useProductThumbnails } from '../lib/productThumbnails'
@@ -88,6 +90,13 @@ type SaleItem = {
 }
 
 type SalePayment = { method: string; amount: number; cash_received?: number }
+
+type CompletedSaleDialog = {
+  id: string
+  total: number
+  items: NonFiscalReceiptLine[]
+  paymentMethods: string[]
+}
 
 type SaleFiscalStatus = {
   sale_id: string
@@ -220,7 +229,7 @@ export default function PDVPage() {
   const [confirmedPaymentFingerprint, setConfirmedPaymentFingerprint] = useState('')
   const [saleId, setSaleId] = useState('')
   const [saleTotal, setSaleTotal] = useState<number>(0)
-  const [completedSaleDialog, setCompletedSaleDialog] = useState<{ id: string; total: number } | null>(null)
+  const [completedSaleDialog, setCompletedSaleDialog] = useState<CompletedSaleDialog | null>(null)
   const completedSaleButtonRef = useRef<HTMLButtonElement>(null)
   const [fiscalStatus, setFiscalStatus] = useState<SaleFiscalStatus | null>(null)
   const [fiscalStatusError, setFiscalStatusError] = useState('')
@@ -351,7 +360,7 @@ export default function PDVPage() {
     setLoading(true)
     try {
       const data = await apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0')
-      const active = data.items.filter((p) => p.active)
+      const active = (data.items ?? []).filter((p) => p.active)
       setProducts(active)
       const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
       if (cacheKey) {
@@ -612,7 +621,11 @@ export default function PDVPage() {
   }
 
   async function retryAttention(id: string) {
-    if (!retryQueueItem(id)) return
+    if (!retryQueueItem(id)) {
+      refreshPending()
+      setError('Reenvio bloqueado. Confira a venda no servidor antes de qualquer ajuste.')
+      return
+    }
     await syncPending()
   }
 
@@ -633,7 +646,11 @@ export default function PDVPage() {
     ) {
       return
     }
-    if (!rebindQueueItemToCashSession(id, cashSessionId)) return
+    if (!rebindQueueItemToCashSession(id, cashSessionId)) {
+      refreshPending()
+      setError('Vinculação bloqueada. Confira a venda no servidor antes de qualquer ajuste.')
+      return
+    }
     await syncPending()
   }
 
@@ -767,7 +784,7 @@ export default function PDVPage() {
     if (navigator.onLine) {
       try {
         const data = await apiJson<ProductsListResponse>('/api/v1/products?limit=200&offset=0')
-        catalog = data.items.filter((product) => product.active)
+        catalog = (data.items ?? []).filter((product) => product.active)
         setProducts(catalog)
         const cacheKey = scopedStorageKey(PRODUCTS_CACHE_NAMESPACE)
         if (cacheKey) {
@@ -985,6 +1002,37 @@ export default function PDVPage() {
     }
   }
 
+  function printNonFiscalReceipt() {
+    if (!completedSaleDialog) return
+    const popup = window.open('about:blank', '_blank')
+    if (!popup) {
+      setError('O navegador bloqueou a nova aba do comprovante. Permita pop-ups e tente novamente.')
+      return
+    }
+    popup.opener = null
+    try {
+      const markup = buildNonFiscalReceiptHtml({
+        brandName: APP_BRAND_NAME,
+        saleId: completedSaleDialog.id,
+        total: completedSaleDialog.total,
+        items: completedSaleDialog.items,
+        paymentMethods: completedSaleDialog.paymentMethods,
+        paperWidthMM: printerWidthMM,
+      })
+      popup.onload = () => {
+        popup.onload = null
+        popup.focus()
+        popup.print()
+      }
+      popup.document.open()
+      popup.document.write(markup)
+      popup.document.close()
+    } catch (error: unknown) {
+      popup.close()
+      setError('Não foi possível preparar o comprovante não fiscal: ' + errorMessage(error))
+    }
+  }
+
   async function finalizeSale() {
     if (!canFinalize || finalizeInFlight.current) return
 
@@ -1058,7 +1106,21 @@ export default function PDVPage() {
       refreshPending()
       setSaleId(res.id)
       setSaleTotal(res.total)
-      if (res.id) setCompletedSaleDialog({ id: res.id, total: res.total })
+      if (res.id) {
+        setCompletedSaleDialog({
+          id: res.id,
+          total: res.total,
+          items: items.map((item) => {
+            const product = productById.get(item.product_id)
+            return {
+              name: product?.name ?? 'Produto cadastrado',
+              quantity: item.qty,
+              unit: product?.unit ?? 'un',
+            }
+          }),
+          paymentMethods: payments.map((payment) => payment.method),
+        })
+      }
       fiscalSaleRef.current = res.id
       setPrintDecisionOpen(true)
       void refreshFiscalStatus(res.id)
@@ -1137,8 +1199,15 @@ export default function PDVPage() {
               Pagamento registrado. Total: <strong>R$ {completedSaleDialog.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.
             </p>
             <p className="mt-2 text-xs text-slate-600">
-              A autorização da nota fiscal, quando necessária, é conferida separadamente.
+              A nota fiscal é conferida separadamente. O comprovante não fiscal não a substitui.
             </p>
+            <button
+              type="button"
+              onClick={printNonFiscalReceipt}
+              className="mt-5 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-50"
+            >
+              Imprimir comprovante não fiscal
+            </button>
             <button
               ref={completedSaleButtonRef}
               type="button"
@@ -1798,14 +1867,17 @@ export default function PDVPage() {
                 <div key={item.id} className="rounded-md border p-2 text-xs">
                   <div className="font-mono">{item.id}</div>
                   <div className="mt-1 text-gray-700">
-                    Motivo: {item.attentionReason === 'expired' ? 'Prazo de sincronização excedido' : item.attentionReason === 'request_rejected' ? 'Servidor pediu revisão' : item.attentionReason === 'legacy_migration' ? 'Venda de versão anterior' : 'Conferência necessária'} •{' '}
-                    Confira o registro antes de tentar novamente.
+                    Motivo: {item.attentionReason === 'expired' ? 'Prazo de sincronização excedido' : item.attentionReason === 'request_rejected' ? 'Servidor pediu revisão' : item.attentionReason === 'legacy_migration' ? 'Venda de versão anterior' : item.attentionReason === 'retention_expired' ? 'Prazo seguro de 28 dias excedido' : item.attentionReason === 'retention_unknown' ? 'Data original não confiável' : 'Conferência necessária'} •{' '}
+                    {item.attentionReason === 'retention_expired' || item.attentionReason === 'retention_unknown'
+                      ? 'Reenvio e vinculação bloqueados. Confira no servidor antes de descartar ou ajustar manualmente.'
+                      : 'Confira o registro antes de tentar novamente.'}
                   </div>
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
                       onClick={() => void retryAttention(item.id)}
-                      className="rounded-md border px-2 py-1"
+                      disabled={item.attentionReason === 'retention_expired' || item.attentionReason === 'retention_unknown'}
+                      className="rounded-md border px-2 py-1 disabled:opacity-50"
                     >
                       Tentar novamente
                     </button>
@@ -1813,7 +1885,8 @@ export default function PDVPage() {
                       <button
                         type="button"
                         onClick={() => void rebindAttentionToCurrentCash(item.id)}
-                        className="rounded-md border px-2 py-1"
+                        disabled={item.attentionReason === 'retention_expired' || item.attentionReason === 'retention_unknown'}
+                        className="rounded-md border px-2 py-1 disabled:opacity-50"
                       >
                         Usar caixa atual
                       </button>

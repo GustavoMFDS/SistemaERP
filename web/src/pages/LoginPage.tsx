@@ -5,6 +5,7 @@ import { APIError, apiJson } from '../lib/api'
 import { setToken } from '../lib/auth'
 import PasswordField from '../components/PasswordField'
 import { resetFiscalReminderForLogin } from '../lib/fiscalReminderSession'
+import { APP_BRAND_NAME } from '../lib/brand'
 
 type LoginResponse = {
   token: { access_token: string; token_type: string; expires_in: number }
@@ -20,7 +21,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const previousTitle = document.title
-    document.title = 'Entrar — Esterium ERP'
+    document.title = 'Entrar — ' + APP_BRAND_NAME
     return () => { document.title = previousTitle }
   }, [])
 
@@ -54,7 +55,7 @@ export default function LoginPage() {
     <div className="min-h-full bg-gray-50">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
         <div className="rounded-lg border bg-white p-6">
-          <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>Esterium ERP</p>
+          <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>{APP_BRAND_NAME}</p>
           <h1 className="text-lg font-semibold">Bem-vindo de volta</h1>
           <p className="mt-1 text-sm text-gray-600">Entre com seu e-mail ou nome de usuário e sua senha para acessar a loja.</p>
 

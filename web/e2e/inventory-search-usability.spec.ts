@@ -1,6 +1,6 @@
-import { expect, test } from './fixtures'
+import { attachVisualScreenshot, expect, test } from './fixtures'
 
-test('estoque: busca de produto além dos primeiros 200 sem rolagem', async ({ page }) => {
+test('estoque: busca de produto além dos primeiros 200 sem rolagem', async ({ page }, testInfo) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha', { exact: true }).fill('admin123')
@@ -27,4 +27,5 @@ test('estoque: busca de produto além dos primeiros 200 sem rolagem', async ({ p
   await page.getByLabel('Produto para ajustar').selectOption(remoteId)
   await expect(page.getByLabel('Produto para ajustar')).toHaveValue(remoteId)
   await expect(page.getByRole('button', { name: 'Aplicar ajuste' })).toBeDisabled()
+  await attachVisualScreenshot(page, testInfo, 'inventory')
 })

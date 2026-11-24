@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/example/sistemaemgo/internal/modules/audit"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	privacy "github.com/example/sistemaemgo/internal/modules/privacy/domain"
 )
@@ -49,7 +50,7 @@ func TestExportAndAnonymizeUseStoredRequestSubject(t *testing.T) {
 		t.Fatalf("unexpected export data=%v tenant=%q", data, repo.exportedTenant)
 	}
 
-	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", repo.request.ID); err != nil {
+	if err := svc.AnonymizeSubject(context.Background(), "tenant-1", repo.request.ID, audit.Event{}); err != nil {
 		t.Fatalf("AnonymizeSubject returned error: %v", err)
 	}
 	if !repo.anonymized {
@@ -88,15 +89,15 @@ func TestStatusFlowValidation(t *testing.T) {
 	validID := "22222222-2222-2222-2222-222222222222"
 	for _, status := range []string{"in_progress", "rejected", "cancelled"} {
 		repo.request.Status = "open"
-		if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: status}); err != nil {
+		if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: status}, audit.Event{}); err != nil {
 			t.Fatalf("status %q should be valid: %v", status, err)
 		}
 	}
 	repo.request.Status = "open"
-	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: "open"}); err != common.ErrConflict {
+	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: "open"}, audit.Event{}); err != common.ErrConflict {
 		t.Fatalf("expected same-status update to be rejected, got %v", err)
 	}
-	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: "in_review"}); err != common.ErrValidation {
+	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", validID, UpdateStatusRequest{Status: "in_review"}, audit.Event{}); err != common.ErrValidation {
 		t.Fatalf("expected legacy status to be rejected, got %v", err)
 	}
 }
@@ -115,14 +116,14 @@ func TestStatusTerminalTransitionsAreRejected(t *testing.T) {
 		{"cancelled", "open"},
 	} {
 		repo.request.Status = tc.from
-		err := svc.UpdateRequestStatus(context.Background(), "tenant-1", repo.request.ID, UpdateStatusRequest{Status: tc.to})
+		err := svc.UpdateRequestStatus(context.Background(), "tenant-1", repo.request.ID, UpdateStatusRequest{Status: tc.to}, audit.Event{})
 		if err != common.ErrConflict {
 			t.Fatalf("expected %s -> %s conflict, got %v", tc.from, tc.to, err)
 		}
 	}
 
 	repo.request.Status = "in_progress"
-	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", repo.request.ID, UpdateStatusRequest{Status: "completed"}); err != nil {
+	if err := svc.UpdateRequestStatus(context.Background(), "tenant-1", repo.request.ID, UpdateStatusRequest{Status: "completed"}, audit.Event{}); err != nil {
 		t.Fatalf("expected in_progress -> completed to be valid: %v", err)
 	}
 }
@@ -166,7 +167,7 @@ func (f *fakePrivacyRepo) GetRequest(ctx context.Context, tenantID, id string) (
 	return f.request, nil
 }
 
-func (f *fakePrivacyRepo) UpdateRequestStatus(ctx context.Context, tenantID, id, status string, notes *string) error {
+func (f *fakePrivacyRepo) UpdateRequestStatus(ctx context.Context, tenantID, id, previousStatus, status string, notes *string, event audit.Event) error {
 	return nil
 }
 
@@ -175,12 +176,12 @@ func (f *fakePrivacyRepo) ExportSubjectData(ctx context.Context, tenantID, subje
 	return map[string]any{"subject_type": subjectType, "id": subjectID}, nil
 }
 
-func (f *fakePrivacyRepo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (f *fakePrivacyRepo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subjectID string, event audit.Event) error {
 	f.anonymized = true
 	return nil
 }
 
-func (f *fakePrivacyRepo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
+func (f *fakePrivacyRepo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectID string, event audit.Event) error {
 	return nil
 }
 

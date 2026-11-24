@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { attachVisualScreenshot } from './fixtures'
 
 async function submit(page: import('@playwright/test').Page) {
   await page.goto('/login')
@@ -47,4 +48,11 @@ test('mostrar e ocultar senha preserva valor e campo acessivel sem ambiguidade',
   await hide.click()
   await expect(password).toHaveAttribute('type', 'password')
   await expect(password).toHaveValue('senha-exemplo')
+})
+
+test('registro visual da tela de login para revisão Tailwind 4', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/login')
+  await expect(page.getByRole('button', { name: 'Entrar', exact: true })).toBeVisible()
+  await attachVisualScreenshot(page, testInfo, 'login')
 })

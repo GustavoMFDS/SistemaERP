@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { attachVisualScreenshot, expect, test } from './fixtures'
 
 async function openPDV(page: import('@playwright/test').Page) {
   await page.goto('/login')
@@ -10,7 +10,7 @@ async function openPDV(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { name: 'PDV', exact: true })).toBeVisible()
 }
 
-test('PDV desktop prioriza venda, pagamento e separa encerramento', async ({ page }) => {
+test('PDV desktop prioriza venda, pagamento e separa encerramento', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1500, height: 900 })
   await openPDV(page)
   const cash = page.locator('section[aria-labelledby="pdv-cash-title"]')
@@ -37,9 +37,10 @@ test('PDV desktop prioriza venda, pagamento e separa encerramento', async ({ pag
   }
   await expect(page.getByLabel('Código de barras')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeVisible()
+  await attachVisualScreenshot(page, testInfo, 'pdv-desktop')
 })
 
-test('PDV no celular organiza as tarefas na vertical sem rolagem horizontal geral', async ({ page }) => {
+test('PDV no celular organiza as tarefas na vertical sem rolagem horizontal geral', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openPDV(page)
   const cart = page.getByRole('region', { name: 'Produtos da venda' })
@@ -57,4 +58,5 @@ test('PDV no celular organiza as tarefas na vertical sem rolagem horizontal gera
   expect(documentOverflow.pageWidth).toBeLessThanOrEqual(documentOverflow.viewportWidth + 1)
   await expect(page.getByLabel('Código de barras')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Finalizar venda' })).toBeVisible()
+  await attachVisualScreenshot(page, testInfo, 'pdv-mobile')
 })

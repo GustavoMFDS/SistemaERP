@@ -16,19 +16,20 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - name: Verify native SCM stop/shutdown cancellation
         working-directory: backend
         run: go test -v -count=1 -timeout=2m ./cmd/api
 
   local-built-spa-origin-smoke:
-    runs-on: ubuntu-latest
+    # Playwright's pinned browser release does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -56,7 +57,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - name: Validate production configuration without opening external services
         shell: pwsh
@@ -100,24 +101,16 @@ jobs:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: backend/go.sum
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Restore optional vendor NSSM ZIP cache (untrusted until SHA-256 verified)
-        id: nssm-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
-          key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
       - name: Verify pinned official Garnet Windows TLS ACL and AOF recovery after crash
         shell: pwsh
-        run: ./scripts/test-esterium-garnet-real-aof-ci.ps1
-      - name: Save verified NSSM ZIP after successful Windows SCM/TLS/AOF test
-        if: success() && steps.nssm-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .vendor-cache/nssm-2.24-101-g897c7ad.zip
-          key: esterium-win25-nssm-2.24-101-g897c7ad-sha256-99F5045FFFBFFB745D67FE3A065A953C4A3D9C253B868892D9B685B0EE7D07B8
+        run: ./scripts/test-esterium-garnet-real-aof-ci.ps1 -RunSecurityRecoveryContract
 
   local-postgres-real-tls-smoke:
     runs-on: windows-2025
@@ -125,7 +118,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
       - name: Build local offline TLS generator for isolated PostgreSQL Windows smoke
         shell: pwsh
         run: |
@@ -174,7 +167,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
       - name: Compile offline PostgreSQL TLS certificate utility for disposable Windows fixture
         shell: pwsh
         run: |
@@ -238,7 +231,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - name: Execute the pinned Windows PostgreSQL migrator without a database
         shell: pwsh
@@ -269,7 +262,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -311,6 +304,8 @@ jobs:
           cp "$build_dir/bin/windows_amd64/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
           (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen)
           test -s dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe
+          (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-bootstrap-admin.exe ./cmd/esterium-bootstrap-admin)
+          test -s dist/esterium-local-win-x64/tools/esterium-bootstrap-admin.exe
       - name: Add curated Windows setup and backup tools
         run: |
           set -euo pipefail
@@ -349,13 +344,36 @@ jobs:
             scripts/bootstrap-esterium-local-schema.ps1 \
             scripts/stage-esterium-approved-windows-release.ps1 \
             scripts/probe-esterium-local-first-run.ps1 \
+            scripts/activate-esterium-local-first-install.ps1 \
+            scripts/repair-esterium-local-install.ps1 \
+            scripts/uninstall-esterium-local-app.ps1 \
             scripts/finish-esterium-local-first-install.ps1 \
             scripts/install-esterium-local-complete.ps1 \
+            scripts/bootstrap-esterium-first-admin.ps1 \
+            backend/seed/seed.prod.sql \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
             dist/esterium-local-win-x64/README_LOCAL.md
           cp -R backend/migrations dist/esterium-local-win-x64/migrations
           test "$(find dist/esterium-local-win-x64/migrations -name '*.up.sql' | wc -l)" -ge 51
+      - name: Embed pinned .NET runtime required by Garnet
+        run: |
+          set -euo pipefail
+          runtime_version='10.0.14'
+          runtime_sha512='a176095f1db69b42c81acc60940744078d6bf2d2ac643e418342aa9c81889f4bd13e42f4621b131f9e77e4bc781ad46e375956219df9a4f979031d2a5a8d93cd'
+          runtime_zip="$(mktemp --suffix=.zip)"
+          trap 'rm -f "$runtime_zip"' EXIT
+          runtime_url="https://builds.dotnet.microsoft.com/dotnet/Runtime/${runtime_version}/dotnet-runtime-${runtime_version}-win-x64.zip"
+          curl -fLsS --retry 2 --connect-timeout 25 --max-time 300 -o "$runtime_zip" "$runtime_url"
+          echo "${runtime_sha512}  ${runtime_zip}" | sha512sum --check
+          runtime_dir='dist/esterium-local-win-x64/tools/dotnet'
+          mkdir -p "$runtime_dir"
+          unzip -q "$runtime_zip" -d "$runtime_dir"
+          test -s "$runtime_dir/dotnet.exe"
+          test -s "$runtime_dir/LICENSE.txt"
+          test -s "$runtime_dir/ThirdPartyNotices.txt"
+          test -s "$runtime_dir/host/fxr/${runtime_version}/hostfxr.dll"
+          test -s "$runtime_dir/shared/Microsoft.NETCore.App/${runtime_version}/System.Private.CoreLib.dll"
       - name: Generate and verify bundle SHA-256 manifest
         shell: pwsh
         run: |
@@ -378,7 +396,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - name: Verify Go module files
         run: |
@@ -445,8 +463,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm install --global npm@11.6.1
       - run: npm ci
+      - run: npm run test:assets
       - run: npm run lint
       - run: npm run build
+      - run: npm run test:brand
 
   integration:
     runs-on: ubuntu-latest
@@ -454,7 +474,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - name: Start dependencies and run clean migrations
         run: docker compose up -d db redis migrate
@@ -1945,12 +1965,147 @@ jobs:
           docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS sistemaemgo_cash_tender WITH (FORCE);"
 
-      - name: Run tagged integration tests
+      - name: Verify v53 core tenant relationships, historical mismatch refusal and rollback
+        run: |
+          set -euo pipefail
+          db=sistemaemgo_core53_ci
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='$db'")" != "0" ]; then
+            echo "Refusing to reuse pre-existing core tenant test database" >&2
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db OWNER sistemaemgo;"
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_core53_ci WITH (FORCE);"' EXIT
+          migrate_db() {
+            docker run --rm --network host -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+              -path=/migrations -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/$db?sslmode=disable" "$@"
+          }
+          psql_db() { docker compose exec -T db psql -U sistemaemgo -d "$db" -v ON_ERROR_STOP=1 "$@"; }
+          migrate_db goto 52
+          psql_db -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+          # Synthetic historical cross-tenant link, allowed by v52.
+          psql_db <<'SQL'
+          INSERT INTO companies(legal_name,trade_name,cnpj)
+            VALUES ('CI mismatch A','CI mismatch A','00000000005303'),('CI mismatch B','CI mismatch B','00000000005304');
+          INSERT INTO categories(tenant_id,name)
+            SELECT id,'Core mismatch' FROM companies WHERE cnpj='00000000005304';
+          INSERT INTO products(tenant_id,category_id,sku,name,unit,price_cash)
+            SELECT a.id,c.id,'CORE53-MISMATCH','Core mismatch','UN',1
+            FROM companies a CROSS JOIN categories c
+            WHERE a.cnpj='00000000005303' AND c.name='Core mismatch';
+          SQL
+          # Raw transactional DDL must refuse mismatch without changing data or leaving partial constraints.
+          if psql_db < backend/migrations/0053_core_tenant_relationships.up.sql > /tmp/esterium-core53-refusal.log 2>&1; then
+            echo 'v53 unexpectedly accepted historical cross-tenant relationship' >&2
+            exit 1
+          fi
+          grep -F 'core53_products_category_id_fk' /tmp/esterium-core53-refusal.log
+          psql_db <<'SQL'
+          DO $verify$
+          BEGIN
+            IF NOT EXISTS(SELECT 1 FROM products WHERE sku='CORE53-MISMATCH' AND category_id IS NOT NULL)
+              OR EXISTS(SELECT 1 FROM pg_constraint WHERE conname LIKE 'core53_%')
+              OR to_regclass('public.core53_categories_tenant_id_uidx') IS NOT NULL THEN
+              RAISE EXCEPTION 'v53 refusal changed data or left partial DDL';
+            END IF;
+          END $verify$;
+          -- Only remove the deliberately invalid fixture in this dedicated CI database.
+          DELETE FROM products WHERE sku='CORE53-MISMATCH';
+          SQL
+          migrate_db up 1
+          psql_db < backend/tests/integration/core_tenant_relationships.sql
+          migrate_db down 1
+          psql_db <<'SQL'
+          DO $verify$
+          BEGIN
+            IF EXISTS(SELECT 1 FROM pg_constraint WHERE conname LIKE 'core53_%')
+              OR to_regclass('public.core53_categories_tenant_id_uidx') IS NOT NULL
+              OR NOT EXISTS(SELECT 1 FROM companies WHERE cnpj='00000000005303') THEN
+              RAISE EXCEPTION 'v53 downgrade did not preserve historical data or left constraints';
+            END IF;
+          END $verify$;
+          SQL
+          migrate_db up 1
+          psql_db < backend/tests/integration/core_tenant_relationships.sql
+          psql_db -Atc "SELECT version || ':' || dirty FROM schema_migrations" | grep -Fx '53:false'
+
+      - name: Prove actual idempotency maintenance across four disposable tables
+        run: |
+          set -euo pipefail
+          db=sistemaemgo_retention_ci
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='$db'")" != "0" ]; then
+            echo "Refusing to reuse retention database" >&2
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db OWNER sistemaemgo;"
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_retention_ci WITH (FORCE);"' EXIT
+          export TEST_IDEMPOTENCY_RETENTION_DATABASE_URL="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/$db?sslmode=disable"
+          docker run --rm --network host -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+            -path=/migrations -database="$TEST_IDEMPOTENCY_RETENTION_DATABASE_URL" up
+          docker compose exec -T db psql -U sistemaemgo -d "$db" -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+          (cd backend && go test -v -count=1 -run '^TestIdempotencyRetentionAllTables$' ./internal/app) | tee /tmp/esterium-retention-ci.log
+          grep -F -- '--- PASS: TestIdempotencyRetentionAllTables ' /tmp/esterium-retention-ci.log
+
+      - name: Verify v54 financial relationships and role membership
+        run: |
+          set -euo pipefail
+          db=sistemaemgo_core54_ci
+          if [ "$(docker compose exec -T db psql -U sistemaemgo -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='$db'")" != "0" ]; then
+            echo 'Refusing to reuse core54 database' >&2
+            exit 1
+          fi
+          docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db OWNER sistemaemgo;"
+          trap 'docker compose exec -T db psql -U sistemaemgo -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE sistemaemgo_core54_ci WITH (FORCE);"' EXIT
+          migrate_db() {
+            docker run --rm --network host -v "$PWD/backend/migrations:/migrations:ro" migrate/migrate:v4.17.1 \
+              -path=/migrations -database="postgres://sistemaemgo:sistemaemgo@127.0.0.1:5433/$db?sslmode=disable" "$@"
+          }
+          psql_db() { docker compose exec -T db psql -U sistemaemgo -d "$db" -v ON_ERROR_STOP=1 "$@"; }
+          migrate_db goto 53
+          psql_db -v ALLOW_DEMO_SEED=1 < backend/seed/seed.sql
+          # Deliberately orphan a key in the v53 disposable schema.
+          psql_db <<'SQL'
+          INSERT INTO idempotency_keys(tenant_id,operation,idem_key,request_hash,sale_id,total)
+            SELECT id,'core54.ci','orphan','fixture',gen_random_uuid(),10
+            FROM companies WHERE cnpj='12345678000195';
+          SQL
+          if psql_db < backend/migrations/0054_finance_membership_relationships.up.sql > /tmp/esterium-core54-refusal.log 2>&1; then
+            echo 'v54 accepted historical orphan key' >&2
+            exit 1
+          fi
+          grep -F 'core54_idempotency_sale_fk' /tmp/esterium-core54-refusal.log
+          psql_db <<'SQL'
+          DO $verify$
+          BEGIN
+            IF NOT EXISTS(SELECT 1 FROM idempotency_keys WHERE operation='core54.ci' AND idem_key='orphan')
+              OR EXISTS(SELECT 1 FROM pg_constraint WHERE conname LIKE 'core54_%') THEN
+              RAISE EXCEPTION 'v54 refusal changed data or left constraints';
+            END IF;
+          END $verify$;
+          DELETE FROM idempotency_keys WHERE operation='core54.ci' AND idem_key='orphan';
+          SQL
+          migrate_db up 1
+          psql_db < backend/tests/integration/finance_membership_relationships.sql
+          migrate_db down 1
+          psql_db <<'SQL'
+          DO $verify$
+          BEGIN
+            IF EXISTS(SELECT 1 FROM pg_constraint WHERE conname LIKE 'core54_%')
+              OR to_regclass('public.core54_ledger_sale_idx') IS NOT NULL
+              OR NOT EXISTS(SELECT 1 FROM companies WHERE cnpj='12345678000195') THEN
+              RAISE EXCEPTION 'v54 rollback failed or changed seed';
+            END IF;
+          END $verify$;
+          SQL
+          migrate_db up 1
+          psql_db < backend/tests/integration/finance_membership_relationships.sql
+          psql_db -Atc "SELECT version || ':' || dirty FROM schema_migrations" | grep -Fx '54:false'
+
+      - name: Run tagged integration tests twice against the same disposable database
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgres://sistemaemgo:sistemaemgo@localhost:5433/sistemaemgo?sslmode=disable
           TEST_REDIS_ADDR: localhost:6379
-        run: go test -tags=integration ./tests/integration/...
+        run: go test -v -tags=integration -count=2 -p 1 -parallel 1 ./tests/integration/...
       - name: Verify supplier integration test can run twice in the same disposable DB
         working-directory: backend
         env:
@@ -1987,13 +2142,18 @@ jobs:
             -v ON_ERROR_STOP=1 -v ALLOW_DEMO_SEED=1 -f /seed/seed.sql
           (
             cd backend
-            go test -v -tags=integration -count=1 -p 1 -parallel 1 \
+            go test -v -tags=integration -count=2 -p 1 -parallel 1 \
               -run '^(TestNFCeFoundation_TenantIsolationAndConstraints|TestNFCeReservation_IsAtomicAndIdempotentPerSale)$' \
               ./tests/integration/... | tee /tmp/esterium-fiscal-sequence-tests.log
           )
           # Prevent a false green if either guarded test unexpectedly skips.
-          grep -Fq -- '--- PASS: TestNFCeFoundation_TenantIsolationAndConstraints ' /tmp/esterium-fiscal-sequence-tests.log
-          grep -Fq -- '--- PASS: TestNFCeReservation_IsAtomicAndIdempotentPerSale ' /tmp/esterium-fiscal-sequence-tests.log
+          for test_name in TestNFCeFoundation_TenantIsolationAndConstraints TestNFCeReservation_IsAtomicAndIdempotentPerSale; do
+            passed="$(grep -Fc -- "--- PASS: ${test_name} " /tmp/esterium-fiscal-sequence-tests.log || true)"
+            if [ "$passed" -ne 2 ]; then
+              echo "Expected ${test_name} to pass twice in the same disposable database; observed ${passed}"
+              exit 1
+            fi
+          done
       - name: Start API and verify readiness
         working-directory: backend
         env:
@@ -2017,14 +2177,22 @@ jobs:
           exit 1
 
   e2e:
-    runs-on: ubuntu-latest
+    name: E2E disposable run ${{ matrix.isolation }}
+    # Playwright's pinned browser release does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        isolation: [1, 2]
     # Never leave a pre-browser API readiness step holding a runner indefinitely.
     timeout-minutes: 25
+    env:
+      E2E_DISPOSABLE_DATABASE: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -2078,10 +2246,21 @@ jobs:
         working-directory: web
         env:
           VITE_API_BASE_URL: http://127.0.0.1:8080
+          VITE_APP_BRAND_NAME: Esterium CI
         run: npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/web.log 2>&1 &
       - name: Run browser E2E
         working-directory: web
+        env:
+          VITE_APP_BRAND_NAME: Esterium CI
         run: npx playwright test
+      - name: Upload Tailwind migration visual evidence
+        if: always() && github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'codex/tailwind-v4-20261101' || github.event.pull_request.head.ref == 'codex/integration-212-215-20261101')
+        uses: actions/upload-artifact@v7
+        with:
+          name: tailwind-v4-visual-evidence-run-${{ matrix.isolation }}
+          path: web/test-results
+          if-no-files-found: error
+          retention-days: 7
 
   security:
     runs-on: ubuntu-latest
@@ -2089,7 +2268,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:
@@ -2099,35 +2278,34 @@ jobs:
       - name: Go vulnerability scan
         working-directory: backend
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-      - name: Frontend production dependency audit
+      - name: Full frontend dependency audit
         working-directory: web
         run: |
           npm install --global npm@11.6.1
           npm ci
-          npm audit --omit=dev --audit-level=high
-      - name: Generate remediated frontend lockfile
+          npm audit --audit-level=moderate
+      - name: Capture frontend audit evidence
         working-directory: web
-        run: |
-          npm audit fix --package-lock-only || true
-          npm audit --json > audit-after-fix.json || true
-      - name: Upload remediated frontend lockfile
+        run: npm audit --json > audit-report.json
+      - name: Upload frontend audit evidence
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-audit-fix
+          name: frontend-audit
           path: |
             web/package.json
             web/package-lock.json
-            web/audit-after-fix.json
+            web/audit-report.json
           if-no-files-found: error
 
 
   e2e-prodlike:
-    runs-on: ubuntu-latest
+    # Playwright's pinned browser release does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v7
         with:

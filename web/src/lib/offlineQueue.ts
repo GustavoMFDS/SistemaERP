@@ -2,11 +2,12 @@ import { APIError, apiJson, errorMessage } from './api'
 import { scopedStorageKey } from './auth'
 
 type QueueState = 'pending' | 'attention'
-export type AttentionReason = 'expired' | 'request_rejected' | 'legacy_migration'
+export type AttentionReason = 'expired' | 'request_rejected' | 'legacy_migration' | 'retention_expired' | 'retention_unknown'
 
 export type QueuedRequest = {
   id: string
   createdAt: number
+  intentCreatedAt?: number
   method: string
   path: string
   body?: unknown
@@ -26,6 +27,8 @@ export type QueueSummary = {
 const LEGACY_QUEUE_KEY = 'sistemaemgo:offlineQueue:v1'
 const QUEUE_NAMESPACE = 'sistemaemgo:offlineQueue:v2'
 const QUEUE_TTL_MS = 24 * 60 * 60 * 1000
+// The backend retains idempotency keys for 30 days. Leave a two-day margin.
+const SAFE_REPLAY_MS = 28 * 24 * 60 * 60 * 1000
 
 function queueKey(): string | null {
   return scopedStorageKey(QUEUE_NAMESPACE)
@@ -56,6 +59,26 @@ function readLegacyQueue(): QueuedRequest[] {
   return parsed.filter(isValidQueueItem)
 }
 
+function retentionBlock(item: QueuedRequest, now: number): AttentionReason | null {
+  if (item.attentionReason === 'retention_unknown') return 'retention_unknown'
+  if (item.attentionReason === 'retention_expired') return 'retention_expired'
+  const original = item.intentCreatedAt
+  if (typeof original !== 'number' || !Number.isFinite(original) || original <= 0 ||
+      !Number.isFinite(item.createdAt) || item.createdAt <= 0 || original > now || item.createdAt > now) {
+    return 'retention_unknown'
+  }
+  // The earlier timestamp is authoritative if legacy data is inconsistent.
+  return now - Math.min(original, item.createdAt) >= SAFE_REPLAY_MS ? 'retention_expired' : null
+}
+
+function applyRetentionBlock(item: QueuedRequest, reason: AttentionReason): void {
+  item.state = 'attention'
+  item.attentionReason = reason
+  item.lastError = reason === 'retention_unknown'
+    ? 'A idade original da venda não é confiável. Confira no servidor; não reenvie nem vincule a outro caixa.'
+    : 'Venda fora do prazo seguro de reenvio (28 dias). Confira no servidor antes de descartar ou ajustar manualmente.'
+}
+
 function loadQueue(): QueuedRequest[] {
   const key = queueKey()
   if (!key) return []
@@ -75,6 +98,21 @@ function loadQueue(): QueuedRequest[] {
     if (!item.state) {
       item.state = 'pending'
       changed = true
+    }
+    if (item.intentCreatedAt === undefined && item.lastAttemptAt === undefined &&
+        item.attentionReason !== 'retention_unknown') {
+      item.intentCreatedAt = item.createdAt
+      changed = true
+    }
+    // Older clients reset createdAt on retries. An attempt without an original
+    // timestamp is ambiguous: preserve evidence but refuse any replay.
+    const blocked = retentionBlock(item, now)
+    if (blocked) {
+      if (item.state !== 'attention' || item.attentionReason !== blocked) {
+        applyRetentionBlock(item, blocked)
+        changed = true
+      }
+      continue
     }
     if (item.state === 'pending' && now - item.createdAt > QUEUE_TTL_MS) {
       item.state = 'attention'
@@ -150,6 +188,8 @@ export function claimLegacyQueue(): number {
     current.push({
       id: crypto.randomUUID(),
       createdAt: old.createdAt,
+      intentCreatedAt: old.intentCreatedAt ?? (old.lastAttemptAt === undefined ? old.createdAt : undefined),
+      lastAttemptAt: old.lastAttemptAt,
       method: old.method,
       path: old.path,
       body: sanitizeQueuedBody(old.path, old.body),
@@ -170,7 +210,7 @@ export function discardLegacyQueue(): void {
   localStorage.removeItem(LEGACY_QUEUE_KEY)
 }
 
-export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt' | 'state'>): string {
+export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt' | 'intentCreatedAt' | 'state'>): string {
   const key = queueKey()
   if (!key) throw new Error('authenticated tenant/user scope is required')
 
@@ -179,9 +219,11 @@ export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt' | 'st
   if (req.path.includes('/api/v1/sales') && !headers['Idempotency-Key']) {
     headers['Idempotency-Key'] = id
   }
+  const createdAt = Date.now()
   const next: QueuedRequest = {
     id,
-    createdAt: Date.now(),
+    createdAt,
+    intentCreatedAt: createdAt,
     method: req.method,
     path: req.path,
     body: sanitizeQueuedBody(req.path, req.body),
@@ -197,7 +239,7 @@ export function enqueueRequest(req: Omit<QueuedRequest, 'id' | 'createdAt' | 'st
 export function retryQueueItem(id: string): boolean {
   const queue = loadQueue()
   const item = queue.find((candidate) => candidate.id === id)
-  if (!item || item.state !== 'attention') return false
+  if (!item || item.state !== 'attention' || retentionBlock(item, Date.now())) return false
 
   item.state = 'pending'
   item.createdAt = Date.now()
@@ -224,6 +266,7 @@ export function markQueueItemAttention(
   const queue = loadQueue()
   const item = queue.find((candidate) => candidate.id === id)
   if (!item) return false
+  if (retentionBlock(item, Date.now())) return false
   item.state = 'attention'
   item.attentionReason = reason
   item.lastError = message
@@ -238,7 +281,7 @@ export function rebindQueueItemToCashSession(id: string, cashSessionId: string):
 
   const queue = loadQueue()
   const item = queue.find((candidate) => candidate.id === id)
-  if (!item || item.state !== 'attention' || !item.path.includes('/api/v1/sales')) return false
+  if (!item || item.state !== 'attention' || !item.path.includes('/api/v1/sales') || retentionBlock(item, Date.now())) return false
   if (!item.body || typeof item.body !== 'object') return false
 
   const body = item.body as Record<string, unknown>
@@ -309,8 +352,11 @@ export async function flushQueue(): Promise<FlushResult> {
   const queue = loadQueue().sort((a, b) => a.createdAt - b.createdAt)
   let processed = 0
 
-  for (const item of queue) {
-    if (item.state === 'attention') continue
+  for (const queued of queue) {
+    // Reload before every network send: the previous request may have taken
+    // us past the absolute deadline, or an operator may have discarded it.
+    const item = loadQueue().find((candidate) => candidate.id === queued.id)
+    if (!item || item.state === 'attention' || retentionBlock(item, Date.now())) continue
 
     try {
       await apiJson(item.path, {
@@ -327,7 +373,7 @@ export async function flushQueue(): Promise<FlushResult> {
       if (isPermanentQueueError(e)) {
         const current = loadQueue()
         const failed = current.find((x) => x.id === item.id)
-        if (failed) {
+        if (failed && !retentionBlock(failed, Date.now())) {
           failed.state = 'attention'
           failed.attentionReason = 'request_rejected'
           failed.lastError = msg

@@ -2,17 +2,18 @@
 <#
   READ-ONLY gate for independently approved offline Windows prerequisites.
   Does NOT download, unpack, install, execute or trust any vendor package.
-  Signed executables require the approved Authenticode publisher identity;
-  a ZIP needs separate supplier acceptance before it may be deployed.
+  Signed executables require the approved Authenticode publisher identity.
+  The official PostgreSQL binary ZIP is accepted only at its fixed upstream SHA.
 #>
 param(
     [Parameter(Mandatory = $true)][string]$PostgresInstaller,
     [Parameter(Mandatory = $true)][string]$ExpectedPostgresSHA256,
-    [Parameter(Mandatory = $true)][string]$ExpectedPostgresPublisherThumbprint,
+    [string]$ExpectedPostgresPublisherThumbprint = '',
     [Parameter(Mandatory = $true)][string]$GarnetPackage,
     [Parameter(Mandatory = $true)][string]$ExpectedGarnetSHA256,
     [string]$ExpectedGarnetPublisherThumbprint = '',
-    [switch]$SyntheticUnsignedCIFixture
+    [switch]$SyntheticUnsignedCIFixture,
+    [switch]$PostgresBinaryZip
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -30,7 +31,15 @@ foreach ($digest in @($ExpectedPostgresSHA256, $ExpectedGarnetSHA256)) {
         throw 'A trusted, independently approved SHA-256 is required for each prerequisite.'
     }
 }
-if ($ExpectedPostgresPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
+$officialPostgresZipHash='43BB45F173A6F08CF1D29A97A6D8DEB119E8E8093A24C00D2D1001A0CCAA8281'
+if ($PostgresBinaryZip) {
+    if ($ExpectedPostgresPublisherThumbprint) {
+        throw 'A PostgreSQL ZIP cannot claim an EDB Authenticode publisher.'
+    }
+    if ($ExpectedPostgresSHA256.ToUpperInvariant() -cne $officialPostgresZipHash) {
+        throw 'PostgreSQL ZIP requires the independently pinned official SHA-256.'
+    }
+} elseif ($ExpectedPostgresPublisherThumbprint -cnotmatch '^[a-fA-F0-9]{40}$') {
     throw 'An independently approved PostgreSQL publisher certificate thumbprint is mandatory.'
 }
 function Resolve-ApprovedLocalFile([string]$name, [string]$value) {
@@ -65,7 +74,11 @@ $garnet = Resolve-ApprovedLocalFile 'Garnet package' $GarnetPackage
 if ([string]::Equals($postgres, $garnet, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'PostgreSQL and Garnet must have separate approved artifacts.'
 }
-if ([IO.Path]::GetExtension($postgres).ToLowerInvariant() -ne '.exe') {
+if ($PostgresBinaryZip) {
+    if ([IO.Path]::GetExtension($postgres).ToLowerInvariant() -ne '.zip') {
+        throw 'Official PostgreSQL binary package must be a ZIP.'
+    }
+} elseif ([IO.Path]::GetExtension($postgres).ToLowerInvariant() -ne '.exe') {
     throw 'PostgreSQL Windows installer must be an approved signed .exe.'
 }
 $garnetExt = [IO.Path]::GetExtension($garnet).ToLowerInvariant()
@@ -98,10 +111,57 @@ function Assert-ApprovedSignature([string]$path, [string]$thumbprint) {
     }
 }
 if (-not $SyntheticUnsignedCIFixture) {
-    Assert-ApprovedSignature $postgres $ExpectedPostgresPublisherThumbprint
+    if (-not $PostgresBinaryZip) { Assert-ApprovedSignature $postgres $ExpectedPostgresPublisherThumbprint }
     if ($garnetExt -eq '.exe') {
         Assert-ApprovedSignature $garnet $ExpectedGarnetPublisherThumbprint
     }
+}
+if ($PostgresBinaryZip) {
+    if ($ExpectedPostgresSHA256.ToUpperInvariant() -cne $officialPostgresZipHash) {
+        throw 'PostgreSQL binary ZIP SHA-256 is not the fixed official artifact.'
+    }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive=[IO.Compression.ZipFile]::OpenRead($postgres)
+    try {
+        if ($archive.Entries.Count -lt 5 -or $archive.Entries.Count -gt 30000) {
+            throw 'The official PostgreSQL ZIP has an invalid entry count.'
+        }
+        $required=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($name in @('pgsql/bin/postgres.exe','pgsql/bin/initdb.exe','pgsql/bin/pg_ctl.exe',
+            'pgsql/bin/psql.exe','pgsql/bin/pg_isready.exe')) { [void]$required.Add($name) }
+        $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $total=[int64]0
+        foreach ($entry in $archive.Entries) {
+            $name=$entry.FullName.Replace('\','/')
+            $normalized=$name.TrimEnd('/')
+            $parts=@($normalized.Split('/'))
+            if ([string]::IsNullOrWhiteSpace($normalized) -or
+                -not ($normalized -ceq 'pgsql' -or $normalized.StartsWith('pgsql/',[StringComparison]::Ordinal)) -or
+                $name.StartsWith('/') -or $name.Contains(':') -or $name -match '[\x00-\x1f]' -or
+                $name.Length -gt 200 -or -not $seen.Add($normalized) -or
+                ($parts.Count -lt 2 -and -not ($normalized -ceq 'pgsql' -and $name.EndsWith('/'))) -or
+                (([int64]$entry.ExternalAttributes -shr 16) -band 0xF000) -eq 0xA000) {
+                throw 'PostgreSQL ZIP contains an unsafe or unexpected path.'
+            }
+            foreach ($part in $parts) {
+                if ($part -in @('','.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ') -or
+                    $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$') {
+                    throw 'PostgreSQL ZIP contains an unsafe path segment.'
+                }
+            }
+            if ($entry.Length -gt 512MB -or $entry.Length -lt 0) {
+                throw 'PostgreSQL ZIP contains an oversized entry.'
+            }
+            $total += [int64]$entry.Length
+            if ($total -gt (1300MB)) { throw 'PostgreSQL ZIP expanded size exceeds the approved limit.' }
+            if ($entry.Length -gt 1MB -and ($entry.CompressedLength -eq 0 -or
+                ($entry.Length / [Math]::Max(1,$entry.CompressedLength)) -gt 200)) {
+                throw 'PostgreSQL ZIP has an excessive compression ratio.'
+            }
+            [void]$required.Remove($normalized)
+        }
+        if ($required.Count -ne 0) { throw 'PostgreSQL ZIP is missing required server tools.' }
+    } finally { $archive.Dispose() }
 }
 if ($garnetExt -eq '.zip') {
     # Inspect ZIP metadata without extracting untrusted vendor files. SHA-256
@@ -154,7 +214,7 @@ if ($garnetExt -eq '.zip') {
         }
     } finally { $archive.Dispose() }
 }
-Write-Output 'PASS: offline prerequisite package hashes, file paths and executable publisher requirements were checked without executing software.'
+Write-Output 'PASS: offline prerequisite package hashes, file paths and applicable publisher checks passed without executing software.'
 if ($garnetExt -eq '.zip') {
     Write-Output 'LIMITATION: a ZIP hash does not establish publisher authenticity; independent Microsoft release review is still required before installation.'
 }

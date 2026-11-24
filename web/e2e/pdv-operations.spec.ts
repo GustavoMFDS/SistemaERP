@@ -1,4 +1,6 @@
-import { expect, test } from './fixtures'
+import { cashTest as test, expect } from './fixtures'
+
+const appBrandName = process.env.VITE_APP_BRAND_NAME?.trim() || 'Esterium ERP'
 
 async function login(
   page: import('@playwright/test').Page,
@@ -221,6 +223,23 @@ test('PDV supports shortcuts, quick search, suspended carts, quantity editing an
   expect(saleResponse.ok()).toBe(true)
   const sale = (await saleResponse.json()) as { id: string; total: number }
   expect(sale.total).toBe(12)
+
+  const receiptPopupPromise = page.waitForEvent('popup')
+  await page.getByRole('button', { name: 'Imprimir comprovante não fiscal' }).click()
+  const receipt = await receiptPopupPromise
+  try {
+    await receipt.waitForLoadState('load')
+    await expect(receipt).toHaveTitle(appBrandName + ' — Comprovante não fiscal')
+    await expect(receipt.getByRole('heading', { name: appBrandName })).toBeVisible()
+    await expect(receipt.getByText('COMPROVANTE NÃO FISCAL')).toBeVisible()
+    await expect(receipt.getByText(/Não substitui documento fiscal/)).toBeVisible()
+    await expect(receipt.getByText(sale.id)).toBeVisible()
+    await expect(receipt.getByText('PIX', { exact: true })).toBeVisible()
+    await expect(receipt.getByText(/Produto Operacional/)).toBeVisible()
+    await expect(receipt.getByText('12,00')).toBeVisible()
+  } finally {
+    if (!receipt.isClosed()) await receipt.close()
+  }
 
   const adminSaleDetail = await page.evaluate(async (saleId) => {
     const { apiJson } = await import('/src/lib/api.ts')

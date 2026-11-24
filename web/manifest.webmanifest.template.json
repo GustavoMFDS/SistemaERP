@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Esterium ERP — Gestão Comercial",
-  "short_name": "Esterium",
-  "description": "PDV, produtos, estoque, financeiro e gestão comercial em um só lugar.",
+  "name": "__APP_BRAND_NAME__ — Gestão Comercial",
+  "short_name": "__APP_BRAND_NAME__",
+  "description": "__APP_BRAND_NAME__ — PDV, produtos, estoque, financeiro e gestão comercial em um só lugar.",
   "lang": "pt-BR",
   "start_url": "/home",
   "scope": "/",

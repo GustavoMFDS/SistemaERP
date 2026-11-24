@@ -1,6 +1,6 @@
-import { expect, test } from './fixtures'
+import { attachVisualScreenshot, expect, test } from './fixtures'
 
-test('preço do catálogo usa moeda brasileira sem alterar o valor do produto', async ({ page }) => {
+test('preço do catálogo usa moeda brasileira sem alterar o valor do produto', async ({ page }, testInfo) => {
   await page.goto('/login')
   await page.getByLabel('E-mail ou nome de usuário').fill('admin@sistema.local')
   await page.getByLabel('Senha', { exact: true }).fill('admin123')
@@ -22,4 +22,5 @@ test('preço do catálogo usa moeda brasileira sem alterar o valor do produto', 
   await page.goto('/products')
   await expect(page.getByRole('cell', { name: 'R$ 1.234,50' })).toBeVisible()
   await expect(page.getByRole('cell', { name: '1234.50' })).toHaveCount(0)
+  await attachVisualScreenshot(page, testInfo, 'catalog')
 })

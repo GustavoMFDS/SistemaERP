@@ -14,6 +14,11 @@ param(
     [string]$PostgresOptionsDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
     [string]$GarnetConfigDir=(Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
     [string]$ReadinessReceiptDir=(Join-Path $env:ProgramData 'Esterium\FirstRunReadiness'),
+    [string]$AllowedOrigin='https://localhost:8080',
+    [string]$ListenAddress='127.0.0.1:8080',
+    [string]$TLSCertFile='',
+    [string]$TLSKeyFile='',
+    [string]$TrustedRemoteAddress='',
     [string]$PostgresServiceName='EsteriumPostgreSQL16',
     [string]$PostgresServiceAccount='esterium_pgsvc',
     [string]$GarnetServiceName='EsteriumGarnet',
@@ -26,8 +31,28 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'First-run readiness requires Windows.' }
-if ($PostgresPort -in @($GarnetPort,8080) -or $GarnetPort -eq 8080) {
+if ($PostgresPort -eq $GarnetPort) {
     throw 'Database and cache ports must be distinct from ERP.'
+}
+$origin=$null
+if (-not [Uri]::TryCreate($AllowedOrigin,[UriKind]::Absolute,[ref]$origin) -or
+    $origin.Scheme -cne 'https' -or $origin.AbsolutePath -ne '/' -or
+    $origin.UserInfo -ne '' -or $origin.Query -ne '' -or $origin.Fragment -ne '') {
+    throw 'First-run probe requires the configured root HTTPS origin.'
+}
+$listenerParts=$ListenAddress -split ':',2
+if ($listenerParts.Count -ne 2 -or $listenerParts[1] -notmatch '^\d{1,5}$' -or
+    $listenerParts[0] -notin @('0.0.0.0','127.0.0.1') -or
+    [int]$listenerParts[1] -in @($PostgresPort,$GarnetPort)) {
+    throw 'First-run probe requires loopback or firewall-scoped HTTPS on a distinct port.'
+}
+$originPort=if ($origin.IsDefaultPort) { 443 } else { $origin.Port }
+if ($originPort -ne [int]$listenerParts[1]) { throw 'AllowedOrigin port must match the ERP HTTPS listener.' }
+if ($listenerParts[0] -eq '0.0.0.0' -and [string]::IsNullOrWhiteSpace($TrustedRemoteAddress)) {
+    throw 'LAN HTTPS probe requires an explicit private CIDR for the firewall.'
+}
+if ([string]::IsNullOrWhiteSpace($TLSCertFile) -or [string]::IsNullOrWhiteSpace($TLSKeyFile)) {
+    throw 'First-run probe requires staged HTTPS certificate and private key files.'
 }
 foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
     if ($name -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{2,63}$' -or $name -eq 'EsteriumERP') {
@@ -67,7 +92,17 @@ function Assert-Local([string]$path,[bool]$directory) {
     $full=[IO.Path]::GetFullPath($path)
     $cursor=$full
     while ($cursor) {
-        $item=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        try {
+            $item=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        } catch [Management.Automation.ItemNotFoundException] {
+            $missingCursor=$cursor.TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar))
+            $missing=[IO.Path]::GetFileName($missingCursor)
+            $missing=$missing -replace '[^A-Za-z0-9._-]','_'
+            if ($missing -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') {
+                $missing='ancestor'
+            }
+            throw ('First-run probe required local item is missing: {0}.' -f $missing)
+        }
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw 'First-run probe forbids junctions or symbolic links.'
         }
@@ -136,11 +171,20 @@ if ($proof.Count -ne 3 -or $proof[0].Trim() -cne 'ESTERIUM_FRESH_POSTGRES_16' -o
     -not ([IO.File]::ReadAllText($receipt)).StartsWith('TLS_POLICY_STAGED_NEVER_STARTED')) {
     throw 'Staged PostgreSQL TLS first-install proof is missing or inconsistent.'
 }
-foreach ($name in @('OriginalPostgresql-'+$PostgresServiceName+'.conf',
-                    'OriginalPgHba-'+$PostgresServiceName+'.conf')) {
+$originalConfigNames=@(
+    "OriginalPostgresql-$PostgresServiceName.conf"
+    "OriginalPgHba-$PostgresServiceName.conf"
+)
+if ($originalConfigNames.Count -ne 2 -or
+    $originalConfigNames[0] -ceq $originalConfigNames[1]) {
+    throw 'First-run PostgreSQL TLS original config filenames collapsed.'
+}
+foreach ($name in $originalConfigNames) {
     $null=Assert-Local (Join-Path $options $name) $false
 }
-& (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf (Join-Path $data 'postgresql.conf') -PgHbaConf (Join-Path $data 'pg_hba.conf') | Out-Null
+$postgresConf=Assert-Local (Join-Path $data 'postgresql.conf') $false
+$pgHbaConf=Assert-Local (Join-Path $data 'pg_hba.conf') $false
+& (Join-Path $PSScriptRoot 'check-esterium-postgres-tls-policy.ps1') -PostgresqlConf $postgresConf -PgHbaConf $pgHbaConf | Out-Null
 $null=Assert-Local (Join-Path $policy 'certificates\root.crt') $false
 foreach ($name in @('postgres.exe','psql.exe','pg_dump.exe','pg_restore.exe')) {
     $null=Assert-Local (Join-Path $bin $name) $false
@@ -190,15 +234,22 @@ foreach ($entry in @((Get-ItemProperty -LiteralPath $registry -Name Environment 
 foreach ($key in @('APP_ENV','FISCAL_PROVIDER','NFCE_SEFAZ_PRODUCTION_ENABLED',
     'NFCE_SEFAZ_HOMOLOGATION_ENABLED','DATABASE_URL_FILE','REDIS_URL_FILE',
     'REDIS_CA_CERT_FILE','JWT_SECRET_FILE','METRICS_BEARER_TOKEN_FILE',
-    'ESTERIUM_MIGRATIONS_DIR','ESTERIUM_WEB_DIR','HTTP_ADDR','APP_PUBLIC_URL')) {
+    'ESTERIUM_MIGRATIONS_DIR','ESTERIUM_WEB_DIR','HTTP_ADDR','APP_PUBLIC_URL',
+    'CORS_ALLOWED_ORIGINS','ESTERIUM_TLS_CERT_FILE','ESTERIUM_TLS_KEY_FILE')) {
     if ([string]::IsNullOrWhiteSpace($serviceEnv[$key])) { throw 'ERP runtime setting missing.' }
 }
 if ($serviceEnv['APP_ENV'] -cne 'prod' -or
     $serviceEnv['FISCAL_PROVIDER'] -cne 'disabled' -or
     $serviceEnv['NFCE_SEFAZ_PRODUCTION_ENABLED'] -cne 'false' -or
     $serviceEnv['NFCE_SEFAZ_HOMOLOGATION_ENABLED'] -cne 'false' -or
-    $serviceEnv['HTTP_ADDR'] -cne '127.0.0.1:8080') {
-    throw 'ERP must remain loopback-only with fiscal transmission disabled.'
+    $serviceEnv['HTTP_ADDR'] -cne $ListenAddress -or
+    $serviceEnv['APP_PUBLIC_URL'] -cne $origin.GetLeftPart([UriPartial]::Authority) -or
+    $serviceEnv['CORS_ALLOWED_ORIGINS'] -cne $origin.GetLeftPart([UriPartial]::Authority) -or
+    -not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_TLS_CERT_FILE']),
+        [IO.Path]::GetFullPath($TLSCertFile),[StringComparison]::OrdinalIgnoreCase) -or
+    -not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_TLS_KEY_FILE']),
+        [IO.Path]::GetFullPath($TLSKeyFile),[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'ERP HTTPS/origin configuration differs from the approved install inputs or fiscal traffic is enabled.'
 }
 if (-not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_WEB_DIR']),
     (Join-Path $bundle 'web'),[StringComparison]::OrdinalIgnoreCase) -or
@@ -207,7 +258,7 @@ if (-not [string]::Equals([IO.Path]::GetFullPath($serviceEnv['ESTERIUM_WEB_DIR']
     throw 'ERP must use frontend and migrations from installed approved release.'
 }
 foreach ($key in @('DATABASE_URL_FILE','REDIS_URL_FILE','REDIS_CA_CERT_FILE',
-    'JWT_SECRET_FILE','METRICS_BEARER_TOKEN_FILE')) {
+    'JWT_SECRET_FILE','METRICS_BEARER_TOKEN_FILE','ESTERIUM_TLS_CERT_FILE','ESTERIUM_TLS_KEY_FILE')) {
     $file=Assert-Local $serviceEnv[$key] $false
     $hasLocalService=$false
     foreach ($ace in (Get-Acl -LiteralPath $file).Access) {
@@ -224,7 +275,7 @@ foreach ($key in @('DATABASE_URL_FILE','REDIS_URL_FILE','REDIS_CA_CERT_FILE',
     if (-not $hasLocalService) { throw 'ERP service must read its own protected file.' }
 }
 if (-not $Apply) {
-    Write-Output 'PLAN: installed TLS/SQL, Garnet AOF, SCM identities and protected ERP secret paths were checked.'
+    Write-Output 'PLAN: installed HTTPS/SQL, Garnet AOF, SCM identities and protected ERP secret paths were checked.'
     Write-Output 'PLAN: signed Apply will temporarily start PostgreSQL/Garnet and run --check-dependencies without serving HTTP.'
     Write-Output 'PLAN: PostgreSQL and Garnet will be stopped/disabled after the probe, including on failure.'
     Write-Output 'NOT ENABLED: no automatic startup, customer data or fiscal authorization.'
@@ -235,17 +286,78 @@ if (-not [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsI
     throw 'Elevated Windows administrator is required.'
 }
 $success=$false
+function Write-CIDiagnosticStage {
+    param([Parameter(Mandatory=$true)]
+        [ValidateSet('disable ERP service','start dependency services',
+            'verify dependency ownership','run ERP dependency preflight',
+            'verify dependencies stopped and disabled','create receipt directory',
+            'create receipt staging folder','secure receipt folder','hash receipt metadata',
+            'serialize receipt metadata','write receipt file','secure receipt file',
+            'check receipt collision','commit receipt','restore ERP manual startup',
+            'restore ERP manual startup')]
+        [string]$Stage)
+    if ($env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -eq '1' -and
+        $env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+        Write-Host ('CI diagnostic: first-run stage - '+$Stage)
+    }
+}
+
+$probeFailed=$false
+$probeFailureStage=''
+$probeStage='disable ERP service'
+Write-CIDiagnosticStage $probeStage
 try {
     # Disallow an external SCM trigger from starting ERP while dependencies
     # are temporarily alive. On a failed probe ERP remains Disabled.
     Set-Service -Name 'EsteriumERP' -StartupType Disabled -ErrorAction Stop
+    $probeStage='start dependency services'
+    Write-CIDiagnosticStage $probeStage
     foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
         Set-Service -Name $name -StartupType Manual -ErrorAction Stop
         Start-Service -Name $name -ErrorAction Stop
         (Get-Service -Name $name).WaitForStatus(
             [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
     }
-    & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -RequireServiceOwnership | Out-Null
+    $probeStage='verify dependency ownership'
+    Write-CIDiagnosticStage $probeStage
+    try {
+        & (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') -PostgresServiceName $PostgresServiceName -RedisServiceName $GarnetServiceName -PostgresBin $bin -PostgresPort $PostgresPort -RedisPort $GarnetPort -ListenerReadyTimeoutSeconds 30 -RequireServiceOwnership | Out-Null
+    } catch {
+        # Keep production diagnostics generic. A disposable hosted Windows
+        # runner may emit only a fixed reason code, never arbitrary exception
+        # text, process command lines, paths, or protected settings.
+        $messages=@()
+        for($exception=$_.Exception;$null -ne $exception;$exception=$exception.InnerException){
+            $messages+=([string]$exception.Message)
+        }
+        $failureText=$messages -join ' '
+        $reason=switch -Regex ($failureText) {
+            'A declared local dependency Windows service is missing or ambiguous\.' { 'service-registration-missing'; break }
+            'A declared local dependency Windows service is not running\.' { 'service-not-running'; break }
+            'Dependency service does not expose a running process' { 'service-process-unavailable'; break }
+            'PostgreSQL service process cannot be verified' { 'postgres-process-unavailable'; break }
+            'PostgreSQL service account cannot be verified' { 'postgres-identity-unavailable'; break }
+            'Garnet listener process ancestry is invalid' { 'garnet-ancestry-invalid'; break }
+            'Garnet listener process is missing' { 'garnet-process-unavailable'; break }
+            'Garnet listener must run under NETWORK SERVICE' { 'garnet-identity-mismatch'; break }
+            'PostgreSQL listener process ancestry is invalid' { 'postgres-ancestry-invalid'; break }
+            'PostgreSQL listener must run under the declared service account' { 'postgres-identity-mismatch'; break }
+            'PostgreSQL listener is not descended from its Windows service' { 'postgres-service-ancestry-mismatch'; break }
+            'Garnet listener is not descended from its Windows service' { 'garnet-service-ancestry-mismatch'; break }
+            'exposed on a non-loopback address' { 'non-loopback-listener'; break }
+            'No listener is bound to required local dependency port' { 'listener-unavailable'; break }
+            'Dependency listener cannot be tied to its declared service' { 'listener-owner-mismatch'; break }
+            'PostgreSQL tool is missing|PostgreSQL tool is empty or a symbolic link' { 'postgres-binary-layout-invalid'; break }
+            default { 'unclassified-dependency-check-failure' }
+        }
+        if ($env:ESTERIUM_FULL_INSTALL_DISPOSABLE_CI -eq '1' -and
+            $env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+            Write-Host ('CI diagnostic: dependency ownership reason - '+$reason)
+        }
+        throw
+    }
+    $probeStage='run ERP dependency preflight'
+    Write-CIDiagnosticStage $probeStage
     $process=[Diagnostics.ProcessStartInfo]::new()
     $process.FileName=Assert-Local (Join-Path $bundle 'esterium-server.exe') $false
     $process.Arguments='--check-dependencies'
@@ -275,6 +387,10 @@ try {
         }
     } finally { $client.Dispose() }
     $success=$true
+} catch {
+    $probeFailed=$true
+    $probeFailureStage=$probeStage
+    Write-Host ('CI diagnostic: first-run failed after - '+$probeStage)
 } finally {
     # Always attempt BOTH services, even when the first stop command fails.
     # Retain a hard failure if any process is still running or auto-start
@@ -299,10 +415,16 @@ try {
         } catch { $cleanupFailures+=('unverifiable-state:'+ $name) }
     }
     if ($cleanupFailures.Count -gt 0) {
+        Write-Host 'CI diagnostic: first-run dependency cleanup failed.'
         throw 'Probe cleanup could not confirm BOTH dependencies stopped and disabled; manual intervention required.'
     }
 }
+if ($probeFailed) {
+    throw ('First-run probe failed at stage: {0}.' -f $probeFailureStage)
+}
 if (-not $success) { throw 'Runtime probe did not pass.' }
+$probeStage='verify dependencies stopped and disabled'
+Write-CIDiagnosticStage $probeStage
 foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
     $state=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
     if ($state.StartMode -cne 'Disabled' -or $state.State -cne 'Stopped' -or [int]$state.ProcessId -ne 0) {
@@ -311,21 +433,29 @@ foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
 }
 # Only a completed, successful probe produces a one-time audit receipt.
 # It deliberately does NOT authorize automatic ERP startup or fiscal traffic.
+$probeStage='create receipt directory'
+Write-CIDiagnosticStage $probeStage
 $receiptParent=Split-Path -Parent $receiptTarget
 [IO.Directory]::CreateDirectory($receiptParent) | Out-Null
 $staging=Join-Path $receiptParent ('.esterium-first-run-'+[Guid]::NewGuid().ToString('N'))
 $committed=$false
 try {
+    $probeStage='create receipt staging folder'
+    Write-CIDiagnosticStage $probeStage
     [IO.Directory]::CreateDirectory($staging) | Out-Null
+    $probeStage='secure receipt folder'
+    Write-CIDiagnosticStage $probeStage
     & icacls.exe $staging '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'First-run verification receipt folder ACL rejected.' }
+    $probeStage='hash receipt metadata'
+    Write-CIDiagnosticStage $probeStage
     $meta=[ordered]@{
         kind='ESTERIUM_LOCAL_DEPENDENCY_PROBE'
         schemaVersion=1
         stage='dependencies-validated-services-disabled'
         checkedUtc=[DateTime]::UtcNow.ToString('o')
         releaseManifestSHA256=(Get-FileHash -LiteralPath (Join-Path $bundle 'bundle-manifest.json') -Algorithm SHA256).Hash
-        postgresqlConfigSHA256=(Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash
+        postgresqlConfigSHA256=(Get-FileHash -LiteralPath $postgresConf -Algorithm SHA256).Hash
         garnetConfigSHA256=(Get-FileHash -LiteralPath $garnetConf -Algorithm SHA256).Hash
         postgresService=$PostgresServiceName
         garnetService=$GarnetServiceName
@@ -333,18 +463,28 @@ try {
         backupRestoreApproved=$false
         fiscalEmissionApproved=$false
     }
+    $probeStage='serialize receipt metadata'
+    Write-CIDiagnosticStage $probeStage
     $out=Join-Path $staging 'probe-result.json'
     $bytes=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json $meta -Depth 3)+[Environment]::NewLine)
     try {
+        $probeStage='write receipt file'
+        Write-CIDiagnosticStage $probeStage
         $stream=[IO.File]::Open($out,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
         try { $stream.Write($bytes,0,$bytes.Length);$stream.Flush($true) }
         finally { $stream.Dispose() }
     } finally { [Array]::Clear($bytes,0,$bytes.Length) }
+    $probeStage='secure receipt file'
+    Write-CIDiagnosticStage $probeStage
     & icacls.exe $out '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'First-run verification receipt could not be protected.' }
+    $probeStage='check receipt collision'
+    Write-CIDiagnosticStage $probeStage
     if (Test-Path -LiteralPath $receiptTarget) {
         throw 'Another attempt already created a first-run readiness receipt.'
     }
+    $probeStage='commit receipt'
+    Write-CIDiagnosticStage $probeStage
     Move-Item -LiteralPath $staging -Destination $receiptTarget -ErrorAction Stop
     $committed=$true
 } finally {
@@ -352,6 +492,8 @@ try {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+$probeStage='restore ERP manual startup'
+Write-CIDiagnosticStage $probeStage
 Set-Service -Name 'EsteriumERP' -StartupType Manual -ErrorAction Stop
 Write-Output 'PASS: PostgreSQL schema and Garnet TLS/ACL/Lua verified by real ERP preflight.'
 Write-Output 'NOT ENABLED: dependencies stopped/disabled, ERP remains stopped/manual; backup restoration and release approval are still required.'

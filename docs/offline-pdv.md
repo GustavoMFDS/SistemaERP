@@ -45,6 +45,7 @@ Migração:
 ## Seguranca e privacidade operacional
 
 - Após 24 horas, itens ainda não sincronizados deixam de ser reenviados automaticamente e passam para estado de atenção; o registro local é preservado para reconciliação.
+- A retenção de idempotência no servidor é de 30 dias. O navegador bloqueia qualquer reenvio (inclusive automático após retry) e vinculação a outro caixa a partir de 28 dias da intenção original, mantendo margem de dois dias. `intentCreatedAt` não é renovado; `createdAt` pode mudar para reabrir a janela automática de 24h. Registros de clientes antigos com tentativa anterior e sem timestamp original confiável, datas inválidas ou futuras ficam em atenção sem replay. Nenhum registro é apagado pelo bloqueio; confira no servidor antes de descartar ou realizar ajuste manual. Não é proteção contra manipulação deliberada do relógio/armazenamento do cliente.
 - A fila guarda somente o payload necessario para recriar a venda, o cabecalho `Idempotency-Key` e metadados mínimos de reconciliação (estado/erro/última tentativa).
 - Evite incluir dados pessoais sensiveis no payload de venda offline. Quando o cliente for opcional, prefira venda sem identificacao.
 - `localStorage` nao e um cofre criptografico. Nao ha chave segura no frontend para criptografia forte sem apoio do usuario/dispositivo.
@@ -69,6 +70,7 @@ Migração:
 - dois tenants/usuarios no mesmo browser nao compartilham caixa, cache de produtos ou fila;
 - rejeicao permanente de um item nao impede a sincronizacao dos itens posteriores;
 - item com mais de 24 horas permanece armazenado em estado de atencao, sem exclusao silenciosa;
+- intenção de 28 dias ou idade desconhecida não emite POST de venda, não permite retry/rebind e preserva o registro e caixa original; uma intenção recente pode ser reenviada com a mesma chave;
 - rebind de venda legada já commitada preserva a chave original e não duplica a venda;
 - falha de rede durante logout não limpa estado local nem simula revogação do cookie HttpOnly.
 

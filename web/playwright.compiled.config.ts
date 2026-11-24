@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './smoke',
+  testMatch: /compiled-bundle\.spec\.ts$/,
   timeout: 30000,
   workers: 1,
   use: {

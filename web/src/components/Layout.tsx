@@ -4,6 +4,7 @@ import { apiJson } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
 import { getLegacyQueueCount, getQueueCount } from '../lib/offlineQueue'
 import { useInstallApp } from '../lib/installApp'
+import { APP_BRAND_NAME } from '../lib/brand'
 
 const PRODUCTS_CACHE_NAMESPACE = 'sistemaemgo:productsCache:v2'
 
@@ -119,7 +120,7 @@ export default function Layout() {
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
           <Link to="/home" className="text-sm font-semibold">
             <span aria-hidden="true" className="mr-1.5 text-blue-600">✦</span>
-            Esterium ERP
+            {APP_BRAND_NAME}
           </Link>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {appInstall.available ? (

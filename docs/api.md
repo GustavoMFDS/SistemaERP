@@ -1137,3 +1137,7 @@ Lists return/exchange records. Optional query: `sale_id`.
 ### GET `/returns/{id}`
 
 Returns the header and returned items for one return.
+
+## Data comercial dos relatórios financeiros
+
+Os filtros `from` e `to` de dashboard financeiro, visão do proprietário e pagamentos representam datas inclusivas no fuso `America/Sao_Paulo`, independentemente do fuso do servidor, sessão PostgreSQL ou terminal. A consulta usa início da primeira data inclusivo e início do dia seguinte à última data exclusivo. Os endpoints dashboard e visão do proprietário retornam `timezone` e usam a data comercial quando omitida; pagamentos continuam sem limite de data quando omitida. A política segue o ranking e contas existentes; não introduz configuração de fuso por empresa nesta etapa. Timestamps permanecem armazenados como instantes, sem regravar histórico. Windows inclui a base IANA no binário Go.

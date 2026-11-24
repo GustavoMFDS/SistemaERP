@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { APIError, apiJson } from '../lib/api'
 import PasswordField from '../components/PasswordField'
 import { validStaffPassword } from '../lib/staffPassword'
+import { APP_BRAND_NAME } from '../lib/brand'
 
 // React StrictMode can call useState initializers twice during development.
 // Preserve the fragment value across that double render without writing the
@@ -36,7 +37,7 @@ export default function AcceptStaffInvitePage() {
 
   useEffect(() => {
     const previousTitle = document.title
-    document.title = 'Ativar acesso — Esterium ERP'
+    document.title = 'Ativar acesso — ' + APP_BRAND_NAME
     return () => { initialInviteToken = ''; document.title = previousTitle }
   }, [])
 
@@ -70,7 +71,7 @@ export default function AcceptStaffInvitePage() {
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
         <div className="rounded-lg border bg-white p-6">
-          <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>Esterium ERP</p>
+          <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>{APP_BRAND_NAME}</p>
           <h1 className="text-lg font-semibold">Ativar acesso à loja</h1>
           <p className="mt-2 text-sm text-gray-600">
             Seu acesso já foi preparado pelo responsável da loja.

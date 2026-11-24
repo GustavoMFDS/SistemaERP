@@ -21,7 +21,8 @@ param(
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [string]$TrustedPublisherThumbprint='',
     [switch]$Apply,
-    [switch]$UnsignedDisposableCIFixture
+    [switch]$UnsignedDisposableCIFixture,
+    [switch]$PostgresBinaryZip
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -51,14 +52,18 @@ foreach ($path in @($pgTool,$garnetTool)) {
     }
 }
 $pgArgs=@{
-    SuperPasswordFile=$PostgresSuperPasswordFile
-    ServicePasswordFile=$PostgresServicePasswordFile
     DestinationDir=$pgOptions
     PostgresInstallDir=$PostgresInstallDir
     DataDir=$PostgresDataDir
     ServiceName=$PostgresServiceName
     ServiceAccount=$PostgresServiceAccount
     Port=$PostgresPort
+}
+if(-not $PostgresBinaryZip){
+    $pgArgs.SuperPasswordFile=$PostgresSuperPasswordFile
+    $pgArgs.ServicePasswordFile=$PostgresServicePasswordFile
+}else{
+    $pgArgs.PostgresBinaryZip=$true
 }
 $garnetArgs=@{
     AclFile=$GarnetAclFile

@@ -10,6 +10,7 @@ import (
 	"github.com/example/sistemaemgo/internal/httpapi/middleware"
 	"github.com/example/sistemaemgo/internal/modules/common"
 	finapp "github.com/example/sistemaemgo/internal/modules/finance/application"
+	"github.com/example/sistemaemgo/internal/platform"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -42,7 +43,7 @@ func (h *FinanceHandler) OwnerOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
-	today := time.Now().Format("2006-01-02")
+	today := platform.BusinessDate(time.Now())
 	if from == "" {
 		from = today
 	}
@@ -54,7 +55,7 @@ func (h *FinanceHandler) OwnerOverview(w http.ResponseWriter, r *http.Request) {
 		writeFinanceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "overview": result})
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "timezone": platform.BusinessTimezone, "overview": result})
 }
 
 func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
@@ -65,18 +66,19 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
+	today := platform.BusinessDate(time.Now())
 	if from == "" {
-		from = time.Now().Format("2006-01-02")
+		from = today
 	}
 	if to == "" {
-		to = time.Now().Format("2006-01-02")
+		to = today
 	}
 	data, err := h.svc.Dashboard(r.Context(), au.TenantID, from, to)
 	if err != nil {
 		writeFinanceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "totals": data})
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "timezone": platform.BusinessTimezone, "totals": data})
 }
 
 func (h *FinanceHandler) ListLedger(w http.ResponseWriter, r *http.Request) {

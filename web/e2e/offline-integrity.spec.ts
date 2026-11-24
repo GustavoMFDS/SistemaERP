@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { cashTest, expect, test } from './fixtures'
 
 async function waitForCashClosed(page: import('@playwright/test').Page) {
   await expect
@@ -11,7 +11,7 @@ async function waitForCashClosed(page: import('@playwright/test').Page) {
     .toBe('')
 }
 
-test('lost sale response reuses the original idempotency key', async ({ page }) => {
+cashTest('lost sale response reuses the original idempotency key', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('E-mail').fill('admin@sistema.local')
   await page.getByLabel('Senha', { exact: true }).fill('admin123')
@@ -316,4 +316,65 @@ test('expired access token cannot address tenant scoped local storage', async ({
   expect(result.scope).toBe('')
   expect(result.storageKey).toBeNull()
   expect(result.cashSessionId).toBe('')
+})
+
+
+test('offline replay respects original intent age and never sends ambiguous legacy sales', async ({ page }) => {
+  await page.goto('/login')
+  const keys: string[] = []
+  await page.route('**/api/v1/sales', async (route) => {
+    keys.push(route.request().headers()['idempotency-key'] ?? '')
+    await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+  })
+
+  const result = await page.evaluate(async () => {
+    const auth = await import('/src/lib/auth.ts')
+    const queue = await import('/src/lib/offlineQueue.ts')
+    const payload = btoa(JSON.stringify({
+      sub: 'retention-user', tenant_id: 'retention-tenant',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }))
+    auth.setToken('x.' + payload.replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '') + '.x')
+    const day = 24 * 60 * 60 * 1000
+    const now = Date.now()
+    const key = auth.scopedStorageKey('sistemaemgo:offlineQueue:v2')
+    if (!key) throw new Error('missing queue scope')
+    const fixture = (id: string, createdAt: number) => ({
+      id, createdAt, method: 'POST', path: '/api/v1/sales',
+      body: { cash_session_id: 'original-cash', items: [], payments: [] },
+      headers: { 'Idempotency-Key': id }, state: 'attention',
+    })
+    localStorage.setItem(key, JSON.stringify([
+      { ...fixture('too-old', now - 31 * day), intentCreatedAt: now - 31 * day },
+      { ...fixture('ambiguous', now - day), lastAttemptAt: now - day },
+      { ...fixture('old-pending', now), state: 'pending', intentCreatedAt: now - 28 * day },
+      { ...fixture('recent', now - 2 * day), intentCreatedAt: now - 2 * day },
+      { ...fixture('future', now + day), intentCreatedAt: now + day },
+    ]))
+    const blocked = ['too-old', 'ambiguous', 'old-pending', 'future'].map((id) => ({
+      id, retry: queue.retryQueueItem(id), rebind: queue.rebindQueueItemToCashSession(id, 'new-cash'),
+    }))
+    const recentRetry = queue.retryQueueItem('recent')
+    const recent = queue.getQueueItems().find((item) => item.id === 'recent')
+    const originalPreserved = recent?.intentCreatedAt === now - 2 * day
+    const flushed = await queue.flushQueue()
+    const preserved = queue.getQueueItems().map((item) => ({
+      id: item.id, reason: item.attentionReason,
+      cash: (item.body as { cash_session_id: string }).cash_session_id,
+    }))
+    return { blocked, recentRetry, originalPreserved, flushed, preserved }
+  })
+
+  expect(result.blocked.every((item) => !item.retry && !item.rebind)).toBe(true)
+  expect(result.recentRetry).toBe(true)
+  expect(result.originalPreserved).toBe(true)
+  expect(result.flushed.ok).toBe(true)
+  expect(result.flushed.processed).toBe(1)
+  expect(keys).toEqual(['recent'])
+  expect(result.preserved).toHaveLength(4)
+  expect(result.preserved.every((item) => item.cash === 'original-cash')).toBe(true)
+  expect(result.preserved.find((item) => item.id === 'too-old')?.reason).toBe('retention_expired')
+  expect(result.preserved.find((item) => item.id === 'old-pending')?.reason).toBe('retention_expired')
+  expect(result.preserved.find((item) => item.id === 'ambiguous')?.reason).toBe('retention_unknown')
+  expect(result.preserved.find((item) => item.id === 'future')?.reason).toBe('retention_unknown')
 })

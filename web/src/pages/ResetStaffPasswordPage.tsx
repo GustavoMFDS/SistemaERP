@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { APIError, apiJson } from '../lib/api'
 import PasswordField from '../components/PasswordField'
 import { validStaffPassword } from '../lib/staffPassword'
+import { APP_BRAND_NAME } from '../lib/brand'
 
 // The secret is never stored in the address bar, cookies, or localStorage.
 // Keep it in memory for React StrictMode's double initializer only.
@@ -32,7 +33,7 @@ export default function ResetStaffPasswordPage() {
 
   useEffect(() => {
     const previousTitle = document.title
-    document.title = 'Recuperar acesso — Esterium ERP'
+    document.title = 'Recuperar acesso — ' + APP_BRAND_NAME
     return () => { initialSecret = ''; document.title = previousTitle }
   }, [])
 
@@ -65,7 +66,7 @@ export default function ResetStaffPasswordPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
         <div className="rounded-xl border bg-white p-6">
-          <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>Esterium ERP</p>
+          <p className="mb-3 text-xl font-bold tracking-tight text-slate-900"><span aria-hidden="true" className="mr-2 text-blue-600">✦</span>{APP_BRAND_NAME}</p>
           <h1 className="text-lg font-semibold">Recuperar meu acesso</h1>
           <p className="mt-2 text-sm text-gray-600">
             Defina uma nova senha pessoal. O responsável pela loja não pode visualizá-la.

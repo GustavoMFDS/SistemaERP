@@ -10,7 +10,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$PostgresInstaller,
     [Parameter(Mandatory=$true)][string]$ExpectedPostgresSHA256,
-    [Parameter(Mandatory=$true)][string]$ExpectedPostgresPublisherThumbprint,
+    [string]$ExpectedPostgresPublisherThumbprint='',
     [Parameter(Mandatory=$true)][string]$GarnetPackage,
     [Parameter(Mandatory=$true)][string]$ExpectedGarnetSHA256,
     [Parameter(Mandatory=$true)][string]$ServiceWrapperExe,
@@ -20,6 +20,7 @@ param(
     [string]$PostgresOptionsDir=(Join-Path $env:ProgramData 'Esterium\PostgresInstallOptions'),
     [string]$PostgresTlsPolicyDir=(Join-Path $env:ProgramData 'Esterium\PostgresTlsPolicy'),
     [string]$GarnetConfigDir=(Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
+    [string]$GarnetLogsDir=(Join-Path $env:ProgramData 'Esterium\GarnetLogs'),
     [string]$PostgresInstallDir=(Join-Path $env:ProgramFiles 'PostgreSQL\16'),
     [string]$PostgresDataDir=(Join-Path $env:ProgramData 'Esterium\PostgresData'),
     [string]$GarnetInstallDir=(Join-Path $env:ProgramFiles 'EsteriumGarnet'),
@@ -31,7 +32,8 @@ param(
     [string]$ApprovedManifestSHA256='',
     [string]$TrustedPublisherThumbprint='',
     [switch]$Apply,
-    [switch]$SyntheticPlanCIFixture
+    [switch]$SyntheticPlanCIFixture,
+    [switch]$PostgresBinaryZip
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -58,7 +60,7 @@ $existingAccounts=@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='
 if ($existingAccounts.Count -ne 0) { throw 'Conta PostgreSQL existente: nao sobrescrever.' }
 $pgBase=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Esterium')).TrimEnd('\')
 $programBase=[IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\')
-foreach ($candidate in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresDataDir)) {
+foreach ($candidate in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$GarnetLogsDir,$PostgresDataDir)) {
     if (-not [IO.Path]::GetFullPath($candidate).StartsWith($pgBase+'\',[StringComparison]::OrdinalIgnoreCase)) {
         throw 'Dados e configuracoes devem ficar sob ProgramData Esterium.'
     }
@@ -68,7 +70,7 @@ foreach ($candidate in @($PostgresInstallDir,$GarnetInstallDir)) {
         throw 'Executaveis devem ficar sob Program Files.'
     }
 }
-foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir)) {
+foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$GarnetLogsDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir)) {
     if (-not [IO.Path]::IsPathRooted($dir) -or $dir.StartsWith('\\')) {
         throw 'Destino de instalacao deve usar disco local absoluto.'
     }
@@ -76,14 +78,14 @@ foreach ($dir in @($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$Garn
         throw 'Ha arquivos anteriores de instalacao: nao sobrescrever.'
     }
 }
-$allPaths=@($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir) |
+$allPaths=@($BootstrapDir,$PostgresOptionsDir,$PostgresTlsPolicyDir,$GarnetConfigDir,$GarnetLogsDir,$PostgresInstallDir,$PostgresDataDir,$GarnetInstallDir) |
     ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') }
 for ($i=0;$i -lt $allPaths.Count;$i++) {
     for ($j=$i+1;$j -lt $allPaths.Count;$j++) {
         if ([string]::Equals($allPaths[$i],$allPaths[$j],[StringComparison]::OrdinalIgnoreCase) -or
             $allPaths[$i].StartsWith($allPaths[$j]+'\',[StringComparison]::OrdinalIgnoreCase) -or
             $allPaths[$j].StartsWith($allPaths[$i]+'\',[StringComparison]::OrdinalIgnoreCase)) {
-            throw 'Instalador exige seis pastas novas e isoladas.'
+            throw 'Instalador exige pastas novas e isoladas.'
         }
     }
 }
@@ -156,6 +158,7 @@ $packageArgs=@{
     ExpectedGarnetSHA256=$ExpectedGarnetSHA256
 }
 if ($SyntheticPlanCIFixture) { $packageArgs.SyntheticUnsignedCIFixture=$true }
+if ($PostgresBinaryZip) { $packageArgs.PostgresBinaryZip=$true }
 & $sourceGate @packageArgs | Out-Null
 if ($ExpectedServiceWrapperSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
     -not [IO.Path]::IsPathRooted($ServiceWrapperExe) -or
@@ -163,7 +166,7 @@ if ($ExpectedServiceWrapperSHA256 -cnotmatch '^[a-fA-F0-9]{64}$' -or
     -not (Test-Path -LiteralPath $ServiceWrapperExe -PathType Leaf) -or
     (Get-FileHash -LiteralPath $ServiceWrapperExe -Algorithm SHA256).Hash -cne
         $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
-    throw 'Gerenciador de serviço NSSM não possui hash aprovado de fonte independente.'
+    throw 'WinSW não possui hash aprovado de fonte independente.'
 }
 $bootstrapArgs=@{DestinationDir=$BootstrapDir;GarnetPort=$GarnetPort}
 & $bootstrap @bootstrapArgs | Out-Null
@@ -195,6 +198,12 @@ $prepareArgs=@{
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint
     Apply=$true
 }
+if($PostgresBinaryZip){
+    $prepareArgs.PostgresBinaryZip=$true
+}else{
+    $prepareArgs.PostgresSuperPasswordFile=Join-Path $BootstrapDir 'pg-super.secret'
+    $prepareArgs.PostgresServicePasswordFile=Join-Path $BootstrapDir 'pg-service.secret'
+}
 & $prepare @prepareArgs | Out-Null
 $installArgs=@{
     PostgresInstaller=$PostgresInstaller
@@ -205,6 +214,9 @@ $installArgs=@{
     ServiceWrapperExe=$ServiceWrapperExe
     ExpectedServiceWrapperSHA256=$ExpectedServiceWrapperSHA256
     PostgresOptionsFile=(Join-Path $PostgresOptionsDir 'postgresql-unattended.options')
+    PostgresOptionsDir=$PostgresOptionsDir
+    PostgresSuperPasswordFile=(Join-Path $BootstrapDir 'pg-super.secret')
+    PostgresServicePasswordFile=(Join-Path $BootstrapDir 'pg-service.secret')
     GarnetConfigFile=(Join-Path $GarnetConfigDir 'garnet.conf')
     PostgresInstallDir=$PostgresInstallDir
     PostgresDataDir=$PostgresDataDir
@@ -212,15 +224,17 @@ $installArgs=@{
     PostgresServiceAccount=$PostgresServiceAccount
     GarnetServiceName=$GarnetServiceName
     GarnetInstallDir=$GarnetInstallDir
+    GarnetLogsDir=$GarnetLogsDir
     PostgresPort=$PostgresPort
     GarnetPort=$GarnetPort
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint
     Apply=$true
 }
+if($PostgresBinaryZip){$installArgs.PostgresBinaryZip=$true}
 & $install @installArgs | Out-Null
 # Never modify a newly installed cluster until its certificate and runtime
 # authentication can be validated. Staged templates cannot start the service.
 & $pgPolicyTool -DestinationDir $PostgresTlsPolicyDir -PostgresPort $PostgresPort -PostgresServiceAccount $PostgresServiceAccount -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
 & $stagePolicyTool -PostgresDataDir $PostgresDataDir -TlsPolicyDir $PostgresTlsPolicyDir -FreshClusterMarker (Join-Path $PostgresOptionsDir ('PostgresFresh-'+$PostgresServiceName+'.marker')) -PostgresServiceName $PostgresServiceName -PostgresServiceAccount $PostgresServiceAccount -PostgresPort $PostgresPort -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
 Write-Output 'PASS: dependências locais instaladas com um comando técnico; serviços permanecem desabilitados e parados.'
-Write-Output 'NOT READY: configurações TLS instaladas offline, mas serviços ainda desabilitados. Falta validação real do EDB.exe, conexão SSL e primeiro schema antes da primeira venda.'
+Write-Output ('NOT READY: configuração TLS instalada offline, mas serviços ainda desabilitados. Falta validar PostgreSQL '+$(if($PostgresBinaryZip){'ZIP oficial'}else{'EDB.exe'})+', conexão SSL e primeiro schema antes da primeira venda.')

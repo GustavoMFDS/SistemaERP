@@ -57,8 +57,8 @@ func (r *FinanceRepo) OwnerOverview(ctx context.Context, tenantID, from, to stri
 		  COUNT(*) FILTER (WHERE entry_type='sale_cancel')
 		FROM ledger_entries
 		WHERE tenant_id=$1
-		  AND created_at >= $2::date
-		  AND created_at < ($3::date + interval '1 day')
+		  AND created_at >= ($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
+		  AND created_at < (($3::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')
 	`, tenantID, from, to).Scan(
 		&rawSales, &rawProfit, &rawRefunds, &out.SalesCount, &out.CancelledCount,
 	)
@@ -81,7 +81,9 @@ func (r *FinanceRepo) Dashboard(ctx context.Context, tenantID string, from, to s
 	rows, err := r.db.Query(ctx, `
 		SELECT entry_type, COALESCE(SUM(amount_net),0)::text
 		FROM ledger_entries
-		WHERE tenant_id=$1 AND created_at >= $2::timestamptz AND created_at < ($3::timestamptz + interval '1 day')
+		WHERE tenant_id=$1
+		  AND created_at >= ($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
+		  AND created_at < (($3::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')
 		GROUP BY entry_type
 	`, tenantID, from, to)
 	if err != nil {
@@ -175,10 +177,10 @@ func (r *FinanceRepo) ListPayments(ctx context.Context, tenantID, from, to, meth
 		where = append(where, fmt.Sprintf(clause, len(args)))
 	}
 	if from != "" {
-		add("p.created_at >= $%d::timestamptz", from)
+		add("p.created_at >= ($%d::date::timestamp AT TIME ZONE 'America/Sao_Paulo')", from)
 	}
 	if to != "" {
-		add("p.created_at < ($%d::timestamptz + interval '1 day')", to)
+		add("p.created_at < (($%d::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')", to)
 	}
 	if method != "" {
 		add("p.method=$%d", method)
