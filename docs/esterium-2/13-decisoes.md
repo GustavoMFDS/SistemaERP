@@ -13,6 +13,7 @@
 | DEC-09 | Evidência | LICENSE MIT na main; README divergente. Revisão da marca e licenças de terceiros pendente |
 | DEC-10 | Proposta | Comercialização é opcional; foco nas lojas da família |
 | DEC-11 | Proposta | Organizar documentos de 2.0 em docs/esterium-2, manter históricos intactos |
+| DEC-13 | Aprovada pelo usuário em 24/11/2026 | Setup único nativo Windows: PostgreSQL e Garnet como serviços, ERP compilado e interface web; sem Docker Desktop, WSL, VM Linux, Go, Node ou Python no PC da loja. Docker opcional apenas para desenvolvimento/CI. |
 | DEC-12 | Restrição | Sem instalação comercial, emissão fiscal real, merge ou mutação de dados por mera aprovação deste plano |
 
 ## Perguntas para descoberta com a família (não bloqueiam auditoria)
