@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/example/sistemaemgo/internal/modules/common"
 	privacyapp "github.com/example/sistemaemgo/internal/modules/privacy/application"
 	privacy "github.com/example/sistemaemgo/internal/modules/privacy/domain"
 	"github.com/jackc/pgx/v5"
@@ -114,23 +115,7 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 		}
 		return nil
 	case "user":
-		tag, err := r.db.Exec(ctx, `
-			UPDATE users u
-			SET name='Usuario anonimizado',
-			    email=('anon+' || u.id::text || '@anonymized.local')::citext,
-			    username=NULL,
-			    active=false,
-			    updated_at=now()
-			FROM user_tenants ut
-			WHERE ut.user_id=u.id AND ut.tenant_id=$1 AND u.id=$2
-		`, tenantID, subjectID)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return pgx.ErrNoRows
-		}
-		return nil
+		return r.mutateUserSubject(ctx, tenantID, subjectID, true)
 	default:
 		return fmt.Errorf("unsupported subject type")
 	}
@@ -138,21 +123,76 @@ func (r *Repo) AnonymizeSubject(ctx context.Context, tenantID, subjectType, subj
 
 func (r *Repo) BlockSubject(ctx context.Context, tenantID, subjectType, subjectID string) error {
 	if subjectType != "user" {
-		return fmt.Errorf("blocking is only supported for users")
+		return common.ErrValidation
 	}
-	tag, err := r.db.Exec(ctx, `
-		UPDATE users u
-		SET active=false, updated_at=now()
-		FROM user_tenants ut
-		WHERE ut.user_id=u.id AND ut.tenant_id=$1 AND u.id=$2
-	`, tenantID, subjectID)
+	return r.mutateUserSubject(ctx, tenantID, subjectID, false)
+}
+
+// User identity is global, membership is tenant-local. A privacy action in
+// one store must not disable or anonymize an identity used by another store.
+func (r *Repo) mutateUserSubject(ctx context.Context, tenantID, subjectID string, anonymize bool) error {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	defer tx.Rollback(ctx)
+	// Same lock order as team administration: serialize changes in this tenant.
+	var locked string
+	if err := tx.QueryRow(ctx, "SELECT id::text FROM companies WHERE id=$1 FOR UPDATE", tenantID).Scan(&locked); err != nil {
+		return err
+	}
+	// Lock the user row before checking all memberships. New memberships
+	// reference this row through a foreign key.
+	if err := tx.QueryRow(ctx, `
+		SELECT u.id::text FROM users u
+		JOIN user_tenants ut ON ut.user_id=u.id
+		WHERE ut.tenant_id=$1 AND u.id=$2 FOR UPDATE OF u, ut
+	`, tenantID, subjectID).Scan(&locked); err != nil {
+		return err
+	}
+	var administrator, shared bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM user_tenant_roles ur JOIN roles role ON role.id=ur.role_id
+			WHERE ur.tenant_id=$1 AND ur.user_id=$2 AND role.name='admin'
+		), EXISTS (
+			SELECT 1 FROM user_tenants WHERE user_id=$2 AND tenant_id<>$1
+		)
+	`, tenantID, subjectID).Scan(&administrator, &shared); err != nil {
+		return err
+	}
+	if administrator {
+		// Follow the team module's controlled administrator provisioning policy.
+		return common.ErrForbidden
+	}
+	if anonymize && shared {
+		// Include inactive memberships: historical ownership is still shared.
+		return common.ErrConflict
+	}
+	tag, err := tx.Exec(ctx, "UPDATE user_tenants SET active=false WHERE tenant_id=$1 AND user_id=$2", tenantID, subjectID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
 		return pgx.ErrNoRows
 	}
-	return nil
+	if anonymize {
+		tag, err = tx.Exec(ctx, `
+			UPDATE users
+			SET name='Usuario anonimizado',
+			    email=('anon+' || id::text || '@anonymized.local')::citext,
+			    username=NULL, active=false, auth_version=auth_version+1,
+			    updated_at=now()
+			WHERE id=$1
+		`, subjectID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return pgx.ErrNoRows
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repo) RecordConsent(ctx context.Context, tenantID, requestID string, req privacyapp.ConsentCreateRequest) (string, error) {
@@ -232,7 +272,9 @@ func (r *Repo) exportUser(ctx context.Context, tenantID, subjectID string) (map[
 	var active bool
 	var lastLoginAt *string
 	err := r.db.QueryRow(ctx, `
-		SELECT u.id::text, COALESCE(u.email::text,''), COALESCE(u.username::text,''), u.name, u.active, u.last_login_at::text
+		SELECT u.id::text, COALESCE(u.email::text,''), COALESCE(u.username::text,''), u.name, (u.active AND ut.active),
+		       CASE WHEN NOT EXISTS (SELECT 1 FROM user_tenants other WHERE other.user_id=u.id AND other.tenant_id<>ut.tenant_id)
+		            THEN u.last_login_at::text ELSE NULL END
 		FROM users u
 		JOIN user_tenants ut ON ut.user_id=u.id
 		WHERE ut.tenant_id=$1 AND u.id=$2

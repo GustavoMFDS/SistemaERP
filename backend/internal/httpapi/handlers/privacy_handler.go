@@ -209,8 +209,10 @@ func writePrivacyError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, common.ErrValidation):
 		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "dados invalidos", nil)
+	case errors.Is(err, common.ErrForbidden):
+		writeError(w, r, http.StatusForbidden, "forbidden", "acao administrativa exige procedimento controlado", nil)
 	case errors.Is(err, common.ErrConflict):
-		writeError(w, r, http.StatusConflict, "conflict", "transicao de status invalida", nil)
+		writeError(w, r, http.StatusConflict, "conflict", "operacao incompativel com o estado ou vinculos do titular", nil)
 	case errors.Is(err, pgx.ErrNoRows):
 		writeError(w, r, http.StatusNotFound, "not_found", "recurso nao encontrado", nil)
 	default:
