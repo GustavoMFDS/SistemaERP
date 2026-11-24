@@ -16,3 +16,7 @@ Teste unitário TestBusinessDateUsesSaoPauloMidnight passou em clone temporário
 
 ## Próximos contratos
 A migration 0023 já protege invoices(tenant_id,sale_id), company_id=tenant_id e invoice_xml_files(tenant_id,invoice_id); 0040 protege XML autorizado. Não duplicar essas FKs. Rever ledger_entries.sale_id/cash_session_id e idempotency_keys.sale_id antes de novo incremento; analisar semântica de histórico, deleção, chaves polimórficas e tenant FK. Revisar relações de atores/privacidade separadamente para não invalidar auditoria histórica ou revogação de acesso. Aguardar evidências CI das PRs em cascata antes de integrar. VM permanece necessária para homologação física.
+
+## Evidência adicional — retenção validada
+
+#222 HEAD 4ddfaca01ec933a82934cae3abd862ff1760d451: [integration](https://github.com/GustavoMFDS/SistemaERP/actions/runs/45487655093/job/138777214116) aprovado, log explícito PASS TestIdempotencyRetentionAllTables (0.15s). O teste executou as duas chamadas reais de manutenção e verificou ausência das 8004 chaves antigas, preservação das oito recentes e vendas/devoluções dos dois tenants sintéticos. CI geral do HEAD: 17 success, três em andamento no snapshot; workflow Windows Setup ainda não apareceu nesse HEAD na consulta. Não interpretar ausência de workflow como aprovação. #218: 25 success/4 skipped final; #219: 23 success/1 em andamento/4 skipped; #220 e #221: 18 success/6 em andamento/4 skipped; #223: 7 success/17 em andamento/4 skipped. Nenhuma falha nos HEADs consultados; não é aprovação comercial.
