@@ -109,7 +109,17 @@ try {
     $info.EnvironmentVariables['ESTERIUM_BOOTSTRAP_CNPJ']=$cnpj
     $info.EnvironmentVariables['ESTERIUM_BOOTSTRAP_ADMIN_NAME']=$adminName
     $info.EnvironmentVariables['ESTERIUM_BOOTSTRAP_ADMIN_EMAIL']=$adminEmail
-    $process=[Diagnostics.Process]::Start($info)
+    # .NET Framework 4.x creates StandardInput with Console.InputEncoding
+    # and may eagerly write its preamble. It has no StandardInputEncoding
+    # option. Scope a BOM-free encoding to child creation in this dedicated
+    # installer process; restore the console setting even if Start fails.
+    $previousInputEncoding=[Console]::InputEncoding
+    try {
+        [Console]::InputEncoding=$utf8
+        $process=[Diagnostics.Process]::Start($info)
+    } finally {
+        [Console]::InputEncoding=$previousInputEncoding
+    }
     if ($null -eq $process) { throw 'CLI de bootstrap indisponivel.' }
     $outputTask=$process.StandardOutput.ReadToEndAsync()
     $errorTask=$process.StandardError.ReadToEndAsync()
