@@ -370,6 +370,26 @@ O certificado expira em $($signer.NotAfter.ToUniversalTime().ToString('u')). A c
 Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assinatura Authenticode. A build termina sem instalar se nao detectar uma VM Oracle VirtualBox.
 "@ | Set-Content -LiteralPath (Join-Path $vmLabPackage 'LEIA-ME-VM-LAB.txt') -Encoding UTF8
         Write-Output ('PASS: VirtualBox-only test installer packaged for the disposable local VM; SHA256=' + $vmLabHash)
+        # Application-only candidate: export the immutable signed build
+        # BEFORE any installation, SQL bootstrap or guest secret generation.
+        # This artifact is not a retail installer and cannot waive backup gates.
+        $updatePackage=Join-Path $env:RUNNER_TEMP 'esterium-vm-lab-app-update'
+        if(Test-Path -LiteralPath $updatePackage){throw 'App-update package output exists.'}
+        [IO.Directory]::CreateDirectory($updatePackage)|Out-Null
+        $updateBundle=Join-Path $updatePackage 'bundle'
+        Copy-Item -LiteralPath $bundle -Destination $updateBundle -Recurse -ErrorAction Stop
+        & $releaseCheck -BundleDir $updateBundle -ExpectedManifestSHA256 $manifestSHA256 -ExpectedPublisherThumbprint $signerThumbprint
+        Copy-Item -LiteralPath $certPath -Destination $updatePackage -ErrorAction Stop
+        [ordered]@{
+            packageMode='VM-LAB application-only candidate; not commercial; backup and update approval required'
+            sourceCommit=$env:GITHUB_SHA
+            bundleManifestSHA256=$manifestSHA256
+            signerThumbprint=$signerThumbprint
+            signerExpiresUtc=$signer.NotAfter.ToUniversalTime().ToString('o')
+            publicCertificateSha256=$certHash
+            privateKeyIncluded=$false
+        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $updatePackage 'APP-UPDATE-MANIFEST.json') -Encoding UTF8
+        Write-Output 'PASS: immutable signed app-update candidate copied and verified before installation; no data or credentials included.'
         # A separate signed tool for inspecting earlier partial installs.
         # Never replace a file in an existing installed bundle.
         $recoveryDir=Join-Path $vmLabPackage 'recovery-diagnostics'

@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from '@playwright/test'
+import { expect, test as base, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -127,6 +127,27 @@ async function closeCurrentCashSession(browser: Browser, token: string, notes: s
     await context.close()
   }
 }
+
+// The installed-lab runner uses a fresh synthetic database and one worker.
+// Give cleanup its own fixture teardown budget, including after a test timeout.
+// Arm only after proving no pre-existing drawer, never adopt an unknown session.
+const test = base.extend<{
+  cashCleanup: (page: Page, token: string, notes: string) => Promise<void>
+}>({
+  cashCleanup: [async ({ browser }, runFixture) => {
+    let armed: { token: string; notes: string } | undefined
+    try {
+      await runFixture(async (page, token, notes) => {
+        if (armed) throw new Error('Cash cleanup already armed.')
+        const current = await browserApi(page, '/api/v1/cash/sessions/current', token)
+        expect(current.status, 'Fresh synthetic drawer required before writing').toBe(404)
+        armed = { token, notes }
+      })
+    } finally {
+      if (armed) await closeCurrentCashSession(browser, armed.token, armed.notes)
+    }
+  }, { timeout: 60_000 }],
+})
 
 function expectBody<T>(result: ApiResult, label: string): T {
   expect(result.status, `${label}: ${result.text}`).toBeGreaterThanOrEqual(200)
@@ -260,8 +281,10 @@ test('installed mobile routes remain usable without horizontal overflow', async 
   }
 })
 
-test('installed mobile and desktop navigation, staff activation, cash, safe errors, and sale confirmation work with real services', async ({ page, browser }) => {
+test('installed mobile and desktop navigation, staff activation, cash, safe errors, and sale confirmation work with real services', async ({ page, browser, cashCleanup }) => {
   test.skip(!['chromium', 'chromium-mobile'].includes(test.info().project.name), 'screen 18-19 confirmation smoke runs on Chromium desktop and mobile')
+  // Mobile may spend 65 seconds waiting for the shared login rate-limit window.
+  test.setTimeout(240_000)
   const adminToken = await loginUi(page)
   const fiscalReminder = page.getByRole('dialog', { name: 'Sua configuração fiscal ainda não está concluída' })
   await expect(fiscalReminder).toBeVisible()
@@ -398,7 +421,8 @@ test('installed mobile and desktop navigation, staff activation, cash, safe erro
   }), 'screen 19 opening stock')
   let openSessionId = ''
   let closingAmount = 0
-  try {
+  await cashCleanup(page, adminToken, 'Synthetic screen 19 cleanup')
+  {
     await page.getByRole('link', { name: 'PDV', exact: true }).click()
     await expect(page.getByText('Abra o caixa para começar.')).toBeVisible()
     await page.getByLabel('Abertura (R$)').fill('0')
@@ -519,14 +543,12 @@ test('installed mobile and desktop navigation, staff activation, cash, safe erro
       path: areaEvidencePath('03-caixa', projectName, 'close', evidenceDir),
       fullPage: true,
     })
-  } finally {
-    await closeCurrentCashSession(browser, adminToken, 'Synthetic screen 19 cleanup')
-    openSessionId = ''
   }
 })
 
-test('installed ERP completes synthetic retail operations, checks the fiscal gate and races two terminals', async ({ page, browser, browserName }) => {
+test('installed ERP completes synthetic retail operations, checks the fiscal gate and races two terminals', async ({ page, browser, browserName, cashCleanup }) => {
   test.skip(test.info().project.name !== 'chromium', 'business write smoke runs once on Chromium')
+  test.setTimeout(240_000)
   expect(browserName).toBe('chromium')
   const email = process.env.ESTERIUM_LAB_ADMIN_EMAIL ?? ''
   const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 14)
@@ -643,6 +665,7 @@ test('installed ERP completes synthetic retail operations, checks the fiscal gat
     }), 'purchase receipt')
     expect(receipt.status).toBe('received')
 
+    await cashCleanup(page, adminToken, 'Synthetic installed-lab operations cleanup')
     const cash = expectBody<{ id: string }>(await browserApi(page, '/api/v1/cash/sessions/open', adminToken, {
       method: 'POST', body: { opening_amount: 100, notes: 'Synthetic installed-lab drawer' },
     }), 'cash session open')
@@ -794,10 +817,6 @@ test('installed ERP completes synthetic retail operations, checks the fiscal gat
 
     await page.screenshot({ path: join(evidenceDir, 'installed-real-operations.png'), fullPage: true })
   } finally {
-    try {
-      if (adminToken) await closeCurrentCashSession(browser, adminToken, 'Synthetic installed-lab operations cleanup')
-    } finally {
-      await cashierContext.close()
-    }
+    await cashierContext.close()
   }
 })
