@@ -23,8 +23,15 @@ function Test-Case([string]$scenario,[string]$expected){
     $probe='Invoke-FixtureProbe';$activation='Invoke-FixtureActivation';$argsForOriginal=@{}
     $readiness='C:\synthetic-readiness';$installed='C:\synthetic-installation'
     function Invoke-FixtureInspector{
-        if($scenario -eq 'absent'){'ADMIN_ABSENT'}else{'ADMIN_COMMITTED'}
-        'PASS: all three services stopped and disabled; no recovery approval granted.'
+        if($scenario -eq 'inspection-error'){throw 'ADMIN_INDETERMINATE: synthetic inspection failed'}
+        if($scenario -eq 'absent'){'ADMIN_ABSENT'}
+        elseif($scenario -eq 'indeterminate'){'ADMIN_INDETERMINATE'}
+        elseif($scenario -eq 'unexpected-status'){'ADMIN_UNKNOWN'}
+        else{'ADMIN_COMMITTED'}
+        if($scenario -ne 'missing-cleanup-proof'){
+            'PASS: all three services stopped and disabled; no recovery approval granted.'
+        }
+        if($scenario -eq 'extra-output'){'unexpected extra output'}
     }
     function Assert-ServiceState($Name,$StateName,$Mode){
         if($state[$Name].status -ne $StateName -or $state[$Name].mode -ne $Mode){throw 'Synthetic unsafe state.'}
@@ -64,7 +71,10 @@ function Test-Case([string]$scenario,[string]$expected){
     $actual=''
     try{$actual=@(& $run) -join '|'}catch{$actual=$_.Exception.Message}
     if(-not $actual.StartsWith($expected)){throw ('Unexpected result for '+$scenario+': '+$actual)}
-    if($scenario -eq 'absent' -and ($counts.mutation -ne 0 -or $counts.probe -ne 0)){throw 'Admin gate did not prevent mutation.'}
+    if($scenario -in @('absent','indeterminate','unexpected-status','missing-cleanup-proof','extra-output','inspection-error') -and
+        ($counts.mutation -ne 0 -or $counts.probe -ne 0 -or $counts.activation -ne 0)){
+        throw 'Admin gate did not prevent mutation.'
+    }
     if($scenario -in @('probe-failure','cleanup-failure','missing-probe-receipt') -and $counts.activation -ne 0){throw 'Activation ran without probe evidence.'}
     if($scenario -eq 'success'){
         foreach($name in $names){Assert-ServiceState $name 'Running' 'Auto'}
@@ -75,9 +85,14 @@ function Test-Case([string]$scenario,[string]$expected){
 }
 Test-Case 'success' 'PASS: original signed probe'
 Test-Case 'absent' 'ACTIVATION_REFUSED_ADMIN_NOT_COMMITTED'
+Test-Case 'indeterminate' 'ACTIVATION_REFUSED_ADMIN_NOT_COMMITTED'
+Test-Case 'unexpected-status' 'ACTIVATION_REFUSED_ADMIN_NOT_COMMITTED'
+Test-Case 'missing-cleanup-proof' 'ACTIVATION_REFUSED_ADMIN_NOT_COMMITTED'
+Test-Case 'extra-output' 'ACTIVATION_REFUSED_ADMIN_NOT_COMMITTED'
+Test-Case 'inspection-error' 'ADMIN_INDETERMINATE:'
 Test-Case 'probe-failure' 'ACTIVATION_PROBE_FAILED:'
 Test-Case 'missing-probe-receipt' 'ACTIVATION_PROBE_FAILED:'
 Test-Case 'https-failure' 'ACTIVATION_HTTPS_FAILED:'
 Test-Case 'missing-activation-receipt' 'ACTIVATION_POSTCHECK_FAILED:'
 Test-Case 'cleanup-failure' 'ACTIVATION_CLEANUP_FAILED:'
-Write-Output 'PASS: 7 simulated activation gates and cleanup cases; no real services changed.'
+Write-Output 'PASS: 12 simulated activation gates and cleanup cases; no real services changed.'
