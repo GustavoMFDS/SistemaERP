@@ -134,10 +134,10 @@ async function closeCurrentCashSession(browser: Browser, token: string, notes: s
 const test = base.extend<{
   cashCleanup: (page: Page, token: string, notes: string) => Promise<void>
 }>({
-  cashCleanup: [async ({ browser }, use) => {
+  cashCleanup: [async ({ browser }, runFixture) => {
     let armed: { token: string; notes: string } | undefined
     try {
-      await use(async (page, token, notes) => {
+      await runFixture(async (page, token, notes) => {
         if (armed) throw new Error('Cash cleanup already armed.')
         const current = await browserApi(page, '/api/v1/cash/sessions/current', token)
         expect(current.status, 'Fresh synthetic drawer required before writing').toBe(404)
