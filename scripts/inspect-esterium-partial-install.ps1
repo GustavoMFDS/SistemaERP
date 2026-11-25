@@ -188,6 +188,9 @@ try {
     # Expose only exact, fixed validation labels; never arbitrary error text.
     if($failureStage -eq 'RESUME_BOOTSTRAP_FAILED'){
         switch -CaseSensitive ($_.Exception.Message){
+            'Bootstrap recusado: FAIL: first administrator outcome not confirmed: commit' {$failureStage='RESUME_COMMIT_UNCONFIRMED'}
+            'Bootstrap recusado: FAIL: first administrator outcome not confirmed: deadline' {$failureStage='RESUME_BOOTSTRAP_DEADLINE'}
+            'Bootstrap recusado: FAIL: first administrator outcome not confirmed: canceled' {$failureStage='RESUME_BOOTSTRAP_CANCELED'}
             'As senhas nao coincidem.' {$failureStage='RESUME_PASSWORD_MISMATCH'}
             'Senha fora dos limites do bootstrap.' {$failureStage='RESUME_PASSWORD_LENGTH'}
             'Senha deve ocupar uma unica linha.' {$failureStage='RESUME_PASSWORD_FORMAT'}

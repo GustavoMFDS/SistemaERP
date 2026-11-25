@@ -122,7 +122,10 @@ function Invoke-AdminBootstrap([bool]$expectSuccess){
         $output=$stdout.GetAwaiter().GetResult().Trim()
         $diagnostic=$stderr.GetAwaiter().GetResult().Trim()
         if($expectSuccess -and ($proc.ExitCode -ne 0 -or $output -cne 'PASS: first administrator created for the new company.')){
-            if($diagnostic -match '^FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+$'){
+            if($diagnostic -cin @('FAIL: first administrator outcome not confirmed: commit',
+                'FAIL: first administrator outcome not confirmed: deadline',
+                'FAIL: first administrator outcome not confirmed: canceled') -or
+                $diagnostic -match '^FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+$'){
                 throw ('First-admin CLI rejected the fresh synthetic database: '+$diagnostic)
             }
             throw 'First-admin CLI rejected the fresh synthetic database; no safe diagnostic was returned.'

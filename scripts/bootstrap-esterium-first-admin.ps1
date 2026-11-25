@@ -136,6 +136,12 @@ try {
     $output=$outputTask.GetAwaiter().GetResult().Trim()
     $errorOutput=$errorTask.GetAwaiter().GetResult().Trim()
     if ($process.ExitCode -ne 0 -or $output -cne 'PASS: first administrator created for the new company.') {
+        if ($errorOutput -cin @(
+            'FAIL: first administrator outcome not confirmed: commit',
+            'FAIL: first administrator outcome not confirmed: deadline',
+            'FAIL: first administrator outcome not confirmed: canceled')) {
+            throw ('Bootstrap recusado: '+$errorOutput)
+        }
         if ($errorOutput -match '^FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+$') {
             throw ('Bootstrap recusado: '+$errorOutput)
         }

@@ -15,6 +15,10 @@ import (
 
 const placeholderCNPJ = "00000000000000"
 
+// ErrCommitUnconfirmed does not establish whether the server committed.
+// Recovery must inspect the database before any repeat of Create.
+var ErrCommitUnconfirmed = errors.New("first-admin transaction outcome unconfirmed; inspect before retry")
+
 // Input contains the business and account identity for the one-time install.
 // Password is deliberately passed separately and is never included in SQL or logs.
 type Input struct {
@@ -179,7 +183,10 @@ func Create(ctx context.Context, pool *pgxpool.Pool, input Input, password strin
 	for _, table := range tables {
 		var hasRows bool
 		query := `SELECT EXISTS(SELECT 1 FROM ` + pgx.Identifier{table}.Sanitize() + `)`
-		if err := tx.QueryRow(ctx, query).Scan(&hasRows); err != nil || hasRows {
+		if err := tx.QueryRow(ctx, query).Scan(&hasRows); err != nil {
+			return errors.New("could not inspect business data; first-admin setup refused")
+		}
+		if hasRows {
 			return errors.New("database contains business data; first-admin setup refused")
 		}
 	}
@@ -235,7 +242,7 @@ func Create(ctx context.Context, pool *pgxpool.Pool, input Input, password strin
 		return errors.New("could not record first-admin audit event")
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return errors.New("first-admin transaction was not committed")
+		return ErrCommitUnconfirmed
 	}
 	return nil
 }
