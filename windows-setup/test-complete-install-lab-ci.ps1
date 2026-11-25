@@ -381,7 +381,10 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
         $recoverySignature=Set-AuthenticodeSignature -LiteralPath $recoveryScript -Certificate $signer -HashAlgorithm SHA256
         $recoveryBootstrap=Join-Path $recoveryDir 'bootstrap-esterium-first-admin.ps1'
         Copy-Item -LiteralPath (Join-Path $bundle 'tools\bootstrap-esterium-first-admin.ps1') -Destination $recoveryBootstrap
-        foreach($file in @($recoveryScript,$recoveryExe,$recoveryBootstrap)){
+        $recoveryActivation=Join-Path $recoveryDir 'resume-esterium-partial-activation.ps1'
+        Copy-Item -LiteralPath (Join-Path $repo 'scripts\resume-esterium-partial-activation.ps1') -Destination $recoveryActivation
+        $activationSignature=Set-AuthenticodeSignature -LiteralPath $recoveryActivation -Certificate $signer -HashAlgorithm SHA256
+        foreach($file in @($recoveryScript,$recoveryExe,$recoveryBootstrap,$recoveryActivation)){
             $sig=Get-AuthenticodeSignature -LiteralPath $file
             if($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Thumbprint -ine $signerThumbprint){
                 throw 'Recovery diagnostic signature is invalid.'
@@ -395,6 +398,7 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
             scriptSHA256=(Get-FileHash -LiteralPath $recoveryScript -Algorithm SHA256).Hash
             diagnosticSHA256=(Get-FileHash -LiteralPath $recoveryExe -Algorithm SHA256).Hash
             bootstrapScriptSHA256=(Get-FileHash -LiteralPath $recoveryBootstrap -Algorithm SHA256).Hash
+            activationScriptSHA256=(Get-FileHash -LiteralPath $recoveryActivation -Algorithm SHA256).Hash
             privateKeyIncluded=$false
         } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $recoveryDir 'RECOVERY-DIAGNOSTICS-MANIFEST.json') -Encoding UTF8
         Write-Output 'PASS: separately signed VM-LAB recovery inspection tools packaged without replacing original binaries.'
