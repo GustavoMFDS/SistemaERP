@@ -34,7 +34,7 @@ function Test-Case([string]$scenario,[string]$expected){
     }
     function Get-Service($Name){
         $service=[pscustomobject]@{Status=$state.status}
-        $service | Add-Member ScriptMethod WaitForStatus {param($s,$t)} 
+        $service | Add-Member ScriptMethod WaitForStatus {param($s,$t)}
         return $service
     }
     function Get-ExactService($Name){[pscustomobject]@{ProcessId=12}}
