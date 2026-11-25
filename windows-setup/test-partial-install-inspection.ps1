@@ -16,7 +16,10 @@ for($i=0;$i -lt $statements.Count;$i++){
 if($start -lt 0){throw 'Inspection block not found.'}
 $run=[scriptblock]::Create(($statements[$start..($statements.Count-1)] | ForEach-Object {$_.Extent.Text}) -join [Environment]::NewLine)
 function Test-Case([string]$scenario,[string]$expected){
-    $state=@{mode='Disabled';status='Stopped';started=0;stopped=0;called=0}
+    $state=@{mode='Disabled';status='Stopped';started=0;stopped=0;called=0;bootstrap=0}
+    $ResumeAdmin=$scenario.StartsWith('resume-')
+    $bootstrap='Invoke-FixtureBootstrap'
+    $DiagnosticPublisher='synthetic'
     $exe='Invoke-FixtureInspector'
     $urlFile='synthetic-url-file'
     $postgres='synthetic-postgres.exe'
@@ -52,7 +55,15 @@ function Test-Case([string]$scenario,[string]$expected){
     function Invoke-FixtureInspector{
         $state.called++
         $global:LASTEXITCODE=0
-        if($scenario -eq 'bad-output'){'unexpected input'}else{'ADMIN_COMMITTED'}
+        if($scenario -eq 'bad-output'){'unexpected input'}
+        elseif($ResumeAdmin -and $scenario -ne 'resume-existing' -and ($state.called -eq 1 -or $scenario -eq 'resume-unconfirmed')){'ADMIN_ABSENT'}
+        else{'ADMIN_COMMITTED'}
+    }
+    function Invoke-FixtureBootstrap {
+        $state.bootstrap++
+        if($scenario -eq 'resume-mismatch'){throw 'As senhas nao coincidem.'}
+        if($scenario -eq 'resume-business'){throw 'Bootstrap recusado: FAIL: first administrator was not created: database contains business data; first-admin setup refused'}
+        if($scenario -eq 'resume-arbitrary'){throw 'synthetic unapproved diagnostic'}
     }
     $actual=''
     try{$actual=@(& $run) -join '|'}catch{$actual=$_.Exception.Message}
@@ -60,10 +71,21 @@ function Test-Case([string]$scenario,[string]$expected){
     if($state.started -ne 1){throw 'Expected exactly one synthetic start.'}
     if($scenario -ne 'cleanup-failure' -and ($state.status -ne 'Stopped' -or $state.mode -ne 'Disabled' -or $state.stopped -ne 1)){throw 'Cleanup not proven.'}
     if($scenario -in @('no-listener','foreign-listener') -and $state.called -ne 0){throw 'Inspector ran before ownership verification.'}
+    if($ResumeAdmin){
+        $expectedCalls=if($scenario -eq 'resume-existing'){0}else{1}
+        if($state.bootstrap -ne $expectedCalls){throw 'Unexpected bootstrap invocation count.'}
+        if($scenario -in @('resume-success','resume-unconfirmed') -and $state.called -ne 2){throw 'Post-bootstrap inspection missing.'}
+    }
 }
 Test-Case 'success' 'ADMIN_COMMITTED|PASS:'
 Test-Case 'no-listener' 'ADMIN_INDETERMINATE:'
 Test-Case 'foreign-listener' 'ADMIN_INDETERMINATE:'
 Test-Case 'bad-output' 'ADMIN_INDETERMINATE:'
 Test-Case 'cleanup-failure' 'RECOVERY_CLEANUP_FAILED:'
-Write-Output 'PASS: 5 simulated inspection and cleanup cases; no SCM changes.'
+Test-Case 'resume-success' 'ADMIN_COMMITTED|PASS:'
+Test-Case 'resume-existing' 'RESUME_REFUSED_NOT_ABSENT:'
+Test-Case 'resume-mismatch' 'RESUME_PASSWORD_MISMATCH:'
+Test-Case 'resume-business' 'RESUME_NONEMPTY_DATABASE:'
+Test-Case 'resume-arbitrary' 'RESUME_BOOTSTRAP_FAILED:'
+Test-Case 'resume-unconfirmed' 'RESUME_COMMIT_UNCONFIRMED:'
+Write-Output 'PASS: 11 simulated inspection/resume and cleanup cases; no SCM changes.'
