@@ -228,6 +228,10 @@ try { Assert-InstallTLSCertificateTimes } catch {
     $_.Exception.Data['EsteriumInstallStage']='tls-certificate-time'
     throw
 }
+# Capture the source digests before schema/secret mutations. Never print them.
+$tlsSourceChainSHA256=(Get-FileHash -LiteralPath $TLSCertFile -Algorithm SHA256).Hash
+$tlsSourceKeySHA256=(Get-FileHash -LiteralPath $TLSKeyFile -Algorithm SHA256).Hash
+$tlsSourceCheckedUtc=[datetime]::UtcNow.ToString('o')
 $stageArgs=@{SourceBundleDir=$source;StageDir=$StageDir;ApprovedManifestSHA256=$ApprovedManifestSHA256;
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint;Apply=$true}
 & (Join-Path $PSScriptRoot 'stage-esterium-approved-windows-release.ps1') @stageArgs | Out-Null
@@ -240,7 +244,7 @@ $sqlArgs=@{BundleDir=$StageDir;PostgresBin=$PostgresBin;PostgresDataDir=$Postgre
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint;Apply=$true}
 & (Join-Path $stageTool 'bootstrap-esterium-local-schema.ps1') @sqlArgs | Out-Null
 & (Join-Path $stageTool 'provision-esterium-app-secrets.ps1') -DestinationDir $ApplicationSecretsDir -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
-function Copy-ApprovedTLSFile([string]$sourcePath,[string]$targetPath,[string]$label) {
+function Copy-ApprovedTLSFile([string]$sourcePath,[string]$targetPath,[string]$label,[string]$expectedSHA256) {
     if (-not [IO.Path]::IsPathRooted($sourcePath) -or $sourcePath.StartsWith('\\')) {
         throw "$label source must be a local absolute file path."
     }
@@ -260,6 +264,7 @@ function Copy-ApprovedTLSFile([string]$sourcePath,[string]$targetPath,[string]$l
         throw "$label source must be non-empty and the protected destination must be new."
     }
     $sourceHash=(Get-FileHash -LiteralPath $sourceFull -Algorithm SHA256).Hash
+    if ($sourceHash -cne $expectedSHA256) { throw "$label changed since the initial TLS check." }
     Copy-Item -LiteralPath $sourceFull -Destination $targetPath -ErrorAction Stop
     if ((Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash -cne $sourceHash) {
         throw "$label changed during protected staging."
@@ -268,8 +273,46 @@ function Copy-ApprovedTLSFile([string]$sourcePath,[string]$targetPath,[string]$l
     if ($LASTEXITCODE -ne 0) { throw "Could not protect staged $label." }
     return [IO.Path]::GetFullPath($targetPath)
 }
-$TLSCertFile=Copy-ApprovedTLSFile $TLSCertFile (Join-Path $ApplicationSecretsDir 'https-server-chain.pem') 'HTTPS certificate chain'
-$TLSKeyFile=Copy-ApprovedTLSFile $TLSKeyFile (Join-Path $ApplicationSecretsDir 'https-server-key.pem') 'HTTPS private key'
+$TLSCertFile=Copy-ApprovedTLSFile $TLSCertFile (Join-Path $ApplicationSecretsDir 'https-server-chain.pem') 'HTTPS certificate chain' $tlsSourceChainSHA256
+$TLSKeyFile=Copy-ApprovedTLSFile $TLSKeyFile (Join-Path $ApplicationSecretsDir 'https-server-key.pem') 'HTTPS private key' $tlsSourceKeySHA256
+# Internal provenance only: this record never approves new trust or substitutes
+# for the independent pins required by the signed recovery workflow.
+function Write-TLSStagingEvidence([string]$directory,[string]$chain,[string]$key,[string]$chainSHA256,[string]$keySHA256,[string]$checkedUtc,[string]$manifestSHA256) {
+    if ($chainSHA256 -cnotmatch '^[A-F0-9]{64}$' -or $keySHA256 -cnotmatch '^[A-F0-9]{64}$' -or $manifestSHA256 -notmatch '^[A-Fa-f0-9]{64}$') {
+        throw 'Invalid TLS staging evidence digest.'
+    }
+    if ((Get-FileHash -LiteralPath $chain -Algorithm SHA256).Hash -cne $chainSHA256 -or
+        (Get-FileHash -LiteralPath $key -Algorithm SHA256).Hash -cne $keySHA256) {
+        throw 'TLS staging evidence differs from verified inputs.'
+    }
+    $receipt=Join-Path $directory 'tls-staging-evidence.json'
+    $meta=[ordered]@{
+        kind='ESTERIUM_TLS_STAGING_EVIDENCE'
+        schemaVersion=1
+        sourceCheckedUtc=$checkedUtc
+        stagedCheckedUtc=[datetime]::UtcNow.ToString('o')
+        releaseManifestSHA256=$manifestSHA256
+        chainSHA256=$chainSHA256
+        keySHA256=$keySHA256
+        independentApproval=$false
+    }
+    # The existing secrets directory restricts inherited access. Narrow this
+    # evidence file further to administrators and SYSTEM before writing data.
+    $stream=[IO.File]::Open($receipt,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    $stream.Dispose()
+    & icacls.exe $receipt '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not protect TLS staging evidence.' }
+    $bytes=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json $meta -Depth 3)+[Environment]::NewLine)
+    try {
+        $stream=[IO.File]::Open($receipt,[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try {
+            if($stream.Length -ne 0){throw 'TLS staging evidence is not empty.'}
+            $stream.Write($bytes,0,$bytes.Length)
+            $stream.Flush($true)
+        } finally {$stream.Dispose()}
+    } finally {[Array]::Clear($bytes,0,$bytes.Length)}
+}
+Write-TLSStagingEvidence $ApplicationSecretsDir $TLSCertFile $TLSKeyFile $tlsSourceChainSHA256 $tlsSourceKeySHA256 $tlsSourceCheckedUtc $ApprovedManifestSHA256
 $registration=@{
     BundleDir=$StageDir
     DatabaseURLFile=(Join-Path $DatabaseDestinationDir 'database-url.secret')

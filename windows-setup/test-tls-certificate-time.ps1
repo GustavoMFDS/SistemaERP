@@ -178,6 +178,60 @@ try {
     try{& $recoveryGate}catch{$observed=$_.Exception.Message}
     if(-not $observed.StartsWith('RECOVERY_TLS_INVALID:')){throw 'Unexpected certificate path was accepted.'}
     Write-Output 'PASS: 7 recovery certificate cases and 2 gate cases; before SCM mutation.'
+    # Only synthetic files and a stub ACL command in the temporary fixture.
+    foreach($fn in @('Copy-ApprovedTLSFile','Write-TLSStagingEvidence')){
+        $functions=@($ast.FindAll({param($n)
+            $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $fn
+        },$true))
+        if($functions.Count -ne 1){throw 'Missing provenance helper.'}
+        . ([scriptblock]::Create($functions[0].Extent.Text))
+    }
+    $prov=Join-Path $dir 'provenance-fixture'
+    [IO.Directory]::CreateDirectory($prov)|Out-Null
+    $sourceChain=Join-Path $prov 'source-chain.txt'
+    $sourceKey=Join-Path $prov 'source-key.txt'
+    [IO.File]::WriteAllText($sourceChain,'synthetic public material')
+    [IO.File]::WriteAllText($sourceKey,'synthetic inert fixture, not a key')
+    $chainPin=(Get-FileHash $sourceChain).Hash
+    $keyPin=(Get-FileHash $sourceKey).Hash
+    $manifestPin='A'*64
+    $checked=[datetime]::UtcNow.ToString('o')
+    $aclState=@{fail=$false;calls=0}
+    function icacls.exe {
+        $aclState.calls++
+        $global:LASTEXITCODE=if($aclState.fail){1}else{0}
+    }
+    function Expect-ProvRefusal([scriptblock]$operation,[string]$expected){
+        $observed=''
+        try{& $operation | Out-Null}catch{$observed=$_.Exception.Message}
+        if(-not $observed.Contains($expected)){throw 'Expected provenance refusal.'}
+    }
+    $targetChain=Join-Path $prov 'staged-chain.txt'
+    $targetKey=Join-Path $prov 'staged-key.txt'
+    Expect-ProvRefusal {Copy-ApprovedTLSFile $sourceChain $targetChain 'fixture' ('B'*64)} 'changed since'
+    if(Test-Path $targetChain){throw 'Mismatch must precede copy.'}
+    $null=Copy-ApprovedTLSFile $sourceChain $targetChain 'fixture' $chainPin
+    $null=Copy-ApprovedTLSFile $sourceKey $targetKey 'fixture' $keyPin
+    Expect-ProvRefusal {Copy-ApprovedTLSFile $sourceChain $targetChain 'fixture' $chainPin} 'destination must be new'
+    $receipt=Join-Path $prov 'tls-staging-evidence.json'
+    Expect-ProvRefusal {Write-TLSStagingEvidence $prov $targetChain $targetKey ('B'*64) $keyPin $checked $manifestPin} 'differs'
+    if(Test-Path $receipt){throw 'Mismatch must precede receipt.'}
+    $aclState.fail=$true
+    Expect-ProvRefusal {Write-TLSStagingEvidence $prov $targetChain $targetKey $chainPin $keyPin $checked $manifestPin} 'protect TLS staging evidence'
+    if((Get-Item $receipt).Length -ne 0){throw 'ACL failure wrote evidence payload.'}
+    Remove-Item -LiteralPath $receipt
+    $aclState.fail=$false
+    if(@(Write-TLSStagingEvidence $prov $targetChain $targetKey $chainPin $keyPin $checked $manifestPin).Count){throw 'Unexpected provenance output.'}
+    $record=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json
+    if($record.kind -cne 'ESTERIUM_TLS_STAGING_EVIDENCE' -or $record.independentApproval -ne $false -or
+        $record.chainSHA256 -cne $chainPin -or $record.keySHA256 -cne $keyPin -or $record.releaseManifestSHA256 -cne $manifestPin){
+        throw 'Incorrect provenance record.'
+    }
+    $receiptHash=(Get-FileHash $receipt).Hash
+    $refused=$false
+    try{Write-TLSStagingEvidence $prov $targetChain $targetKey $chainPin $keyPin $checked $manifestPin}catch{$refused=$true}
+    if(-not $refused -or (Get-FileHash $receipt).Hash -cne $receiptHash){throw 'Existing evidence overwritten.'}
+    Write-Output 'PASS: 7 provenance cases; synthetic files and stubbed ACL command only.'
 } finally {
     if(Test-Path -LiteralPath $dir){Remove-Item -LiteralPath $dir -Recurse -Force}
 }
