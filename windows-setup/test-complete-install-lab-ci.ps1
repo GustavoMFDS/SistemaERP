@@ -427,6 +427,15 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
     & $completeInstaller @installArgs
     Assert-InstalledServices
     Wait-ERPReady $httpsPort 120
+    # Inspect through the installed CLI and protected URL; no password or
+    # database connection string is passed as a command-line value.
+    $inspectExe=Join-Path $env:ProgramFiles 'EsteriumERP\tools\esterium-bootstrap-admin.exe'
+    $inspectURL=Join-Path $env:ProgramData 'Esterium\PostgresApplication\database-url.secret'
+    $inspection=@(& $inspectExe --inspect-status --database-url-file $inspectURL 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $inspection.Count -ne 1 -or [string]$inspection[0] -cne 'ADMIN_COMMITTED') {
+        throw 'Read-only first-admin inspection failed to confirm the committed fixture.'
+    }
+    Write-Output 'PASS: installed first-admin status inspection returned only ADMIN_COMMITTED.'
     Assert-AdminLogin $origin
     Assert-FirewallRule $httpsPort $remoteScope
     $activationReceiptPath = Join-Path $env:ProgramData 'Esterium\Installation\installation-ready.json'
