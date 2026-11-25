@@ -370,6 +370,31 @@ O certificado expira em $($signer.NotAfter.ToUniversalTime().ToString('u')). A c
 Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assinatura Authenticode. A build termina sem instalar se nao detectar uma VM Oracle VirtualBox.
 "@ | Set-Content -LiteralPath (Join-Path $vmLabPackage 'LEIA-ME-VM-LAB.txt') -Encoding UTF8
         Write-Output ('PASS: VirtualBox-only test installer packaged for the disposable local VM; SHA256=' + $vmLabHash)
+        # A separate signed tool for inspecting earlier partial installs.
+        # Never replace a file in an existing installed bundle.
+        $recoveryDir=Join-Path $vmLabPackage 'recovery-diagnostics'
+        [IO.Directory]::CreateDirectory($recoveryDir) | Out-Null
+        $recoveryScript=Join-Path $recoveryDir 'inspect-esterium-partial-install.ps1'
+        $recoveryExe=Join-Path $recoveryDir 'esterium-bootstrap-admin.exe'
+        Copy-Item -LiteralPath (Join-Path $repo 'scripts\inspect-esterium-partial-install.ps1') -Destination $recoveryScript
+        Copy-Item -LiteralPath (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe') -Destination $recoveryExe
+        $recoverySignature=Set-AuthenticodeSignature -LiteralPath $recoveryScript -Certificate $signer -HashAlgorithm SHA256
+        foreach($file in @($recoveryScript,$recoveryExe)){
+            $sig=Get-AuthenticodeSignature -LiteralPath $file
+            if($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Thumbprint -ine $signerThumbprint){
+                throw 'Recovery diagnostic signature is invalid.'
+            }
+        }
+        [ordered]@{
+            packageMode='VirtualBox inspection only; not commercial; not recovery approval'
+            sourceCommit=$env:GITHUB_SHA
+            signerThumbprint=$signerThumbprint
+            signerExpiresUtc=$signer.NotAfter.ToUniversalTime().ToString('o')
+            scriptSHA256=(Get-FileHash -LiteralPath $recoveryScript -Algorithm SHA256).Hash
+            diagnosticSHA256=(Get-FileHash -LiteralPath $recoveryExe -Algorithm SHA256).Hash
+            privateKeyIncluded=$false
+        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $recoveryDir 'RECOVERY-DIAGNOSTICS-MANIFEST.json') -Encoding UTF8
+        Write-Output 'PASS: separately signed VM-LAB recovery inspection tools packaged without replacing original binaries.'
     }
 
     Write-Output 'Applying the real complete first-install coordinator on this disposable runner.'
