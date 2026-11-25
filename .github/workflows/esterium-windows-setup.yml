@@ -99,6 +99,7 @@ jobs:
         shell: powershell
         run: |
           & .\windows-setup\test-apply-failure-diagnostics.ps1 -SetupExe "$env:GITHUB_WORKSPACE\release-preview\EsteriumERP-Setup.exe"
+          & .\windows-setup\test-partial-install-inspection.ps1
       - name: Reject incomplete packaging inputs
         shell: powershell
         run: |
