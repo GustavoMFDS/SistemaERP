@@ -6,9 +6,9 @@ func TestClassifyStatus(t *testing.T) {
 	fresh := statusCounts{companies: 1, placeholders: 1}
 	committed := statusCounts{companies: 1, users: 1, memberships: 1, roles: 1, tenantRoles: 1, auditEvents: 1, matching: 1}
 	tests := []struct {
-		name string
+		name   string
 		counts statusCounts
-		want Status
+		want   Status
 	}{
 		{"absent", fresh, AdminAbsent},
 		{"committed", committed, AdminCommitted},
