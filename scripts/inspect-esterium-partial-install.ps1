@@ -2,7 +2,8 @@
 <#
   Assisted inspection of an incomplete, default-path Windows installation.
   PLAN is read-only. Inspect temporarily starts ONLY the approved PostgreSQL
-  service and never creates users, receipts, firewall rules or activates ERP.
+  service. ResumeAdmin explicitly permits only the first-admin transaction;
+  neither mode creates readiness receipts, firewall rules or activates ERP.
   A fresh snapshot/backup and independently approved signed diagnostic media
   are operator prerequisites. Never use on a live store.
 #>
@@ -12,10 +13,14 @@ param(
     [Parameter(Mandatory=$true)][ValidatePattern('^[A-Fa-f0-9]{40}$')][string]$OriginalPublisher,
     [Parameter(Mandatory=$true)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$DiagnosticSHA256,
     [Parameter(Mandatory=$true)][ValidatePattern('^[A-Fa-f0-9]{40}$')][string]$DiagnosticPublisher,
-    [switch]$Inspect
+    [switch]$Inspect,
+    [switch]$ResumeAdmin,
+    [ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$BootstrapScriptSHA256
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+if($Inspect -and $ResumeAdmin){throw 'Choose exactly one operation.'}
+if($ResumeAdmin -and -not $BootstrapScriptSHA256){throw 'Approved bootstrap script digest required.'}
 function Assert-Physical([string]$Path) {
     $full=[IO.Path]::GetFullPath($Path)
     if ($full.StartsWith('\\')) { throw 'Network paths are prohibited.' }
@@ -60,8 +65,16 @@ $diagnosticDir=Assert-Physical (Join-Path $env:ProgramFiles 'EsteriumRecoveryDia
 if([IO.Path]::GetFullPath($PSScriptRoot) -ine $diagnosticDir){throw 'Run from dedicated diagnostic directory.'}
 $exe=Assert-Physical (Join-Path $diagnosticDir 'esterium-bootstrap-admin.exe')
 $script=Assert-Physical $PSCommandPath
+$protectedPaths=@($diagnosticDir,$exe,$script)
+$bootstrap=$null
+if($ResumeAdmin){
+    $bootstrap=Assert-Physical (Join-Path $diagnosticDir 'bootstrap-esterium-first-admin.ps1')
+    Assert-Signed $bootstrap $DiagnosticPublisher
+    if((Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash -ine $BootstrapScriptSHA256){throw 'Bootstrap script digest mismatch.'}
+    $protectedPaths+=$bootstrap
+}
 # Reject writable diagnostic media for non-administrative identities.
-foreach($path in @($diagnosticDir,$exe,$script)){
+foreach($path in $protectedPaths){
     foreach($ace in (Get-Acl -LiteralPath $path).Access){
         $writeMask=[Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership
         if($ace.AccessControlType -eq 'Allow' -and ($ace.FileSystemRights -band $writeMask)){
@@ -126,7 +139,7 @@ if($pg.PathName -ine $expected -or $pg.StartName -notin @('esterium_pgsvc','.\es
     throw 'PostgreSQL service does not match the approved default EDB registration.'
 }
 Assert-NoListeners
-if(-not $Inspect){
+if(-not $Inspect -and -not $ResumeAdmin){
     Write-Output 'PLAN: approved diagnostic, original bundle, cluster, TLS policy and stopped services verified.'
     Write-Output 'PLAN: no services or data changed; inspection requires separate explicit opt-in.'
     return
@@ -134,6 +147,7 @@ if(-not $Inspect){
 # Keep ERP/Garnet disabled. No automatic retry, no activation receipt.
 $completed=$false
 $result='ADMIN_INDETERMINATE'
+$failureStage='ADMIN_INDETERMINATE'
 try {
     Set-Service EsteriumPostgreSQL16 -StartupType Manual
     Start-Service EsteriumPostgreSQL16
@@ -155,9 +169,34 @@ try {
         throw 'Diagnostic did not return an approved status.'
     }
     $result=[string]$output[0]
+    if($ResumeAdmin){
+        $failureStage='RESUME_REFUSED_NOT_ABSENT'
+        if($result -cne 'ADMIN_ABSENT'){throw 'First administrator is not absent.'}
+        # Create rechecks the fresh-schema/business-data invariants within
+        # its serializable transaction; the inspection alone is insufficient.
+        $failureStage='RESUME_BOOTSTRAP_FAILED'
+        & $bootstrap -DatabaseURLFile $urlFile -BootstrapAdminExe $exe -TrustedPublisherThumbprint $DiagnosticPublisher -Apply | Out-Null
+        $failureStage='RESUME_COMMIT_UNCONFIRMED'
+        $after=@(& $exe --inspect-status --database-url-file $urlFile 2>&1)
+        if($LASTEXITCODE -ne 0 -or $after.Count -ne 1 -or [string]$after[0] -cne 'ADMIN_COMMITTED'){
+            throw 'First administrator commit could not be verified.'
+        }
+        $result='ADMIN_COMMITTED'
+    }
     $completed=$true
 } catch {
-    # Never forward arbitrary exception text or native output.
+    # Expose only exact, fixed validation labels; never arbitrary error text.
+    if($failureStage -eq 'RESUME_BOOTSTRAP_FAILED'){
+        switch -CaseSensitive ($_.Exception.Message){
+            'As senhas nao coincidem.' {$failureStage='RESUME_PASSWORD_MISMATCH'}
+            'Senha fora dos limites do bootstrap.' {$failureStage='RESUME_PASSWORD_LENGTH'}
+            'Senha deve ocupar uma unica linha.' {$failureStage='RESUME_PASSWORD_FORMAT'}
+            'Bootstrap recusado: FAIL: first administrator was not created: invalid CNPJ' {$failureStage='RESUME_INVALID_CNPJ'}
+            'Bootstrap recusado: FAIL: first administrator was not created: invalid administrator email' {$failureStage='RESUME_INVALID_EMAIL'}
+            'Bootstrap recusado: FAIL: first administrator was not created: database contains business data; first-admin setup refused' {$failureStage='RESUME_NONEMPTY_DATABASE'}
+            'Bootstrap recusado: FAIL: first administrator was not created: password must be 12-72 UTF-8 bytes and at least 12 characters' {$failureStage='RESUME_PASSWORD_LENGTH'}
+        }
+    }
     $completed=$false
 } finally {
     try {
@@ -170,6 +209,6 @@ try {
         Assert-NoListeners
     } catch {throw 'RECOVERY_CLEANUP_FAILED: manual intervention required; no activation allowed.'}
 }
-if(-not $completed){throw 'ADMIN_INDETERMINATE: diagnostic failed; services verified stopped and disabled.'}
+if(-not $completed){throw ($failureStage+': operation failed; services verified stopped and disabled. Re-inspect before any retry.')}
 Write-Output $result
 Write-Output 'PASS: all three services stopped and disabled; no recovery approval granted.'
