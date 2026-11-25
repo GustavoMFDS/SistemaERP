@@ -122,14 +122,33 @@ $info.UseShellExecute=$false
 $info.CreateNoWindow=$true
 $info.RedirectStandardInput=$true
 $info.RedirectStandardOutput=$true
-$process=[Diagnostics.Process]::Start($info)
+$encodingAssignments=@($bootstrapAst.FindAll({param($n)
+    $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $n.Extent.Text -ceq '$previousInputEncoding=[Console]::InputEncoding'
+},$true))
+if($encodingAssignments.Count -ne 1){throw 'Expected unique encoding scope.'}
+$encodingStatements=@($encodingAssignments[0].Parent.Statements)
+$encodingIndex=[array]::IndexOf($encodingStatements,$encodingAssignments[0])
+if($encodingIndex -lt 0 -or $encodingStatements[$encodingIndex+1] -isnot [Management.Automation.Language.TryStatementAst]){throw 'Expected encoding scope.'}
+$startChild=[scriptblock]::Create($encodingStatements[$encodingIndex].Extent.Text+[Environment]::NewLine+$encodingStatements[$encodingIndex+1].Extent.Text)
+$utf8=[Text.UTF8Encoding]::new($false,$true)
+$originalConsoleEncoding=[Console]::InputEncoding
+$process=$null
 try {
+    # Reproduce the CI runner's BOM-emitting input encoding even on a
+    # developer machine with an OEM codepage.
+    [Console]::InputEncoding=[Text.UTF8Encoding]::new($true)
+    . $startChild
+    if([Console]::InputEncoding.GetPreamble().Length -ne 3){throw 'Console input encoding was not restored.'}
     & $writePipe
     if(-not $process.WaitForExit(15000)){throw 'Synthetic pipe child timed out.'}
     if($process.ExitCode -ne 0 -or $process.StandardOutput.ReadToEnd().Trim() -cne 'PASS'){throw 'UTF-8 pipe bytes did not match.'}
     Write-Output 'PASS: real Windows anonymous pipe preserves synthetic UTF-8 bytes without BOM.'
 } finally {
     [Array]::Clear($passwordBytes,0,$passwordBytes.Length)
-    if(-not $process.HasExited){$process.Kill()}
-    $process.Dispose()
+    [Console]::InputEncoding=$originalConsoleEncoding
+    if($null -ne $process){
+        if(-not $process.HasExited){$process.Kill()}
+        $process.Dispose()
+    }
 }
