@@ -137,7 +137,7 @@ $result='ADMIN_INDETERMINATE'
 try {
     Set-Service EsteriumPostgreSQL16 -StartupType Manual
     Start-Service EsteriumPostgreSQL16
-    (Get-Service EsteriumPostgreSQL16).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
+    (Get-Service EsteriumPostgreSQL16).WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
     $listeners=@(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object LocalPort -in @(5432,6379,8443))
     if($listeners.Count -lt 1){throw 'PostgreSQL listener not found.'}
     $pg=Get-ExactService 'EsteriumPostgreSQL16'
@@ -164,7 +164,7 @@ try {
         Set-Service EsteriumPostgreSQL16 -StartupType Disabled
         if((Get-Service EsteriumPostgreSQL16).Status -ne 'Stopped'){
             Stop-Service EsteriumPostgreSQL16
-            (Get-Service EsteriumPostgreSQL16).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
+            (Get-Service EsteriumPostgreSQL16).WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45))
         }
         foreach($name in @('EsteriumERP','EsteriumGarnet','EsteriumPostgreSQL16')){Assert-Disabled $name}
         Assert-NoListeners
