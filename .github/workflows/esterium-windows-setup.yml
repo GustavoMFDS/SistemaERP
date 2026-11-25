@@ -23,6 +23,8 @@ on:
       - 'scripts/install-esterium-local-dependencies.ps1'
       - 'scripts/probe-esterium-local-first-run.ps1'
       - 'scripts/register-esterium-windows-service.ps1'
+      - 'backend/cmd/api/**'
+      - 'backend/internal/app/**'
       - 'backend/cmd/esterium-bootstrap-admin/**'
       - 'backend/internal/bootstrapadmin/**'
       - 'backend/internal/config/**'
@@ -500,6 +502,14 @@ jobs:
         with:
           name: esterium-vm-lab-installer
           path: ${{ runner.temp }}/esterium-vm-lab-package
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload signed application-only VM-LAB candidate
+        if: success() && matrix.postgres == 'edb'
+        uses: actions/upload-artifact@v4
+        with:
+          name: esterium-vm-lab-app-update
+          path: ${{ runner.temp }}/esterium-vm-lab-app-update
           if-no-files-found: error
           retention-days: 7
       - name: Upload third-party license evidence
