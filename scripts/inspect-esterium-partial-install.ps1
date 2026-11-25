@@ -67,7 +67,7 @@ $exe=Assert-Physical (Join-Path $diagnosticDir 'esterium-bootstrap-admin.exe')
 $script=Assert-Physical $PSCommandPath
 $protectedPaths=@($diagnosticDir,$exe,$script)
 $bootstrap=$null
-if($ResumeAdmin){
+if($BootstrapScriptSHA256){
     $bootstrap=Assert-Physical (Join-Path $diagnosticDir 'bootstrap-esterium-first-admin.ps1')
     Assert-Signed $bootstrap $DiagnosticPublisher
     if((Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash -ine $BootstrapScriptSHA256){throw 'Bootstrap script digest mismatch.'}
