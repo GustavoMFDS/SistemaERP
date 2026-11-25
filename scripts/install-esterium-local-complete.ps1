@@ -26,6 +26,8 @@ param(
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [switch]$Apply,
+    # Only for the dedicated powershell.exe child launched by Setup.exe.
+    [switch]$GuiFailureExitCodes,
     # Strict, read-only approval of the complete signed release before either PLAN.
     [switch]$VerifyApprovedRelease,
     [switch]$PostgresBinaryZip,
@@ -35,6 +37,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+if ($GuiFailureExitCodes -and -not $Apply) { throw 'GUI failure exit codes require Apply.' }
 if ($env:OS -ne 'Windows_NT') { throw 'A instalacao completa exige Windows.' }
 if ($SyntheticPlanCIFixture -and ($Apply -or $VerifyApprovedRelease -or $env:GITHUB_ACTIONS -ne 'true' -or
     $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
@@ -214,6 +217,7 @@ try {
         if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
         throw ('Instalacao das dependencias interrompida; preserve evidencias e faca avaliacao manual. Nao repetir Apply automaticamente. [CI diagnostic: {0}]' -f $diagnostic)
     }
+    if ($GuiFailureExitCodes) { exit 20 }
     throw 'Instalacao das dependencias interrompida; preserve evidencias e faca avaliacao manual. Nao repetir Apply automaticamente.'
 }
 # Phase 2 may leave an initialized schema. It has its own always-stop guards.
@@ -253,6 +257,26 @@ try {
         $diagnostic='{0} at {1}:{2}' -f $failureType,$failureFile,$failureLine
         if (-not [string]::IsNullOrWhiteSpace($safeDetail)) { $diagnostic+='; '+$safeDetail }
         throw ('Instalacao inicial do ERP interrompida; preserve o banco e nao repetir Apply. [CI diagnostic: {0}]' -f $diagnostic)
+    }
+    if ($GuiFailureExitCodes) {
+        # No exception messages, paths, credentials, or database errors are
+        # transferred to the launcher. Unknown stages fail closed.
+        $stageCodes=@{
+            'register-service'=22
+            'start-postgres-for-admin'=23
+            'first-admin'=24
+            'postgres-cleanup'=25
+            'dependency-probe'=26
+            'https-activation'=27
+            'erp-cleanup'=28
+        }
+        $failureException=$_.Exception
+        for ($depth=0; $null -ne $failureException -and $depth -lt 6; $depth++) {
+            $stage=[string]$failureException.Data['EsteriumInstallStage']
+            if ($stageCodes.ContainsKey($stage)) { exit ([int]$stageCodes[$stage]) }
+            $failureException=$failureException.InnerException
+        }
+        exit 21
     }
     throw 'Instalacao inicial do ERP interrompida; nao apagar o banco, nao repetir Apply, nao iniciar a loja.'
 }

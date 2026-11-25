@@ -606,7 +606,7 @@ namespace Esterium.WindowsSetup
             else list.AddRange(new[] { "-ExpectedPostgresPublisherThumbprint", inputs["pgSigner"].Text.Trim() });
             if (apply) list.AddRange(new[] { "-TLSCertFile", tlsCert, "-TLSKeyFile", tlsKey,
                 "-TrustedRemoteAddress", trustedRemote });
-            if (apply) list.Add("-Apply");
+            if (apply) list.AddRange(new[] { "-Apply", "-GuiFailureExitCodes" });
             return new ProcessStartInfo("powershell.exe", String.Join(" ", list.ConvertAll(Quote))) {
                 UseShellExecute = apply, Verb = apply ? "runas" : "",
                 RedirectStandardOutput = !apply, RedirectStandardError = !apply, CreateNoWindow = !apply
@@ -625,6 +625,22 @@ namespace Esterium.WindowsSetup
                 Directory.Delete(path, true);
             }
             catch { /* Never delete an unexpected/reparse directory. */ }
+        }
+        internal static string ApplyFailureStage(int code)
+        {
+            switch (code)
+            {
+                case 20: return "instalação das dependências";
+                case 21: return "preparação inicial do ERP (etapa não identificada)";
+                case 22: return "registro do serviço ERP";
+                case 23: return "inicialização PostgreSQL para cadastro";
+                case 24: return "cadastro do primeiro administrador (resultado não confirmado)";
+                case 25: return "desligamento seguro do PostgreSQL";
+                case 26: return "verificação das dependências";
+                case 27: return "ativação HTTPS";
+                case 28: return "desativação segura do ERP — revisão manual necessária";
+                default: return "etapa não identificada";
+            }
         }
         async Task Run(bool invoke, bool apply)
         {
@@ -697,7 +713,7 @@ namespace Esterium.WindowsSetup
                     else Log("FALHA (código " + exit + ") na etapa do plano. Nenhuma alteração foi aplicada.");
                 }
                 else Log(exit == 0 ? "Procedimento técnico finalizado. Ainda NÃO liberado para vendas." :
-                    "FALHA (código " + exit + "). Preserve evidências e não repita automaticamente.");
+                    "FALHA (código " + exit + "): " + ApplyFailureStage(exit) + ". Preserve evidências e não repita automaticamente.");
             }
             catch (Exception)
             {
