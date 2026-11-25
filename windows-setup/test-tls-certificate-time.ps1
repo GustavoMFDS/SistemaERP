@@ -131,6 +131,53 @@ try {
         if($LASTEXITCODE -ne $case.Exit -or $result.Count){throw ('Preflight fixture failed: '+$case.Name)}
     }
     Write-Output 'PASS: 3 input-gate cases, 4 fixed child exit cases and dependency ordering; no real Apply.'
+    # Recovery media must reject invalid public certificate times before SCM mutation.
+    $rt=$null;$re=$null
+    $recovery=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'scripts\inspect-esterium-partial-install.ps1'),[ref]$rt,[ref]$re)
+    if($re.Count){throw 'Recovery AST invalid.'}
+    foreach($fn in @('Assert-Physical','Assert-RecoveryCertificateTime')){
+        $functions=@($recovery.FindAll({param($n)
+            $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $fn
+        },$true))
+        if($functions.Count -ne 1){throw 'Missing recovery helper.'}
+        . ([scriptblock]::Create($functions[0].Extent.Text))
+    }
+    $statements=@($recovery.EndBlock.Statements)
+    $first=-1;$last=-1;$mutation=-1
+    for($j=0;$j -lt $statements.Count;$j++){
+        $statement=$statements[$j].Extent.Text
+        if($statement -ceq '$certDir=Join-Path $base ''PostgresTlsPolicy\certificates'''){$first=$j}
+        if($statement -ceq 'Assert-RecoveryCertificateTime (Join-Path $certDir ''root.crt'') $now'){$last=$j}
+        if($statement -ceq '$completed=$false'){$mutation=$j}
+    }
+    if($first -lt 0 -or $last -lt $first -or $mutation -le $last){throw 'Recovery gate must precede service mutation.'}
+    $recoveryGate=[scriptblock]::Create(($statements[$first..$last] | ForEach-Object {$_.Extent.Text}) -join [Environment]::NewLine)
+    function Expect-RecoveryRefusal([string]$Path,[datetime]$At,[string]$Code){
+        $message=''
+        try{Assert-RecoveryCertificateTime $Path $At}catch{$message=$_.Exception.Message}
+        if(-not $message.StartsWith($Code+':')){throw ('Expected recovery rejection: '+$Code)}
+    }
+    Assert-RecoveryCertificateTime $leaf $from
+    Assert-RecoveryCertificateTime $leaf $until
+    Expect-RecoveryRefusal $leaf ($from.AddSeconds(-1)) 'RECOVERY_TLS_NOT_YET_VALID'
+    Expect-RecoveryRefusal $rootCert ($now.AddHours(-4)) 'RECOVERY_TLS_NOT_YET_VALID'
+    Expect-RecoveryRefusal $leaf ($until.AddSeconds(1)) 'RECOVERY_TLS_EXPIRED'
+    Expect-RecoveryRefusal $bad $now 'RECOVERY_TLS_INVALID'
+    Expect-RecoveryRefusal (Join-Path $dir 'missing.crt') $now 'RECOVERY_TLS_INVALID'
+    $base=Join-Path $dir 'recovery-fixture'
+    $certDir=Join-Path $base 'PostgresTlsPolicy\certificates'
+    [IO.Directory]::CreateDirectory($certDir)|Out-Null
+    Copy-Item $leaf (Join-Path $certDir 'server.crt')
+    Copy-Item $rootCert (Join-Path $certDir 'root.crt')
+    $conf=Join-Path $base 'postgresql.conf'
+    $configured=(Join-Path $certDir 'server.crt').Replace('\','/')
+    [IO.File]::WriteAllText($conf,("ssl_cert_file = '"+$configured+"'"))
+    & $recoveryGate
+    [IO.File]::WriteAllText($conf,"ssl_cert_file = 'other.crt'")
+    $observed=''
+    try{& $recoveryGate}catch{$observed=$_.Exception.Message}
+    if(-not $observed.StartsWith('RECOVERY_TLS_INVALID:')){throw 'Unexpected certificate path was accepted.'}
+    Write-Output 'PASS: 7 recovery certificate cases and 2 gate cases; before SCM mutation.'
 } finally {
     if(Test-Path -LiteralPath $dir){Remove-Item -LiteralPath $dir -Recurse -Force}
 }

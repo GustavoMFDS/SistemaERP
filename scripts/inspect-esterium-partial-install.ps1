@@ -34,6 +34,27 @@ function Assert-Physical([string]$Path) {
     }
     return $full
 }
+# Validate the generated public certificates before any service startup.
+# This is a temporal gate, not a replacement for verify-full or runtime TLS.
+function Assert-RecoveryCertificateTime([string]$Path,[datetime]$UtcNow) {
+    if($UtcNow.Kind -ne [DateTimeKind]::Utc){throw 'RECOVERY_TLS_INVALID: UTC required.'}
+    $cert=$null
+    try {
+        $file=Assert-Physical $Path
+        $item=Get-Item -LiteralPath $file -Force
+        if($item.PSIsContainer -or $item.Length -lt 1 -or $item.Length -gt 1048576){throw 'Invalid certificate size.'}
+        $pem=[IO.File]::ReadAllText($file)
+        $match=[regex]::Match($pem,'\A\s*-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+?)-----END CERTIFICATE-----\s*\z')
+        if(-not $match.Success){throw 'Invalid certificate format.'}
+        $cert=[Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($match.Groups[1].Value))
+    } catch {
+        throw 'RECOVERY_TLS_INVALID: public certificate could not be validated.'
+    }
+    try {
+        if($UtcNow -lt $cert.NotBefore.ToUniversalTime()){throw 'RECOVERY_TLS_NOT_YET_VALID: verify Windows clock and certificate validity.'}
+        if($UtcNow -gt $cert.NotAfter.ToUniversalTime()){throw 'RECOVERY_TLS_EXPIRED: manual certificate review required.'}
+    } finally {$cert.Dispose()}
+}
 function Assert-Signed([string]$Path,[string]$Publisher) {
     $signature=Get-AuthenticodeSignature -LiteralPath $Path
     if($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
@@ -139,6 +160,16 @@ if($pg.PathName -ine $expected -or $pg.StartName -notin @('esterium_pgsvc','.\es
     throw 'PostgreSQL service does not match the approved default EDB registration.'
 }
 Assert-NoListeners
+# The recovery media supports only the default generated PostgreSQL paths.
+$certDir=Join-Path $base 'PostgresTlsPolicy\certificates'
+$expectedCert=(Join-Path $certDir 'server.crt').Replace('\','/')
+$certSettings=@([IO.File]::ReadAllLines($conf) | Where-Object {$_ -match '^\s*ssl_cert_file\b'})
+if($certSettings.Count -ne 1 -or $certSettings[0] -notmatch ("^\s*ssl_cert_file\s*=\s*'"+[regex]::Escape($expectedCert)+"'\s*(?:#.*)?$")){
+    throw 'RECOVERY_TLS_INVALID: unexpected PostgreSQL certificate path.'
+}
+$now=[datetime]::UtcNow
+Assert-RecoveryCertificateTime (Join-Path $certDir 'server.crt') $now
+Assert-RecoveryCertificateTime (Join-Path $certDir 'root.crt') $now
 if(-not $Inspect -and -not $ResumeAdmin){
     Write-Output 'PLAN: approved diagnostic, original bundle, cluster, TLS policy and stopped services verified.'
     Write-Output 'PLAN: no services or data changed; inspection requires separate explicit opt-in.'
