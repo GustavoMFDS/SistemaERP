@@ -71,6 +71,66 @@ try {
     [IO.File]::AppendAllText($chain,[IO.File]::ReadAllText($bad))
     Expect-Refusal $chain $now 'TLS_CERTIFICATE_INVALID'
     Write-Output 'PASS: 8 synthetic certificate time/format cases; no services, trust store or clock changes.'
+    $inputGate=@($ast.FindAll({param($n)
+        $n -is [Management.Automation.Language.IfStatementAst] -and
+        $n.Clauses[0].Item1.Extent.Text -ceq '$Apply -or $ValidateTLSInput'
+    },$true))
+    $planReturn=@($ast.FindAll({param($n)
+        $n -is [Management.Automation.Language.IfStatementAst] -and
+        $n.Clauses[0].Item1.Extent.Text -ceq '-not $Apply'
+    },$true))
+    if($inputGate.Count -ne 1 -or $planReturn.Count -ne 1 -or
+        $inputGate[0].Extent.EndOffset -ge $planReturn[0].Extent.StartOffset){throw 'Preflight must precede PLAN return.'}
+    $sourceHelper=@($ast.FindAll({param($n)
+        $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Assert-TLSPEMSource'
+    },$true))
+    if($sourceHelper.Count -ne 1){throw 'Missing input source helper.'}
+    . ([scriptblock]::Create($sourceHelper[0].Extent.Text))
+    $gate=[scriptblock]::Create($inputGate[0].Extent.Text)
+    $Apply=$false
+    $ValidateTLSInput=$false
+    $TLSCertFile=''
+    $TLSKeyFile=''
+    & $gate
+    $ValidateTLSInput=$true
+    $TLSCertFile=$leaf
+    $TLSKeyFile=Join-Path $dir 'server.key'
+    & $gate
+    $TLSCertFile=$bad
+    $stage=''
+    try {& $gate}catch{$stage=[string]$_.Exception.Data['EsteriumInstallStage']}
+    if($stage -cne 'tls-certificate-time'){throw 'Malformed input did not receive TLS stage.'}
+    $ct=$null;$ce=$null
+    $complete=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'scripts\install-esterium-local-complete.ps1'),[ref]$ct,[ref]$ce)
+    if($ce.Count){throw 'Complete installer AST invalid.'}
+    $preflight=@($complete.FindAll({param($n)
+        $n -is [Management.Automation.Language.TryStatementAst] -and $n.Body.Extent.Text.Contains('-ValidateTLSInput')
+    },$true))
+    if($preflight.Count -ne 1 -or $preflight[0].Extent.EndOffset -ge $complete.Extent.Text.IndexOf('$setupArgs.Apply=$true',[StringComparison]::Ordinal)){throw 'Input gate must precede dependency Apply.'}
+    $fixture=Join-Path $dir 'preflight-fixture.ps1'
+    $prefix=@(
+        'param([string]$Case)',
+        '$ErrorActionPreference=''Stop''',
+        '$Apply=$true',
+        '$GuiFailureExitCodes=$true',
+        '$finishArgs=@{}',
+        'function Invoke-FinishFixture {',
+        'param([switch]$ValidateTLSInput)',
+        'if(-not $ValidateTLSInput){throw ''Preflight missing''}',
+        'if($Case -eq ''valid''){return}',
+        '$err=[Exception]::new(''Synthetic failure'')',
+        'if($Case -eq ''tls''){$err.Data[''EsteriumInstallStage'']=''tls-certificate-time''}',
+        'if($Case -eq ''wrapped''){$err.Data[''EsteriumInstallStage'']=''tls-certificate-time'';$err=[Exception]::new(''Outer synthetic failure'',$err)}',
+        'throw $err',
+        '}',
+        '$finish=''Invoke-FinishFixture'''
+    ) -join [Environment]::NewLine
+    [IO.File]::WriteAllText($fixture,$prefix+[Environment]::NewLine+$preflight[0].Extent.Text+[Environment]::NewLine+'exit 0')
+    foreach($case in @(@{Name='valid';Exit=0},@{Name='tls';Exit=29},@{Name='wrapped';Exit=29},@{Name='unknown';Exit=21})){
+        $result=@(& (Join-Path $PSHOME 'powershell.exe') -NoProfile -File $fixture -Case $case.Name 2>&1)
+        if($LASTEXITCODE -ne $case.Exit -or $result.Count){throw ('Preflight fixture failed: '+$case.Name)}
+    }
+    Write-Output 'PASS: 3 input-gate cases, 4 fixed child exit cases and dependency ordering; no real Apply.'
 } finally {
     if(Test-Path -LiteralPath $dir){Remove-Item -LiteralPath $dir -Recurse -Force}
 }

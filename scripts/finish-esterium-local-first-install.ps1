@@ -30,7 +30,9 @@ param(
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [string]$ApprovedManifestSHA256='',
     [string]$TrustedPublisherThumbprint='',
-    [switch]$Apply
+    [switch]$Apply,
+    # Explicit read-only input validation before the complete installer mutates dependencies.
+    [switch]$ValidateTLSInput
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -104,17 +106,6 @@ foreach ($path in @($StageDir,$InstallDir,$DatabaseDestinationDir,$ApplicationSe
         throw 'An initial installation folder already exists; manual assessment required.'
     }
 }
-if (-not $Apply) {
-    Write-Output 'PLAN: stage the signed ERP release under protected Program Files, no services touched.'
-    Write-Output 'PLAN: bootstrap first SQL database/migrations with temporary PostgreSQL start and safe shutdown.'
-    Write-Output 'PLAN: require trusted HTTPS certificate/key, create first admin, probe real dependencies, then activate automatic startup.'
-    Write-Output 'PLAN: LAN access requires an explicit private IPv4 CIDR; firewall stays limited to Domain/Private profiles.'
-    Write-Output 'NOT READY: this plan does not install PostgreSQL vendor files or perform the independent backup restore/pilot.'
-    return
-}
-if ([string]::IsNullOrWhiteSpace($TLSCertFile) -or [string]::IsNullOrWhiteSpace($TLSKeyFile)) {
-    throw 'Apply requires an HTTPS certificate chain and private key provisioned under protected ProgramData\Esterium.'
-}
 function Assert-TLSPEMSource([string]$path,[bool]$isCertificate) {
     if (-not [IO.Path]::IsPathRooted($path) -or $path.StartsWith('\\')) {
         throw 'HTTPS certificate inputs must be local absolute file paths.'
@@ -186,14 +177,27 @@ function Assert-InstallTLSCertificateTimes {
         Assert-TLSCertificateTime $entry.Path $entry.Label $utc
     }
 }
-try {
-    Assert-TLSPEMSource $TLSCertFile $true
-    Assert-TLSCertificateTime $TLSCertFile 'HTTPS chain' ([datetime]::UtcNow)
-} catch {
-    $_.Exception.Data['EsteriumInstallStage']='tls-certificate-time'
-    throw
+if ($Apply -or $ValidateTLSInput) {
+    if ([string]::IsNullOrWhiteSpace($TLSCertFile) -or [string]::IsNullOrWhiteSpace($TLSKeyFile)) {
+        throw 'Apply requires an HTTPS certificate chain and private key provisioned under protected ProgramData\Esterium.'
+    }
+    try {
+        Assert-TLSPEMSource $TLSCertFile $true
+        Assert-TLSCertificateTime $TLSCertFile 'HTTPS chain' ([datetime]::UtcNow)
+    } catch {
+        $_.Exception.Data['EsteriumInstallStage']='tls-certificate-time'
+        throw
+    }
+    Assert-TLSPEMSource $TLSKeyFile $false
 }
-Assert-TLSPEMSource $TLSKeyFile $false
+if (-not $Apply) {
+    Write-Output 'PLAN: stage the signed ERP release under protected Program Files, no services touched.'
+    Write-Output 'PLAN: bootstrap first SQL database/migrations with temporary PostgreSQL start and safe shutdown.'
+    Write-Output 'PLAN: require trusted HTTPS certificate/key, create first admin, probe real dependencies, then activate automatic startup.'
+    Write-Output 'PLAN: LAN access requires an explicit private IPv4 CIDR; firewall stays limited to Domain/Private profiles.'
+    Write-Output 'NOT READY: this plan does not install PostgreSQL vendor files or perform the independent backup restore/pilot.'
+    return
+}
 $httpsPort=[int]$listenerParts[1]
 if ($httpsPort -lt 1 -or $httpsPort -gt 65535 -or $httpsPort -in @($PostgresPort,$GarnetPort)) {
     throw 'HTTPS port must be valid and distinct from PostgreSQL and Garnet.'

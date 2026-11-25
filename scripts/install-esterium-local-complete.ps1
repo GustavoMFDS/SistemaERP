@@ -152,7 +152,23 @@ $finishArgs=@{
 # The delegates also verify fresh paths, service identities, vendor hashes,
 # release integrity and TLS origin. Never disable checks in this wrapper.
 & $setup @setupArgs | Out-Null
-& $finish @finishArgs | Out-Null
+try {
+    if ($Apply) {
+        & $finish @finishArgs -ValidateTLSInput | Out-Null
+    } else {
+        & $finish @finishArgs | Out-Null
+    }
+} catch {
+    if ($GuiFailureExitCodes) {
+        $cause=$_.Exception
+        for ($depth=0; $null -ne $cause -and $depth -lt 6; $depth++) {
+            if ([string]$cause.Data['EsteriumInstallStage'] -ceq 'tls-certificate-time') { exit 29 }
+            $cause=$cause.InnerException
+        }
+        exit 21
+    }
+    throw
+}
 if (-not $Apply) {
     if ($VerifyApprovedRelease) {
         Write-Output 'PASS: release completa com manifesto e assinatura aprovados independentemente.'
