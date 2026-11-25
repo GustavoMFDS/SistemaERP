@@ -1,6 +1,7 @@
 #requires -Version 5.1
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+Add-Type -AssemblyName System.ServiceProcess
 $path=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\inspect-esterium-partial-install.ps1'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
