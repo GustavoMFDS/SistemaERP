@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches: [main, master]
 
@@ -10,7 +11,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.13.0'
+      - name: Test conservative scope policy
+        run: node --test scripts/classify-ci-scope.test.mjs
+      - name: Determine complete PR change scope
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(node scripts/classify-ci-scope.mjs "$GITHUB_EVENT_NAME" "$BASE_SHA" "$HEAD_SHA")"
+          case "$mode" in docs|windows|full) ;; *) exit 1;; esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "CI scope: $mode"
+
   local-windows-service-tests:
+    needs: scope
+    if: needs.scope.outputs.mode != 'docs'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -23,6 +52,8 @@ jobs:
         run: go test -v -count=1 -timeout=2m ./cmd/api
 
   local-built-spa-origin-smoke:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     # Playwright's pinned browser release does not support Ubuntu 26.04.
     runs-on: ubuntu-24.04
     steps:
@@ -52,6 +83,8 @@ jobs:
         run: bash scripts/ci-local-production-bundle-smoke.sh
 
   local-windows-config-preflight:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -67,6 +100,8 @@ jobs:
         run: ./scripts/test-esterium-lan-terminal-ci.ps1
 
   local-windows-secret-provision:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -75,6 +110,8 @@ jobs:
         run: ./scripts/test-provision-esterium-app-secrets.ps1
 
   local-windows-real-scm-smoke:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -85,6 +122,8 @@ jobs:
         run: ./scripts/test-register-esterium-real-scm-ci.ps1
 
   local-windows-installer-plan:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
@@ -98,6 +137,8 @@ jobs:
         run: ./scripts/test-esterium-signed-release-positive-ci.ps1
 
   local-garnet-real-aof-smoke:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -113,6 +154,8 @@ jobs:
         run: ./scripts/test-esterium-garnet-real-aof-ci.ps1 -RunSecurityRecoveryContract
 
   local-postgres-real-tls-smoke:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -149,7 +192,8 @@ jobs:
   local-postgres-real-edb-exe-smoke:
     # The actual vendor EXE is expensive to download/install. Exercise it on
     # disposable Windows PR runners, not twice again on every main push.
-    if: github.event_name == 'pull_request'
+    needs: scope
+    if: needs.scope.outputs.mode == 'full' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -162,6 +206,8 @@ jobs:
         run: ./scripts/test-esterium-edb-real-exe-ci.ps1
 
   local-backup-integrity-gate:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -217,6 +263,8 @@ jobs:
         run: ./scripts/test-esterium-backup-task.ps1
 
   local-external-backup-tests:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -226,6 +274,8 @@ jobs:
           ./scripts/test-verified-external-backup.ps1
 
   local-windows-migrator-cli-smoke:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -257,6 +307,8 @@ jobs:
           }
 
   local-windows-bundle:
+    needs: scope
+    if: needs.scope.outputs.mode != 'docs'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -388,6 +440,8 @@ jobs:
           retention-days: 7
 
   backend:
+    needs: scope
+    if: needs.scope.outputs.mode != 'docs'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -450,6 +504,8 @@ jobs:
       - run: go vet ./...
 
   frontend:
+    needs: scope
+    if: needs.scope.outputs.mode != 'docs'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -469,6 +525,8 @@ jobs:
       - run: npm run test:brand
 
   integration:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -2177,6 +2235,8 @@ jobs:
           exit 1
 
   e2e:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     name: E2E disposable run ${{ matrix.isolation }}
     # Playwright's pinned browser release does not support Ubuntu 26.04.
     runs-on: ubuntu-24.04
@@ -2263,6 +2323,8 @@ jobs:
           retention-days: 7
 
   security:
+    needs: scope
+    if: needs.scope.outputs.mode != 'docs'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -2299,6 +2361,8 @@ jobs:
 
 
   e2e-prodlike:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     # Playwright's pinned browser release does not support Ubuntu 26.04.
     runs-on: ubuntu-24.04
     steps:
@@ -2483,3 +2547,57 @@ jobs:
           E2E_BASE_URL: https://staging.example.test:8443
           E2E_IGNORE_HTTPS_ERRORS: "1"
         run: npx playwright test e2e/prodlike.spec.ts --project=chromium
+
+  ci-scope-gate:
+    if: always()
+    needs:
+      - scope
+      - local-windows-service-tests
+      - local-built-spa-origin-smoke
+      - local-windows-config-preflight
+      - local-windows-secret-provision
+      - local-windows-real-scm-smoke
+      - local-windows-installer-plan
+      - local-garnet-real-aof-smoke
+      - local-postgres-real-tls-smoke
+      - local-postgres-real-edb-exe-smoke
+      - local-backup-integrity-gate
+      - local-external-backup-tests
+      - local-windows-migrator-cli-smoke
+      - local-windows-bundle
+      - backend
+      - frontend
+      - integration
+      - e2e
+      - security
+      - e2e-prodlike
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all jobs selected by conservative scope
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ['NEEDS_JSON'])
+          if needs['scope']['result'] != 'success':
+              sys.exit('Scope classification failed')
+          mode = needs['scope']['outputs']['mode']
+          if mode not in {'docs', 'windows', 'full'}:
+              sys.exit('Unknown validation scope')
+          if os.environ['EVENT_NAME'] != 'pull_request' and mode != 'full':
+              sys.exit('Non-PR validation must be full')
+          windows = ["backend","frontend","security","local-windows-service-tests","local-windows-bundle"]
+          for name, job in needs.items():
+              if name == 'scope':
+                  continue
+              required = mode == 'full' or (mode == 'windows' and name in windows)
+              if name == 'local-postgres-real-edb-exe-smoke' and os.environ['EVENT_NAME'] == 'push':
+                  required = False
+              expected = 'success' if required else 'skipped'
+              if job['result'] != expected:
+                  sys.exit(f'{name}: expected {expected}, got {job["result"]}')
+          print(f'PASS: selected {mode} checks; skipped jobs are not executed evidence')
+          PY
