@@ -20,40 +20,49 @@ func main() {
 	if err := run(); err != nil {
 		// run returns only fixed, input-free diagnostics. Underlying database
 		// errors are deliberately mapped before reaching this boundary.
-		fmt.Fprintf(os.Stderr, "FAIL: first administrator was not created: %s\n", err)
+		if flag.Lookup("inspect-status") != nil && flag.Lookup("inspect-status").Value.String() == "true" {
+			fmt.Fprintln(os.Stderr, "ADMIN_INDETERMINATE")
+		} else {
+			fmt.Fprintf(os.Stderr, "FAIL: first administrator was not created: %s\n", err)
+		}
 		os.Exit(1)
 	}
-	fmt.Println("PASS: first administrator created for the new company.")
 }
 
 func run() error {
 	databaseURLFile := flag.String("database-url-file", "", "protected file containing the local PostgreSQL URL")
+	inspect := flag.Bool("inspect-status", false, "read-only first-admin transaction status; does not approve recovery")
 	passwordStdin := flag.Bool("password-stdin", false, "read the new password from stdin; never pass it as an argument")
 	allowInsecureCI := flag.Bool("allow-insecure-ci", false, "allow non-TLS URL only in an explicitly disposable GitHub-hosted runner")
 	flag.Parse()
-	if flag.NArg() != 0 || *databaseURLFile == "" || !*passwordStdin {
+	if flag.NArg() != 0 || *databaseURLFile == "" || *passwordStdin == *inspect {
 		return errors.New("required arguments missing")
 	}
-	stdinInfo, err := os.Stdin.Stat()
-	if err != nil || stdinInfo.Mode()&os.ModeCharDevice != 0 {
-		return errors.New("password input must come from the protected installer pipe")
-	}
-	input := bootstrapadmin.Input{
-		LegalName:  os.Getenv("ESTERIUM_BOOTSTRAP_LEGAL_NAME"),
-		TradeName:  os.Getenv("ESTERIUM_BOOTSTRAP_TRADE_NAME"),
-		CNPJ:       os.Getenv("ESTERIUM_BOOTSTRAP_CNPJ"),
-		AdminName:  os.Getenv("ESTERIUM_BOOTSTRAP_ADMIN_NAME"),
-		AdminEmail: os.Getenv("ESTERIUM_BOOTSTRAP_ADMIN_EMAIL"),
-	}
-	passwordBytes, err := readPassword(os.Stdin)
-	if err != nil {
-		return err
-	}
-	defer clear(passwordBytes)
-	password := string(passwordBytes)
-	defer func() { password = "" }()
-	if err := bootstrapadmin.Validate(input, password); err != nil {
-		return err
+	var input bootstrapadmin.Input
+	var password string
+	if !*inspect {
+		stdinInfo, err := os.Stdin.Stat()
+		if err != nil || stdinInfo.Mode()&os.ModeCharDevice != 0 {
+			return errors.New("password input must come from the protected installer pipe")
+		}
+		input = bootstrapadmin.Input{
+			LegalName:  os.Getenv("ESTERIUM_BOOTSTRAP_LEGAL_NAME"),
+			TradeName:  os.Getenv("ESTERIUM_BOOTSTRAP_TRADE_NAME"),
+			CNPJ:       os.Getenv("ESTERIUM_BOOTSTRAP_CNPJ"),
+			AdminName:  os.Getenv("ESTERIUM_BOOTSTRAP_ADMIN_NAME"),
+			AdminEmail: os.Getenv("ESTERIUM_BOOTSTRAP_ADMIN_EMAIL"),
+		}
+		passwordBytes, err := readPassword(os.Stdin)
+		if err != nil {
+			return err
+		}
+		defer clear(passwordBytes)
+		password = string(passwordBytes)
+		defer func() { password = "" }()
+		if err := bootstrapadmin.Validate(input, password); err != nil {
+			return err
+		}
+
 	}
 
 	urlPath, err := filepath.Abs(*databaseURLFile)
@@ -83,7 +92,7 @@ func run() error {
 	ciAllowed := *allowInsecureCI && os.Getenv("GITHUB_ACTIONS") == "true" &&
 		os.Getenv("RUNNER_ENVIRONMENT") == "github-hosted" &&
 		os.Getenv("ESTERIUM_ADMIN_BOOTSTRAP_DISPOSABLE_CI") == "1"
-	if *allowInsecureCI && !ciAllowed {
+	if *allowInsecureCI && (!ciAllowed || *inspect) {
 		return errors.New("insecure database mode is only available on the disposable GitHub-hosted CI runner")
 	}
 	if parsed.Query().Get("sslmode") != "verify-full" && !ciAllowed {
@@ -113,7 +122,19 @@ func run() error {
 	if err := pool.Ping(ctx); err != nil {
 		return errors.New("database connection failed")
 	}
-	return bootstrapadmin.Create(ctx, pool, input, password)
+	if *inspect {
+		status, err := bootstrapadmin.Inspect(ctx, pool)
+		if err != nil {
+			return err
+		}
+		fmt.Println(status)
+		return nil
+	}
+	if err := bootstrapadmin.Create(ctx, pool, input, password); err != nil {
+		return err
+	}
+	fmt.Println("PASS: first administrator created for the new company.")
+	return nil
 }
 
 func readPassword(reader io.Reader) ([]byte, error) {
