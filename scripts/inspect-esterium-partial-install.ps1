@@ -52,12 +52,23 @@ function Assert-NoListeners {
     }
 }
 if($env:OS -ne 'Windows_NT'){throw 'Windows required.'}
+$machine=Get-CimInstance Win32_ComputerSystem
+if (($machine.Manufacturer+' '+$machine.Model) -notmatch '(?i)VirtualBox|innotek') {throw 'Diagnostic rehearsal is restricted to a VirtualBox guest.'}
 $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if(-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Elevated operator required.'}
 $diagnosticDir=Assert-Physical (Join-Path $env:ProgramFiles 'EsteriumRecoveryDiagnostics')
 if([IO.Path]::GetFullPath($PSScriptRoot) -ine $diagnosticDir){throw 'Run from dedicated diagnostic directory.'}
 $exe=Assert-Physical (Join-Path $diagnosticDir 'esterium-bootstrap-admin.exe')
 $script=Assert-Physical $PSCommandPath
+# Reject writable diagnostic media for non-administrative identities.
+foreach($path in @($diagnosticDir,$exe,$script)){
+    foreach($ace in (Get-Acl -LiteralPath $path).Access){
+        $writeMask=[Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership
+        if($ace.AccessControlType -eq 'Allow' -and ($ace.FileSystemRights -band $writeMask)){
+            if($ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){throw 'Diagnostic media must be administrator-protected.'}
+        }
+    }
+}
 Assert-Signed $script $DiagnosticPublisher
 Assert-Signed $exe $DiagnosticPublisher
 if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ine $DiagnosticSHA256){throw 'Diagnostic digest mismatch.'}
