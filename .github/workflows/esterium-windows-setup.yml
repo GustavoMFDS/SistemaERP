@@ -510,6 +510,8 @@ jobs:
         with:
           name: esterium-vm-lab-app-update
           path: ${{ runner.temp }}/esterium-vm-lab-app-update
+          # The verified allowlisted bundle includes the .NET runtime .version.
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
       - name: Upload third-party license evidence
@@ -520,6 +522,37 @@ jobs:
           path: ${{ runner.temp }}/esterium-third-party-license-evidence
           if-no-files-found: ignore
           retention-days: 7
+
+  verify-published-app-update:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    needs: complete-first-install-lab
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download actual published application-only artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: esterium-vm-lab-app-update
+          path: ${{ runner.temp }}/published-app-update
+      - name: Verify downloaded artifact against its manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'published-app-update'
+          $expected = @('APP-UPDATE-MANIFEST.json','Esterium-VM-LAB-Test-Publisher.cer','bundle') | Sort-Object
+          $actual = @(Get-ChildItem -LiteralPath $root -Force | ForEach-Object Name | Sort-Object)
+          if (@(Compare-Object $expected $actual -CaseSensitive).Count) { throw 'Unexpected app-update artifact root inventory.' }
+          $meta = Get-Content -LiteralPath (Join-Path $root 'APP-UPDATE-MANIFEST.json') -Raw | ConvertFrom-Json
+          if ($meta.sourceCommit -cne $env:GITHUB_SHA -or $meta.privateKeyIncluded -ne $false) { throw 'Artifact source or metadata mismatch.' }
+          $bundle = Join-Path $root 'bundle'
+          if ((Get-FileHash -LiteralPath (Join-Path $bundle 'bundle-manifest.json')).Hash -ine $meta.bundleManifestSHA256) { throw 'Artifact manifest digest mismatch.' }
+          $certPath = Join-Path $root 'Esterium-VM-LAB-Test-Publisher.cer'
+          $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new($certPath)
+          if ($cert.HasPrivateKey -or $cert.Thumbprint -ine $meta.signerThumbprint -or (Get-FileHash -LiteralPath $certPath).Hash -ine $meta.publicCertificateSha256) { throw 'Artifact public certificate mismatch.' }
+          # Run the verifier from checked-out source, never from downloaded media.
+          & ./scripts/verify-esterium-bundle.ps1 -BundleDir $bundle
+          Write-Output 'PASS: actual downloaded artifact matches the complete bundle manifest; no trust imported or candidate code executed.'
 
   oss-component-gate:
     # IMPORTANT: This is a COMPONENT TEST GATE, NOT approval of a retail
@@ -532,6 +565,7 @@ jobs:
       - postgres-oss-tls-schema-smoke
       - unsigned-integrated-zip-preview
       - complete-first-install-lab
+      - verify-published-app-update
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -544,6 +578,7 @@ jobs:
           GARNET_TLS_AOF: ${{ needs.garnet-oss-real-tls-aof-smoke.result }}
           COMBINED_EXE: ${{ needs.unsigned-integrated-zip-preview.result }}
           FULL_INSTALL: ${{ needs.complete-first-install-lab.result }}
+          APP_UPDATE_ARTIFACT: ${{ needs.verify-published-app-update.result }}
         shell: bash
         run: |
           set -euo pipefail
@@ -551,12 +586,12 @@ jobs:
             # PRs run the actual unsigned EXE staging + PostgreSQL TLS/schema
             # and Garnet integration on a disposable Windows runner. Manual
             # dispatch additionally requires all independent component jobs.
-            checks="UI COMBINED_EXE FULL_INSTALL"
+            checks="UI COMBINED_EXE FULL_INSTALL APP_UPDATE_ARTIFACT"
           elif [ "$EVENT_NAME" = "push" ]; then
             # Main-branch pushes run the preview build; manual-only component jobs are skipped.
             checks="UI"
           else
-            checks="UI POSTGRES_BIN POSTGRES_TLS_SCHEMA GARNET_TLS_AOF COMBINED_EXE FULL_INSTALL"
+            checks="UI POSTGRES_BIN POSTGRES_TLS_SCHEMA GARNET_TLS_AOF COMBINED_EXE FULL_INSTALL APP_UPDATE_ARTIFACT"
           fi
           for check in $checks; do
             value="${!check}"
