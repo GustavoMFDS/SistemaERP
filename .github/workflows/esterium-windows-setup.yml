@@ -95,6 +95,10 @@ jobs:
           if ((Get-AuthenticodeSignature $exe).Status -eq 'Valid') {
             throw 'Preview unexpectedly signed; do not publish as commercial release'
           }
+      - name: Verify safe GUI Apply failure diagnostics
+        shell: powershell
+        run: |
+          & .\windows-setup\test-apply-failure-diagnostics.ps1 -SetupExe "$env:GITHUB_WORKSPACE\release-preview\EsteriumERP-Setup.exe"
       - name: Reject incomplete packaging inputs
         shell: powershell
         run: |
