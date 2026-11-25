@@ -14,8 +14,8 @@ import (
 type Status string
 
 const (
-	AdminAbsent Status = "ADMIN_ABSENT"
-	AdminCommitted Status = "ADMIN_COMMITTED"
+	AdminAbsent        Status = "ADMIN_ABSENT"
+	AdminCommitted     Status = "ADMIN_COMMITTED"
 	AdminIndeterminate Status = "ADMIN_INDETERMINATE"
 )
 
