@@ -26,6 +26,7 @@ on:
       - 'backend/cmd/api/**'
       - 'backend/internal/app/**'
       - 'backend/cmd/esterium-bootstrap-admin/**'
+      - 'backend/cmd/pg-tls-certgen/**'
       - 'backend/internal/bootstrapadmin/**'
       - 'backend/internal/config/**'
       - 'backend/seed/seed.prod.sql'
@@ -314,6 +315,11 @@ jobs:
             go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
             if ($LASTEXITCODE -ne 0) { throw 'Offline TLS certificate generator build failed.' }
           } finally { Pop-Location }
+      - name: Verify TLS certificate time preflight on PR and manual runs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\windows-setup\test-tls-certificate-time.ps1 -GeneratorExe (Join-Path $env:GITHUB_WORKSPACE 'scripts\esterium-pg-tls-certgen.exe')
       - name: Build pinned Windows migration CLI for integrated ZIP test
         shell: pwsh
         run: |
@@ -413,6 +419,11 @@ jobs:
             go build -trimpath -o ../scripts/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen
             if ($LASTEXITCODE -ne 0) { throw 'Offline PostgreSQL TLS helper build failed.' }
           } finally { Pop-Location }
+      - name: Verify TLS certificate time preflight
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\windows-setup\test-tls-certificate-time.ps1 -GeneratorExe (Join-Path $env:GITHUB_WORKSPACE 'scripts\esterium-pg-tls-certgen.exe')
       - name: Build pinned Windows SQL migrator for isolated CI
         shell: pwsh
         run: |

@@ -639,6 +639,7 @@ namespace Esterium.WindowsSetup
                 case 26: return "verificação das dependências";
                 case 27: return "ativação HTTPS";
                 case 28: return "desativação segura do ERP — revisão manual necessária";
+                case 29: return "validade temporal dos certificados TLS (verifique o relogio do Windows)";
                 default: return "etapa não identificada";
             }
         }

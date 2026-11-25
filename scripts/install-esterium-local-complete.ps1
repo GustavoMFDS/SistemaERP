@@ -269,6 +269,7 @@ try {
             'dependency-probe'=26
             'https-activation'=27
             'erp-cleanup'=28
+            'tls-certificate-time'=29
         }
         $failureException=$_.Exception
         for ($depth=0; $null -ne $failureException -and $depth -lt 6; $depth++) {

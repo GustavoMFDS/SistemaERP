@@ -142,7 +142,57 @@ function Assert-TLSPEMSource([string]$path,[bool]$isCertificate) {
         }
     } finally { $text=$null }
 }
-Assert-TLSPEMSource $TLSCertFile $true
+# Check only the public certificate validity window; normal TLS verification
+# still proves trust, chain, hostname and key possession during runtime.
+function Assert-TLSCertificateTime([string]$path,[string]$label,[datetime]$nowUtc) {
+    if ($nowUtc.Kind -ne [DateTimeKind]::Utc) { throw 'Certificate time check requires UTC.' }
+    $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+    if ($item.PSIsContainer -or $item.Length -lt 1 -or $item.Length -gt 1048576) {
+        throw ('TLS_CERTIFICATE_INVALID: '+$label)
+    }
+    $pem=[IO.File]::ReadAllText($path)
+    $blocks=[regex]::Matches($pem,'-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+?)-----END CERTIFICATE-----')
+    if ($blocks.Count -eq 0 -or
+        [regex]::Matches($pem,'-----BEGIN CERTIFICATE-----').Count -ne $blocks.Count -or
+        [regex]::Matches($pem,'-----END CERTIFICATE-----').Count -ne $blocks.Count) {
+        throw ('TLS_CERTIFICATE_INVALID: '+$label)
+    }
+    foreach ($block in $blocks) {
+        $cert=$null
+        try {
+            $der=[Convert]::FromBase64String($block.Groups[1].Value)
+            $cert=[Security.Cryptography.X509Certificates.X509Certificate2]::new($der)
+        } catch {
+            throw ('TLS_CERTIFICATE_INVALID: '+$label)
+        }
+        try {
+            if ($nowUtc -lt $cert.NotBefore.ToUniversalTime()) {
+                throw ('TLS_CERTIFICATE_NOT_YET_VALID: '+$label+'; verify Windows clock synchronization.')
+            }
+            if ($nowUtc -gt $cert.NotAfter.ToUniversalTime()) {
+                throw ('TLS_CERTIFICATE_EXPIRED: '+$label)
+            }
+        } finally { $cert.Dispose() }
+    }
+}
+function Assert-InstallTLSCertificateTimes {
+    $utc=[datetime]::UtcNow
+    foreach ($entry in @(
+        @{Path=$TLSCertFile;Label='HTTPS chain'},
+        @{Path=(Join-Path $PostgresTlsPolicyDir 'certificates\server.crt');Label='PostgreSQL server'},
+        @{Path=(Join-Path $PostgresTlsPolicyDir 'certificates\root.crt');Label='PostgreSQL root CA'}
+    )) {
+        Assert-TLSPEMSource $entry.Path $true
+        Assert-TLSCertificateTime $entry.Path $entry.Label $utc
+    }
+}
+try {
+    Assert-TLSPEMSource $TLSCertFile $true
+    Assert-TLSCertificateTime $TLSCertFile 'HTTPS chain' ([datetime]::UtcNow)
+} catch {
+    $_.Exception.Data['EsteriumInstallStage']='tls-certificate-time'
+    throw
+}
 Assert-TLSPEMSource $TLSKeyFile $false
 $httpsPort=[int]$listenerParts[1]
 if ($httpsPort -lt 1 -or $httpsPort -gt 65535 -or $httpsPort -in @($PostgresPort,$GarnetPort)) {
@@ -169,6 +219,10 @@ foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
 }
 if (@(Get-CimInstance Win32_Service -Filter "Name='EsteriumERP'" -ErrorAction Stop).Count -ne 0) {
     throw 'Existing ERP service must never be overwritten by initial setup.'
+}
+try { Assert-InstallTLSCertificateTimes } catch {
+    $_.Exception.Data['EsteriumInstallStage']='tls-certificate-time'
+    throw
 }
 $stageArgs=@{SourceBundleDir=$source;StageDir=$StageDir;ApprovedManifestSHA256=$ApprovedManifestSHA256;
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint;Apply=$true}
@@ -251,6 +305,8 @@ try {
     # SQL bootstrap deliberately leaves PostgreSQL disabled/stopped. Start it only
     # while creating the one-time administrator, then restore the fail-closed
     # state required by the dependency probe before it temporarily starts services.
+    $installFailureStage='tls-certificate-time'
+    Assert-InstallTLSCertificateTimes
     $installFailureStage='start-postgres-for-admin'
     try {
         Set-Service -Name $PostgresServiceName -StartupType Manual -ErrorAction Stop
@@ -278,6 +334,8 @@ try {
             throw 'First-admin bootstrap could not verify PostgreSQL stopped and disabled; manual intervention required.'
         }
     }
+    $installFailureStage='tls-certificate-time'
+    Assert-InstallTLSCertificateTimes
     $installFailureStage='dependency-probe'
     & (Join-Path $InstallDir 'tools\probe-esterium-local-first-run.ps1') @probe | Out-Null
     $installFailureStage='https-activation'
