@@ -89,3 +89,47 @@ Test-Case 'resume-business' 'RESUME_NONEMPTY_DATABASE:'
 Test-Case 'resume-arbitrary' 'RESUME_BOOTSTRAP_FAILED:'
 Test-Case 'resume-unconfirmed' 'RESUME_COMMIT_UNCONFIRMED:'
 Write-Output 'PASS: 11 simulated inspection/resume and cleanup cases; no SCM changes.'
+
+# Exercise the actual pipe-write block with an inert child that compares bytes.
+# A non-ASCII fixture ensures this does not accidentally use the console code page.
+$bootstrapPath=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\bootstrap-esterium-first-admin.ps1'
+$tokens=$null;$errors=$null
+$bootstrapAst=[Management.Automation.Language.Parser]::ParseFile($bootstrapPath,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Bootstrap AST invalid.'}
+$pipeAssignments=@($bootstrapAst.FindAll({param($n)
+    $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $n.Extent.Text -ceq '$inputPipe=$process.StandardInput.BaseStream'
+},$true))
+if($pipeAssignments.Count -ne 1){throw 'Expected unique pipe assignment.'}
+$pipeStatements=@($pipeAssignments[0].Parent.Statements)
+$pipeIndex=[array]::IndexOf($pipeStatements,$pipeAssignments[0])
+if($pipeIndex -lt 0 -or $pipeStatements[$pipeIndex+1] -isnot [Management.Automation.Language.TryStatementAst]){throw 'Expected pipe write block.'}
+$writePipe=[scriptblock]::Create($pipeStatements[$pipeIndex].Extent.Text+[Environment]::NewLine+$pipeStatements[$pipeIndex+1].Extent.Text)
+$fixture='Synthetic-'+[char]0x00e9+[char]0x65e5+'-Only'
+$passwordBytes=[Text.UTF8Encoding]::new($false,$true).GetBytes($fixture)
+$child=@'
+$inputStream=[Console]::OpenStandardInput()
+$memory=[IO.MemoryStream]::new()
+$inputStream.CopyTo($memory)
+$hex=[BitConverter]::ToString($memory.ToArray())
+if($hex -cne '53-79-6E-74-68-65-74-69-63-2D-C3-A9-E6-97-A5-2D-4F-6E-6C-79-0A'){exit 1}
+[Console]::WriteLine('PASS')
+'@
+$info=[Diagnostics.ProcessStartInfo]::new()
+$info.FileName=Join-Path $PSHOME 'powershell.exe'
+$info.Arguments='-NoProfile -EncodedCommand '+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child))
+$info.UseShellExecute=$false
+$info.CreateNoWindow=$true
+$info.RedirectStandardInput=$true
+$info.RedirectStandardOutput=$true
+$process=[Diagnostics.Process]::Start($info)
+try {
+    & $writePipe
+    if(-not $process.WaitForExit(15000)){throw 'Synthetic pipe child timed out.'}
+    if($process.ExitCode -ne 0 -or $process.StandardOutput.ReadToEnd().Trim() -cne 'PASS'){throw 'UTF-8 pipe bytes did not match.'}
+    Write-Output 'PASS: real Windows anonymous pipe preserves synthetic UTF-8 bytes without BOM.'
+} finally {
+    [Array]::Clear($passwordBytes,0,$passwordBytes.Length)
+    if(-not $process.HasExited){$process.Kill()}
+    $process.Dispose()
+}
