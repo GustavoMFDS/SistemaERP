@@ -239,6 +239,7 @@ $probe=@{BundleDir=$InstallDir;PostgresBin=$PostgresBin;PostgresDataDir=$Postgre
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint;Apply=$true}
 # No registered but unvalidated application service may remain startable
 # after a failed proof, including a failed final receipt write.
+$installFailureStage='register-service'
 try {
     & (Join-Path $stageTool 'register-esterium-windows-service.ps1') @registration | Out-Null
     $adminBootstrap=@{
@@ -250,11 +251,13 @@ try {
     # SQL bootstrap deliberately leaves PostgreSQL disabled/stopped. Start it only
     # while creating the one-time administrator, then restore the fail-closed
     # state required by the dependency probe before it temporarily starts services.
+    $installFailureStage='start-postgres-for-admin'
     try {
         Set-Service -Name $PostgresServiceName -StartupType Manual -ErrorAction Stop
         Start-Service -Name $PostgresServiceName -ErrorAction Stop
         (Get-Service -Name $PostgresServiceName -ErrorAction Stop).WaitForStatus(
             [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(90))
+        $installFailureStage='first-admin'
         & (Join-Path $stageTool 'bootstrap-esterium-first-admin.ps1') @adminBootstrap | Out-Null
     } finally {
         try {
@@ -271,10 +274,13 @@ try {
                 throw 'PostgreSQL did not return to its required stopped/disabled state.'
             }
         } catch {
+            $installFailureStage='postgres-cleanup'
             throw 'First-admin bootstrap could not verify PostgreSQL stopped and disabled; manual intervention required.'
         }
     }
+    $installFailureStage='dependency-probe'
     & (Join-Path $InstallDir 'tools\probe-esterium-local-first-run.ps1') @probe | Out-Null
+    $installFailureStage='https-activation'
     $activation=@{
         BundleDir=$InstallDir;AllowedOrigin=$AllowedOrigin;ListenAddress=$ListenAddress
         TLSCertFile=$TLSCertFile;TLSKeyFile=$TLSKeyFile;TrustedRemoteAddress=$TrustedRemoteAddress
@@ -298,8 +304,12 @@ try {
             }
         }
     } catch {
-        throw 'First install failed and could not disable the partial ERP Windows service; manual intervention required.'
+        $rollbackError=[InvalidOperationException]::new('First install failed and could not disable the partial ERP Windows service; manual intervention required.')
+        $rollbackError.Data['EsteriumInstallStage']='erp-cleanup'
+        throw $rollbackError
     }
+    # Only fixed stage identifiers cross the outer GUI failure boundary.
+    $_.Exception.Data['EsteriumInstallStage']=$installFailureStage
     throw
 }
 Write-Output 'PASS: signed bundle, schema/RBAC, first admin, protected credentials and HTTPS health check completed.'
