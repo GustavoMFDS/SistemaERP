@@ -31,3 +31,13 @@ Mesmo ADMIN_COMMITTED não prova login, senha, ausência de dados comerciais, re
 ## Estado desta implementação
 
 O wrapper é candidato, testado localmente com serviços simulados; pacote assinado, compatibilidade com instalação original e inspeção real na VM ainda dependem de validação. Não executar em produção.
+
+## Retomada restrita do primeiro administrador (candidata)
+
+A inspeção assinada na VM parcial retornou ADMIN_ABSENT e os três serviços voltaram a Stopped/Disabled. Isso autoriza planejar a retomada, não uma ativação automática. A causa específica do erro histórico continua desconhecida.
+
+A nova mídia VM-LAB inclui, além do wrapper e CLI, o helper assinado bootstrap-esterium-first-admin.ps1 e seu digest separado. Conferir artefato, proveniência, assinaturas e todos os hashes contra recibos independentes. Usar diretório diagnóstico protegido e manter o pacote ERP original intacto. Preservar o checkpoint frio 91dc8407; executar PLAN incluindo BootstrapScriptSHA256 e confirmar serviços e portas. Somente após aprovação do PLAN, optar explicitamente por ResumeAdmin (não combinar com Inspect). A própria operação revalida a ausência do admin antes de chamar o helper; Create revalida o estado fresco e recusa tabelas comerciais não vazias na transação serializável original. Não se pede senha em chat, argumentos ou arquivos: operador digita duas vezes no prompt protegido do convidado. O helper envia UTF-8 explícito pelo pipe e limpa o buffer de bytes. O CLI mantém a validação definitiva de caracteres e bytes.
+
+A operação exige ADMIN_COMMITTED após a transação e verifica o desligamento dos três serviços antes de publicar sucesso. Em erro, códigos fixos distinguem validações conhecidas, ausência não confirmada, bootstrap recusado e commit não confirmado; mensagens não reconhecidas não são reproduzidas. Não repetir automaticamente após erro: executar Inspect e revisar o estado. Mesmo ADMIN_COMMITTED não permite criar recibos artificiais, liberar portas, iniciar ERP/Garnet ou ativar HTTPS. A retomada de probe e ativação será um gate posterior separado. Não apagar ou reinstalar banco. A correção de UTF-8 elimina uma fragilidade potencial; não prova que a codificação causou a falha original.
+
+Validação local: AST de quatro scripts, diff check, onze cenários simulados e transporte real de bytes UTF-8 sintéticos pelo pipe Windows. CI completo, assinatura da nova mídia e execução real ResumeAdmin ainda pendentes.

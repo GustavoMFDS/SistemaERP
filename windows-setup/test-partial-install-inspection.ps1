@@ -16,7 +16,10 @@ for($i=0;$i -lt $statements.Count;$i++){
 if($start -lt 0){throw 'Inspection block not found.'}
 $run=[scriptblock]::Create(($statements[$start..($statements.Count-1)] | ForEach-Object {$_.Extent.Text}) -join [Environment]::NewLine)
 function Test-Case([string]$scenario,[string]$expected){
-    $state=@{mode='Disabled';status='Stopped';started=0;stopped=0;called=0}
+    $state=@{mode='Disabled';status='Stopped';started=0;stopped=0;called=0;bootstrap=0}
+    $ResumeAdmin=$scenario.StartsWith('resume-')
+    $bootstrap='Invoke-FixtureBootstrap'
+    $DiagnosticPublisher='synthetic'
     $exe='Invoke-FixtureInspector'
     $urlFile='synthetic-url-file'
     $postgres='synthetic-postgres.exe'
@@ -52,7 +55,15 @@ function Test-Case([string]$scenario,[string]$expected){
     function Invoke-FixtureInspector{
         $state.called++
         $global:LASTEXITCODE=0
-        if($scenario -eq 'bad-output'){'unexpected input'}else{'ADMIN_COMMITTED'}
+        if($scenario -eq 'bad-output'){'unexpected input'}
+        elseif($ResumeAdmin -and $scenario -ne 'resume-existing' -and ($state.called -eq 1 -or $scenario -eq 'resume-unconfirmed')){'ADMIN_ABSENT'}
+        else{'ADMIN_COMMITTED'}
+    }
+    function Invoke-FixtureBootstrap {
+        $state.bootstrap++
+        if($scenario -eq 'resume-mismatch'){throw 'As senhas nao coincidem.'}
+        if($scenario -eq 'resume-business'){throw 'Bootstrap recusado: FAIL: first administrator was not created: database contains business data; first-admin setup refused'}
+        if($scenario -eq 'resume-arbitrary'){throw 'synthetic unapproved diagnostic'}
     }
     $actual=''
     try{$actual=@(& $run) -join '|'}catch{$actual=$_.Exception.Message}
@@ -60,10 +71,84 @@ function Test-Case([string]$scenario,[string]$expected){
     if($state.started -ne 1){throw 'Expected exactly one synthetic start.'}
     if($scenario -ne 'cleanup-failure' -and ($state.status -ne 'Stopped' -or $state.mode -ne 'Disabled' -or $state.stopped -ne 1)){throw 'Cleanup not proven.'}
     if($scenario -in @('no-listener','foreign-listener') -and $state.called -ne 0){throw 'Inspector ran before ownership verification.'}
+    if($ResumeAdmin){
+        $expectedCalls=if($scenario -eq 'resume-existing'){0}else{1}
+        if($state.bootstrap -ne $expectedCalls){throw 'Unexpected bootstrap invocation count.'}
+        if($scenario -in @('resume-success','resume-unconfirmed') -and $state.called -ne 2){throw 'Post-bootstrap inspection missing.'}
+    }
 }
 Test-Case 'success' 'ADMIN_COMMITTED|PASS:'
 Test-Case 'no-listener' 'ADMIN_INDETERMINATE:'
 Test-Case 'foreign-listener' 'ADMIN_INDETERMINATE:'
 Test-Case 'bad-output' 'ADMIN_INDETERMINATE:'
 Test-Case 'cleanup-failure' 'RECOVERY_CLEANUP_FAILED:'
-Write-Output 'PASS: 5 simulated inspection and cleanup cases; no SCM changes.'
+Test-Case 'resume-success' 'ADMIN_COMMITTED|PASS:'
+Test-Case 'resume-existing' 'RESUME_REFUSED_NOT_ABSENT:'
+Test-Case 'resume-mismatch' 'RESUME_PASSWORD_MISMATCH:'
+Test-Case 'resume-business' 'RESUME_NONEMPTY_DATABASE:'
+Test-Case 'resume-arbitrary' 'RESUME_BOOTSTRAP_FAILED:'
+Test-Case 'resume-unconfirmed' 'RESUME_COMMIT_UNCONFIRMED:'
+Write-Output 'PASS: 11 simulated inspection/resume and cleanup cases; no SCM changes.'
+
+# Exercise the actual pipe-write block with an inert child that compares bytes.
+# A non-ASCII fixture ensures this does not accidentally use the console code page.
+$bootstrapPath=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\bootstrap-esterium-first-admin.ps1'
+$tokens=$null;$errors=$null
+$bootstrapAst=[Management.Automation.Language.Parser]::ParseFile($bootstrapPath,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Bootstrap AST invalid.'}
+$pipeAssignments=@($bootstrapAst.FindAll({param($n)
+    $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $n.Extent.Text -ceq '$inputPipe=$process.StandardInput.BaseStream'
+},$true))
+if($pipeAssignments.Count -ne 1){throw 'Expected unique pipe assignment.'}
+$pipeStatements=@($pipeAssignments[0].Parent.Statements)
+$pipeIndex=[array]::IndexOf($pipeStatements,$pipeAssignments[0])
+if($pipeIndex -lt 0 -or $pipeStatements[$pipeIndex+1] -isnot [Management.Automation.Language.TryStatementAst]){throw 'Expected pipe write block.'}
+$writePipe=[scriptblock]::Create($pipeStatements[$pipeIndex].Extent.Text+[Environment]::NewLine+$pipeStatements[$pipeIndex+1].Extent.Text)
+$fixture='Synthetic-'+[char]0x00e9+[char]0x65e5+'-Only'
+$passwordBytes=[Text.UTF8Encoding]::new($false,$true).GetBytes($fixture)
+$child=@'
+$inputStream=[Console]::OpenStandardInput()
+$memory=[IO.MemoryStream]::new()
+$inputStream.CopyTo($memory)
+$hex=[BitConverter]::ToString($memory.ToArray())
+if($hex -cne '53-79-6E-74-68-65-74-69-63-2D-C3-A9-E6-97-A5-2D-4F-6E-6C-79-0A'){exit 1}
+[Console]::WriteLine('PASS')
+'@
+$info=[Diagnostics.ProcessStartInfo]::new()
+$info.FileName=Join-Path $PSHOME 'powershell.exe'
+$info.Arguments='-NoProfile -EncodedCommand '+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child))
+$info.UseShellExecute=$false
+$info.CreateNoWindow=$true
+$info.RedirectStandardInput=$true
+$info.RedirectStandardOutput=$true
+$encodingAssignments=@($bootstrapAst.FindAll({param($n)
+    $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $n.Extent.Text -ceq '$previousInputEncoding=[Console]::InputEncoding'
+},$true))
+if($encodingAssignments.Count -ne 1){throw 'Expected unique encoding scope.'}
+$encodingStatements=@($encodingAssignments[0].Parent.Statements)
+$encodingIndex=[array]::IndexOf($encodingStatements,$encodingAssignments[0])
+if($encodingIndex -lt 0 -or $encodingStatements[$encodingIndex+1] -isnot [Management.Automation.Language.TryStatementAst]){throw 'Expected encoding scope.'}
+$startChild=[scriptblock]::Create($encodingStatements[$encodingIndex].Extent.Text+[Environment]::NewLine+$encodingStatements[$encodingIndex+1].Extent.Text)
+$utf8=[Text.UTF8Encoding]::new($false,$true)
+$originalConsoleEncoding=[Console]::InputEncoding
+$process=$null
+try {
+    # Reproduce the CI runner's BOM-emitting input encoding even on a
+    # developer machine with an OEM codepage.
+    [Console]::InputEncoding=[Text.UTF8Encoding]::new($true)
+    . $startChild
+    if([Console]::InputEncoding.GetPreamble().Length -ne 3){throw 'Console input encoding was not restored.'}
+    & $writePipe
+    if(-not $process.WaitForExit(15000)){throw 'Synthetic pipe child timed out.'}
+    if($process.ExitCode -ne 0 -or $process.StandardOutput.ReadToEnd().Trim() -cne 'PASS'){throw 'UTF-8 pipe bytes did not match.'}
+    Write-Output 'PASS: real Windows anonymous pipe preserves synthetic UTF-8 bytes without BOM.'
+} finally {
+    [Array]::Clear($passwordBytes,0,$passwordBytes.Length)
+    [Console]::InputEncoding=$originalConsoleEncoding
+    if($null -ne $process){
+        if(-not $process.HasExited){$process.Kill()}
+        $process.Dispose()
+    }
+}
