@@ -77,6 +77,7 @@ $confirmBstr=[IntPtr]::Zero
 $plain=''
 $confirmed=''
 $process=$null
+$passwordBytes=$null
 try {
     $secretBstr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
     $confirmBstr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($confirm)
@@ -84,6 +85,16 @@ try {
     $confirmed=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($confirmBstr)
     if (-not [string]::Equals($plain,$confirmed,[StringComparison]::Ordinal)) { throw 'As senhas nao coincidem.' }
 
+    # The Windows console code page is not necessarily UTF-8. Send exact
+    # UTF-8 bytes, without BOM, through the anonymous process pipe.
+    $utf8=[Text.UTF8Encoding]::new($false,$true)
+    $passwordBytes=$utf8.GetBytes($plain)
+    if($passwordBytes.Length -gt 72 -or $plain.Length -lt 12 -or [string]::IsNullOrWhiteSpace($plain)){
+        throw 'Senha fora dos limites do bootstrap.'
+    }
+    if($plain.Contains([string][char]0) -or $plain.Contains([string][char]10) -or $plain.Contains([string][char]13)){
+        throw 'Senha deve ocupar uma unica linha.'
+    }
     $info=[Diagnostics.ProcessStartInfo]::new()
     $info.FileName=$expectedExe
     $quotedPath='"'+$dbFile.Replace('"','')+'"'
@@ -102,8 +113,12 @@ try {
     if ($null -eq $process) { throw 'CLI de bootstrap indisponivel.' }
     $outputTask=$process.StandardOutput.ReadToEndAsync()
     $errorTask=$process.StandardError.ReadToEndAsync()
-    $process.StandardInput.WriteLine($plain)
-    $process.StandardInput.Close()
+    $inputPipe=$process.StandardInput.BaseStream
+    try {
+        $inputPipe.Write($passwordBytes,0,$passwordBytes.Length)
+        $inputPipe.WriteByte(10)
+        $inputPipe.Flush()
+    } finally { $inputPipe.Close() }
     if (-not $process.WaitForExit(60000)) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         throw 'Bootstrap excedeu o limite de tempo; preserve o banco para inspecao.'
@@ -118,6 +133,7 @@ try {
     }
     Write-Output 'PASS: primeiro administrador criado; senha nunca foi enviada em argumento ou arquivo.'
 } finally {
+    if ($null -ne $passwordBytes) { [Array]::Clear($passwordBytes,0,$passwordBytes.Length) }
     if ($null -ne $process) { $process.Dispose() }
     if ($secretBstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretBstr) }
     if ($confirmBstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($confirmBstr) }
