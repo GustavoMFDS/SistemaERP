@@ -23,9 +23,42 @@ func main() {
 		if flag.Lookup("inspect-status") != nil && flag.Lookup("inspect-status").Value.String() == "true" {
 			fmt.Fprintln(os.Stderr, "ADMIN_INDETERMINATE")
 		} else {
-			fmt.Fprintf(os.Stderr, "FAIL: first administrator was not created: %s\n", err)
+			fmt.Fprintln(os.Stderr, bootstrapFailure(err))
 		}
 		os.Exit(1)
+	}
+}
+
+var (
+	errAdminDeadline = errors.New("first-admin operation deadline exceeded; inspect before retry")
+	errAdminCanceled = errors.New("first-admin operation canceled; inspect before retry")
+)
+
+func classifyOperationError(ctx context.Context, err error) error {
+	if errors.Is(err, bootstrapadmin.ErrCommitUnconfirmed) {
+		return bootstrapadmin.ErrCommitUnconfirmed
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		return errAdminDeadline
+	}
+	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+		return errAdminCanceled
+	}
+	return err
+}
+
+func bootstrapFailure(err error) string {
+	// The new fixed outcome labels intentionally contain no underlying error.
+	switch {
+	case errors.Is(err, bootstrapadmin.ErrCommitUnconfirmed):
+		return "FAIL: first administrator outcome not confirmed: commit"
+	case errors.Is(err, errAdminDeadline):
+		return "FAIL: first administrator outcome not confirmed: deadline"
+	case errors.Is(err, errAdminCanceled):
+		return "FAIL: first administrator outcome not confirmed: canceled"
+	default:
+		// Other errors from run are fixed, input-free diagnostics.
+		return fmt.Sprintf("FAIL: first administrator was not created: %s", err)
 	}
 }
 
@@ -120,7 +153,7 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	if err := pool.Ping(ctx); err != nil {
-		return errors.New("database connection failed")
+		return classifyOperationError(ctx, errors.New("database connection failed"))
 	}
 	if *inspect {
 		status, err := bootstrapadmin.Inspect(ctx, pool)
@@ -131,7 +164,7 @@ func run() error {
 		return nil
 	}
 	if err := bootstrapadmin.Create(ctx, pool, input, password); err != nil {
-		return err
+		return classifyOperationError(ctx, err)
 	}
 	fmt.Println("PASS: first administrator created for the new company.")
 	return nil

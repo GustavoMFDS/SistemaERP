@@ -854,12 +854,13 @@ SELECT
             throw 'PostgreSQL Windows service restart did not preserve the acknowledged synthetic transactions.'
         }
         Write-Output 'PASS: PostgreSQL 16 TLS cluster ran as a dedicated non-admin Windows service; SQL survived SCM restart.'
-        $labKeys=@('ESTERIUM_CI_DATABASE_URL_FILE','ESTERIUM_CI_POSTGRES_PORT','ESTERIUM_CI_POSTGRES_ACCOUNT')
+        $labKeys=@('ESTERIUM_CI_DATABASE_URL_FILE','ESTERIUM_CI_POSTGRES_PORT','ESTERIUM_CI_POSTGRES_ACCOUNT','ESTERIUM_CI_POSTGRES_BIN')
         $oldLab=@{}
         foreach($key in $labKeys){$oldLab[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
         try{
             $env:ESTERIUM_CI_DATABASE_URL_FILE=$firstAdminDatabaseURLFile
             $env:ESTERIUM_CI_POSTGRES_PORT=[string]$port
+            $env:ESTERIUM_CI_POSTGRES_BIN=$bin
             $env:ESTERIUM_CI_POSTGRES_ACCOUNT=$pgServiceAccountName
             & (Join-Path $PSScriptRoot 'test-esterium-garnet-real-aof-ci.ps1') -FromIntegratedStage -RunERPStartupSmoke
             if(-not $?){throw 'Integrated Garnet and ERP service runtime proof failed.'}

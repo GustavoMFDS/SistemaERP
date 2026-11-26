@@ -20,6 +20,7 @@ $required=@{
     redisPort=$env:ESTERIUM_CI_GARNET_PORT
     redisService=$env:ESTERIUM_CI_GARNET_SERVICE
     pgPort=$env:ESTERIUM_CI_POSTGRES_PORT
+    pgBin=$env:ESTERIUM_CI_POSTGRES_BIN
     pgAccount=$env:ESTERIUM_CI_POSTGRES_ACCOUNT
 }
 if(@($required.Values | Where-Object { [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0){throw 'Integrated PostgreSQL/Garnet handoff is incomplete.'}
@@ -122,7 +123,10 @@ function Invoke-AdminBootstrap([bool]$expectSuccess){
         $output=$stdout.GetAwaiter().GetResult().Trim()
         $diagnostic=$stderr.GetAwaiter().GetResult().Trim()
         if($expectSuccess -and ($proc.ExitCode -ne 0 -or $output -cne 'PASS: first administrator created for the new company.')){
-            if($diagnostic -match '^FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+$'){
+            if($diagnostic -cin @('FAIL: first administrator outcome not confirmed: commit',
+                'FAIL: first administrator outcome not confirmed: deadline',
+                'FAIL: first administrator outcome not confirmed: canceled') -or
+                $diagnostic -match '^FAIL: first administrator was not created: [A-Za-z0-9 ,.;:-]+$'){
                 throw ('First-admin CLI rejected the fresh synthetic database: '+$diagnostic)
             }
             throw 'First-admin CLI rejected the fresh synthetic database; no safe diagnostic was returned.'
@@ -353,7 +357,7 @@ try{
         -TLSCertFile $serverCertPath -TLSKeyFile $serverKeyPath `
         -TrustedRemoteAddress '127.0.0.1/32' -ReadinessReceiptDir $readinessReceiptDir `
         -ActivationReceiptDir $activationReceiptDir -PostgresServiceName 'EsteriumPostgreSQL16' `
-        -GarnetServiceName ([string]$required.redisService) -ApprovedManifestSHA256 $manifestHash `
+        -GarnetServiceName ([string]$required.redisService) -ApprovedManifestSHA256 $manifestHash -PostgresBin $required.pgBin -PostgresPort ([int]$required.pgPort) -GarnetPort ([int]$required.redisPort) `
         -UnsignedDisposableCIFixture -Apply | Out-Null
     if(-not $?){throw 'Disposable first-install activation helper failed.'}
     $activationRuleCreated=$true

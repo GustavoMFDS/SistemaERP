@@ -30,7 +30,9 @@ param(
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [string]$ApprovedManifestSHA256='',
     [string]$TrustedPublisherThumbprint='',
-    [switch]$Apply
+    [switch]$Apply,
+    # Explicit read-only input validation before the complete installer mutates dependencies.
+    [switch]$ValidateTLSInput
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -104,17 +106,6 @@ foreach ($path in @($StageDir,$InstallDir,$DatabaseDestinationDir,$ApplicationSe
         throw 'An initial installation folder already exists; manual assessment required.'
     }
 }
-if (-not $Apply) {
-    Write-Output 'PLAN: stage the signed ERP release under protected Program Files, no services touched.'
-    Write-Output 'PLAN: bootstrap first SQL database/migrations with temporary PostgreSQL start and safe shutdown.'
-    Write-Output 'PLAN: require trusted HTTPS certificate/key, create first admin, probe real dependencies, then activate automatic startup.'
-    Write-Output 'PLAN: LAN access requires an explicit private IPv4 CIDR; firewall stays limited to Domain/Private profiles.'
-    Write-Output 'NOT READY: this plan does not install PostgreSQL vendor files or perform the independent backup restore/pilot.'
-    return
-}
-if ([string]::IsNullOrWhiteSpace($TLSCertFile) -or [string]::IsNullOrWhiteSpace($TLSKeyFile)) {
-    throw 'Apply requires an HTTPS certificate chain and private key provisioned under protected ProgramData\Esterium.'
-}
 function Assert-TLSPEMSource([string]$path,[bool]$isCertificate) {
     if (-not [IO.Path]::IsPathRooted($path) -or $path.StartsWith('\\')) {
         throw 'HTTPS certificate inputs must be local absolute file paths.'
@@ -142,8 +133,71 @@ function Assert-TLSPEMSource([string]$path,[bool]$isCertificate) {
         }
     } finally { $text=$null }
 }
-Assert-TLSPEMSource $TLSCertFile $true
-Assert-TLSPEMSource $TLSKeyFile $false
+# Check only the public certificate validity window; normal TLS verification
+# still proves trust, chain, hostname and key possession during runtime.
+function Assert-TLSCertificateTime([string]$path,[string]$label,[datetime]$nowUtc) {
+    if ($nowUtc.Kind -ne [DateTimeKind]::Utc) { throw 'Certificate time check requires UTC.' }
+    $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+    if ($item.PSIsContainer -or $item.Length -lt 1 -or $item.Length -gt 1048576) {
+        throw ('TLS_CERTIFICATE_INVALID: '+$label)
+    }
+    $pem=[IO.File]::ReadAllText($path)
+    $blocks=[regex]::Matches($pem,'-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+?)-----END CERTIFICATE-----')
+    if ($blocks.Count -eq 0 -or
+        [regex]::Matches($pem,'-----BEGIN CERTIFICATE-----').Count -ne $blocks.Count -or
+        [regex]::Matches($pem,'-----END CERTIFICATE-----').Count -ne $blocks.Count) {
+        throw ('TLS_CERTIFICATE_INVALID: '+$label)
+    }
+    foreach ($block in $blocks) {
+        $cert=$null
+        try {
+            $der=[Convert]::FromBase64String($block.Groups[1].Value)
+            $cert=[Security.Cryptography.X509Certificates.X509Certificate2]::new($der)
+        } catch {
+            throw ('TLS_CERTIFICATE_INVALID: '+$label)
+        }
+        try {
+            if ($nowUtc -lt $cert.NotBefore.ToUniversalTime()) {
+                throw ('TLS_CERTIFICATE_NOT_YET_VALID: '+$label+'; verify Windows clock synchronization.')
+            }
+            if ($nowUtc -gt $cert.NotAfter.ToUniversalTime()) {
+                throw ('TLS_CERTIFICATE_EXPIRED: '+$label)
+            }
+        } finally { $cert.Dispose() }
+    }
+}
+function Assert-InstallTLSCertificateTimes {
+    $utc=[datetime]::UtcNow
+    foreach ($entry in @(
+        @{Path=$TLSCertFile;Label='HTTPS chain'},
+        @{Path=(Join-Path $PostgresTlsPolicyDir 'certificates\server.crt');Label='PostgreSQL server'},
+        @{Path=(Join-Path $PostgresTlsPolicyDir 'certificates\root.crt');Label='PostgreSQL root CA'}
+    )) {
+        Assert-TLSPEMSource $entry.Path $true
+        Assert-TLSCertificateTime $entry.Path $entry.Label $utc
+    }
+}
+if ($Apply -or $ValidateTLSInput) {
+    if ([string]::IsNullOrWhiteSpace($TLSCertFile) -or [string]::IsNullOrWhiteSpace($TLSKeyFile)) {
+        throw 'Apply requires an HTTPS certificate chain and private key provisioned under protected ProgramData\Esterium.'
+    }
+    try {
+        Assert-TLSPEMSource $TLSCertFile $true
+        Assert-TLSCertificateTime $TLSCertFile 'HTTPS chain' ([datetime]::UtcNow)
+    } catch {
+        $_.Exception.Data['EsteriumInstallStage']='tls-certificate-time'
+        throw
+    }
+    Assert-TLSPEMSource $TLSKeyFile $false
+}
+if (-not $Apply) {
+    Write-Output 'PLAN: stage the signed ERP release under protected Program Files, no services touched.'
+    Write-Output 'PLAN: bootstrap first SQL database/migrations with temporary PostgreSQL start and safe shutdown.'
+    Write-Output 'PLAN: require trusted HTTPS certificate/key, create first admin, probe real dependencies, then activate automatic startup.'
+    Write-Output 'PLAN: LAN access requires an explicit private IPv4 CIDR; firewall stays limited to Domain/Private profiles.'
+    Write-Output 'NOT READY: this plan does not install PostgreSQL vendor files or perform the independent backup restore/pilot.'
+    return
+}
 $httpsPort=[int]$listenerParts[1]
 if ($httpsPort -lt 1 -or $httpsPort -gt 65535 -or $httpsPort -in @($PostgresPort,$GarnetPort)) {
     throw 'HTTPS port must be valid and distinct from PostgreSQL and Garnet.'
@@ -170,6 +224,14 @@ foreach ($name in @($PostgresServiceName,$GarnetServiceName)) {
 if (@(Get-CimInstance Win32_Service -Filter "Name='EsteriumERP'" -ErrorAction Stop).Count -ne 0) {
     throw 'Existing ERP service must never be overwritten by initial setup.'
 }
+try { Assert-InstallTLSCertificateTimes } catch {
+    $_.Exception.Data['EsteriumInstallStage']='tls-certificate-time'
+    throw
+}
+# Capture the source digests before schema/secret mutations. Never print them.
+$tlsSourceChainSHA256=(Get-FileHash -LiteralPath $TLSCertFile -Algorithm SHA256).Hash
+$tlsSourceKeySHA256=(Get-FileHash -LiteralPath $TLSKeyFile -Algorithm SHA256).Hash
+$tlsSourceCheckedUtc=[datetime]::UtcNow.ToString('o')
 $stageArgs=@{SourceBundleDir=$source;StageDir=$StageDir;ApprovedManifestSHA256=$ApprovedManifestSHA256;
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint;Apply=$true}
 & (Join-Path $PSScriptRoot 'stage-esterium-approved-windows-release.ps1') @stageArgs | Out-Null
@@ -182,7 +244,7 @@ $sqlArgs=@{BundleDir=$StageDir;PostgresBin=$PostgresBin;PostgresDataDir=$Postgre
     TrustedPublisherThumbprint=$TrustedPublisherThumbprint;Apply=$true}
 & (Join-Path $stageTool 'bootstrap-esterium-local-schema.ps1') @sqlArgs | Out-Null
 & (Join-Path $stageTool 'provision-esterium-app-secrets.ps1') -DestinationDir $ApplicationSecretsDir -TrustedPublisherThumbprint $TrustedPublisherThumbprint -Apply | Out-Null
-function Copy-ApprovedTLSFile([string]$sourcePath,[string]$targetPath,[string]$label) {
+function Copy-ApprovedTLSFile([string]$sourcePath,[string]$targetPath,[string]$label,[string]$expectedSHA256) {
     if (-not [IO.Path]::IsPathRooted($sourcePath) -or $sourcePath.StartsWith('\\')) {
         throw "$label source must be a local absolute file path."
     }
@@ -202,6 +264,7 @@ function Copy-ApprovedTLSFile([string]$sourcePath,[string]$targetPath,[string]$l
         throw "$label source must be non-empty and the protected destination must be new."
     }
     $sourceHash=(Get-FileHash -LiteralPath $sourceFull -Algorithm SHA256).Hash
+    if ($sourceHash -cne $expectedSHA256) { throw "$label changed since the initial TLS check." }
     Copy-Item -LiteralPath $sourceFull -Destination $targetPath -ErrorAction Stop
     if ((Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash -cne $sourceHash) {
         throw "$label changed during protected staging."
@@ -210,8 +273,46 @@ function Copy-ApprovedTLSFile([string]$sourcePath,[string]$targetPath,[string]$l
     if ($LASTEXITCODE -ne 0) { throw "Could not protect staged $label." }
     return [IO.Path]::GetFullPath($targetPath)
 }
-$TLSCertFile=Copy-ApprovedTLSFile $TLSCertFile (Join-Path $ApplicationSecretsDir 'https-server-chain.pem') 'HTTPS certificate chain'
-$TLSKeyFile=Copy-ApprovedTLSFile $TLSKeyFile (Join-Path $ApplicationSecretsDir 'https-server-key.pem') 'HTTPS private key'
+$TLSCertFile=Copy-ApprovedTLSFile $TLSCertFile (Join-Path $ApplicationSecretsDir 'https-server-chain.pem') 'HTTPS certificate chain' $tlsSourceChainSHA256
+$TLSKeyFile=Copy-ApprovedTLSFile $TLSKeyFile (Join-Path $ApplicationSecretsDir 'https-server-key.pem') 'HTTPS private key' $tlsSourceKeySHA256
+# Internal provenance only: this record never approves new trust or substitutes
+# for the independent pins required by the signed recovery workflow.
+function Write-TLSStagingEvidence([string]$directory,[string]$chain,[string]$key,[string]$chainSHA256,[string]$keySHA256,[string]$checkedUtc,[string]$manifestSHA256) {
+    if ($chainSHA256 -cnotmatch '^[A-F0-9]{64}$' -or $keySHA256 -cnotmatch '^[A-F0-9]{64}$' -or $manifestSHA256 -notmatch '^[A-Fa-f0-9]{64}$') {
+        throw 'Invalid TLS staging evidence digest.'
+    }
+    if ((Get-FileHash -LiteralPath $chain -Algorithm SHA256).Hash -cne $chainSHA256 -or
+        (Get-FileHash -LiteralPath $key -Algorithm SHA256).Hash -cne $keySHA256) {
+        throw 'TLS staging evidence differs from verified inputs.'
+    }
+    $receipt=Join-Path $directory 'tls-staging-evidence.json'
+    $meta=[ordered]@{
+        kind='ESTERIUM_TLS_STAGING_EVIDENCE'
+        schemaVersion=1
+        sourceCheckedUtc=$checkedUtc
+        stagedCheckedUtc=[datetime]::UtcNow.ToString('o')
+        releaseManifestSHA256=$manifestSHA256
+        chainSHA256=$chainSHA256
+        keySHA256=$keySHA256
+        independentApproval=$false
+    }
+    # The existing secrets directory restricts inherited access. Narrow this
+    # evidence file further to administrators and SYSTEM before writing data.
+    $stream=[IO.File]::Open($receipt,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    $stream.Dispose()
+    & icacls.exe $receipt '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not protect TLS staging evidence.' }
+    $bytes=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json $meta -Depth 3)+[Environment]::NewLine)
+    try {
+        $stream=[IO.File]::Open($receipt,[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try {
+            if($stream.Length -ne 0){throw 'TLS staging evidence is not empty.'}
+            $stream.Write($bytes,0,$bytes.Length)
+            $stream.Flush($true)
+        } finally {$stream.Dispose()}
+    } finally {[Array]::Clear($bytes,0,$bytes.Length)}
+}
+Write-TLSStagingEvidence $ApplicationSecretsDir $TLSCertFile $TLSKeyFile $tlsSourceChainSHA256 $tlsSourceKeySHA256 $tlsSourceCheckedUtc $ApprovedManifestSHA256
 $registration=@{
     BundleDir=$StageDir
     DatabaseURLFile=(Join-Path $DatabaseDestinationDir 'database-url.secret')
@@ -251,6 +352,8 @@ try {
     # SQL bootstrap deliberately leaves PostgreSQL disabled/stopped. Start it only
     # while creating the one-time administrator, then restore the fail-closed
     # state required by the dependency probe before it temporarily starts services.
+    $installFailureStage='tls-certificate-time'
+    Assert-InstallTLSCertificateTimes
     $installFailureStage='start-postgres-for-admin'
     try {
         Set-Service -Name $PostgresServiceName -StartupType Manual -ErrorAction Stop
@@ -278,6 +381,8 @@ try {
             throw 'First-admin bootstrap could not verify PostgreSQL stopped and disabled; manual intervention required.'
         }
     }
+    $installFailureStage='tls-certificate-time'
+    Assert-InstallTLSCertificateTimes
     $installFailureStage='dependency-probe'
     & (Join-Path $InstallDir 'tools\probe-esterium-local-first-run.ps1') @probe | Out-Null
     $installFailureStage='https-activation'
@@ -287,6 +392,7 @@ try {
         ReadinessReceiptDir=(Join-Path $env:ProgramData 'Esterium\FirstRunReadiness')
         ActivationReceiptDir=(Join-Path $env:ProgramData 'Esterium\Installation')
         PostgresDataDir=$PostgresDataDir;GarnetConfigDir=$GarnetConfigDir
+        PostgresBin=$PostgresBin;PostgresPort=$PostgresPort;GarnetPort=$GarnetPort
         PostgresServiceName=$PostgresServiceName;GarnetServiceName=$GarnetServiceName
         ApprovedManifestSHA256=$ApprovedManifestSHA256;TrustedPublisherThumbprint=$TrustedPublisherThumbprint
         Apply=$true

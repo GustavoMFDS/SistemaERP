@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -31,21 +32,21 @@ type App struct {
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, error) {
 	if cfg.DatabaseURL == "" {
-		return nil, errors.New("DATABASE_URL is required")
+		return nil, startupFailure(StartupConfig, errors.New("DATABASE_URL is required"))
 	}
 	if cfg.JWTSecret == "" {
-		return nil, errors.New("JWT_SECRET is required")
+		return nil, startupFailure(StartupConfig, errors.New("JWT_SECRET is required"))
 	}
 
 	telemetryShutdown, err := observability.Setup(ctx, cfg, logger)
 	if err != nil {
-		return nil, err
+		return nil, startupFailure(StartupTelemetry, err)
 	}
 
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		_ = telemetryShutdown(ctx)
-		return nil, err
+		return nil, startupFailure(StartupPostgresConfig, err)
 	}
 	if cfg.OTelEnabled {
 		poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
@@ -53,19 +54,28 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		_ = telemetryShutdown(ctx)
-		return nil, err
+		return nil, startupFailure(StartupPostgresPool, err)
 	}
-	if err := pool.Ping(ctx); err != nil {
+	localStartup := runtime.GOOS == "windows" && cfg.IsProdLike() &&
+		strings.TrimSpace(os.Getenv("ESTERIUM_WEB_DIR")) != "" &&
+		strings.TrimSpace(os.Getenv("ESTERIUM_MIGRATIONS_DIR")) != ""
+	pgPing := pool.Ping
+	if localStartup && localPostgresStartup(&poolCfg.ConnConfig.Config) {
+		pgPing = func(ctx context.Context) error {
+			return waitForStartupPing(ctx, localStartupPingBudget, localStartupPingInterval, true, pool.Ping)
+		}
+	}
+	if err := pgPing(ctx); err != nil {
 		pool.Close()
 		_ = telemetryShutdown(ctx)
-		return nil, err
+		return nil, startupFailure(StartupPostgresPing, err)
 	}
 
 	migrationDir := strings.TrimSpace(os.Getenv("ESTERIUM_MIGRATIONS_DIR"))
 	if cfg.IsProdLike() && strings.TrimSpace(os.Getenv("ESTERIUM_WEB_DIR")) != "" && migrationDir == "" {
 		pool.Close()
 		_ = telemetryShutdown(ctx)
-		return nil, errors.New("local SPA production startup requires ESTERIUM_MIGRATIONS_DIR")
+		return nil, startupFailure(StartupSchema, errors.New("local SPA production startup requires ESTERIUM_MIGRATIONS_DIR"))
 	}
 	if migrationDir != "" {
 		var version int
@@ -73,12 +83,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		if err := pool.QueryRow(ctx, "SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
 			pool.Close()
 			_ = telemetryShutdown(ctx)
-			return nil, fmt.Errorf("cannot verify installed PostgreSQL schema version: %w", err)
+			return nil, startupFailure(StartupSchema, fmt.Errorf("cannot verify installed PostgreSQL schema version: %w", err))
 		}
 		if err := verifyLocalSchemaVersion(version, dirty, migrationDir); err != nil {
 			pool.Close()
 			_ = telemetryShutdown(ctx)
-			return nil, err
+			return nil, startupFailure(StartupSchema, err)
 		}
 	}
 
@@ -90,7 +100,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 			if err != nil {
 				pool.Close()
 				_ = telemetryShutdown(ctx)
-				return nil, err
+				return nil, startupFailure(StartupRedisConfig, err)
 			}
 		} else {
 			opts = &redis.Options{
@@ -102,7 +112,13 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		if err := configureRedisTLS(cfg, opts); err != nil {
 			pool.Close()
 			_ = telemetryShutdown(ctx)
-			return nil, err
+			return nil, startupFailure(StartupRedisTLS, err)
+		}
+		retryLocalRedis := localStartup && localRedisStartup(opts.Network, opts.Addr)
+		if retryLocalRedis {
+			// Honor the request context deadline during local startup and
+			// subsequent operations. Keep existing TLS/auth configuration.
+			opts.ContextTimeoutEnabled = true
 		}
 		rdb = redis.NewClient(opts)
 		if cfg.OTelEnabled {
@@ -110,29 +126,36 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 				pool.Close()
 				_ = rdb.Close()
 				_ = telemetryShutdown(ctx)
-				return nil, err
+				return nil, startupFailure(StartupRedisTelemetry, err)
 			}
 		}
-		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := rdb.Ping(pingCtx).Err(); err != nil {
+		ping := func(ctx context.Context) error { return rdb.Ping(ctx).Err() }
+		var pingErr error
+		if retryLocalRedis {
+			pingErr = waitForStartupPing(ctx, localStartupPingBudget, localStartupPingInterval, false, ping)
+		} else {
+			pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			pingErr = ping(pingCtx)
+			cancel()
+		}
+		if pingErr != nil {
 			pool.Close()
 			_ = rdb.Close()
 			_ = telemetryShutdown(ctx)
-			return nil, err
+			return nil, startupFailure(StartupRedisPing, pingErr)
 		}
 		if cfg.IsProdLike() {
 			if securityErr := verifyRedisSecurityPrimitives(ctx, rdb); securityErr != nil {
 				pool.Close()
 				_ = rdb.Close()
 				_ = telemetryShutdown(ctx)
-				return nil, fmt.Errorf("redis security contract failed, refusing to start: %w", securityErr)
+				return nil, startupFailure(StartupRedisSecurity, fmt.Errorf("redis security contract failed, refusing to start: %w", securityErr))
 			}
 		}
 	} else if cfg.IsProdLike() {
 		pool.Close()
 		_ = telemetryShutdown(ctx)
-		return nil, errors.New("redis is required in staging/prod because refresh token rotation depends on it")
+		return nil, startupFailure(StartupRedisConfig, errors.New("redis is required in staging/prod because refresh token rotation depends on it"))
 	} else {
 		logger.Warn("redis_disabled_dev_mode", slog.String("impact", "refresh tokens and optional caches are unavailable"))
 	}
@@ -156,7 +179,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 				_ = rdb.Close()
 			}
 			_ = telemetryShutdown(ctx)
-			return nil, errors.New("NFC-e auto homologation requires working signing, XSD, SEFAZ and processed XML adapters")
+			return nil, startupFailure(StartupFiscal, errors.New("NFC-e auto homologation requires working signing, XSD, SEFAZ and processed XML adapters"))
 		}
 		fiscapp.StartAutomaticNFCeHomologation(ctx, pool, mods.Fiscal, logger)
 		fiscapp.StartAutomaticNFCeConsultation(ctx, pool, mods.Fiscal, logger)

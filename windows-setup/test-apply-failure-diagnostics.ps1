@@ -37,6 +37,7 @@ try {
         'dependency-probe'=26
         'https-activation'=27
         'erp-cleanup'=28
+        'tls-certificate-time'=29
         'unknown-input'=21
     }
     foreach($stage in $expected.Keys){
@@ -55,16 +56,16 @@ try {
     $method=$type.GetMethod('ApplyFailureStage',[Reflection.BindingFlags]'Static,NonPublic')
     if($null -eq $method){throw 'GUI diagnostic mapping missing.'}
     $labels=@()
-    foreach($code in 20..28){
+    foreach($code in 20..29){
         $label=[string]$method.Invoke($null,@([int]$code))
         if([string]::IsNullOrWhiteSpace($label)){throw 'GUI failure label missing.'}
         $labels+=$label
     }
-    if(@($labels | Sort-Object -Unique).Count -ne 9){throw 'GUI failure labels must be distinct.'}
+    if(@($labels | Sort-Object -Unique).Count -ne 10){throw 'GUI failure labels must be distinct.'}
     if($method.Invoke($null,@([int]999)) -cne $method.Invoke($null,@([int]1))){
         throw 'Unknown code must use the generic failure label.'
     }
-    Write-Output 'PASS: 16 synthetic child failure cases and 10 GUI label cases; no real Apply.'
+    Write-Output 'PASS: 18 synthetic child failure cases and 11 GUI label cases; no real Apply.'
 } finally {
     if(Test-Path -LiteralPath $fixture){Remove-Item -LiteralPath $fixture -Force}
 }

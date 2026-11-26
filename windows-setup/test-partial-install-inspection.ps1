@@ -64,6 +64,9 @@ function Test-Case([string]$scenario,[string]$expected){
         if($scenario -eq 'resume-mismatch'){throw 'As senhas nao coincidem.'}
         if($scenario -eq 'resume-business'){throw 'Bootstrap recusado: FAIL: first administrator was not created: database contains business data; first-admin setup refused'}
         if($scenario -eq 'resume-arbitrary'){throw 'synthetic unapproved diagnostic'}
+        if($scenario -eq 'resume-commit-lost'){throw 'Bootstrap recusado: FAIL: first administrator outcome not confirmed: commit'}
+        if($scenario -eq 'resume-deadline'){throw 'Bootstrap recusado: FAIL: first administrator outcome not confirmed: deadline'}
+        if($scenario -eq 'resume-canceled'){throw 'Bootstrap recusado: FAIL: first administrator outcome not confirmed: canceled'}
     }
     $actual=''
     try{$actual=@(& $run) -join '|'}catch{$actual=$_.Exception.Message}
@@ -88,7 +91,10 @@ Test-Case 'resume-mismatch' 'RESUME_PASSWORD_MISMATCH:'
 Test-Case 'resume-business' 'RESUME_NONEMPTY_DATABASE:'
 Test-Case 'resume-arbitrary' 'RESUME_BOOTSTRAP_FAILED:'
 Test-Case 'resume-unconfirmed' 'RESUME_COMMIT_UNCONFIRMED:'
-Write-Output 'PASS: 11 simulated inspection/resume and cleanup cases; no SCM changes.'
+Test-Case 'resume-commit-lost' 'RESUME_COMMIT_UNCONFIRMED:'
+Test-Case 'resume-deadline' 'RESUME_BOOTSTRAP_DEADLINE:'
+Test-Case 'resume-canceled' 'RESUME_BOOTSTRAP_CANCELED:'
+Write-Output 'PASS: 14 simulated inspection/resume and cleanup cases; no SCM changes.'
 
 # Exercise the actual pipe-write block with an inert child that compares bytes.
 # A non-ASCII fixture ensures this does not accidentally use the console code page.
@@ -152,3 +158,34 @@ try {
         $process.Dispose()
     }
 }
+
+
+# Synthetic bootstrap output boundary: exercise the exact failure branch
+# without launching the first-admin CLI or accessing any database.
+$failureBlocks=@($bootstrapAst.FindAll({param($n)
+    $n -is [Management.Automation.Language.IfStatementAst] -and
+    $n.Clauses[0].Item1.Extent.Text.Contains('$process.ExitCode -ne 0 -or $output -cne')
+},$true))
+if($failureBlocks.Count -ne 1){throw 'Expected unique first-admin failure branch.'}
+$failureBranch=[scriptblock]::Create($failureBlocks[0].Extent.Text)
+$cases=@(
+    @{Code='commit';Expected='commit'},
+    @{Code='deadline';Expected='deadline'},
+    @{Code='canceled';Expected='canceled'},
+    @{Code='unexpected synthetic marker';Expected=''}
+)
+$process=[pscustomobject]@{ExitCode=1}
+$output=''
+foreach($case in $cases){
+    $errorOutput='FAIL: first administrator outcome not confirmed: '+$case.Code
+    $actual=''
+    try {& $failureBranch}catch{$actual=$_.Exception.Message}
+    if($case.Expected){
+        if($actual -cne ('Bootstrap recusado: FAIL: first administrator outcome not confirmed: '+$case.Expected)){
+            throw 'Expected exact fixed outcome label.'
+        }
+    } elseif($actual -cne 'Bootstrap recusado. Preserve o banco e consulte o diagnostico protegido.'){
+        throw 'Unrecognized diagnostic leaked or accepted.'
+    }
+}
+Write-Output 'PASS: 4 fixed outcome wrapper cases, including unknown diagnostic rejection.'
