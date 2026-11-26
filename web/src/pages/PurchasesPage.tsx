@@ -511,7 +511,7 @@ export default function PurchasesPage() {
 
       <section className="mt-5 rounded-md border p-3">
         <h3 className="text-sm font-semibold">Nova compra</h3>
-        <form onSubmit={createPurchase}>
+        <form id="purchase-order-form" onSubmit={createPurchase}>
           <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
             <label className="block md:col-span-2">
               <span className="text-xs text-gray-600">Fornecedor</span>
@@ -551,120 +551,125 @@ export default function PurchasesPage() {
             </label>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-6">
-            <label className="block md:col-span-3">
-              <span className="text-xs text-gray-600">Produto</span>
-              <select
-                aria-label="Produto da compra"
-                value={lineProductId}
-                onChange={(e) => {
-                  const id = e.target.value
-                  setLineProductId(id)
-                  const product = productById.get(id)
-                  if (product) setLineCost(Number(product.cost_price) || 0)
-                }}
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              >
-                <option value="">Selecione…</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.sku} — {product.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs text-gray-600">Quantidade pedida</span>
-              <input
-                type="number"
-                step="0.001"
-                min="0.001"
-                value={String(lineQty)}
-                onChange={(e) => setLineQty(Number(e.target.value))}
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs text-gray-600">Custo unitário</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={String(lineCost)}
-                onChange={(e) => setLineCost(Number(e.target.value))}
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={addLine}
-              className="mt-5 rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+        </form>
+
+        {/* Draft controls are not part of the purchase form: only added lines are submitted. */}
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-6">
+          <label className="block md:col-span-3">
+            <span className="text-xs text-gray-600">Produto</span>
+            <select
+              aria-label="Produto da compra"
+              value={lineProductId}
+              onChange={(e) => {
+                const id = e.target.value
+                setLineProductId(id)
+                const product = productById.get(id)
+                if (product) setLineCost(Number(product.cost_price) || 0)
+              }}
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             >
-              Incluir item
-            </button>
-          </div>
-
-          {lines.length > 0 ? (
-            <div className="mt-3 overflow-auto rounded-md border">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-gray-50 text-xs text-gray-600">
-                  <tr>
-                    <th className="px-3 py-2">Produto</th>
-                    <th className="px-3 py-2">Quantidade</th>
-                    <th className="px-3 py-2">Custo</th>
-                    <th className="px-3 py-2">Total</th>
-                    <th className="px-3 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {lines.map((line) => {
-                    const product = productById.get(line.product_id)
-                    return (
-                      <tr key={line.product_id}>
-                        <td className="px-3 py-2">{product?.name ?? line.product_id}</td>
-                        <td className="px-3 py-2">{line.qty.toFixed(3)}</td>
-                        <td className="px-3 py-2">{money(line.unit_cost)}</td>
-                        <td className="px-3 py-2">{money(line.qty * line.unit_cost)}</td>
-                        <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setLines((prev) =>
-                                prev.filter((item) => item.product_id !== line.product_id),
-                              )
-                            }
-                            className="text-xs text-red-700 hover:underline"
-                          >
-                            Remover
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-
-          <label className="mt-3 block">
-            <span className="text-xs text-gray-600">Observações</span>
-            <textarea
-              value={purchaseNotes}
-              onChange={(e) => setPurchaseNotes(e.target.value)}
+              <option value="">Selecione…</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.sku} — {product.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-600">Quantidade pedida</span>
+            <input
+              type="number"
+              step="0.001"
+              min="0.001"
+              value={String(lineQty)}
+              onChange={(e) => setLineQty(Number(e.target.value))}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
             />
           </label>
+          <label className="block">
+            <span className="text-xs text-gray-600">Custo unitário</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={String(lineCost)}
+              onChange={(e) => setLineCost(Number(e.target.value))}
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={addLine}
+            className="mt-5 rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+          >
+            Incluir item
+          </button>
+        </div>
 
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">Total: {money(purchaseTotal)}</div>
-            <button
-              disabled={!supplierId || lines.length === 0}
-              className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-            >
-              Criar compra
-            </button>
+        {lines.length > 0 ? (
+          <div className="mt-3 overflow-auto rounded-md border">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-gray-50 text-xs text-gray-600">
+                <tr>
+                  <th className="px-3 py-2">Produto</th>
+                  <th className="px-3 py-2">Quantidade</th>
+                  <th className="px-3 py-2">Custo</th>
+                  <th className="px-3 py-2">Total</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {lines.map((line) => {
+                  const product = productById.get(line.product_id)
+                  return (
+                    <tr key={line.product_id}>
+                      <td className="px-3 py-2">{product?.name ?? line.product_id}</td>
+                      <td className="px-3 py-2">{line.qty.toFixed(3)}</td>
+                      <td className="px-3 py-2">{money(line.unit_cost)}</td>
+                      <td className="px-3 py-2">{money(line.qty * line.unit_cost)}</td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLines((prev) =>
+                              prev.filter((item) => item.product_id !== line.product_id),
+                            )
+                          }
+                          className="text-xs text-red-700 hover:underline"
+                        >
+                          Remover
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
-        </form>
+        ) : null}
+
+        <label className="mt-3 block">
+          <span className="text-xs text-gray-600">Observações</span>
+          <textarea
+            form="purchase-order-form"
+            value={purchaseNotes}
+            onChange={(e) => setPurchaseNotes(e.target.value)}
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </label>
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold">Total: {money(purchaseTotal)}</div>
+          <button
+            type="submit"
+            form="purchase-order-form"
+            disabled={!supplierId || lines.length === 0}
+            className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            Criar compra
+          </button>
+        </div>
       </section>
 
       <section className="mt-5">
