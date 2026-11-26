@@ -167,3 +167,12 @@ func TestWindowsServiceUnexpectedCleanExitBeforeReady(t *testing.T) {
 	receiveState(t, statuses, svc.StopPending)
 	receiveResult(t, done, exitUnexpectedStop)
 }
+
+func TestWindowsServicePropagatesAppStartupStages(t *testing.T) {
+	for code := uint32(21); code <= 32; code++ {
+		_, statuses, done := startFixture(t, func(context.Context, func()) uint32 { return code }, time.Second, time.Second)
+		receiveState(t, statuses, svc.StartPending)
+		receiveState(t, statuses, svc.StopPending)
+		receiveResult(t, done, code)
+	}
+}

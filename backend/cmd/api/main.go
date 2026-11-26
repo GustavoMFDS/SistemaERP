@@ -100,8 +100,8 @@ func runServer(parent context.Context, mode startupMode, ready func()) uint32 {
 
 	application, err := app.New(ctx, cfg, logger)
 	if err != nil {
-		logger.Error("failed to init app", slog.Any("err", err))
-		return exitApp
+		logger.Error("failed to init app", slog.String("stage", string(app.StartupStageOf(err))))
+		return appStartupExitCode(app.StartupStageOf(err))
 	}
 	defer func() {
 		cancel()
