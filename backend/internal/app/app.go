@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -55,7 +56,16 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		_ = telemetryShutdown(ctx)
 		return nil, startupFailure(StartupPostgresPool, err)
 	}
-	if err := pool.Ping(ctx); err != nil {
+	localStartup := runtime.GOOS == "windows" && cfg.IsProdLike() &&
+		strings.TrimSpace(os.Getenv("ESTERIUM_WEB_DIR")) != "" &&
+		strings.TrimSpace(os.Getenv("ESTERIUM_MIGRATIONS_DIR")) != ""
+	pgPing := pool.Ping
+	if localStartup && localPostgresStartup(&poolCfg.ConnConfig.Config) {
+		pgPing = func(ctx context.Context) error {
+			return waitForStartupPing(ctx, localStartupPingBudget, localStartupPingInterval, true, pool.Ping)
+		}
+	}
+	if err := pgPing(ctx); err != nil {
 		pool.Close()
 		_ = telemetryShutdown(ctx)
 		return nil, startupFailure(StartupPostgresPing, err)
@@ -104,6 +114,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 			_ = telemetryShutdown(ctx)
 			return nil, startupFailure(StartupRedisTLS, err)
 		}
+		retryLocalRedis := localStartup && localRedisStartup(opts.Network, opts.Addr)
+		if retryLocalRedis {
+			// Honor the request context deadline during local startup and
+			// subsequent operations. Keep existing TLS/auth configuration.
+			opts.ContextTimeoutEnabled = true
+		}
 		rdb = redis.NewClient(opts)
 		if cfg.OTelEnabled {
 			if err := redisotel.InstrumentTracing(rdb); err != nil {
@@ -113,13 +129,20 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 				return nil, startupFailure(StartupRedisTelemetry, err)
 			}
 		}
-		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := rdb.Ping(pingCtx).Err(); err != nil {
+		ping := func(ctx context.Context) error { return rdb.Ping(ctx).Err() }
+		var pingErr error
+		if retryLocalRedis {
+			pingErr = waitForStartupPing(ctx, localStartupPingBudget, localStartupPingInterval, false, ping)
+		} else {
+			pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			pingErr = ping(pingCtx)
+			cancel()
+		}
+		if pingErr != nil {
 			pool.Close()
 			_ = rdb.Close()
 			_ = telemetryShutdown(ctx)
-			return nil, startupFailure(StartupRedisPing, err)
+			return nil, startupFailure(StartupRedisPing, pingErr)
 		}
 		if cfg.IsProdLike() {
 			if securityErr := verifyRedisSecurityPrimitives(ctx, rdb); securityErr != nil {
