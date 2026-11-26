@@ -320,6 +320,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & .\windows-setup\test-tls-certificate-time.ps1 -GeneratorExe (Join-Path $env:GITHUB_WORKSPACE 'scripts\esterium-pg-tls-certgen.exe')
+          & .\windows-setup\test-activation-listener-gate.ps1
       - name: Build pinned Windows migration CLI for integrated ZIP test
         shell: pwsh
         run: |
@@ -424,6 +425,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & .\windows-setup\test-tls-certificate-time.ps1 -GeneratorExe (Join-Path $env:GITHUB_WORKSPACE 'scripts\esterium-pg-tls-certgen.exe')
+          & .\windows-setup\test-activation-listener-gate.ps1
       - name: Build pinned Windows SQL migrator for isolated CI
         shell: pwsh
         run: |

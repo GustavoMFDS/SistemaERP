@@ -392,6 +392,7 @@ try {
         ReadinessReceiptDir=(Join-Path $env:ProgramData 'Esterium\FirstRunReadiness')
         ActivationReceiptDir=(Join-Path $env:ProgramData 'Esterium\Installation')
         PostgresDataDir=$PostgresDataDir;GarnetConfigDir=$GarnetConfigDir
+        PostgresBin=$PostgresBin;PostgresPort=$PostgresPort;GarnetPort=$GarnetPort
         PostgresServiceName=$PostgresServiceName;GarnetServiceName=$GarnetServiceName
         ApprovedManifestSHA256=$ApprovedManifestSHA256;TrustedPublisherThumbprint=$TrustedPublisherThumbprint
         Apply=$true

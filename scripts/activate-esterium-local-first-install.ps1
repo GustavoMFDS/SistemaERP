@@ -15,6 +15,9 @@ param(
     [string]$TrustedRemoteAddress='',
     [string]$ReadinessReceiptDir=(Join-Path $env:ProgramData 'Esterium\FirstRunReadiness'),
     [string]$ActivationReceiptDir=(Join-Path $env:ProgramData 'Esterium\Installation'),
+    [string]$PostgresBin=(Join-Path $env:ProgramFiles 'PostgreSQL\16\bin'),
+    [ValidateRange(1,65535)][int]$PostgresPort=5432,
+    [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [string]$PostgresDataDir=(Join-Path $env:ProgramData 'Esterium\PostgresData'),
     [string]$GarnetConfigDir=(Join-Path $env:ProgramData 'Esterium\GarnetConfig'),
     [string]$PostgresServiceName='EsteriumPostgreSQL16',
@@ -59,6 +62,7 @@ if(-not [Net.IPAddress]::TryParse($listenerParts[0],[ref]$listenIP) -or
 }
 $port=[int]$listenerParts[1]
 if($port -lt 1 -or $port -gt 65535){throw 'HTTPS listener port is invalid.'}
+if($PostgresPort -eq $GarnetPort -or $port -in @($PostgresPort,$GarnetPort)){throw 'Dependency and HTTPS ports must be distinct.'}
 $originPort=if($origin.IsDefaultPort){443}else{$origin.Port}
 if($originPort -ne $port){throw 'AllowedOrigin port must match the ERP HTTPS listener.'}
 $isLan=$listenerParts[0] -eq '0.0.0.0'
@@ -67,6 +71,12 @@ if($isLan -and [string]::IsNullOrWhiteSpace($TrustedRemoteAddress)){
 }
 if(-not $isLan -and -not [string]::IsNullOrWhiteSpace($TrustedRemoteAddress)){
     throw 'A loopback-only listener must not request a LAN firewall rule.'
+}
+
+# SCM Running is not a proof that a dependency has bound its socket.
+function Start-ERPAfterDependencyListeners([string]$InventoryScript,[string]$PgService,[string]$CacheService,[string]$PgBin,[int]$PgPort,[int]$CachePort){
+    & $InventoryScript -PostgresServiceName $PgService -RedisServiceName $CacheService -PostgresBin $PgBin -PostgresPort $PgPort -RedisPort $CachePort -ListenerReadyTimeoutSeconds 30 -RequireServiceOwnership | Out-Null
+    Start-Service -Name 'EsteriumERP' -ErrorAction Stop
 }
 
 function Test-FirewallRemoteScope([string[]]$Actual,[string]$Expected){
@@ -243,7 +253,7 @@ if($serviceEnv['HTTP_ADDR'] -cne $ListenAddress -or
 if(-not $Apply){
     Write-Output 'PLAN: verify fresh-install probe, TLS files, HTTPS origin and scoped firewall policy.'
     Write-Output 'PLAN: set PostgreSQL, Garnet and ERP to automatic startup in dependency order.'
-    Write-Output 'PLAN: start ERP, require trusted HTTPS readiness, then create the Start Menu shortcut.'
+    Write-Output 'PLAN: require owned loopback dependency listeners before starting ERP; then trusted HTTPS readiness and shortcut.'
     Write-Output 'PLAN: no services, firewall rules, shortcuts or data changed.'
     return
 }
@@ -257,7 +267,7 @@ if(-not $UnsignedDisposableCIFixture){
         throw 'Activation requires independent release digest and publisher approval.'
     }
     foreach($scriptPath in @($PSCommandPath,(Join-Path $PSScriptRoot 'check-esterium-signed-release.ps1'),
-        (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1'))){
+        (Join-Path $PSScriptRoot 'verify-esterium-bundle.ps1'),(Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1'))){
         $signature=Get-AuthenticodeSignature -LiteralPath $scriptPath
         if($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
            $null -eq $signature.SignerCertificate -or
@@ -343,7 +353,7 @@ try{
             $current.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(90))
         }
     }
-    Start-Service -Name 'EsteriumERP' -ErrorAction Stop
+    Start-ERPAfterDependencyListeners (Join-Path $PSScriptRoot 'check-esterium-local-dependencies.ps1') $PostgresServiceName $GarnetServiceName $PostgresBin $PostgresPort $GarnetPort
     (Get-Service -Name 'EsteriumERP' -ErrorAction Stop).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(45))
     $healthUri=$expectedOrigin.TrimEnd('/')+'/health/ready'

@@ -20,6 +20,7 @@ $required=@{
     redisPort=$env:ESTERIUM_CI_GARNET_PORT
     redisService=$env:ESTERIUM_CI_GARNET_SERVICE
     pgPort=$env:ESTERIUM_CI_POSTGRES_PORT
+    pgBin=$env:ESTERIUM_CI_POSTGRES_BIN
     pgAccount=$env:ESTERIUM_CI_POSTGRES_ACCOUNT
 }
 if(@($required.Values | Where-Object { [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0){throw 'Integrated PostgreSQL/Garnet handoff is incomplete.'}
@@ -356,7 +357,7 @@ try{
         -TLSCertFile $serverCertPath -TLSKeyFile $serverKeyPath `
         -TrustedRemoteAddress '127.0.0.1/32' -ReadinessReceiptDir $readinessReceiptDir `
         -ActivationReceiptDir $activationReceiptDir -PostgresServiceName 'EsteriumPostgreSQL16' `
-        -GarnetServiceName ([string]$required.redisService) -ApprovedManifestSHA256 $manifestHash `
+        -GarnetServiceName ([string]$required.redisService) -ApprovedManifestSHA256 $manifestHash -PostgresBin $required.pgBin -PostgresPort ([int]$required.pgPort) -GarnetPort ([int]$required.redisPort) `
         -UnsignedDisposableCIFixture -Apply | Out-Null
     if(-not $?){throw 'Disposable first-install activation helper failed.'}
     $activationRuleCreated=$true
