@@ -119,6 +119,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 			// Honor the request context deadline during local startup and
 			// subsequent operations. Keep existing TLS/auth configuration.
 			opts.ContextTimeoutEnabled = true
+			configureLocalRedisStartupDialer(opts)
 		}
 		rdb = redis.NewClient(opts)
 		if cfg.OTelEnabled {
@@ -132,13 +133,16 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		ping := func(ctx context.Context) error { return rdb.Ping(ctx).Err() }
 		var pingErr error
 		if retryLocalRedis {
-			pingErr = waitForStartupPing(ctx, localStartupPingBudget, localStartupPingInterval, false, ping)
+			pingErr = waitForStartupPing(ctx, localRedisStartupPingBudget, localStartupPingInterval, false, ping)
 		} else {
 			pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			pingErr = ping(pingCtx)
 			cancel()
 		}
 		if pingErr != nil {
+			if retryLocalRedis {
+				logger.Warn("local Redis startup ping failed", slog.String("reason", redisStartupPingFailureKind(pingErr)))
+			}
 			pool.Close()
 			_ = rdb.Close()
 			_ = telemetryShutdown(ctx)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"runtime"
@@ -9,11 +10,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
-	localStartupPingBudget   = 15 * time.Second
-	localStartupPingInterval = 500 * time.Millisecond
+	localStartupPingBudget      = 15 * time.Second
+	localRedisStartupPingBudget = 35 * time.Second
+	localStartupPingInterval    = 500 * time.Millisecond
 )
 
 func localStartupHost(host string) bool {
@@ -47,6 +50,17 @@ func startupPingTransient(err error, postgres bool) bool {
 	if err == nil {
 		return false
 	}
+	// Never turn a cancellation, server response or certificate/protocol
+	// validation failure into an eligible transport retry.
+	if !postgres {
+		if err == context.Canceled || err == context.DeadlineExceeded {
+			return false
+		}
+		switch err.(type) {
+		case redis.Error, *tls.CertificateVerificationError, tls.RecordHeaderError, *tls.RecordHeaderError:
+			return false
+		}
+	}
 	if pg, ok := err.(*pgconn.PgError); ok {
 		return postgres && pg.Code == "57P03"
 	}
@@ -66,7 +80,17 @@ func startupPingTransient(err error, postgres bool) bool {
 		return startupPingTransient(child, postgres)
 	}
 	if errno, ok := err.(syscall.Errno); ok {
-		return errno == syscall.ECONNREFUSED || (runtime.GOOS == "windows" && errno == syscall.Errno(10061))
+		if errno == syscall.ECONNREFUSED || (runtime.GOOS == "windows" && errno == syscall.Errno(10061)) {
+			return true
+		}
+		return !postgres && (errno == syscall.ETIMEDOUT || (runtime.GOOS == "windows" && errno == syscall.Errno(10060)))
+	}
+	// Only typed network timeouts, and only for local Redis startup. Do
+	// not infer transient failures from strings or retry other errors.
+	if !postgres {
+		if transport, ok := err.(net.Error); ok {
+			return transport.Timeout()
+		}
 	}
 	return false
 }
