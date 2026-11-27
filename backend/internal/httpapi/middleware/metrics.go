@@ -42,7 +42,7 @@ func initMetrics() {
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"method", "route", "status"})
 
-	prometheus.MustRegister(httpInFlight, httpTotal, httpDuration)
+	prometheus.MustRegister(httpInFlight, httpTotal, httpDuration, rateLimitBackendFailures)
 }
 
 func Metrics() func(http.Handler) http.Handler {
