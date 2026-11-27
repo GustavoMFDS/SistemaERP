@@ -223,6 +223,50 @@ try {
     if(-not (Test-Path -LiteralPath $autoConfig -PathType Leaf) -or ((Get-Item -LiteralPath $autoConfig -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Expected physical fresh auto configuration missing.'}
     [IO.File]::AppendAllText($autoConfig,[Environment]::NewLine+"listen_addresses = '127.0.0.1'"+[Environment]::NewLine+"port = $port"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
     $readyExe=Join-Path $installDir 'bin\pg_isready.exe'
+    # Use an explicit argument vector and a private child-process libpq
+    # environment. Do not inherit runner PG* settings or write credentials
+    # to the command line, stdout, stderr or global environment.
+    function Invoke-DisposablePgClient([string]$Executable,[string[]]$Arguments) {
+        if($Executable -cne $readyExe -and $Executable -cne $psql){throw 'Unexpected EDB client executable.'}
+        $info=[Diagnostics.ProcessStartInfo]::new()
+        $info.FileName=$Executable
+        $info.WorkingDirectory=Split-Path -Parent $Executable
+        $info.UseShellExecute=$false
+        $info.CreateNoWindow=$true
+        $info.RedirectStandardOutput=$true
+        $info.RedirectStandardError=$true
+        foreach($key in @($info.Environment.Keys | Where-Object {$_ -match '^PG'})){[void]$info.Environment.Remove($key)}
+        $info.Environment['PGPASSFILE']=$probePassFile
+        $info.Environment['PGCONNECT_TIMEOUT']='2'
+        $info.Environment['PGSSLMODE']='disable'
+        $info.Environment['PG_COLOR']='never'
+        foreach($argument in $Arguments){[void]$info.ArgumentList.Add($argument)}
+        $process=[Diagnostics.Process]::Start($info)
+        if($null -eq $process){throw 'Disposable EDB client could not launch.'}
+        try{
+            $stdout=$process.StandardOutput.ReadToEndAsync()
+            $stderr=$process.StandardError.ReadToEndAsync()
+            if(-not $process.WaitForExit(12000)){
+                $process.Kill()
+                $process.WaitForExit()
+                throw 'Disposable EDB client process timed out.'
+            }
+            $output=$stdout.GetAwaiter().GetResult()
+            $errorText=$stderr.GetAwaiter().GetResult()
+            $reason='none'
+            if($process.ExitCode -ne 0){
+                $reason='other'
+                if($errorText -match '(?i)invalid.*(option|parameter|connection|value)|unrecognized option|too many command.line arguments|missing.*argument'){$reason='invalid-parameters'}
+                elseif($errorText -match '(?i)password authentication failed|no password supplied'){$reason='authentication'}
+                elseif($errorText -match '(?i)connection refused|timeout expired|could not connect'){$reason='connection'}
+                elseif($errorText -match '(?i)SSL|GSSAPI'){$reason='transport'}
+                elseif($errorText -match '(?i)permission denied|access is denied'){$reason='permission'}
+            }
+            return [pscustomobject]@{Code=[int]$process.ExitCode;Output=$output.Trim();Reason=$reason}
+        }finally{$process.Dispose()}
+    }
+
+    $connInfo="host=127.0.0.1 port=$port user=postgres dbname=postgres sslmode=disable connect_timeout=2"
     function Write-DisposableEdbStartDiagnostic([datetime]$Since,[string]$Phase,[int]$ProbeCode) {
         $record=Get-CimInstance Win32_Service -Filter "Name='$svc'" -ErrorAction SilentlyContinue
         if($null -ne $record){
@@ -268,9 +312,15 @@ try {
             (Get-Service -Name $svc).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
             $ready=$false
             for($attempt=0;$attempt -lt 30;$attempt++){
-                & $readyExe -h 127.0.0.1 -p $port -U postgres -d postgres -t 2 -q
-                $probeCode=$LASTEXITCODE
+                $probe=Invoke-DisposablePgClient $readyExe @(('--dbname=' + $connInfo),'--timeout=2','--quiet')
+                $probeCode=$probe.Code
                 if($probeCode -eq 0){$ready=$true;break}
+                if($probeCode -eq 3){
+                    Write-Output ('EDB readiness client no-attempt category='+$probe.Reason)
+                    $sqlProbe=Invoke-DisposablePgClient $psql @('-X','-q','-t','-A','-w',('--dbname='+$connInfo),'-v','ON_ERROR_STOP=1','-c','SELECT 1')
+                    Write-Output ('EDB independent SQL probe code='+$sqlProbe.Code+' category='+$sqlProbe.Reason+' exact-result='+($sqlProbe.Code -eq 0 -and $sqlProbe.Output -ceq '1'))
+                    throw 'EDB readiness client did not attempt connection.'
+                }
                 Start-Sleep -Milliseconds 500
             }
             if(-not $ready){throw 'Disposable EDB cluster not ready.'}
@@ -294,37 +344,27 @@ try {
         if(@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count){throw 'Disposable EDB still listening after stop.'}
     }
     function Invoke-DisposableSql([string]$Sql) {
-        $result=@(& $psql -X -q -t -A -w -h 127.0.0.1 -p $port -U postgres -d postgres -v ON_ERROR_STOP=1 -c $Sql)
-        if($LASTEXITCODE -ne 0){throw 'Disposable normalized EDB SQL failed.'}
-        return ($result -join '').Trim()
+        $result=Invoke-DisposablePgClient $psql @('-X','-q','-t','-A','-w',('--dbname='+$connInfo),'-v','ON_ERROR_STOP=1','-c',$Sql)
+        if($result.Code -ne 0){throw ('Disposable EDB SQL failed: code='+$result.Code+' category='+$result.Reason)}
+        return $result.Output
     }
-    $oldPgEnv=@{}
-    foreach($key in @('PGPASSFILE','PGPASSWORD','PGSSLMODE','PGSERVICE','PGSERVICEFILE','PGHOSTADDR','PGOPTIONS')){
-        $oldPgEnv[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
-        [Environment]::SetEnvironmentVariable($key,$null,'Process')
-    }
-    try {
-        $env:PGPASSFILE=$probePassFile
-        # This is a loopback-only vendor fixture, not the commercial TLS policy.
-        $env:PGSSLMODE='disable'
-        Start-DisposableEdbAndCheck 'before-normalization'
-        if((Invoke-DisposableSql 'SELECT 1') -cne '1'){throw 'EDB baseline SQL failed.'}
-        Stop-DisposableEdbAndCheck
-        Write-Output 'PASS: vendor EDB baseline loopback SQL before ACL normalization.'
-        if(-not $aclOk){Normalize-DisposableEdbAcl $dataDir $serviceSid $id}
-        Start-DisposableEdbAndCheck 'after-normalization'
-        if((Invoke-DisposableSql "SHOW listen_addresses") -cne '127.0.0.1'){throw 'SQL reports unexpected listener configuration.'}
-        $null=Invoke-DisposableSql "CREATE TABLE ci_acl_durable (id integer PRIMARY KEY, payload text NOT NULL); INSERT INTO ci_acl_durable VALUES (1,'acl-normalized');"
-        if((Invoke-DisposableSql "SELECT payload FROM ci_acl_durable WHERE id=1") -cne 'acl-normalized'){throw 'Initial SQL persistence failed.'}
-        Stop-DisposableEdbAndCheck
-        Start-DisposableEdbAndCheck 'after-restart'
-        if((Invoke-DisposableSql "SELECT payload FROM ci_acl_durable WHERE id=1") -cne 'acl-normalized'){throw 'SQL durability after restart failed.'}
-        Stop-DisposableEdbAndCheck
-        Assert-FreshPostgresDataAcl $dataDir $serviceSid
-        Write-Output 'PASS: normalized real EDB service ran under dedicated SID; committed SQL survived restart and recursive ACL recheck.'
-    } finally {
-        foreach($key in $oldPgEnv.Keys){[Environment]::SetEnvironmentVariable($key,$oldPgEnv[$key],'Process')}
-    }
+    # This is a loopback-only vendor fixture, not commercial TLS.
+    Start-DisposableEdbAndCheck 'before-normalization'
+    if((Invoke-DisposableSql 'SELECT 1') -cne '1'){throw 'EDB baseline SQL failed.'}
+    Stop-DisposableEdbAndCheck
+    Write-Output 'PASS: vendor EDB baseline loopback SQL before ACL normalization.'
+    if(-not $aclOk){Normalize-DisposableEdbAcl $dataDir $serviceSid $id}
+    Start-DisposableEdbAndCheck 'after-normalization'
+    if((Invoke-DisposableSql "SHOW listen_addresses") -cne '127.0.0.1'){throw 'SQL reports unexpected listener configuration.'}
+    $null=Invoke-DisposableSql "CREATE TABLE ci_acl_durable (id integer PRIMARY KEY, payload text NOT NULL); INSERT INTO ci_acl_durable VALUES (1,'acl-normalized');"
+    if((Invoke-DisposableSql "SELECT payload FROM ci_acl_durable WHERE id=1") -cne 'acl-normalized'){throw 'Initial SQL persistence failed.'}
+    Stop-DisposableEdbAndCheck
+    Start-DisposableEdbAndCheck 'after-restart'
+    if((Invoke-DisposableSql "SELECT payload FROM ci_acl_durable WHERE id=1") -cne 'acl-normalized'){throw 'SQL durability after restart failed.'}
+    Stop-DisposableEdbAndCheck
+    Assert-FreshPostgresDataAcl $dataDir $serviceSid
+    Write-Output 'PASS: normalized real EDB service ran under dedicated SID; committed SQL survived restart and recursive ACL recheck.'
+
 
     $installed=$true
     Write-Output 'PASS: EDB EXE unattended install, PostgreSQL 16 cluster, dedicated Windows service/account, stopped/disabled SCM and closed port.'
