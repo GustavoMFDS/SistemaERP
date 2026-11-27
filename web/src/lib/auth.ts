@@ -49,10 +49,17 @@ function decodeAccessClaims(token: string): AccessClaims | null {
   }
 }
 
-export function hasUsableAccessToken(nowMs = Date.now()): boolean {
-  const claims = decodeAccessClaims(accessToken)
+export function hasUsableAccessToken(nowMs = Date.now(), token = accessToken): boolean {
+  const claims = decodeAccessClaims(token)
   if (!claims?.sub || !claims.tenant_id || typeof claims.exp !== 'number') return false
   return claims.exp * 1000 > nowMs
+}
+
+// Identity comparison only; expired claims cannot authorize access.
+export function tokenScope(token: string): string {
+  const claims = decodeAccessClaims(token)
+  if (!claims?.sub || !claims.tenant_id) return ''
+  return JSON.stringify([claims.tenant_id, claims.sub])
 }
 
 export function getSessionScope(): string {

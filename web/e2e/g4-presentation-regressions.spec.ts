@@ -20,6 +20,7 @@ test.beforeEach(async ({ page }) => {
       ready_for_homologation_data: false, transmission_enabled: false, active_products: 1,
       products_missing_ncm: 0, products_missing_fiscal_profile: 1, blocking_reasons: reasons,
     }
+    if (path.endsWith('/nfce/config')) return route.fulfill({ status: 404, json: { message: 'not configured' } })
     if (path.endsWith('/nfce/issuer')) body = { tenant_id: me.tenant_id, legal_name: 'Lab', cnpj: '00000000000000' }
     if (path.endsWith('/finance/accounts')) body = {
       items: [{ id: 'a', kind: 'payable', description: 'Conta ficticia encerrada', amount: 6, due_date: '2026-12-10', status: 'cancelled', settled_at: null, settlement_method: null },
@@ -53,4 +54,21 @@ test('cancelled financial account is localized and cannot be settled', async ({ 
   await expect(cancelled.getByRole('button', { name: 'Dar baixa' })).toHaveCount(0)
   await expect(open).toContainText('Aberta')
   await expect(open.getByRole('button', { name: 'Dar baixa' })).toBeVisible()
+})
+
+
+test('fiscal module uses the same actionable blocker list', async ({ page }) => {
+  await page.goto('/fiscal')
+  const section = page.locator('#fiscal-readiness')
+  await expect(section).toBeVisible()
+  const list = section.getByRole('list')
+  await expect(list.getByRole('listitem')).toHaveCount(5)
+  await expect(list).toContainText('Inscri\u00e7\u00e3o estadual n\u00e3o informada')
+  await expect(list).toContainText('Rua ou avenida n\u00e3o informada')
+  await expect(list).toContainText('CEP deve ter exatamente 8 d\u00edgitos num\u00e9ricos')
+  await expect(list).toContainText('Classifica\u00e7\u00e3o tribut\u00e1ria dos produtos')
+  await expect(list).toContainText('2 outras pend\u00eancias fiscais')
+  await expect(list).not.toContainText('future_unknown')
+  await expect(section).toContainText('Pend\u00eancias locais')
+  await expect(section).toContainText('desativada para esta loja')
 })

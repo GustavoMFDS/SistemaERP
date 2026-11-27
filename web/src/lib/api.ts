@@ -1,4 +1,4 @@
-import { clearToken, getToken, setToken } from './auth'
+import { clearToken, getToken, hasUsableAccessToken, setToken, tokenScope } from './auth'
 
 let refreshPromise: Promise<boolean> | null = null
 
@@ -67,7 +67,7 @@ async function apiJsonInternal<T>(
 
   if (!res.ok) {
     if (res.status === 401 && allowRefresh && !path.includes('/api/v1/auth/')) {
-      const refreshed = await refreshAccessToken()
+      const refreshed = await refreshForRetry(token)
       if (refreshed) return apiJsonInternal<T>(path, init, false)
     }
     const text = await res.text().catch(() => '')
@@ -100,17 +100,33 @@ export function refreshAccessToken(): Promise<boolean> {
   return refreshPromise
 }
 
+async function refreshForRetry(original: string): Promise<boolean> {
+  const scope = tokenScope(original)
+  if (!scope || tokenScope(getToken()) !== scope) return false
+  if (getToken() !== original && hasUsableAccessToken()) return true
+  return (await refreshAccessToken()) && hasUsableAccessToken() && tokenScope(getToken()) === scope
+}
+
 async function performRefresh(): Promise<boolean> {
+  const original = getToken()
+  const scope = tokenScope(original)
   try {
     const token = await apiJsonInternal<{ access_token: string }>(
       '/api/v1/auth/refresh',
       { method: 'POST' },
       false,
     )
+    // A late response must not overwrite a newer login or logout.
+    if (getToken() !== original) return false
+    if (!hasUsableAccessToken(Date.now(), token.access_token) ||
+        (original && (!scope || tokenScope(token.access_token) !== scope))) {
+      clearToken()
+      return false
+    }
     setToken(token.access_token)
     return true
   } catch {
-    clearToken()
+    if (getToken() === original) clearToken()
     return false
   }
 }
@@ -136,7 +152,7 @@ async function apiDownloadInternal(
   const res = await fetch(buildUrl(path), { headers, credentials: 'include' })
   if (!res.ok) {
     if (res.status === 401 && allowRefresh) {
-      const refreshed = await refreshAccessToken()
+      const refreshed = await refreshForRetry(token)
       if (refreshed) return apiDownloadInternal(path, fileName, mime, false)
     }
     const text = await res.text().catch(() => '')
@@ -189,7 +205,7 @@ async function apiOpenPrintableInternal(
   const res = await fetch(buildUrl(path), { headers, credentials: 'include' })
   if (!res.ok) {
     if (res.status === 401 && allowRefresh) {
-      const refreshed = await refreshAccessToken()
+      const refreshed = await refreshForRetry(token)
       if (refreshed) return apiOpenPrintableInternal(path, popup, false, autoPrint)
     }
     const text = await res.text().catch(() => '')
