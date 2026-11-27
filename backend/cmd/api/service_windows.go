@@ -120,7 +120,7 @@ func maybeRunWindowsService(ctx context.Context, run serverRun) (bool, error) {
 		return false, nil
 	}
 	err = svc.Run(esteriumServiceName, &esteriumWindowsService{
-		ctx: ctx, run: run, startupTimeout: 90 * time.Second,
+		ctx: withStartupDiagnosticSink(ctx, writeWindowsStartupDiagnostic), run: run, startupTimeout: 90 * time.Second,
 		shutdownTimeout: 30 * time.Second, progressInterval: 2 * time.Second,
 	})
 	return true, err

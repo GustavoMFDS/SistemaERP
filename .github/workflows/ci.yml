@@ -78,6 +78,10 @@ jobs:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: backend/go.sum
       - name: Register, inspect and remove test-only Windows SCM service
         shell: pwsh
         env:

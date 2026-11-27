@@ -100,7 +100,14 @@ func runServer(parent context.Context, mode startupMode, ready func()) uint32 {
 
 	application, err := app.New(ctx, cfg, logger)
 	if err != nil {
-		logger.Error("failed to init app", slog.String("stage", string(app.StartupStageOf(err))))
+		if substage, reason := app.RedisSecurityDiagnostic(err); substage != "" && app.StartupStageOf(err) == app.StartupRedisSecurity {
+			logger.Error("failed to init app", slog.String("stage", string(app.StartupStageOf(err))), slog.String("substage", substage), slog.String("reason", reason))
+		} else {
+			logger.Error("failed to init app", slog.String("stage", string(app.StartupStageOf(err))))
+		}
+		if publishErr := publishRedisStartupDiagnostic(ctx, err); publishErr != nil {
+			logger.Warn("startup diagnostic event could not be written")
+		}
 		return appStartupExitCode(app.StartupStageOf(err))
 	}
 	defer func() {

@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"fmt"
+
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,7 +18,7 @@ import (
 // actual atomic Lua EVAL support from any Redis-compatible backend.
 func verifyRedisSecurityPrimitives(parent context.Context, client *redis.Client) error {
 	if client == nil {
-		return fmt.Errorf("redis security backend is missing")
+		return securityProbeFailure("backend", nil, "missing")
 	}
 	ctx, cancel := context.WithTimeout(parent, 6*time.Second)
 	defer cancel()
@@ -27,7 +27,7 @@ func verifyRedisSecurityPrimitives(parent context.Context, client *redis.Client)
 	tokenID := "esterium:startup:" + uuid.NewString()
 	userID := uuid.NewString()
 	if err := store.Save(ctx, tokenID, userID, 20); err != nil {
-		return fmt.Errorf("refresh persistence unavailable: %w", err)
+		return securityProbeFailure("refresh-persistence", err, "backend-error")
 	}
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
@@ -36,12 +36,12 @@ func verifyRedisSecurityPrimitives(parent context.Context, client *redis.Client)
 	}()
 
 	if ok, err := store.Consume(ctx, tokenID, "invalid-user"); err != nil || ok {
-		return fmt.Errorf("refresh user isolation failed: accepted=%v, err=%v", ok, err)
+		return securityProbeFailure("refresh-user-isolation", err, "invariant")
 	}
 
 	const concurrentCalls = 4
 	var consumed atomic.Int32
-	var errorsSeen atomic.Int32
+	var errorsSeen securityProbeErrorCounts
 	var wg sync.WaitGroup
 	for range concurrentCalls {
 		wg.Add(1)
@@ -49,21 +49,20 @@ func verifyRedisSecurityPrimitives(parent context.Context, client *redis.Client)
 			defer wg.Done()
 			ok, err := store.Consume(ctx, tokenID, userID)
 			if err != nil {
-				errorsSeen.Add(1)
+				errorsSeen.record(err)
 			} else if ok {
 				consumed.Add(1)
 			}
 		}()
 	}
 	wg.Wait()
-	if errorsSeen.Load() != 0 || consumed.Load() != 1 {
-		return fmt.Errorf("refresh consume was not atomic (consumed=%d errors=%d)",
-			consumed.Load(), errorsSeen.Load())
+	if errorsSeen.total.Load() != 0 || consumed.Load() != 1 {
+		return errorsSeen.failure("refresh-atomic-consume")
 	}
 
 	const rateLimit = 2
 	var allowed atomic.Int32
-	errorsSeen.Store(0)
+	errorsSeen.reset()
 	key := "esterium:startup:" + uuid.NewString()
 	for range concurrentCalls {
 		wg.Add(1)
@@ -72,16 +71,15 @@ func verifyRedisSecurityPrimitives(parent context.Context, client *redis.Client)
 			ok, err := middleware.AllowRateLimit(ctx, client, "startup_contract",
 				key, rateLimit, time.Minute, true)
 			if err != nil {
-				errorsSeen.Add(1)
+				errorsSeen.record(err)
 			} else if ok {
 				allowed.Add(1)
 			}
 		}()
 	}
 	wg.Wait()
-	if errorsSeen.Load() != 0 || allowed.Load() != rateLimit {
-		return fmt.Errorf("rate-limit Lua command was not atomic (allowed=%d errors=%d)",
-			allowed.Load(), errorsSeen.Load())
+	if errorsSeen.total.Load() != 0 || allowed.Load() != rateLimit {
+		return errorsSeen.failure("rate-limit-atomic")
 	}
 	return nil
 }
