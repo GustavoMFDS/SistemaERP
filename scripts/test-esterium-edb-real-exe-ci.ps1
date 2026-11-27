@@ -123,6 +123,34 @@ try {
     if (@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -gt 0) {
         throw 'Real EDB PostgreSQL still listens after service shutdown.'
     }
+    # Read-only inspection of the vendor-created service and cluster using
+    # the exact same validator as the proposed fresh-install acceptance gate.
+    $candidateInstaller=Join-Path $PSScriptRoot 'install-esterium-local-dependencies.ps1'
+    $aclTokens=$null;$aclErrors=$null
+    $aclAst=[Management.Automation.Language.Parser]::ParseFile($candidateInstaller,[ref]$aclTokens,[ref]$aclErrors)
+    if($aclErrors.Count){throw 'Candidate ACL validator syntax invalid.'}
+    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','Assert-FreshPostgresDataAcl')){
+        $defs=@($aclAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName},$true))
+        if($defs.Count -ne 1){throw 'Candidate ACL function absent or ambiguous.'}
+        . ([scriptblock]::Create($defs[0].Extent.Text))
+    }
+    $bindingOk=Test-FreshPostgresServiceCommand ([string]$scm[0].PathName) $installDir $dataDir $svc $false
+    Write-Output ('EDB actual service binding accepted='+$bindingOk)
+    $aclOk=$false
+    $aclReason='inspection-error'
+    try {
+        $serviceSid=[string](Get-LocalUser -Name $svcAccount -ErrorAction Stop).SID.Value
+        Assert-FreshPostgresDataAcl $dataDir $serviceSid
+        $aclOk=$true
+        $aclReason='pass'
+    } catch {
+        if($_.Exception.Message -match '^PostgreSQL fresh data ACL rejected: (owner|null-dacl|root-inheritance|unsupported-ace|unexpected-principal|excessive-rights|missing-effective-rights|missing-child-rights)\.'){
+            $aclReason=$Matches[1]
+        }
+    }
+    Write-Output ('EDB actual data ACL accepted='+$aclOk+' reason='+$aclReason)
+    if(-not $bindingOk -or -not $aclOk){throw 'EDB vendor-created cluster does not satisfy candidate fresh-install gate; no ACL changes applied.'}
+
     $installed=$true
     Write-Output 'PASS: EDB EXE unattended install, PostgreSQL 16 cluster, dedicated Windows service/account, stopped/disabled SCM and closed port.'
     Write-Output 'NOT PROVEN: signed Esterium bundle, Garnet WinSW, ERP TLS/SQL bootstrap, two-box LAN, external backup or commercial release.'

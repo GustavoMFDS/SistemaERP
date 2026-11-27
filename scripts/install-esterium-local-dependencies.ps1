@@ -60,6 +60,84 @@ if (@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='$PostgresServi
 foreach ($digest in @($ExpectedPostgresSHA256,$ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)) {
     if ($digest -cnotmatch '^[a-fA-F0-9]{64}$') { throw 'SHA-256 aprovado é obrigatório para cada pacote.' }
 }
+# Fresh-cluster acceptance only: never change ACLs or adopt an existing cluster.
+# Validate every object before the fresh-cluster marker can be published.
+function Test-PostgresDataDescriptor {
+    param([Security.AccessControl.RawSecurityDescriptor]$Descriptor,[string]$ServiceSid,[bool]$Directory,[bool]$Root)
+    $admin='S-1-5-32-544'; $system='S-1-5-18'
+    $allowed=@($admin,$system,$ServiceSid)
+    $full=0x1F01FF; $modify=0x1301BF
+    if($null -eq $Descriptor.Owner -or $Descriptor.Owner.Value -notin $allowed){return 'owner'}
+    if($null -eq $Descriptor.DiscretionaryAcl){return 'null-dacl'}
+    if($Root -and -not ($Descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected)){return 'root-inheritance'}
+    $effective=@{}; $propagating=@{}
+    foreach($ace in $Descriptor.DiscretionaryAcl){
+        if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or $ace.IsCallback){return 'unsupported-ace'}
+        $sid=$ace.SecurityIdentifier.Value
+        if($sid -notin $allowed){return 'unexpected-principal'}
+        $maximum=if($sid -eq $ServiceSid){$modify}else{$full}
+        if(($ace.AccessMask -band (-bnot $maximum)) -ne 0){return 'excessive-rights'}
+        $flags=[int]$ace.AceFlags
+        if(($flags -band 8) -eq 0){$effective[$sid]=([int]$effective[$sid] -bor $ace.AccessMask)}
+        if(($flags -band 3) -eq 3 -and ($flags -band 4) -eq 0){$propagating[$sid]=([int]$propagating[$sid] -bor $ace.AccessMask)}
+    }
+    foreach($sid in $allowed){
+        $minimum=if($sid -eq $ServiceSid){$modify}else{$full}
+        if(([int]$effective[$sid] -band $minimum) -ne $minimum){return 'missing-effective-rights'}
+        if($Directory -and (([int]$propagating[$sid] -band $minimum) -ne $minimum)){return 'missing-child-rights'}
+    }
+    return 'pass'
+}
+# Build an exact, protected descriptor for a newly created cluster object.
+# This function is pure: it does not read or modify the filesystem.
+function New-FreshPostgresDataDescriptor([string]$ServiceSid,[bool]$Directory) {
+    if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){
+        throw 'PostgreSQL ACL policy requires a dedicated local service SID.'
+    }
+    $flags=if($Directory){'OICI'}else{''}
+    $sddl='O:BAD:P(A;'+$flags+';FA;;;SY)(A;'+$flags+';FA;;;BA)(A;'+$flags+';0x1301bf;;;'+$ServiceSid+')'
+    return [Security.AccessControl.RawSecurityDescriptor]::new($sddl)
+}
+
+# Accept only the intended PostgreSQL service command, not arbitrary arguments.
+# EDB may omit the explicit wait flag; ZIP registration is byte-for-byte fixed.
+function Test-FreshPostgresServiceCommand([string]$Command,[string]$InstallDir,[string]$DataDir,[string]$ServiceName,[bool]$BinaryZip) {
+    $expected='"'+(Join-Path $InstallDir 'bin\pg_ctl.exe')+'" runservice -N "'+$ServiceName+'" -D "'+$DataDir+'"'
+    if($BinaryZip){return ($Command -ceq ($expected+' -w'))}
+    return ([string]::Equals($Command,$expected,[StringComparison]::Ordinal) -or
+        [string]::Equals($Command,($expected+' -w'),[StringComparison]::Ordinal))
+}
+
+function Assert-FreshPostgresDataAcl([string]$DataDir,[string]$ServiceSid) {
+    if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){throw 'PostgreSQL ACL gate requires a dedicated local service SID.'}
+    $root=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+    $cursor=$root
+    while($cursor){
+        $ancestor=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if(-not $ancestor.PSIsContainer -or ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'PostgreSQL ACL gate rejected a nonphysical directory.'}
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    $pending=[Collections.Generic.Stack[string]]::new()
+    $pending.Push($root)
+    $count=0
+    while($pending.Count -gt 0){
+        $path=$pending.Pop()
+        $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'PostgreSQL ACL gate rejected a reparse point.'}
+        $acl=Get-Acl -LiteralPath $path -ErrorAction Stop
+        $raw=[Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
+        $result=Test-PostgresDataDescriptor $raw $ServiceSid ([bool]$item.PSIsContainer) ($path -ieq $root)
+        if($result -ne 'pass'){throw ('PostgreSQL fresh data ACL rejected: '+$result+'. Service remains disabled; manual inspection required.')}
+        $count++
+        if($item.PSIsContainer){
+            foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}
+        }
+    }
+    Write-Output ('PASS: fresh PostgreSQL data ACL policy inspected '+$count+' objects.')
+}
+
 function Get-SafeFile([string]$value) {
     if (-not [IO.Path]::IsPathRooted($value) -or $value.StartsWith('\\')) {
         throw 'Somente caminhos absolutos em disco local são aceitos.'
@@ -615,17 +693,22 @@ $localAccounts=@($PostgresServiceAccount,('.\'+$PostgresServiceAccount),($env:CO
 if ($pgIdentity -notin $localAccounts) {
     throw 'Servico PostgreSQL nao pertence a conta Windows dedicada aprovada.'
 }
-if($PostgresBinaryZip){
-    $expectedServiceCommand='"'+(Join-Path $pgDir 'bin\pg_ctl.exe')+'" runservice -N "'+$PostgresServiceName+'" -D "'+$pgData+'" -w'
-    if($pgService[0].PathName -cne $expectedServiceCommand){
-        throw 'Serviço PostgreSQL ZIP não aponta exatamente aos binários e dados aprovados.'
-    }
+if(-not (Test-FreshPostgresServiceCommand ([string]$pgService[0].PathName) $pgDir $pgData $PostgresServiceName ([bool]$PostgresBinaryZip))){
+    throw 'PostgreSQL service command does not match the approved binaries, service and data directory.'
 }
+$null=Get-SafeFile (Join-Path $pgDir 'bin\pg_ctl.exe')
 # A listener should not survive shutdown; reject a port still occupied
 # instead of inferring that the new service is ready for production.
 if (@(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'A porta PostgreSQL ainda está ocupada após o desligamento: revisar identidade do processo.'
 }
+# EDB and ZIP must meet the same fresh-cluster ACL acceptance policy.
+$pgAccount=Get-LocalUser -Name $PostgresServiceAccount -ErrorAction Stop
+$pgServiceSid=[string]$pgAccount.SID.Value
+$pgAdminGroup=Get-LocalGroup -SID 'S-1-5-32-544' -ErrorAction Stop
+if(@(Get-LocalGroupMember -Group $pgAdminGroup.Name -ErrorAction Stop | Where-Object {$_.SID.Value -ceq $pgServiceSid}).Count){throw 'PostgreSQL ACL gate rejected an administrator service identity.'}
+Assert-FreshPostgresDataAcl $pgData $pgServiceSid
+
 # Seal the new-cluster proof in the already protected install-options folder.
 # Never write a proof for existing services or before disabled/stopped SCM
 # identity, PG_VERSION and zero-listener guards have passed.
