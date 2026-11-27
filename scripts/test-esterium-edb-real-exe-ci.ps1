@@ -211,7 +211,7 @@ try {
     if(-not $bindingOk){throw 'EDB vendor command does not match approved fresh service binding.'}
     if(-not $aclOk){
         if($aclReason -notin @('owner','root-inheritance','unexpected-principal','excessive-rights','missing-effective-rights','missing-child-rights')){throw 'EDB ACL inspection failed outside supported normalization experiment.'}
-        Normalize-DisposableEdbAcl $dataDir $serviceSid $id
+        # Apply only after an equivalent loopback baseline has passed.
     }
     # Re-check the stopped state before the live disposable fixture.
     $scm=Get-CimInstance Win32_Service -Filter "Name='$svc'" -ErrorAction Stop
@@ -223,17 +223,61 @@ try {
     if(-not (Test-Path -LiteralPath $autoConfig -PathType Leaf) -or ((Get-Item -LiteralPath $autoConfig -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Expected physical fresh auto configuration missing.'}
     [IO.File]::AppendAllText($autoConfig,[Environment]::NewLine+"listen_addresses = '127.0.0.1'"+[Environment]::NewLine+"port = $port"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
     $readyExe=Join-Path $installDir 'bin\pg_isready.exe'
-    function Start-DisposableEdbAndCheck {
-        Set-Service -Name $svc -StartupType Manual -ErrorAction Stop
-        Start-Service -Name $svc -ErrorAction Stop
-        (Get-Service -Name $svc).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
-        $ready=$false
-        for($attempt=0;$attempt -lt 30;$attempt++){
-            & $readyExe -h 127.0.0.1 -p $port -t 2 -q
-            if($LASTEXITCODE -eq 0){$ready=$true;break}
-            Start-Sleep -Milliseconds 500
+    function Write-DisposableEdbStartDiagnostic([datetime]$Since,[string]$Phase,[int]$ProbeCode) {
+        $record=Get-CimInstance Win32_Service -Filter "Name='$svc'" -ErrorAction SilentlyContinue
+        if($null -ne $record){
+            $state=if($record.State -in @('Running','Stopped','Start Pending','Stop Pending')){$record.State}else{'other'}
+            Write-Output ('EDB start diagnostic phase='+$Phase+' state='+$state+' win32='+[int]$record.ExitCode+' specific='+[int]$record.ServiceSpecificExitCode+' probe='+$ProbeCode)
         }
-        if(-not $ready){throw 'Normalized EDB cluster not ready.'}
+        $listeners=@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
+        Write-Output ('EDB start diagnostic expected-port listeners='+$listeners.Count+' loopback='+@($listeners | Where-Object {$_.LocalAddress -eq '127.0.0.1'}).Count)
+        $messages=[Collections.Generic.List[string]]::new()
+        foreach($event in @(Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=$Since} -ErrorAction SilentlyContinue | Where-Object {$_.ProviderName -match '^(PostgreSQL|pg_ctl|'+[regex]::Escape($svc)+')$'} | Select-Object -First 30)){
+            $messages.Add([string]$event.Message)
+        }
+        foreach($logDir in @((Join-Path $dataDir 'log'),(Join-Path $dataDir 'pg_log'))){
+            if((Test-Path -LiteralPath $logDir -PathType Container) -and -not ((Get-Item -LiteralPath $logDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+                foreach($logFile in @(Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue | Where-Object {$_.LastWriteTime -ge $Since -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)} | Sort-Object LastWriteTime -Descending | Select-Object -First 3)){
+                    foreach($line in @(Get-Content -LiteralPath $logFile.FullName -Tail 80 -ErrorAction SilentlyContinue)){$messages.Add([string]$line)}
+                }
+            }
+        }
+        $categories=[ordered]@{
+            'permission-denied'='(?i)permission denied|access is denied|access denied'
+            'invalid-data-permissions'='(?i)data directory.*(invalid permissions|wrong ownership)'
+            'configuration-error'='(?i)configuration file.*(error|invalid)|syntax error|unrecognized configuration parameter'
+            'bind-error'='(?i)could not bind|could not create.*socket|address already in use'
+            'lock-file-error'='(?i)could not (create|open|write).*lock file'
+            'recovery'='(?i)database system was interrupted|redo starts|recovery is in progress'
+            'ready-message'='(?i)database system is ready to accept connections'
+            'fatal'='(?i)\bFATAL\b|\bPANIC\b'
+        }
+        foreach($category in $categories.Keys){
+            $count=@($messages | Where-Object {$_ -match $categories[$category]}).Count
+            if($count){Write-Output ('EDB diagnostic category='+$category+' count='+$count)}
+        }
+        Write-Output ('EDB diagnostic inspected messages='+$messages.Count)
+    }
+
+    function Start-DisposableEdbAndCheck([string]$Phase) {
+        $since=Get-Date
+        $probeCode=-1
+        try{
+            Set-Service -Name $svc -StartupType Manual -ErrorAction Stop
+            Start-Service -Name $svc -ErrorAction Stop
+            (Get-Service -Name $svc).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
+            $ready=$false
+            for($attempt=0;$attempt -lt 30;$attempt++){
+                & $readyExe -h 127.0.0.1 -p $port -U postgres -d postgres -t 2 -q
+                $probeCode=$LASTEXITCODE
+                if($probeCode -eq 0){$ready=$true;break}
+                Start-Sleep -Milliseconds 500
+            }
+            if(-not $ready){throw 'Disposable EDB cluster not ready.'}
+        }catch{
+            try{Write-DisposableEdbStartDiagnostic $since $Phase $probeCode}catch{Write-Warning 'EDB diagnostic collection incomplete.'}
+            throw
+        }
         $listeners=@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
         if($listeners.Count -lt 1 -or @($listeners | Where-Object {$_.LocalAddress -cne '127.0.0.1'}).Count){throw 'Disposable EDB listener is not restricted to loopback.'}
         foreach($listener in $listeners){
@@ -263,12 +307,17 @@ try {
         $env:PGPASSFILE=$probePassFile
         # This is a loopback-only vendor fixture, not the commercial TLS policy.
         $env:PGSSLMODE='disable'
-        Start-DisposableEdbAndCheck
+        Start-DisposableEdbAndCheck 'before-normalization'
+        if((Invoke-DisposableSql 'SELECT 1') -cne '1'){throw 'EDB baseline SQL failed.'}
+        Stop-DisposableEdbAndCheck
+        Write-Output 'PASS: vendor EDB baseline loopback SQL before ACL normalization.'
+        if(-not $aclOk){Normalize-DisposableEdbAcl $dataDir $serviceSid $id}
+        Start-DisposableEdbAndCheck 'after-normalization'
         if((Invoke-DisposableSql "SHOW listen_addresses") -cne '127.0.0.1'){throw 'SQL reports unexpected listener configuration.'}
         $null=Invoke-DisposableSql "CREATE TABLE ci_acl_durable (id integer PRIMARY KEY, payload text NOT NULL); INSERT INTO ci_acl_durable VALUES (1,'acl-normalized');"
         if((Invoke-DisposableSql "SELECT payload FROM ci_acl_durable WHERE id=1") -cne 'acl-normalized'){throw 'Initial SQL persistence failed.'}
         Stop-DisposableEdbAndCheck
-        Start-DisposableEdbAndCheck
+        Start-DisposableEdbAndCheck 'after-restart'
         if((Invoke-DisposableSql "SELECT payload FROM ci_acl_durable WHERE id=1") -cne 'acl-normalized'){throw 'SQL durability after restart failed.'}
         Stop-DisposableEdbAndCheck
         Assert-FreshPostgresDataAcl $dataDir $serviceSid
