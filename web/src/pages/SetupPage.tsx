@@ -1,3 +1,4 @@
+import { fiscalReadinessLabels } from '../lib/fiscalReadinessLabels'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
@@ -58,18 +59,6 @@ const statusLabels: Record<SetupStatus, string> = {
   review: 'Conferir',
   restricted: 'Sem acesso',
   unknown: 'Não foi possível verificar',
-}
-
-const blockers: Record<string, string> = {
-  issuer_identity: 'Dados fiscais oficiais da loja',
-  issuer_address: 'Endereço da loja',
-  issuer_municipality_code: 'Código IBGE do município',
-  nfce_config: 'Preparação da nota ao consumidor',
-  homologation_environment: 'Ambiente de homologação',
-  certificate_secret_reference: 'Certificado digital A1 vinculado com segurança',
-  active_products: 'Ao menos um produto ativo',
-  product_ncm: 'NCM dos produtos',
-  product_fiscal_profile: 'Classificação tributária dos produtos',
 }
 
 function issuerFields(issuer: Issuer): IssuerFields {
@@ -414,7 +403,7 @@ export default function SetupPage() {
                       <div>
                         <p className="font-medium">Pendências informadas pelo servidor:</p>
                         <ul className="mt-1 list-disc pl-5">
-                          {readiness.blocking_reasons.map((code) => <li key={code}>{blockers[code] ?? 'Existe uma verificação fiscal que precisa de orientação do responsável.'}</li>)}
+                          {fiscalReadinessLabels(readiness.blocking_reasons).map((label) => <li key={label}>{label}</li>)}
                         </ul>
                       </div>
                     ) : <p className="text-amber-800">Não há bloqueios de dados relatados. Isso não confirma homologação nem autorização de emissão.</p>}

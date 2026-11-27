@@ -222,7 +222,7 @@ export default function FinancialOverview() {
               <div className="min-w-0">
                 <p className="font-semibold text-slate-900">{item.description}</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {item.kind==='payable'?'A pagar':'A receber'} • vence {item.due_date} • {item.status==='open'?'Aberta':item.status==='paid'?'Paga':item.status==='received'?'Recebida':item.status}
+                  {item.kind==='payable'?'A pagar':'A receber'} • vence {item.due_date} • {item.status==='open'?'Aberta':item.status==='paid'?'Paga':item.status==='received'?'Recebida':item.status==='cancelled'?'Cancelada':item.status}
                 </p>
               </div>
               <div className="flex shrink-0 items-center justify-between gap-3">
