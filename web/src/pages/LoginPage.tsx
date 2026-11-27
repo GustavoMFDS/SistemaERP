@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { APIError, apiJson } from '../lib/api'
+import { APIError, apiJson, runAuthTransition } from '../lib/api'
 import { setToken } from '../lib/auth'
 import PasswordField from '../components/PasswordField'
 import { resetFiscalReminderForLogin } from '../lib/fiscalReminderSession'
@@ -31,12 +31,14 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      const data = await apiJson<LoginResponse>('/api/v1/auth/login', {
-        method: 'POST',
-        body: { email: email.trim(), password },
+      await runAuthTransition(async () => {
+        const data = await apiJson<LoginResponse>('/api/v1/auth/login', {
+          method: 'POST',
+          body: { email: email.trim(), password },
+        })
+        setToken(data.token.access_token)
+        resetFiscalReminderForLogin()
       })
-      setToken(data.token.access_token)
-      resetFiscalReminderForLogin()
       navigate('/home', { replace: true })
     } catch (e: unknown) {
       if (e instanceof APIError && e.status === 429) {

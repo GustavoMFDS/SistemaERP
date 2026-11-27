@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { apiJson } from '../lib/api'
+import { apiJson, runAuthTransition } from '../lib/api'
 import { clearCashSessionId, clearScopedStorage, clearToken } from '../lib/auth'
 import { getLegacyQueueCount, getQueueCount } from '../lib/offlineQueue'
 import { useInstallApp } from '../lib/installApp'
@@ -93,13 +93,13 @@ export default function Layout() {
       // The refresh token is HttpOnly, so the browser cannot safely complete
       // logout locally. Only clear local state after the server confirms the
       // revocation and sends the cookie expiration response.
-      await apiJson('/api/v1/auth/logout', { method: 'POST' })
-
-      // Clear scoped state while the current access token still identifies
-      // the tenant/user namespace.
-      clearCashSessionId()
-      clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
-      clearToken()
+      await runAuthTransition(async () => {
+        await apiJson('/api/v1/auth/logout', { method: 'POST' })
+        // Clear scoped state while the current token still identifies its owner.
+        clearCashSessionId()
+        clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
+        clearToken()
+      })
       navigate('/login', { replace: true })
     } catch {
       setLogoutError('Não foi possível confirmar a saída com segurança. Confira sua conexão e tente novamente.')

@@ -1,6 +1,15 @@
 import { clearToken, getToken, hasUsableAccessToken, setToken, tokenScope } from './auth'
 
 let refreshPromise: Promise<boolean> | null = null
+let authTransitionTail: Promise<void> = Promise.resolve()
+
+// Login, logout and refresh all mutate the HttpOnly cookie. In this tab,
+// complete each network response and local state change before the next one.
+export function runAuthTransition<T>(work: () => Promise<T>): Promise<T> {
+  const result = authTransitionTail.then(work)
+  authTransitionTail = result.then(() => undefined, () => undefined)
+  return result
+}
 
 export class APIError extends Error {
   status: number
@@ -94,7 +103,8 @@ async function apiJsonInternal<T>(
 export function refreshAccessToken(): Promise<boolean> {
   if (refreshPromise) return refreshPromise
 
-  refreshPromise = performRefresh().finally(() => {
+  const original = getToken()
+  refreshPromise = runAuthTransition(() => getToken() === original ? performRefresh() : Promise.resolve(false)).finally(() => {
     refreshPromise = null
   })
   return refreshPromise
