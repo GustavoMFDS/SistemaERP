@@ -101,6 +101,14 @@ test('estoque inicial apresenta erro sem baixar arquivo ao exceder limite do rel
 
 test('caixa não pode exportar CSV de nenhum módulo', async ({ page }) => {
   await login(page, 'caixa@sistema.local')
+  // A URL change alone does not prove that the in-memory access token was
+  // restored after the full page navigation. Wait for the protected shell.
+  await expect(page.getByRole('navigation', { name: /principal/ })).toBeVisible()
+  const identity = await page.evaluate(async () => {
+    const { apiJson } = await import('/src/lib/api.ts')
+    return apiJson<{ roles: string[] }>('/api/v1/auth/me')
+  })
+  expect(identity.roles).toContain('cashier')
   const statuses = await page.evaluate(async () => {
     const { apiJson, APIError } = await import('/src/lib/api.ts')
     const check = async (path: string) => {

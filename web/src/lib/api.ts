@@ -1,7 +1,53 @@
-import { clearToken, getToken, setToken } from './auth'
+import { clearToken, getToken, hasUsableAccessToken, setToken, tokenScope } from './auth'
 
 let refreshPromise: Promise<boolean> | null = null
+let authTransitionTail: Promise<void> = Promise.resolve()
 
+// A marker carries no credentials or identity. Other tabs must discard
+// access state when an explicit login/logout changes the shared session.
+const SESSION_CHANGE_KEY = 'esterium:auth-session-change:v1'
+const AUTH_LOCK = 'esterium:auth-cookie-transition:v1'
+function readSessionChange(): string {
+  try { return localStorage.getItem(SESSION_CHANGE_KEY) ?? '' } catch { return '' }
+}
+let observedSessionChange = readSessionChange()
+function syncSessionChange(): void {
+  const current = readSessionChange()
+  if (current !== observedSessionChange) {
+    observedSessionChange = current
+    clearToken()
+  }
+}
+window.addEventListener('storage', (event) => {
+  if (event.key === SESSION_CHANGE_KEY || event.key === null) syncSessionChange()
+})
+function publishSessionChange(): void {
+  const marker = Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-')
+  try {
+    localStorage.setItem(SESSION_CHANGE_KEY, marker)
+    observedSessionChange = marker
+  } catch { /* Storage unavailable: same-tab protection still applies. */ }
+}
+
+// Serialize cookie writes in this tab and, where Web Locks is available,
+// across tabs of the same origin. Do not share bearer tokens via storage.
+export function runAuthTransition<T>(work: () => Promise<T>, kind: 'refresh' | 'login' | 'logout' = 'refresh'): Promise<T> {
+  const expected = observedSessionChange
+  const execute = async () => {
+    syncSessionChange()
+    if (kind !== 'login' && expected !== observedSessionChange) {
+      throw new Error('Session changed in another tab')
+    }
+    const value = await work()
+    if (kind !== 'refresh') publishSessionChange()
+    return value
+  }
+  const result = authTransitionTail.then(() => navigator.locks
+    ? navigator.locks.request(AUTH_LOCK, execute)
+    : execute())
+  authTransitionTail = result.then(() => undefined, () => undefined)
+  return result
+}
 export class APIError extends Error {
   status: number
   bodyText?: string
@@ -67,7 +113,7 @@ async function apiJsonInternal<T>(
 
   if (!res.ok) {
     if (res.status === 401 && allowRefresh && !path.includes('/api/v1/auth/')) {
-      const refreshed = await refreshAccessToken()
+      const refreshed = await refreshForRetry(token)
       if (refreshed) return apiJsonInternal<T>(path, init, false)
     }
     const text = await res.text().catch(() => '')
@@ -94,23 +140,40 @@ async function apiJsonInternal<T>(
 export function refreshAccessToken(): Promise<boolean> {
   if (refreshPromise) return refreshPromise
 
-  refreshPromise = performRefresh().finally(() => {
+  const original = getToken()
+  refreshPromise = runAuthTransition(() => getToken() === original ? performRefresh() : Promise.resolve(false)).catch(() => false).finally(() => {
     refreshPromise = null
   })
   return refreshPromise
 }
 
+async function refreshForRetry(original: string): Promise<boolean> {
+  const scope = tokenScope(original)
+  if (!scope || tokenScope(getToken()) !== scope) return false
+  if (getToken() !== original && hasUsableAccessToken()) return true
+  return (await refreshAccessToken()) && hasUsableAccessToken() && tokenScope(getToken()) === scope
+}
+
 async function performRefresh(): Promise<boolean> {
+  const original = getToken()
+  const scope = tokenScope(original)
   try {
     const token = await apiJsonInternal<{ access_token: string }>(
       '/api/v1/auth/refresh',
       { method: 'POST' },
       false,
     )
+    // A late response must not overwrite a newer login or logout.
+    if (getToken() !== original) return false
+    if (!hasUsableAccessToken(Date.now(), token.access_token) ||
+        (original && (!scope || tokenScope(token.access_token) !== scope))) {
+      clearToken()
+      return false
+    }
     setToken(token.access_token)
     return true
   } catch {
-    clearToken()
+    if (getToken() === original) clearToken()
     return false
   }
 }
@@ -136,7 +199,7 @@ async function apiDownloadInternal(
   const res = await fetch(buildUrl(path), { headers, credentials: 'include' })
   if (!res.ok) {
     if (res.status === 401 && allowRefresh) {
-      const refreshed = await refreshAccessToken()
+      const refreshed = await refreshForRetry(token)
       if (refreshed) return apiDownloadInternal(path, fileName, mime, false)
     }
     const text = await res.text().catch(() => '')
@@ -189,7 +252,7 @@ async function apiOpenPrintableInternal(
   const res = await fetch(buildUrl(path), { headers, credentials: 'include' })
   if (!res.ok) {
     if (res.status === 401 && allowRefresh) {
-      const refreshed = await refreshAccessToken()
+      const refreshed = await refreshForRetry(token)
       if (refreshed) return apiOpenPrintableInternal(path, popup, false, autoPrint)
     }
     const text = await res.text().catch(() => '')

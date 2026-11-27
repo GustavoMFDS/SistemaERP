@@ -1,3 +1,4 @@
+import { fiscalReadinessLabels } from '../lib/fiscalReadinessLabels'
 import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { APIError, apiDownload, apiJson, apiOpenPrintable } from '../lib/api'
@@ -139,28 +140,6 @@ type NFCeConfig = {
   csc_id?: string | null
   csc_reference_configured: boolean
   certificate_reference_configured: boolean
-}
-
-const blockerLabels: Record<string, string> = {
-  issuer_identity: 'Identidade fiscal do emitente incompleta',
-  issuer_legal_name_missing: 'Razão social ausente no cadastro da empresa',
-  issuer_cnpj_invalid: 'CNPJ não passou na validação local dos dígitos verificadores',
-  issuer_ie_missing: 'Inscrição estadual não informada',
-  issuer_crt_invalid: 'CRT ainda não informado ou código não reconhecido: confirme com o contador',
-  issuer_address: 'Endereço do emitente incompleto',
-  issuer_street_missing: 'Rua ou avenida não informada',
-  issuer_number_missing: 'Número do endereço não informado',
-  issuer_neighborhood_missing: 'Bairro não informado',
-  issuer_city_missing: 'Nome do município não informado',
-  issuer_zip_invalid: 'CEP deve ter exatamente 8 dígitos numéricos',
-  issuer_municipality_code: 'Código IBGE do município ausente/inválido',
-  issuer_uf_unsupported: 'A integração atual da NFC-e só aceita emitente de MG',
-  issuer_municipality_uf_mismatch: 'O município do emitente precisa usar código IBGE de MG (31xxxxx)',
-  nfce_config: 'Configuração NFC-e ainda não preparada',
-  homologation_environment: 'Ambiente deve estar em homologação nesta etapa',
-  certificate_secret_reference: 'Referência do certificado ausente',
-  active_products: 'Nenhum produto ativo para validar',
-  product_ncm: 'Há produtos ativos sem NCM',
 }
 
 export default function FiscalPage() {
@@ -522,19 +501,7 @@ export default function FiscalPage() {
             <div className="mt-3">
               <p className="text-xs font-semibold text-amber-800">Campos que precisam de atenção</p>
               <ul className="mt-1 list-disc pl-5 text-xs text-amber-800">
-                {(readiness.blocking_reasons ?? [])
-                  .filter((reason) => !(
-                    (reason === 'issuer_identity' &&
-                      readiness.blocking_reasons.some((item) =>
-                        ['issuer_legal_name_missing', 'issuer_cnpj_invalid',
-                          'issuer_ie_missing', 'issuer_crt_invalid'].includes(item))) ||
-                    (reason === 'issuer_address' &&
-                      readiness.blocking_reasons.some((item) =>
-                        ['issuer_street_missing', 'issuer_number_missing',
-                          'issuer_neighborhood_missing', 'issuer_city_missing',
-                          'issuer_zip_invalid'].includes(item)))
-                  ))
-                  .map((reason) => <li key={reason}>{blockerLabels[reason] ?? 'Há uma verificação que precisa da ajuda do responsável.'}</li>)}
+                {fiscalReadinessLabels(readiness.blocking_reasons ?? []).map((label) => <li key={label}>{label}</li>)}
               </ul>
               <p className="mt-2 text-xs text-slate-600">
                 Conferência de formato e preenchimento, sem consulta ao cadastro estadual,

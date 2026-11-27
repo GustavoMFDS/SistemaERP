@@ -1,23 +1,26 @@
 import { expect, test } from '@playwright/test'
 
 test('concurrent 401 responses share one refresh request', async ({ page }) => {
+  const fixtureToken = (jti: string) => 'fixture.' + Buffer.from(JSON.stringify({ sub: 'user-1', tenant_id: 'tenant-1', exp: Math.floor(Date.now() / 1000) + 900, jti })).toString('base64url') + '.fixture'
   let challengeMode = false
   let refreshed = false
   let refreshCalls = 0
   let successfulRetries = 0
 
-  await page.route('http://127.0.0.1:8080/api/v1/auth/login', async (route) => {
+  await page.route('**/api/v1/**', (route) => route.fulfill({ json: { items: [], total: 0 } }))
+
+  await page.route('**/api/v1/auth/login', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        token: { access_token: 'initial-access-token', token_type: 'Bearer', expires_in: 900 },
+        token: { access_token: fixtureToken('initial'), token_type: 'Bearer', expires_in: 900 },
         user: { id: 'user-1', email: 'admin@sistema.local', name: 'Admin', roles: ['admin'] },
       }),
     })
   })
 
-  await page.route('http://127.0.0.1:8080/api/v1/auth/me', async (route) => {
+  await page.route('**/api/v1/auth/me', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -25,18 +28,18 @@ test('concurrent 401 responses share one refresh request', async ({ page }) => {
     })
   })
 
-  await page.route('http://127.0.0.1:8080/api/v1/auth/refresh', async (route) => {
+  await page.route('**/api/v1/auth/refresh', async (route) => {
     refreshCalls += 1
     await new Promise((resolve) => setTimeout(resolve, 200))
     refreshed = true
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ access_token: 'fresh-access-token', token_type: 'Bearer', expires_in: 900 }),
+      body: JSON.stringify({ access_token: fixtureToken('renewed'), token_type: 'Bearer', expires_in: 900 }),
     })
   })
 
-  await page.route(/http:\/\/127\.0\.0\.1:8080\/api\/v1\/products.*/, async (route) => {
+  await page.route('**/api/v1/products*', async (route) => {
     const url = new URL(route.request().url())
     const isProbe = url.searchParams.has('probe')
 

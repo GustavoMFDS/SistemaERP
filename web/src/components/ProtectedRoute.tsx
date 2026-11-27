@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { refreshAccessToken } from '../lib/api'
 import { getToken, hasUsableAccessToken, subscribeToken } from '../lib/auth'
 import { APP_BRAND_NAME } from '../lib/brand'
 
 export default function ProtectedRoute() {
+  const location = useLocation()
   const [checking, setChecking] = useState(!hasUsableAccessToken())
   const [token, setTokenState] = useState(hasUsableAccessToken() ? getToken() : '')
 
@@ -27,7 +28,7 @@ export default function ProtectedRoute() {
     refreshAccessToken()
       .then((ok) => {
         if (!active) return
-        setTokenState(ok ? getToken() : '')
+        setTokenState(ok && hasUsableAccessToken() ? getToken() : '')
       })
       .finally(() => {
         if (active) setChecking(false)
@@ -36,9 +37,10 @@ export default function ProtectedRoute() {
     return () => {
       active = false
     }
-  }, [])
+  }, [location.key])
 
-  if (checking) {
+  // Check expiry before mounting the next scoped route.
+  if (checking || (token && !hasUsableAccessToken())) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
         <div role="status" aria-live="polite" className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
