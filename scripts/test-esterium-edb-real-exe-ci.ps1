@@ -27,6 +27,7 @@ $id=[Guid]::NewGuid().ToString('N').Substring(0,10)
 $root=Join-Path $env:RUNNER_TEMP ('esterium-edb-exe-'+$id)
 $installer=Join-Path $root ('postgresql-'+$release+'-windows-x64.exe')
 $options=Join-Path $root 'edb-install.options'
+$probePassFile=Join-Path $root 'pgpass-ci.txt'
 $installDir=Join-Path $env:ProgramFiles ('EsteriumPgEdbCITest-'+$id)
 $dataDir=Join-Path $env:ProgramData ('Esterium\EdbCITest-'+$id)
 $svc='EstEDB'+$id
@@ -136,6 +137,10 @@ try {
         'create_shortcuts=0'
     )
     [IO.File]::WriteAllLines($options,$lines,[Text.UTF8Encoding]::new($false))
+    # Restrict the synthetic probe passfile before use; never put it on CLI.
+    [IO.File]::WriteAllText($probePassFile,('127.0.0.1:'+ $port +':postgres:postgres:'+ $pgSecret +[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+    & icacls.exe $probePassFile '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Disposable probe passfile ACL failed.'}
     $pgSecret=$null
     $svcSecret=$null
     [Array]::Clear($lines,0,$lines.Length)
@@ -208,9 +213,69 @@ try {
         if($aclReason -notin @('owner','root-inheritance','unexpected-principal','excessive-rights','missing-effective-rights','missing-child-rights')){throw 'EDB ACL inspection failed outside supported normalization experiment.'}
         Normalize-DisposableEdbAcl $dataDir $serviceSid $id
     }
-    # Re-check the stopped state; no service start in this fixture.
+    # Re-check the stopped state before the live disposable fixture.
     $scm=Get-CimInstance Win32_Service -Filter "Name='$svc'" -ErrorAction Stop
     if($scm.State -ne 'Stopped' -or $scm.StartMode -ne 'Disabled' -or [int]$scm.ProcessId -ne 0){throw 'EDB fixture service changed during ACL experiment.'}
+
+    # Live proof on this newly created, disposable cluster only. Restrict
+    # listeners before enabling the service; do not change firewall/trust.
+    $autoConfig=Join-Path $dataDir 'postgresql.auto.conf'
+    if(-not (Test-Path -LiteralPath $autoConfig -PathType Leaf) -or ((Get-Item -LiteralPath $autoConfig -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Expected physical fresh auto configuration missing.'}
+    [IO.File]::AppendAllText($autoConfig,[Environment]::NewLine+"listen_addresses = '127.0.0.1'"+[Environment]::NewLine+"port = $port"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+    $readyExe=Join-Path $installDir 'bin\pg_isready.exe'
+    function Start-DisposableEdbAndCheck {
+        Set-Service -Name $svc -StartupType Manual -ErrorAction Stop
+        Start-Service -Name $svc -ErrorAction Stop
+        (Get-Service -Name $svc).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,[TimeSpan]::FromSeconds(60))
+        $ready=$false
+        for($attempt=0;$attempt -lt 30;$attempt++){
+            & $readyExe -h 127.0.0.1 -p $port -t 2 -q
+            if($LASTEXITCODE -eq 0){$ready=$true;break}
+            Start-Sleep -Milliseconds 500
+        }
+        if(-not $ready){throw 'Normalized EDB cluster not ready.'}
+        $listeners=@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
+        if($listeners.Count -lt 1 -or @($listeners | Where-Object {$_.LocalAddress -cne '127.0.0.1'}).Count){throw 'Disposable EDB listener is not restricted to loopback.'}
+        foreach($listener in $listeners){
+            $worker=Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction Stop
+            if($null -eq $worker -or [string]$worker.ExecutablePath -ine $pg){throw 'Unexpected EDB listener process.'}
+            $owner=Invoke-CimMethod -InputObject $worker -MethodName GetOwnerSid -ErrorAction Stop
+            if($owner.ReturnValue -ne 0 -or [string]$owner.Sid -cne $serviceSid){throw 'EDB listener does not run under expected dedicated service SID.'}
+        }
+    }
+    function Stop-DisposableEdbAndCheck {
+        Set-Service -Name $svc -StartupType Disabled -ErrorAction Stop
+        Stop-Service -Name $svc -ErrorAction Stop
+        (Get-Service -Name $svc).WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(60))
+        if(@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count){throw 'Disposable EDB still listening after stop.'}
+    }
+    function Invoke-DisposableSql([string]$Sql) {
+        $result=@(& $psql -X -q -t -A -w -h 127.0.0.1 -p $port -U postgres -d postgres -v ON_ERROR_STOP=1 -c $Sql)
+        if($LASTEXITCODE -ne 0){throw 'Disposable normalized EDB SQL failed.'}
+        return ($result -join '').Trim()
+    }
+    $oldPgEnv=@{}
+    foreach($key in @('PGPASSFILE','PGPASSWORD','PGSSLMODE','PGSERVICE','PGSERVICEFILE','PGHOSTADDR','PGOPTIONS')){
+        $oldPgEnv[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+        [Environment]::SetEnvironmentVariable($key,$null,'Process')
+    }
+    try {
+        $env:PGPASSFILE=$probePassFile
+        # This is a loopback-only vendor fixture, not the commercial TLS policy.
+        $env:PGSSLMODE='disable'
+        Start-DisposableEdbAndCheck
+        if((Invoke-DisposableSql "SHOW listen_addresses") -cne '127.0.0.1'){throw 'SQL reports unexpected listener configuration.'}
+        $null=Invoke-DisposableSql "CREATE TABLE ci_acl_durable (id integer PRIMARY KEY, payload text NOT NULL); INSERT INTO ci_acl_durable VALUES (1,'acl-normalized');"
+        if((Invoke-DisposableSql "SELECT payload FROM ci_acl_durable WHERE id=1") -cne 'acl-normalized'){throw 'Initial SQL persistence failed.'}
+        Stop-DisposableEdbAndCheck
+        Start-DisposableEdbAndCheck
+        if((Invoke-DisposableSql "SELECT payload FROM ci_acl_durable WHERE id=1") -cne 'acl-normalized'){throw 'SQL durability after restart failed.'}
+        Stop-DisposableEdbAndCheck
+        Assert-FreshPostgresDataAcl $dataDir $serviceSid
+        Write-Output 'PASS: normalized real EDB service ran under dedicated SID; committed SQL survived restart and recursive ACL recheck.'
+    } finally {
+        foreach($key in $oldPgEnv.Keys){[Environment]::SetEnvironmentVariable($key,$oldPgEnv[$key],'Process')}
+    }
 
     $installed=$true
     Write-Output 'PASS: EDB EXE unattended install, PostgreSQL 16 cluster, dedicated Windows service/account, stopped/disabled SCM and closed port.'
@@ -233,6 +298,7 @@ try {
             if ($installed) { throw 'EDB smoke could not leave its service stopped.' }
         }
     }
+    if (Test-Path -LiteralPath $probePassFile -PathType Leaf) { Remove-Item -LiteralPath $probePassFile -Force -ErrorAction Stop }
     if (Test-Path -LiteralPath $options -PathType Leaf) {
         Remove-Item -LiteralPath $options -Force -ErrorAction Stop
     }
