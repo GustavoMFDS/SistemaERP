@@ -252,6 +252,22 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $parent = Split-Path -Parent $installPath
 $staging = Join-Path $parent ('.esterium-stage-' + [Guid]::NewGuid().ToString('N'))
+# Provision only a fixed Application event source, with the Windows built-in
+# message resource. Never adopt a source registered to another log or resource.
+$startupEventSource='EsteriumERPStartup'
+$startupEventResource=Join-Path $env:SystemRoot 'System32\EventCreate.exe'
+$startupEventKey='HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\'+$startupEventSource
+function Assert-StartupEventSource {
+    if(-not [Diagnostics.EventLog]::SourceExists($startupEventSource)){throw 'Startup diagnostic event source is missing.'}
+    if([Diagnostics.EventLog]::LogNameFromSourceName($startupEventSource,'.') -ne 'Application'){throw 'Startup diagnostic event source belongs to a different log.'}
+    $properties=Get-ItemProperty -LiteralPath $startupEventKey -ErrorAction Stop
+    $resource=[Environment]::ExpandEnvironmentVariables([string]$properties.EventMessageFile)
+    if(-not [string]::Equals($resource,$startupEventResource,[StringComparison]::OrdinalIgnoreCase) -or (([int]$properties.TypesSupported -band 1) -eq 0)){
+        throw 'Startup diagnostic event source has an unexpected resource or type.'
+    }
+}
+
+$createdStartupEventSource = $false
 $createdService = $false
 $registrationComplete = $false
 try {
@@ -327,6 +343,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Could not configure ERP service recovery: $failureResult" }
     $failureFlagResult = & $sc failureflag $serviceName '1' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Could not enable ERP nonzero-exit recovery: $failureFlagResult" }
+    if(-not (Test-Path -LiteralPath $startupEventResource -PathType Leaf)){throw 'Windows event message resource is missing.'}
+    if(-not [Diagnostics.EventLog]::SourceExists($startupEventSource)){
+        New-EventLog -LogName Application -Source $startupEventSource -MessageResourceFile $startupEventResource -ErrorAction Stop
+        $createdStartupEventSource=$true
+        New-ItemProperty -LiteralPath $startupEventKey -Name TypesSupported -PropertyType DWord -Value 7 -Force -ErrorAction Stop | Out-Null
+    }
+    Assert-StartupEventSource
     $registrationComplete = $true
     Write-Output 'PASS: service registered with only secret file paths (not credential values).'
     Write-Output 'Service start remains manual until database/migrations, ACL and backup restoration are tested.'
@@ -343,6 +366,14 @@ finally {
             Write-Warning 'Partial service registration rolled back; program files preserved for inspection.'
         }
         $global:LASTEXITCODE = 0
+    }
+    if ($createdStartupEventSource -and -not $registrationComplete) {
+        try {
+            Assert-StartupEventSource
+            Remove-EventLog -Source $startupEventSource -ErrorAction Stop
+        } catch {
+            Write-Warning 'Startup diagnostic source rollback requires manual inspection.'
+        }
     }
     if (Test-Path -LiteralPath $staging) {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue

@@ -32,6 +32,13 @@ func AllowRateLimit(ctx context.Context, rdb *redis.Client, name, key string, li
 	allowed, err := allowRequest(ctx, rdb, sharedFallbackLimiter, name, key, limit, window)
 	if err != nil {
 		if failClosed {
+			// Preserve only fixed context sentinels, never backend error text.
+			if errors.Is(err, context.DeadlineExceeded) {
+				return false, fmt.Errorf("%w: %w", ErrRateLimitUnavailable, context.DeadlineExceeded)
+			}
+			if errors.Is(err, context.Canceled) {
+				return false, fmt.Errorf("%w: %w", ErrRateLimitUnavailable, context.Canceled)
+			}
 			return false, ErrRateLimitUnavailable
 		}
 		return sharedFallbackLimiter.allow(name+":"+key, limit, window), nil
