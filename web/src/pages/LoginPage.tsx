@@ -38,7 +38,7 @@ export default function LoginPage() {
         })
         setToken(data.token.access_token)
         resetFiscalReminderForLogin()
-      })
+      }, 'login')
       navigate('/home', { replace: true })
     } catch (e: unknown) {
       if (e instanceof APIError && e.status === 429) {

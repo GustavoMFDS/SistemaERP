@@ -99,7 +99,7 @@ export default function Layout() {
         clearCashSessionId()
         clearScopedStorage(PRODUCTS_CACHE_NAMESPACE)
         clearToken()
-      })
+      }, 'logout')
       navigate('/login', { replace: true })
     } catch {
       setLogoutError('Não foi possível confirmar a saída com segurança. Confira sua conexão e tente novamente.')

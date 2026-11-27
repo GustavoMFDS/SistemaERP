@@ -3,14 +3,51 @@ import { clearToken, getToken, hasUsableAccessToken, setToken, tokenScope } from
 let refreshPromise: Promise<boolean> | null = null
 let authTransitionTail: Promise<void> = Promise.resolve()
 
-// Login, logout and refresh all mutate the HttpOnly cookie. In this tab,
-// complete each network response and local state change before the next one.
-export function runAuthTransition<T>(work: () => Promise<T>): Promise<T> {
-  const result = authTransitionTail.then(work)
+// A marker carries no credentials or identity. Other tabs must discard
+// access state when an explicit login/logout changes the shared session.
+const SESSION_CHANGE_KEY = 'esterium:auth-session-change:v1'
+const AUTH_LOCK = 'esterium:auth-cookie-transition:v1'
+function readSessionChange(): string {
+  try { return localStorage.getItem(SESSION_CHANGE_KEY) ?? '' } catch { return '' }
+}
+let observedSessionChange = readSessionChange()
+function syncSessionChange(): void {
+  const current = readSessionChange()
+  if (current !== observedSessionChange) {
+    observedSessionChange = current
+    clearToken()
+  }
+}
+window.addEventListener('storage', (event) => {
+  if (event.key === SESSION_CHANGE_KEY || event.key === null) syncSessionChange()
+})
+function publishSessionChange(): void {
+  const marker = Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-')
+  try {
+    localStorage.setItem(SESSION_CHANGE_KEY, marker)
+    observedSessionChange = marker
+  } catch { /* Storage unavailable: same-tab protection still applies. */ }
+}
+
+// Serialize cookie writes in this tab and, where Web Locks is available,
+// across tabs of the same origin. Do not share bearer tokens via storage.
+export function runAuthTransition<T>(work: () => Promise<T>, kind: 'refresh' | 'login' | 'logout' = 'refresh'): Promise<T> {
+  const expected = observedSessionChange
+  const execute = async () => {
+    syncSessionChange()
+    if (kind !== 'login' && expected !== observedSessionChange) {
+      throw new Error('Session changed in another tab')
+    }
+    const value = await work()
+    if (kind !== 'refresh') publishSessionChange()
+    return value
+  }
+  const result = authTransitionTail.then(() => navigator.locks
+    ? navigator.locks.request(AUTH_LOCK, execute)
+    : execute())
   authTransitionTail = result.then(() => undefined, () => undefined)
   return result
 }
-
 export class APIError extends Error {
   status: number
   bodyText?: string
@@ -104,7 +141,7 @@ export function refreshAccessToken(): Promise<boolean> {
   if (refreshPromise) return refreshPromise
 
   const original = getToken()
-  refreshPromise = runAuthTransition(() => getToken() === original ? performRefresh() : Promise.resolve(false)).finally(() => {
+  refreshPromise = runAuthTransition(() => getToken() === original ? performRefresh() : Promise.resolve(false)).catch(() => false).finally(() => {
     refreshPromise = null
   })
   return refreshPromise
