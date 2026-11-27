@@ -13,12 +13,12 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     {
       name: 'firefox',
-      testMatch: /cross-browser-smoke\.spec\.ts/,
+      testMatch: /(?:cross-browser-smoke|g4-auth-tabs|g4-auth-real-tabs)\.spec\.ts/,
       use: { ...devices['Desktop Firefox'] },
     },
     {
       name: 'webkit',
-      testMatch: /cross-browser-smoke\.spec\.ts/,
+      testMatch: /(?:cross-browser-smoke|g4-auth-tabs|g4-auth-real-tabs)\.spec\.ts/,
       use: { ...devices['Desktop Safari'] },
     },
   ],
