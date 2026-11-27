@@ -513,7 +513,32 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
         $env:E2E_IGNORE_HTTPS_ERRORS = '0'
         $env:ESTERIUM_LAB_EVIDENCE_DIR = $evidence
         & npx.cmd playwright test --config playwright.installed-lab.config.ts
-        if ($LASTEXITCODE -ne 0) { throw 'Installed-service Playwright acceptance failed.' }
+        $browserExit=$LASTEXITCODE
+        # Collect only bounded rate-limit metrics from this hosted fixture,
+        # over normal trusted HTTPS. Never print the token, headers, raw
+        # response, exception details or any other metric.
+        try {
+            $metricsPath=Join-Path $env:ProgramData 'Esterium\Secrets\metrics.secret'
+            $metricsToken=[IO.File]::ReadAllText($metricsPath).Trim()
+            $handler=[Net.Http.HttpClientHandler]::new()
+            $handler.AllowAutoRedirect=$false
+            $client=[Net.Http.HttpClient]::new($handler)
+            try {
+                $client.Timeout=[TimeSpan]::FromSeconds(8)
+                $client.DefaultRequestHeaders.Authorization=[Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$metricsToken)
+                $response=$client.GetAsync($origin.TrimEnd('/')+'/metrics').GetAwaiter().GetResult()
+                try {
+                    if([int]$response.StatusCode -ne 200){throw 'Metrics request not successful.'}
+                    $body=$response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                    $safePattern='^sistemaemgo_security_rate_limit_backend_failures_total\{policy="(?:auth_login|auth_login_identifier|auth_login_ip_identifier|auth_refresh|auth_logout|sales_create|product_import|fiscal|startup_contract|other)",reason="(?:deadline|canceled|unavailable|backend-error)"\} [0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$'
+                    $lines=@($body -split '\r?\n' | Where-Object {$_ -cmatch $safePattern})
+                    if($lines.Count){
+                        $lines | ForEach-Object { Write-Output ('RATE-LIMIT-DIAGNOSTIC: '+$_) }
+                    }else{Write-Output 'RATE-LIMIT-DIAGNOSTIC: no matching counter samples.'}
+                }finally{$response.Dispose()}
+            }finally{$client.Dispose();$metricsToken=$null}
+        }catch{Write-Warning 'Rate-limit metrics diagnostic unavailable; browser result unchanged.'}
+        if ($browserExit -ne 0) { throw 'Installed-service Playwright acceptance failed.' }
     }
     finally {
         Remove-Item Env:E2E_BASE_URL -ErrorAction SilentlyContinue
