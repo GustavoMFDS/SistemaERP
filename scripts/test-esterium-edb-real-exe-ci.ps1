@@ -43,6 +43,60 @@ if ((Get-Service -Name $svc -ErrorAction SilentlyContinue) -or
     @(Get-CimInstance Win32_UserAccount -Filter "Name='$svcAccount' AND LocalAccount=TRUE").Count -gt 0) {
     throw 'Disposable EDB identity/path already exists; never reuse.'
 }
+# This experiment is NOT an installer or repair entrypoint.
+# It can run only within the vendor EXE's freshly created hosted CI fixture.
+function Normalize-DisposableEdbAcl([string]$DataDir,[string]$ServiceSid,[string]$FixtureId) {
+    if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:ESTERIUM_EDB_REAL_DISPOSABLE_CI -ne '1'){
+        throw 'EDB normalization experiment requires hosted disposable CI.'
+    }
+    if($FixtureId -cnotmatch '^[a-f0-9]{10}$' -or $ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){throw 'Invalid fixture identity.'}
+    $expected=Join-Path $env:ProgramData ('Esterium\EdbCITest-'+$FixtureId)
+    if([IO.Path]::GetFullPath($DataDir) -cne $expected){throw 'Unexpected fixture data path.'}
+    $service=Get-CimInstance Win32_Service -Filter "Name='EstEDB$FixtureId'" -ErrorAction Stop
+    if($null -eq $service -or $service.State -cne 'Stopped' -or $service.StartMode -cne 'Disabled' -or [int]$service.ProcessId -ne 0){throw 'Fixture service must remain stopped and disabled.'}
+    $expectedSid=[string](Get-LocalUser -Name ('estpg'+$FixtureId) -ErrorAction Stop).SID.Value
+    if($expectedSid -cne $ServiceSid){throw 'Fixture service SID mismatch.'}
+    $cursor=$expected
+    while($cursor){
+        $entry=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if(-not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Fixture ancestor must be physical.'}
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    # This is a private, single-purpose runner. Reject links before any writes.
+    # fsutil reports one name per hard link for ordinary files. A query failure
+    # is an error, not permission to proceed.
+    $pending=[Collections.Generic.Stack[string]]::new()
+    $pending.Push($expected)
+    $objects=[Collections.Generic.List[object]]::new()
+    while($pending.Count){
+        $path=$pending.Pop()
+        $entry=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if($entry.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Fixture reparse point rejected.'}
+        if(-not $entry.PSIsContainer){
+            $links=@(& (Join-Path $env:SystemRoot 'System32\fsutil.exe') hardlink list $path 2>&1)
+            if($LASTEXITCODE -ne 0 -or $links.Count -ne 1){throw 'Fixture file link count could not be established as one.'}
+        }
+        $objects.Add([pscustomobject]@{Path=$path;Directory=[bool]$entry.PSIsContainer})
+        if($entry.PSIsContainer){foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}}
+    }
+    # Parent first, exact protected DACL and approved owner on every object.
+    # No recovery of an existing cluster is authorized by this experiment.
+    foreach($object in $objects){
+        $entry=Get-Item -LiteralPath $object.Path -Force -ErrorAction Stop
+        if([bool]$entry.PSIsContainer -ne $object.Directory -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Fixture object changed before normalization.'}
+        $raw=New-FreshPostgresDataDescriptor $ServiceSid $object.Directory
+        $bytes=New-Object byte[] $raw.BinaryLength
+        $raw.GetBinaryForm($bytes,0)
+        $acl=Get-Acl -LiteralPath $object.Path -ErrorAction Stop
+        $acl.SetSecurityDescriptorBinaryForm($bytes,([Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access))
+        Set-Acl -LiteralPath $object.Path -AclObject $acl -ErrorAction Stop
+    }
+    Assert-FreshPostgresDataAcl $expected $ServiceSid
+    Write-Output ('PASS: disposable EDB cluster normalized and validated objects='+$objects.Count)
+}
+
 $installed=$false
 try {
     [IO.Directory]::CreateDirectory($root) | Out-Null
@@ -129,7 +183,7 @@ try {
     $aclTokens=$null;$aclErrors=$null
     $aclAst=[Management.Automation.Language.Parser]::ParseFile($candidateInstaller,[ref]$aclTokens,[ref]$aclErrors)
     if($aclErrors.Count){throw 'Candidate ACL validator syntax invalid.'}
-    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','Assert-FreshPostgresDataAcl')){
+    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Assert-FreshPostgresDataAcl')){
         $defs=@($aclAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName},$true))
         if($defs.Count -ne 1){throw 'Candidate ACL function absent or ambiguous.'}
         . ([scriptblock]::Create($defs[0].Extent.Text))
@@ -149,7 +203,14 @@ try {
         }
     }
     Write-Output ('EDB actual data ACL accepted='+$aclOk+' reason='+$aclReason)
-    if(-not $bindingOk -or -not $aclOk){throw 'EDB vendor-created cluster does not satisfy candidate fresh-install gate; no ACL changes applied.'}
+    if(-not $bindingOk){throw 'EDB vendor command does not match approved fresh service binding.'}
+    if(-not $aclOk){
+        if($aclReason -notin @('owner','root-inheritance','unexpected-principal','excessive-rights','missing-effective-rights','missing-child-rights')){throw 'EDB ACL inspection failed outside supported normalization experiment.'}
+        Normalize-DisposableEdbAcl $dataDir $serviceSid $id
+    }
+    # Re-check the stopped state; no service start in this fixture.
+    $scm=Get-CimInstance Win32_Service -Filter "Name='$svc'" -ErrorAction Stop
+    if($scm.State -ne 'Stopped' -or $scm.StartMode -ne 'Disabled' -or [int]$scm.ProcessId -ne 0){throw 'EDB fixture service changed during ACL experiment.'}
 
     $installed=$true
     Write-Output 'PASS: EDB EXE unattended install, PostgreSQL 16 cluster, dedicated Windows service/account, stopped/disabled SCM and closed port.'
