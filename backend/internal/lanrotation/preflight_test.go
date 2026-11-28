@@ -67,11 +67,11 @@ func TestValidate(t *testing.T) {
 	const origin = "https://erp.shop.test:8443"
 	cases := []struct {
 		name, origin, pin string
-		port int
-		cert, key []byte
-		roots *x509.CertPool
-		at time.Time
-		ok bool
+		port              int
+		cert, key         []byte
+		roots             *x509.CertPool
+		at                time.Time
+		ok                bool
 	}{
 		{"valid", origin, pin, 8443, cert, priv, roots, now, true},
 		{"wrong-host", "https://other.shop.test:8443", pin, 8443, cert, priv, roots, now, false},
