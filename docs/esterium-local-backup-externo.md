@@ -210,3 +210,16 @@ aprovado e protegido; não cria a senha nem altera o papel no banco.
 A autorização do compartilhamento externo deve ser comprovada para a
 identidade efetiva da tarefa, antes de habilitar o agendamento. Em
 workgroup, a sessão SMB do usuário interativo não é evidência disso.
+
+### Verificação da identidade na execução real
+
+Antes do dump, o executor agendado verifica em sessão PostgreSQL real a
+identidade de login dedicada, base, TLS, estado read-only padrão, ausência
+de memberships e privilégios excessivos, cobertura de leitura no schema
+public e ausência de RLS/funções SECURITY DEFINER executáveis. Recusa
+qualquer divergência sem iniciar dump. A verificação não substitui revisão
+de outros schemas, grants futuros ou teste de restauração. Configurações
+libpq herdadas que poderiam redirecionar autenticação ou sessão são
+removidas; psql e pg_dump não solicitam senha interativamente. O fixture
+CI também verifica a recusa do usuário administrativo pelo SQL exato
+do executor. O teste positivo de login TLS na VM permanece pendente.

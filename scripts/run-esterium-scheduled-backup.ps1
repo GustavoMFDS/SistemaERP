@@ -173,6 +173,53 @@ $env:PGDATABASE = [string]$config.PGDATABASE
 $env:PGPASSFILE = [string]$config.PGPASSFILE
 $env:PGSSLROOTCERT = [string]$config.PGSSLROOTCERT
 $env:PGSSLMODE = 'verify-full'
+# Libpq environment settings inherited from a user/service must not override
+# the approved password file, hostname, or session role.
+foreach ($override in @('PGPASSWORD','PGSERVICE','PGSERVICEFILE','PGHOSTADDR','PGOPTIONS','PGSSLCERT','PGSSLKEY','PGSSLCERTMODE','PGGSSENCMODE','PGREQUIREAUTH','PGSSLSNI','PGSSLNEGOTIATION','PGCHANNELBINDING','PGTARGETSESSIONATTRS')) {
+    Remove-Item -LiteralPath ('Env:'+$override) -ErrorAction SilentlyContinue
+}
+$env:PGCONNECT_TIMEOUT = '10'
+$psql = Join-Path ([string]$config.PostgresBin) 'psql.exe'
+$identityCheck = & $psql -X -w -v ON_ERROR_STOP=1 -At -c @'
+SELECT CASE WHEN
+    current_database() = 'esterium'
+    AND current_user = 'esterium_backup'
+    AND session_user = current_user
+    AND current_setting('default_transaction_read_only') = 'on'
+    AND EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = current_user
+          AND rolcanlogin AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit)
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member
+        WHERE r.rolname=current_user
+    )
+    AND EXISTS (SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid() AND ssl)
+    AND NOT has_database_privilege(current_user,current_database(),'CREATE')
+    AND NOT has_schema_privilege(current_user,'public','CREATE')
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
+          AND (c.relrowsecurity OR NOT has_table_privilege(current_user,c.oid,'SELECT')
+               OR has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+               OR has_any_column_privilege(current_user,c.oid,'INSERT,UPDATE,REFERENCES'))
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relkind='S'
+          AND (NOT has_sequence_privilege(current_user,c.oid,'SELECT')
+               OR has_sequence_privilege(current_user,c.oid,'USAGE,UPDATE'))
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname='public' AND p.prosecdef
+          AND has_function_privilege(current_user,p.oid,'EXECUTE')
+    )
+THEN 'PASS' ELSE 'REFUSED' END;
+'@
+if ($LASTEXITCODE -ne 0 -or [string]$identityCheck -cne 'PASS') {
+    throw 'Backup identity, TLS or effective privileges refused; no dump attempted.'
+}
 $backupScript = Join-Path $PSScriptRoot 'postgres-daily-backup.ps1'
 $checker = Join-Path $PSScriptRoot 'check-esterium-backup-integrity.ps1'
 & $backupScript -BackupDir $local -ExternalBackupDir ([string]$config.ExternalBackupDir) -RequireExternalCopy -PostgresBin ([string]$config.PostgresBin) -RetentionDays ([int]$config.RetentionDays)

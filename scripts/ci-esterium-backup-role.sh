@@ -62,6 +62,11 @@ expect_failure db -d esterium -c 'SET ROLE esterium_backup; CREATE TABLE public.
 docker compose exec -T db pg_dump -U sistemaemgo --role=esterium_backup \
   --format=custom --no-owner --no-privileges esterium |
   docker compose exec -T db pg_restore --list | grep 'TABLE DATA public backup_fixture'
+# Extract the exact runtime query; on this fixture the administrative session
+# must be refused even when it can read every ERP table.
+probe=$(awk '/^\$identityCheck = & \$psql / {inside=1; next} inside && /^\x27@$/ {exit} inside {print}' scripts/run-esterium-scheduled-backup.ps1)
+[[ -n "$probe" ]]
+[[ "$(db -d esterium -Atc "$probe")" == REFUSED ]]
 db -d postgres -c 'DROP DATABASE esterium'
 db -d postgres -c 'DROP ROLE esterium_backup'
 db -d postgres -c 'DROP ROLE esterium_app'
