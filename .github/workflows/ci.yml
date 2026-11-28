@@ -357,6 +357,7 @@ jobs:
             scripts/finish-esterium-local-first-install.ps1 \
             scripts/install-esterium-local-complete.ps1 \
             scripts/bootstrap-esterium-first-admin.ps1 \
+            scripts/stage-esterium-postgres-backup-role.sql \
             backend/seed/seed.prod.sql \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \

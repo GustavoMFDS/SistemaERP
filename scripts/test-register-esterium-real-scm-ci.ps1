@@ -43,6 +43,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-pg-tls-certgen.exe'), 'synthetic-signer-never-executed')
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-bootstrap-admin.exe'), 'synthetic-CLI-never-executed')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stage-esterium-postgres-backup-role.sql') -Destination (Join-Path $tools 'stage-esterium-postgres-backup-role.sql')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $tools 'seed.prod.sql')
     foreach ($name in @(
         'register-esterium-windows-service.ps1',

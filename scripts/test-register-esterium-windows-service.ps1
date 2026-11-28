@@ -57,6 +57,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-pg-tls-certgen.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-bootstrap-admin.exe'), 'synthetic-CLI-never-executed')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stage-esterium-postgres-backup-role.sql') -Destination (Join-Path $bundle 'tools\\stage-esterium-postgres-backup-role.sql')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $bundle 'tools\\seed.prod.sql')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), 'synthetic-html')
     $migrationDir = Join-Path $bundle 'migrations'

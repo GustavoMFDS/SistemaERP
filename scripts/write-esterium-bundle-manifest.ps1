@@ -61,6 +61,7 @@ $requiredTools = @(
     'tools/install-esterium-local-complete.ps1',
     'tools/apply-esterium-initial-schema.ps1',
     'tools/bootstrap-esterium-first-admin.ps1',
+    'tools/stage-esterium-postgres-backup-role.sql',
     'tools/seed.prod.sql',
     'tools/esterium-bootstrap-admin.exe',
     'tools/esterium-migrate.exe',

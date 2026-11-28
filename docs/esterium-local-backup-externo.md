@@ -186,3 +186,27 @@ Apply assinado ainda exige ensaio próprio. O provisionador e planejador
 integram as listas do manifesto, empacotamento e fixtures. Não usar na
 instalação atual; aguardar um candidato assinado e aprovado. Não alterar a política de confiança
 para executar esse código em laboratório.
+
+
+### Preparação local da conta de backup a partir do pacote aprovado
+
+O SQL de staging passa a integrar `tools/stage-esterium-postgres-backup-role.sql`
+no manifesto SHA-256 obrigatório. Como SQL não é um executável Authenticode,
+sua integridade depende do manifesto aprovado por canal independente,
+validado juntamente com a assinatura de todos os executáveis e scripts.
+Não executar SQL recebido avulsamente ou de uma branch sem aprovação.
+
+No computador servidor, um administrador PostgreSQL autorizado deve abrir
+uma sessão local autenticada pelo procedimento de TI, com TLS verify-full
+e a base esterium, e executar o SQL aprovado. O resultado esperado é
+uma conta NOLOGIN, sem senha e com permissões limitadas. Se ela já existir,
+parar e revisar, sem sobrescrever a identidade. A ativação posterior exige
+uma credencial própria configurada pelo operador local sem compartilhá-la
+por chat, argumentos ou logs, e uma prova de conexão e dump com o papel
+dedicado. Não usar o papel administrativo para produzir o backup. O
+provisionador de configuração utiliza um arquivo pgpass previamente
+aprovado e protegido; não cria a senha nem altera o papel no banco.
+
+A autorização do compartilhamento externo deve ser comprovada para a
+identidade efetiva da tarefa, antes de habilitar o agendamento. Em
+workgroup, a sessão SMB do usuário interativo não é evidência disso.

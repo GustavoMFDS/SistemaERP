@@ -42,6 +42,7 @@ try {
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-migrate.exe')
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe')
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-bootstrap-admin.exe')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stage-esterium-postgres-backup-role.sql') -Destination (Join-Path $toolsDir 'stage-esterium-postgres-backup-role.sql')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $toolsDir 'seed.prod.sql')
     # Match the manifest's exhaustive curator, but never copy package secrets.
     $required=@(
