@@ -67,3 +67,16 @@ durável, exclusão mútua, registro de intenção antes de cada mutação,
 restauração idempotente e recuperação após interrupção do processo.
 Os testes atuais simulam falhas; não alteram SCM real e não demonstram
 rollback físico, atomicidade em perda de energia ou liberação LAN.
+
+
+### Inspeção do estado Windows antes da manutenção
+
+O script de desenvolvimento `scripts/check-esterium-lan-rotation-baseline.ps1`
+é somente leitura. Confere o manifesto aprovado, recibo protegido, serviço
+LocalService, origem/listener e flags fiscais, existência física dos
+caminhos TLS, atalho e regra de firewall ativa. O relatório contém hashes
+do recibo/atalho e metadados não secretos, sem despejar o ambiente SCM ou
+ler conteúdo da chave. Não é snapshot durável e não prova readiness,
+revogação, ACL efetiva dos inputs TLS ou autenticação dos terminais.
+Ainda requer testes Windows e integração ao adaptador assinado; não usar
+como autorização de Apply.
