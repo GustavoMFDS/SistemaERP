@@ -92,6 +92,16 @@ try {
         catch { $rejected = $true }
         if (-not $rejected) { throw "Backup preflight accepted $reason" }
     }
+    foreach ($unsafeIdentity in @('postgres', 'esterium_app', 'ESTERIUM_BACKUP')) {
+        $config.PGUSER = $unsafeIdentity
+        Write-Config
+        Assert-Reject 'an identity other than the dedicated backup role'
+    }
+    $config.PGUSER = 'esterium_backup'
+    $config.PGDATABASE = 'postgres'
+    Write-Config
+    Assert-Reject 'a database other than the installed ERP database'
+    $config.PGDATABASE = 'esterium'
     $config['PGPASSWORD'] = 'this-is-not-a-real-secret'
     Write-Config
     Assert-Reject 'an inline password property'
