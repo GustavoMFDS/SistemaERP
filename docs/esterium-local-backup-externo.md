@@ -125,6 +125,10 @@ preexistente, RLS e privilégios efetivos excessivos no schema public;
 concede SELECT nas tabelas/sequências atuais e privilégios padrão SELECT
 para objetos futuros do proprietário da aplicação e do administrador
 executor. Não altera contas existentes nem retira permissões de PUBLIC.
+O executor agendado exige exatamente `PGUSER=esterium_backup` e
+`PGDATABASE=esterium`, recusando o uso acidental de contas administrativas
+ou da aplicação. A validação do nome não comprova, sozinha, os privilégios
+reais do papel na base.
 A configuração de transação read-only é defesa adicional, não substitui
 as permissões. Outros schemas, extensões, funções executáveis e mudanças
 posteriores de privilégios exigem revisão de cobertura antes do piloto.
