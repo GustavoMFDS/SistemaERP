@@ -137,6 +137,27 @@ public static class EsteriumFreshPgAclNative {
     [DllImport("advapi32.dll")]
     private static extern uint SetSecurityInfo(SafeFileHandle handle, uint objectType, uint securityInfo,
         IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SecurityAttributes {
+        public int Length;
+        public IntPtr SecurityDescriptor;
+        [MarshalAs(UnmanagedType.Bool)] public bool InheritHandle;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateDirectoryW(string path, ref SecurityAttributes attributes);
+    public static void CreatePrivateDirectory(string path, byte[] descriptor) {
+        GCHandle pin=GCHandle.Alloc(descriptor,GCHandleType.Pinned);
+        try {
+            SecurityAttributes attributes=new SecurityAttributes();
+            attributes.Length=Marshal.SizeOf(typeof(SecurityAttributes));
+            attributes.SecurityDescriptor=pin.AddrOfPinnedObject();
+            attributes.InheritHandle=false;
+            // Atomic create-new, never adopt or edit an existing directory.
+            if(!CreateDirectoryW(path,ref attributes)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        } finally { pin.Free(); }
+    }
+
     private static Info Check(SafeFileHandle handle, bool directory) {
         Info info;
         if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -176,6 +197,28 @@ public static class EsteriumFreshPgAclNative {
     }
 }
 '@
+}
+
+# Create a new empty directory with its protected descriptor in one OS call.
+# The caller must verify and retain the physical parent boundary.
+function New-PrivateFreshPostgresDirectory([string]$Path) {
+    Initialize-FreshPostgresAclNative
+    $raw=[Security.AccessControl.RawSecurityDescriptor]::new('O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+    $bytes=New-Object byte[] $raw.BinaryLength
+    $raw.GetBinaryForm($bytes,0)
+    [EsteriumFreshPgAclNative]::CreatePrivateDirectory($Path,$bytes)
+    $handle=[EsteriumFreshPgAclNative]::Open($Path,$true,$false)
+    try {
+        $acl=[Security.AccessControl.RawSecurityDescriptor]::new((Get-Acl -LiteralPath $Path -ErrorAction Stop).GetSecurityDescriptorBinaryForm(),0)
+        if($acl.Owner.Value -cne 'S-1-5-32-544' -or -not ($acl.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -or $acl.DiscretionaryAcl.Count -ne 2){throw 'Fresh empty directory descriptor unexpected.'}
+        $seen=@{}
+        foreach($ace in $acl.DiscretionaryAcl){
+            if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or $ace.IsCallback -or $ace.SecurityIdentifier.Value -notin @('S-1-5-18','S-1-5-32-544') -or $ace.AccessMask -ne 0x1F01FF -or [int]$ace.AceFlags -ne 3){throw 'Fresh empty directory ACE unexpected.'}
+            $seen[$ace.SecurityIdentifier.Value]=$true
+        }
+        if($seen.Count -ne 2 -or @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop).Count){throw 'Fresh directory not empty or exact.'}
+        return [EsteriumFreshPgAclNative]::Identity($handle,$true)
+    }finally{$handle.Dispose()}
 }
 
 function Assert-FreshPostgresDataAcl([string]$DataDir,[string]$ServiceSid) {

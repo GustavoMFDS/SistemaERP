@@ -123,6 +123,7 @@ function Normalize-DisposableEdbAcl([string]$DataDir,[string]$ServiceSid,[string
     }
 }
 
+$preinstallLocks=[Collections.Generic.List[object]]::new()
 $installed=$false
 try {
     [IO.Directory]::CreateDirectory($root) | Out-Null
@@ -170,6 +171,36 @@ try {
     $svcSecret=$null
     [Array]::Clear($lines,0,$lines.Length)
     Write-Output 'Installing EDB vendor EXE with a newly named service on disposable Windows CI...'
+    # Validate that EDB accepts an atomically created, empty protected
+    # data directory and preserves its physical identity. Fixture only.
+    $candidateInstaller=Join-Path $PSScriptRoot 'install-esterium-local-dependencies.ps1'
+    $aclTokens=$null;$aclErrors=$null
+    $aclAst=[Management.Automation.Language.Parser]::ParseFile($candidateInstaller,[ref]$aclTokens,[ref]$aclErrors)
+    if($aclErrors.Count){throw 'Candidate ACL validator syntax invalid.'}
+    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Initialize-FreshPostgresAclNative','New-PrivateFreshPostgresDirectory','Assert-FreshPostgresDataAcl')){
+        $defs=@($aclAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName},$true))
+        if($defs.Count -ne 1){throw 'Candidate ACL function absent or ambiguous.'}
+        . ([scriptblock]::Create($defs[0].Extent.Text))
+    }
+    Initialize-FreshPostgresAclNative
+    $parentDir=Split-Path -Parent $dataDir
+    if(-not (Test-Path -LiteralPath $parentDir)){
+        $null=New-PrivateFreshPostgresDirectory $parentDir
+    }
+    $ancestorStack=[Collections.Generic.Stack[string]]::new()
+    $cursor=$parentDir
+    while($cursor){
+        $ancestorStack.Push($cursor)
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    while($ancestorStack.Count){$preinstallLocks.Add([EsteriumFreshPgAclNative]::Open($ancestorStack.Pop(),$true,$false))}
+    $freshIdentity=New-PrivateFreshPostgresDirectory $dataDir
+    $freshRootHandle=[EsteriumFreshPgAclNative]::Open($dataDir,$true,$false)
+    $preinstallLocks.Add($freshRootHandle)
+    if([EsteriumFreshPgAclNative]::Identity($freshRootHandle,$true) -cne $freshIdentity){throw 'Fresh root changed before vendor invocation.'}
+    Write-Output 'PASS: atomically created protected empty EDB data directory.'
     $process=Start-Process -FilePath $installer -ArgumentList @(
         '--mode','unattended','--unattendedmodeui','none',
         '--optionfile',('"' + $options + '"')
@@ -209,15 +240,11 @@ try {
     }
     # Read-only inspection of the vendor-created service and cluster using
     # the exact same validator as the proposed fresh-install acceptance gate.
-    $candidateInstaller=Join-Path $PSScriptRoot 'install-esterium-local-dependencies.ps1'
-    $aclTokens=$null;$aclErrors=$null
-    $aclAst=[Management.Automation.Language.Parser]::ParseFile($candidateInstaller,[ref]$aclTokens,[ref]$aclErrors)
-    if($aclErrors.Count){throw 'Candidate ACL validator syntax invalid.'}
-    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Initialize-FreshPostgresAclNative','Assert-FreshPostgresDataAcl')){
-        $defs=@($aclAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName},$true))
-        if($defs.Count -ne 1){throw 'Candidate ACL function absent or ambiguous.'}
-        . ([scriptblock]::Create($defs[0].Extent.Text))
-    }
+    $verifyRoot=[EsteriumFreshPgAclNative]::Open($dataDir,$true,$false)
+    try{
+        if([EsteriumFreshPgAclNative]::Identity($verifyRoot,$true) -cne $freshIdentity -or [EsteriumFreshPgAclNative]::Identity($freshRootHandle,$true) -cne $freshIdentity){throw 'EDB did not preserve the pre-created directory identity.'}
+    }finally{$verifyRoot.Dispose()}
+    Write-Output 'PASS: EDB preserved the protected directory physical identity.'
     $bindingOk=Test-FreshPostgresServiceCommand ([string]$scm[0].PathName) $installDir $dataDir $svc $false
     Write-Output ('EDB actual service binding accepted='+$bindingOk)
     $aclOk=$false
@@ -412,6 +439,7 @@ try {
             if ($installed) { throw 'EDB smoke could not leave its service stopped.' }
         }
     }
+    for($i=$preinstallLocks.Count-1;$i -ge 0;$i--){$preinstallLocks[$i].Dispose()}
     if (Test-Path -LiteralPath $probePassFile -PathType Leaf) { Remove-Item -LiteralPath $probePassFile -Force -ErrorAction Stop }
     if (Test-Path -LiteralPath $options -PathType Leaf) {
         Remove-Item -LiteralPath $options -Force -ErrorAction Stop

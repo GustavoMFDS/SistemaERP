@@ -13,7 +13,7 @@ $installer=Join-Path $PSScriptRoot 'install-esterium-local-dependencies.ps1'
 $t=$null;$e=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($installer,[ref]$t,[ref]$e)
 if($e.Count){throw 'Installer AST failed.'}
-foreach($name in @('Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Initialize-FreshPostgresAclNative','Assert-FreshPostgresDataAcl')){
+foreach($name in @('Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Initialize-FreshPostgresAclNative','New-PrivateFreshPostgresDirectory','Assert-FreshPostgresDataAcl')){
     $defs=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
     if($defs.Count -ne 1){throw 'Missing native fixture function.'}
     . ([scriptblock]::Create($defs[0].Extent.Text))
@@ -82,3 +82,12 @@ try{
 }
 if(-not $rejected){throw 'Native handle accepted multiple hard links.'}
 Write-Output 'PASS: actual NTFS hardlink rejected before mutation.'
+$privateRoot=Join-Path $env:RUNNER_TEMP ('esterium-pg-private-native-'+[Guid]::NewGuid().ToString('N'))
+$privateIdentity=New-PrivateFreshPostgresDirectory $privateRoot
+$before=(Get-Acl -LiteralPath $privateRoot).Sddl
+$duplicateRejected=$false
+try{$null=New-PrivateFreshPostgresDirectory $privateRoot}catch{if($_.Exception.ToString() -match 'already exists|183'){$duplicateRejected=$true}else{throw}}
+if(-not $duplicateRejected -or (Get-Acl -LiteralPath $privateRoot).Sddl -cne $before){throw 'Duplicate directory was not refused without modification.'}
+$privateHandle=[EsteriumFreshPgAclNative]::Open($privateRoot,$true,$false)
+try{if([EsteriumFreshPgAclNative]::Identity($privateHandle,$true) -cne $privateIdentity){throw 'Private directory identity changed.'}}finally{$privateHandle.Dispose()}
+Write-Output 'PASS: atomic protected directory creation and existing directory refusal.'
