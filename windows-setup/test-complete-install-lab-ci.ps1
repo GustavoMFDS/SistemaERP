@@ -500,6 +500,7 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
         throw 'The first install did not create its expected all-users HTTPS shortcut.'
     }
     Write-Output ('PASS: signed coordinator installed '+$(if($PostgresBinaryZip){'official ZIP PostgreSQL'}else{'EDB PostgreSQL'})+', protected DB secrets, Garnet TLS/ACL/AOF, schema, first admin, ERP, HTTPS, scoped firewall, and shortcut.')
+    & (Join-Path $repo 'scripts\test-esterium-lan-certificate-native-ci.ps1') -ToolPath (Join-Path $bundle 'tools\check-esterium-lan-terminal.ps1') -PrivateAddress $privateAddress -Port $httpsPort -ExpectedSHA256 (Get-FileHash -LiteralPath $httpsCertPath -Algorithm SHA256).Hash
 
     Write-Output 'Installing Playwright browsers and exercising real installed services over trusted HTTPS.'
     Push-Location (Join-Path $repo 'web')
@@ -513,7 +514,32 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
         $env:E2E_IGNORE_HTTPS_ERRORS = '0'
         $env:ESTERIUM_LAB_EVIDENCE_DIR = $evidence
         & npx.cmd playwright test --config playwright.installed-lab.config.ts
-        if ($LASTEXITCODE -ne 0) { throw 'Installed-service Playwright acceptance failed.' }
+        $browserExit=$LASTEXITCODE
+        # Collect only bounded rate-limit metrics from this hosted fixture,
+        # over normal trusted HTTPS. Never print the token, headers, raw
+        # response, exception details or any other metric.
+        try {
+            $metricsPath=Join-Path $env:ProgramData 'Esterium\Secrets\metrics.secret'
+            $metricsToken=[IO.File]::ReadAllText($metricsPath).Trim()
+            $handler=[Net.Http.HttpClientHandler]::new()
+            $handler.AllowAutoRedirect=$false
+            $client=[Net.Http.HttpClient]::new($handler)
+            try {
+                $client.Timeout=[TimeSpan]::FromSeconds(8)
+                $client.DefaultRequestHeaders.Authorization=[Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$metricsToken)
+                $response=$client.GetAsync($origin.TrimEnd('/')+'/metrics').GetAwaiter().GetResult()
+                try {
+                    if([int]$response.StatusCode -ne 200){throw 'Metrics request not successful.'}
+                    $body=$response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                    $safePattern='^sistemaemgo_security_rate_limit_backend_failures_total\{policy="(?:auth_login|auth_login_identifier|auth_login_ip_identifier|auth_refresh|auth_logout|sales_create|product_import|fiscal|startup_contract|other)",reason="(?:deadline|canceled|unavailable|backend-error)"\} [0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$'
+                    $lines=@($body -split '\r?\n' | Where-Object {$_ -cmatch $safePattern})
+                    if($lines.Count){
+                        $lines | ForEach-Object { Write-Output ('RATE-LIMIT-DIAGNOSTIC: '+$_) }
+                    }else{Write-Output 'RATE-LIMIT-DIAGNOSTIC: no matching counter samples.'}
+                }finally{$response.Dispose()}
+            }finally{$client.Dispose();$metricsToken=$null}
+        }catch{Write-Warning 'Rate-limit metrics diagnostic unavailable; browser result unchanged.'}
+        if ($browserExit -ne 0) { throw 'Installed-service Playwright acceptance failed.' }
     }
     finally {
         Remove-Item Env:E2E_BASE_URL -ErrorAction SilentlyContinue
@@ -528,6 +554,21 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
     Write-Output 'Restarting real dependencies and ERP to verify persisted first-install readiness.'
     Stop-Service -Name 'EsteriumERP' -Force -ErrorAction Stop
     (Get-Service -Name 'EsteriumERP').WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(45))
+    # Signed standalone maintenance is idempotent on the registered source.
+    # Do not delete a valid source to simulate a legacy installation.
+    $sourceTool=Join-Path $bundle 'tools\provision-esterium-startup-event-source.ps1'
+    $sourceArgs=@{ApprovedManifestSHA256=$manifestSHA256;TrustedPublisherThumbprint=$signerThumbprint}
+    $sourceKey='HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\EsteriumERPStartup'
+    $sourceBefore=Get-ItemProperty -LiteralPath $sourceKey -ErrorAction Stop
+    $sourcePlan=@(& $sourceTool @sourceArgs) -join ' '
+    if($sourcePlan -notmatch 'PLAN: startup event source pass; no changes made'){throw 'Signed event-source maintenance plan failed.'}
+    $noConfirm=$false
+    try{& $sourceTool @sourceArgs -Apply | Out-Null}catch{$noConfirm=$_.Exception.Message -match 'Explicit event-source maintenance confirmation required'}
+    if(-not $noConfirm){throw 'Event-source maintenance did not require explicit confirmation.'}
+    $sourceApply=@(& $sourceTool @sourceArgs -Apply -ConfirmEventSource) -join ' '
+    $sourceAfter=Get-ItemProperty -LiteralPath $sourceKey -ErrorAction Stop
+    if($sourceApply -notmatch 'existing approved startup event source preserved' -or $sourceBefore.EventMessageFile -cne $sourceAfter.EventMessageFile -or $sourceBefore.TypesSupported -ne $sourceAfter.TypesSupported -or (Get-Service EsteriumERP).Status -ne 'Stopped'){throw 'Signed maintenance did not preserve existing event source and stopped service.'}
+    Write-Output 'PASS: signed event-source maintenance plan, explicit approval guard, and native idempotence.'
     Restart-Service -Name 'EsteriumPostgreSQL16' -Force -ErrorAction Stop
     (Get-Service -Name 'EsteriumPostgreSQL16').WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(90))
     Restart-Service -Name 'EsteriumGarnet' -Force -ErrorAction Stop

@@ -27,11 +27,20 @@ func AllowRateLimit(ctx context.Context, rdb *redis.Client, name, key string, li
 		return true, nil
 	}
 	if failClosed && rdb == nil {
+		recordRateLimitFailure(name, ErrRateLimitUnavailable)
 		return false, ErrRateLimitUnavailable
 	}
 	allowed, err := allowRequest(ctx, rdb, sharedFallbackLimiter, name, key, limit, window)
 	if err != nil {
 		if failClosed {
+			recordRateLimitFailure(name, err)
+			// Preserve only fixed context sentinels, never backend error text.
+			if errors.Is(err, context.DeadlineExceeded) {
+				return false, fmt.Errorf("%w: %w", ErrRateLimitUnavailable, context.DeadlineExceeded)
+			}
+			if errors.Is(err, context.Canceled) {
+				return false, fmt.Errorf("%w: %w", ErrRateLimitUnavailable, context.Canceled)
+			}
 			return false, ErrRateLimitUnavailable
 		}
 		return sharedFallbackLimiter.allow(name+":"+key, limit, window), nil
@@ -52,12 +61,14 @@ func RateLimit(rdb *redis.Client, name string, limit int, window time.Duration, 
 				keyPart = "anonymous"
 			}
 			if failClosed && rdb == nil {
+				recordRateLimitFailure(name, ErrRateLimitUnavailable)
 				writeMiddlewareError(w, r, http.StatusServiceUnavailable, "service_unavailable", "rate limit backend unavailable")
 				return
 			}
 			allowed, err := allowRequest(r.Context(), rdb, local, name, keyPart, limit, window)
 			if err != nil {
 				if failClosed {
+					recordRateLimitFailure(name, err)
 					writeMiddlewareError(w, r, http.StatusServiceUnavailable, "service_unavailable", "rate limit backend unavailable")
 					return
 				}

@@ -202,6 +202,62 @@ try {
     Write-Output 'PASS: injected post-create failure rolled back only the synthetic SCM entry.'
     & (Join-Path $tools 'register-esterium-windows-service.ps1') @arguments | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'SCM installer returned nonzero.' }
+    if(-not [Diagnostics.EventLog]::SourceExists('EsteriumERPStartup') -or [Diagnostics.EventLog]::LogNameFromSourceName('EsteriumERPStartup','.') -ne 'Application'){
+        throw 'Expected startup event source not registered.'
+    }
+    $eventSourceProperties=Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\EsteriumERPStartup' -ErrorAction Stop
+    if([Environment]::ExpandEnvironmentVariables([string]$eventSourceProperties.EventMessageFile) -ine (Join-Path $env:SystemRoot 'System32\EventCreate.exe') -or (([int]$eventSourceProperties.TypesSupported -band 1) -eq 0)){
+        throw 'Startup diagnostic event source resource or error type incorrect.'
+    }
+    Write-Output 'PASS: startup event source registered with expected Windows resource; no service execution.'
+    # Separate executable fixture: never start the synthetic ERP bundle.
+    $eventFixtureName='EstStartupEventCI'+$guid
+    $eventFixtureDir=Join-Path $env:ProgramFiles ('EsteriumStartupEventFixture-'+$guid)
+    $eventFixtureExe=Join-Path $eventFixtureDir 'startup-event-fixture.test.exe'
+    $eventFixtureCreated=$false
+    if((Test-Path -LiteralPath $eventFixtureDir) -or (Get-Service -Name $eventFixtureName -ErrorAction SilentlyContinue)){throw 'Native event fixture already exists.'}
+    try {
+        [IO.Directory]::CreateDirectory($eventFixtureDir)|Out-Null
+        & icacls.exe $eventFixtureDir '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX' | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Native event fixture ACL failed.'}
+        Push-Location (Join-Path $PSScriptRoot '..\backend')
+        try {
+            go test -c -o $eventFixtureExe ./cmd/api
+            if($LASTEXITCODE -ne 0){throw 'Native event fixture compile failed.'}
+        } finally {Pop-Location}
+        $eventCommand='"'+$eventFixtureExe+'" -test.run=^TestNativeStartupEventServiceFixture$'
+        & $sc create $eventFixtureName 'binPath=' $eventCommand 'start=' 'demand' 'obj=' 'NT AUTHORITY\LocalService' | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Native event fixture SCM registration failed.'}
+        $eventFixtureCreated=$true
+        New-ItemProperty -Path ('HKLM:\SYSTEM\CurrentControlSet\Services\'+$eventFixtureName) -Name Environment -PropertyType MultiString -Value @('ESTERIUM_STARTUP_EVENT_CI_SERVICE='+$eventFixtureName) -Force -ErrorAction Stop | Out-Null
+        $eventStart=Get-Date
+        # A service that fails before Running can make Start-Service throw.
+        # Accept only the exact stopped service-specific exit and matching event.
+        try{Start-Service -Name $eventFixtureName -ErrorAction Stop}catch{}
+        $eventOk=$false
+        $exitOk=$false
+        $expectedMessage='Esterium startup failure: code=31 stage=redis-security substage=rate-limit-atomic reason=deadline'
+        for($attempt=0;$attempt -lt 30;$attempt++){
+            $record=Get-CimInstance Win32_Service -Filter "Name='$eventFixtureName'" -ErrorAction Stop
+            $exitOk=($null -ne $record -and $record.State -eq 'Stopped' -and [int]$record.ExitCode -eq 1066 -and [int]$record.ServiceSpecificExitCode -eq 31)
+            $matching=@(Get-WinEvent -FilterHashtable @{LogName='Application';ProviderName='EsteriumERPStartup';Id=1;StartTime=$eventStart} -ErrorAction SilentlyContinue | Where-Object {$_.Level -eq 2 -and @($_.Properties | Where-Object {$_.Value -ceq $expectedMessage}).Count -eq 1})
+            $eventOk=($matching.Count -gt 0)
+            if($eventOk -and $exitOk){break}
+            Start-Sleep -Milliseconds 500
+        }
+        if(-not $eventOk -or -not $exitOk){throw ('LocalService startup event contract failed: event='+$eventOk+' exit31='+$exitOk)}
+        Write-Output 'PASS: actual LocalService SCM fixture wrote fixed Event Log diagnostic and exited with code 31.'
+    } finally {
+        if($eventFixtureCreated){
+            $record=Get-CimInstance Win32_Service -Filter "Name='$eventFixtureName'" -ErrorAction Stop
+            if($null -eq $record -or [string]$record.PathName -cne $eventCommand){throw 'Native event fixture SCM identity changed; discard runner.'}
+            if($record.State -ne 'Stopped'){throw 'Native event fixture did not stop; discard runner.'}
+            & $sc delete $eventFixtureName | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Native event fixture deregistration failed.'}
+        }
+        # No recursive deletion needed: disposable hosted runner owns this tree.
+    }
+
     $query = & $sc qc EsteriumERP 2>&1
     if ($LASTEXITCODE -ne 0 -or ($query -join ' ') -notmatch 'DEMAND_START') {
         throw "Windows service was not installed with manual startup: $query"

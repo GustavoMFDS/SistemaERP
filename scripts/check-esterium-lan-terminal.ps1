@@ -53,6 +53,27 @@ foreach ($address in $addresses) {
         throw 'DNS retornou familia de rede nao suportada.'
     }
 }
+# Fixed diagnostic categories only; never expose certificate or chain internals.
+function Get-LanCertificateRejection {
+    param(
+        [bool]$CertificatePresent,
+        [bool]$ChainPresent,
+        [Net.Security.SslPolicyErrors]$PolicyErrors,
+        [Security.Cryptography.X509Certificates.X509ChainStatusFlags[]]$ChainFlags,
+        [bool]$PinMatches
+    )
+    if(-not $CertificatePresent){return 'certificate-missing'}
+    if(($PolicyErrors -band [Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable) -ne 0){return 'certificate-missing'}
+    if(-not $ChainPresent){return 'chain-missing'}
+    $flags=[Security.Cryptography.X509Certificates.X509ChainStatusFlags]::NoError
+    foreach($flag in $ChainFlags){$flags=$flags -bor $flag}
+    if(($flags -band [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::Revoked) -ne 0){return 'certificate-revoked'}
+    if(($flags -band ([Security.Cryptography.X509Certificates.X509ChainStatusFlags]::RevocationStatusUnknown -bor [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::OfflineRevocation)) -ne 0){return 'revocation-unavailable'}
+    if(($PolicyErrors -band [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch) -ne 0){return 'name-mismatch'}
+    if($flags -ne [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::NoError -or $PolicyErrors -ne [Net.Security.SslPolicyErrors]::None){return 'chain-untrusted'}
+    if(-not $PinMatches){return 'pin-mismatch'}
+    return 'pass'
+}
 # The TCP socket connects to a vetted IP, NOT to a second DNS resolution.
 # TLS still authenticates the ORIGINAL host name against SAN + trusted chain.
 $tcp=$null
@@ -60,6 +81,7 @@ $ssl=$null
 $validationSeen=$false
 $validationOK=$false
 $certificateHashOK=$false
+$certificateRejection='unclassified'
 $expected=$ExpectedCertificateSHA256.ToUpperInvariant()
 try {
     foreach ($address in $addresses) {
@@ -75,19 +97,21 @@ try {
                 [Net.Security.RemoteCertificateValidationCallback]{
                     param($sender,$cert,$chain,$policyErrors)
                     $script:validationSeen=$true
-                    if ($null -eq $cert -or
-                        $policyErrors -ne [Net.Security.SslPolicyErrors]::None) {
-                        return $false
+                    $script:validationOK=$false
+                    $script:certificateHashOK=$false
+                    $flags=@()
+                    if($null -ne $chain){$flags=@($chain.ChainStatus | ForEach-Object Status)}
+                    if($null -ne $cert){
+                        $full=[Security.Cryptography.X509Certificates.X509Certificate2]::new($cert)
+                        $sha=[Security.Cryptography.SHA256]::Create()
+                        try{
+                            $hash=([BitConverter]::ToString($sha.ComputeHash($full.RawData))).Replace('-','')
+                            $script:certificateHashOK=($hash -ceq $script:expected)
+                        } finally { $sha.Dispose();$full.Dispose() }
                     }
-                    $full=[Security.Cryptography.X509Certificates.X509Certificate2]::new($cert)
-                    try {
-                        $hash=([BitConverter]::ToString(
-                            [Security.Cryptography.SHA256]::Create().ComputeHash($full.RawData)
-                        )).Replace('-','')
-                        $script:certificateHashOK=($hash -ceq $script:expected)
-                        $script:validationOK=$script:certificateHashOK
-                        return $script:validationOK
-                    } finally { $full.Dispose() }
+                    $script:certificateRejection=Get-LanCertificateRejection ($null -ne $cert) ($null -ne $chain) $policyErrors $flags $script:certificateHashOK
+                    $script:validationOK=($script:certificateRejection -ceq 'pass')
+                    return $script:validationOK
                 })
             # SslProtocols.None delegates protocol policy to current Windows.
             # Never use a callback that accepts an untrusted test certificate.
@@ -116,7 +140,7 @@ try {
     }
 } catch {
     if ($validationSeen -and -not $validationOK) {
-        throw 'Certificado HTTPS nao corresponde ao SHA-256 aprovado ou nao e confiavel no Windows deste caixa.'
+        throw ('Certificado HTTPS rejeitado: '+$certificateRejection+'. Verifique a PKI e o SHA-256 por canal aprovado; nao desative TLS.')
     }
     throw
 }

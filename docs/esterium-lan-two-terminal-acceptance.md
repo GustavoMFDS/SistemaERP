@@ -57,3 +57,30 @@ dois computadores com vendas concorrentes, quedas/reconexão, firewall
 do servidor, renovação de certificados, backups SMB/restauração em PC
 distinto e aceite operacional. Homologação SEFAZ e impressoras térmicas
 não são cobertas aqui.
+
+## Revogação e renovação do certificado
+
+O teste do terminal exige revogação habilitada na autenticação TLS e
+rejeita qualquer erro da cadeia, mesmo se o SHA-256 corresponder.
+Um certificado de laboratório de curta duração, sem CRL Distribution
+Points ou AIA/OCSP, não constitui evidência de uma PKI comercial apta.
+
+Categorias de rejeição: `certificate-revoked`, `revocation-unavailable`,
+`certificate-missing`, `chain-missing`, `name-mismatch`,
+`chain-untrusted`, `pin-mismatch` e `unclassified`. A indisponibilidade
+da revogação não significa que o certificado foi revogado; significa que
+o terminal não conseguiu comprovar seu estado. Não use flags que
+ignorem a revogação, confiança ou o nome DNS.
+
+Antes do piloto, o responsável pela PKI deve confirmar a cadeia aprovada,
+a disponibilidade da CRL/OCSP a partir de cada terminal, sua atualização
+e a validade do certificado. Planejar renovação antes do vencimento,
+com distribuição independente do novo SHA-256, janela autorizada,
+preservação da configuração anterior e teste novamente em ambos os caixas.
+A renovação e a retirada da confiança anterior são procedimentos
+separados, não executados por este utilitário. Não exponha chaves
+privadas, não substitua raízes automaticamente e não autorize vendas
+se algum terminal falhar.
+
+A CI cobre a classificação por estados sintéticos, não comprova
+revogação online real, renovação ou alcance da PKI na loja.
