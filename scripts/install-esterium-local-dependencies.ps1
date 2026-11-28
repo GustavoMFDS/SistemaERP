@@ -60,6 +60,312 @@ if (@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='$PostgresServi
 foreach ($digest in @($ExpectedPostgresSHA256,$ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)) {
     if ($digest -cnotmatch '^[a-fA-F0-9]{64}$') { throw 'SHA-256 aprovado é obrigatório para cada pacote.' }
 }
+# Fresh-cluster acceptance only: never adopt or repair an existing cluster.
+# Validate every object before the fresh-cluster marker can be published.
+function Test-PostgresDataDescriptor {
+    param([Security.AccessControl.RawSecurityDescriptor]$Descriptor,[string]$ServiceSid,[bool]$Directory,[bool]$Root)
+    $admin='S-1-5-32-544'; $system='S-1-5-18'
+    $allowed=@($admin,$system,$ServiceSid)
+    $full=0x1F01FF; $modify=0x1301BF
+    if($null -eq $Descriptor.Owner -or $Descriptor.Owner.Value -notin $allowed){return 'owner'}
+    if($null -eq $Descriptor.DiscretionaryAcl){return 'null-dacl'}
+    if($Root -and -not ($Descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected)){return 'root-inheritance'}
+    $effective=@{}; $propagating=@{}
+    foreach($ace in $Descriptor.DiscretionaryAcl){
+        if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or $ace.IsCallback){return 'unsupported-ace'}
+        $sid=$ace.SecurityIdentifier.Value
+        if($sid -notin $allowed){return 'unexpected-principal'}
+        $maximum=if($sid -eq $ServiceSid){$modify}else{$full}
+        if(($ace.AccessMask -band (-bnot $maximum)) -ne 0){return 'excessive-rights'}
+        $flags=[int]$ace.AceFlags
+        if(($flags -band 8) -eq 0){$effective[$sid]=([int]$effective[$sid] -bor $ace.AccessMask)}
+        if(($flags -band 3) -eq 3 -and ($flags -band 4) -eq 0){$propagating[$sid]=([int]$propagating[$sid] -bor $ace.AccessMask)}
+    }
+    foreach($sid in $allowed){
+        $minimum=if($sid -eq $ServiceSid){$modify}else{$full}
+        if(([int]$effective[$sid] -band $minimum) -ne $minimum){return 'missing-effective-rights'}
+        if($Directory -and (([int]$propagating[$sid] -band $minimum) -ne $minimum)){return 'missing-child-rights'}
+    }
+    return 'pass'
+}
+# Build an exact, protected descriptor for a newly created cluster object.
+# This function is pure: it does not read or modify the filesystem.
+function New-FreshPostgresDataDescriptor([string]$ServiceSid,[bool]$Directory) {
+    if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){
+        throw 'PostgreSQL ACL policy requires a dedicated local service SID.'
+    }
+    $flags=if($Directory){'OICI'}else{''}
+    $sddl='O:BAD:P(A;'+$flags+';FA;;;SY)(A;'+$flags+';FA;;;BA)(A;'+$flags+';0x1301bf;;;'+$ServiceSid+')'
+    return [Security.AccessControl.RawSecurityDescriptor]::new($sddl)
+}
+
+# Accept only the intended PostgreSQL service command, not arbitrary arguments.
+# EDB may omit the explicit wait flag; ZIP registration is byte-for-byte fixed.
+function Test-FreshPostgresServiceCommand([string]$Command,[string]$InstallDir,[string]$DataDir,[string]$ServiceName,[bool]$BinaryZip) {
+    $expected='"'+(Join-Path $InstallDir 'bin\pg_ctl.exe')+'" runservice -N "'+$ServiceName+'" -D "'+$DataDir+'"'
+    if($BinaryZip){return ($Command -ceq ($expected+' -w'))}
+    return ([string]::Equals($Command,$expected,[StringComparison]::Ordinal) -or
+        [string]::Equals($Command,($expected+' -w'),[StringComparison]::Ordinal))
+}
+
+# Native handle-bound ACL primitive for the signed fresh-install path.
+function Initialize-FreshPostgresAclNative {
+    if('EsteriumFreshPgAclNative' -as [type]){return}
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class EsteriumFreshPgAclNative {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Info {
+        public uint Attributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME Creation, Access, Write;
+        public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    private static extern SafeFileHandle CreateFileW(string path, uint access, uint share,
+        IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out Info info);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    private static extern bool GetSecurityDescriptorOwner(IntPtr descriptor, out IntPtr owner, out bool defaulted);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    private static extern bool GetSecurityDescriptorDacl(IntPtr descriptor, out bool present, out IntPtr dacl, out bool defaulted);
+    [DllImport("advapi32.dll")]
+    private static extern uint SetSecurityInfo(SafeFileHandle handle, uint objectType, uint securityInfo,
+        IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SecurityAttributes {
+        public int Length;
+        public IntPtr SecurityDescriptor;
+        [MarshalAs(UnmanagedType.Bool)] public bool InheritHandle;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateDirectoryW(string path, ref SecurityAttributes attributes);
+    public static void CreatePrivateDirectory(string path, byte[] descriptor) {
+        GCHandle pin=GCHandle.Alloc(descriptor,GCHandleType.Pinned);
+        try {
+            SecurityAttributes attributes=new SecurityAttributes();
+            attributes.Length=Marshal.SizeOf(typeof(SecurityAttributes));
+            attributes.SecurityDescriptor=pin.AddrOfPinnedObject();
+            attributes.InheritHandle=false;
+            // Atomic create-new, never adopt or edit an existing directory.
+            if(!CreateDirectoryW(path,ref attributes)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        } finally { pin.Free(); }
+    }
+
+    private static Info Check(SafeFileHandle handle, bool directory) {
+        Info info;
+        if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if ((info.Attributes & 0x400U) != 0 || ((info.Attributes & 0x10U) != 0) != directory)
+            throw new InvalidOperationException("Unexpected physical object type.");
+        if (!directory && info.Links != 1) throw new InvalidOperationException("Non-single-link file.");
+        return info;
+    }
+    public static SafeFileHandle Open(string path, bool directory, bool mutate) {
+        // OPEN_REPARSE_POINT, BACKUP_SEMANTICS, OPEN_EXISTING.
+        // No share-delete; for target files no share-write either.
+        uint access = mutate ? 0x000E0080U : 0x80U;
+        uint share = mutate && !directory ? 1U : 3U;
+        SafeFileHandle handle = CreateFileW(path, access, share, IntPtr.Zero, 3, 0x02200000U, IntPtr.Zero);
+        if (handle.IsInvalid) { int error=Marshal.GetLastWin32Error(); handle.Dispose(); throw new Win32Exception(error); }
+        try { Check(handle,directory); return handle; } catch { handle.Dispose(); throw; }
+    }
+    public static string Identity(SafeFileHandle handle, bool directory) {
+        Info info=Check(handle,directory);
+        return info.Volume.ToString("X8")+":"+info.IndexHigh.ToString("X8")+info.IndexLow.ToString("X8");
+    }
+    public static void Apply(SafeFileHandle handle, bool directory, byte[] descriptor) {
+        Check(handle,directory);
+        GCHandle pin=GCHandle.Alloc(descriptor,GCHandleType.Pinned);
+        try {
+            IntPtr owner,dacl;
+            bool ownerDefaulted,present,daclDefaulted;
+            if (!GetSecurityDescriptorOwner(pin.AddrOfPinnedObject(),out owner,out ownerDefaulted) || owner==IntPtr.Zero ||
+                !GetSecurityDescriptorDacl(pin.AddrOfPinnedObject(),out present,out dacl,out daclDefaulted) || !present || dacl==IntPtr.Zero)
+                throw new InvalidOperationException("Invalid normalization descriptor.");
+            // OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+            // PROTECTED_DACL_SECURITY_INFORMATION, SE_FILE_OBJECT.
+            uint result=SetSecurityInfo(handle,1,0x80000005U,owner,IntPtr.Zero,dacl,IntPtr.Zero);
+            if(result!=0) throw new Win32Exception((int)result);
+            Check(handle,directory);
+        } finally { pin.Free(); }
+    }
+}
+'@
+}
+
+# Create a new empty directory with its protected descriptor in one OS call.
+# The caller must verify and retain the physical parent boundary.
+function New-PrivateFreshPostgresDirectory([string]$Path) {
+    Initialize-FreshPostgresAclNative
+    $raw=[Security.AccessControl.RawSecurityDescriptor]::new('O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+    $bytes=New-Object byte[] $raw.BinaryLength
+    $raw.GetBinaryForm($bytes,0)
+    [EsteriumFreshPgAclNative]::CreatePrivateDirectory($Path,$bytes)
+    $handle=[EsteriumFreshPgAclNative]::Open($Path,$true,$false)
+    try {
+        $acl=[Security.AccessControl.RawSecurityDescriptor]::new((Get-Acl -LiteralPath $Path -ErrorAction Stop).GetSecurityDescriptorBinaryForm(),0)
+        if($acl.Owner.Value -cne 'S-1-5-32-544' -or -not ($acl.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -or $acl.DiscretionaryAcl.Count -ne 2){throw 'Fresh empty directory descriptor unexpected.'}
+        $seen=@{}
+        foreach($ace in $acl.DiscretionaryAcl){
+            if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or $ace.IsCallback -or $ace.SecurityIdentifier.Value -notin @('S-1-5-18','S-1-5-32-544') -or $ace.AccessMask -ne 0x1F01FF -or [int]$ace.AceFlags -ne 3){throw 'Fresh empty directory ACE unexpected.'}
+            $seen[$ace.SecurityIdentifier.Value]=$true
+        }
+        if($seen.Count -ne 2 -or @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop).Count){throw 'Fresh directory not empty or exact.'}
+        return [EsteriumFreshPgAclNative]::Identity($handle,$true)
+    }finally{$handle.Dispose()}
+}
+
+# The immediate PGDATA parent is part of the trust boundary. A non-admin
+# owner can change its ACL even if all explicit ACEs are read-only.
+# Higher system ancestors may permit creation of unrelated siblings, but
+# must not allow deletion of children or alteration of their own ACL.
+function Test-FreshPostgresParentDescriptor {
+    param([Security.AccessControl.RawSecurityDescriptor]$Descriptor,[bool]$Immediate)
+    $trusted=@('S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+    if($null -eq $Descriptor.Owner -or $Descriptor.Owner.Value -notin $trusted){return 'parent-owner'}
+    if($null -eq $Descriptor.DiscretionaryAcl){return 'parent-null-dacl'}
+    # DELETE, WRITE_DAC, WRITE_OWNER, FILE_DELETE_CHILD, generic all/write.
+    $danger=0x500D0040
+    if($Immediate){$danger=$danger -bor 0x116} # add file/dir, write EA/attributes
+    foreach($ace in $Descriptor.DiscretionaryAcl){
+        if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback){return 'parent-unsupported-ace'}
+        if($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessDenied){continue}
+        if($ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed){return 'parent-unsupported-ace'}
+        if(([int]$ace.AceFlags -band 8) -ne 0){continue}
+        if($ace.SecurityIdentifier.Value -notin $trusted -and ($ace.AccessMask -band $danger) -ne 0){return 'parent-untrusted-write'}
+    }
+    return 'pass'
+}
+
+# Read-only parent attestation. No ownership or ACL repair of existing folders.
+function Assert-FreshPostgresParentBoundary([string]$DataDir) {
+    $full=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+    $cursor=Split-Path -Parent $full
+    if([string]::IsNullOrWhiteSpace($cursor)){throw 'PostgreSQL parent boundary missing.'}
+    $immediate=$true
+    $count=0
+    while($cursor){
+        $entry=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if(-not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'PostgreSQL parent boundary is not physical.'}
+        $raw=[Security.AccessControl.RawSecurityDescriptor]::new((Get-Acl -LiteralPath $cursor -ErrorAction Stop).GetSecurityDescriptorBinaryForm(),0)
+        $result=Test-FreshPostgresParentDescriptor $raw $immediate
+        if($result -cne 'pass'){throw ('PostgreSQL parent boundary rejected: '+$result)}
+        $count++
+        $immediate=$false
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    Write-Output ('PASS: PostgreSQL parent boundary inspected '+$count+' directories.')
+}
+# Normalize only a fresh data root whose physical identity is retained by
+# the caller across the vendor invocation. Never use this for repair.
+function Normalize-FreshPostgresDataAcl([string]$DataDir,[string]$ServiceSid,[string]$RootIdentity,[Microsoft.Win32.SafeHandles.SafeFileHandle]$RootHandle) {
+    $expected=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+    if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$' -or -not $expected.StartsWith((Join-Path $env:ProgramData 'Esterium')+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Fresh normalization scope rejected.'}
+    Assert-FreshPostgresParentBoundary $expected
+    if($RootHandle.IsClosed -or $RootHandle.IsInvalid -or [EsteriumFreshPgAclNative]::Identity($RootHandle,$true) -cne $RootIdentity){throw 'Fresh root handle identity rejected.'}
+    Initialize-FreshPostgresAclNative
+    $locks=[Collections.Generic.List[object]]::new()
+    $objects=[Collections.Generic.List[object]]::new()
+    $identities=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    try {
+        # Hold each physical ancestor from volume root down. No share-delete.
+        $ancestors=[Collections.Generic.Stack[string]]::new()
+        $cursor=Split-Path -Parent $expected
+        while($cursor){
+            $ancestors.Push($cursor)
+            $parent=Split-Path -Parent $cursor
+            if($parent -eq $cursor){break}
+            $cursor=$parent
+        }
+        while($ancestors.Count){
+            $handle=[EsteriumFreshPgAclNative]::Open($ancestors.Pop(),$true,$false)
+            $locks.Add($handle)
+        }
+        $pending=[Collections.Generic.Stack[string]]::new()
+        $pending.Push($expected)
+        $rootVolume=''
+        while($pending.Count){
+            $path=$pending.Pop()
+            $entry=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            $directory=[bool]$entry.PSIsContainer
+            $handle=[EsteriumFreshPgAclNative]::Open($path,$directory,$true)
+            $locks.Add($handle)
+            $identity=[EsteriumFreshPgAclNative]::Identity($handle,$directory)
+            if($path -ceq $expected){if($identity -cne $RootIdentity){throw 'Fresh data root identity changed.'};$rootVolume=$identity.Split(':')[0]}
+            if($identity.Split(':')[0] -cne $rootVolume -or -not $identities.Add($identity)){throw 'Unexpected fixture volume or repeated identity.'}
+            $objects.Add([pscustomobject]@{Path=$path;Directory=$directory;Handle=$handle;Identity=$identity})
+            if($directory){
+                foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}
+            }
+        }
+        # No writes until every object has a validated, retained handle.
+        # Apply to those handles, never reopen an untrusted path for mutation.
+        foreach($object in $objects){
+            if([EsteriumFreshPgAclNative]::Identity($object.Handle,$object.Directory) -cne $object.Identity){throw 'Fixture identity changed.'}
+            $raw=New-FreshPostgresDataDescriptor $ServiceSid $object.Directory
+            $bytes=New-Object byte[] $raw.BinaryLength
+            $raw.GetBinaryForm($bytes,0)
+            [EsteriumFreshPgAclNative]::Apply($object.Handle,$object.Directory,$bytes)
+        }
+        # Re-enumerate while handles remain held; reject added/missing objects.
+        $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $pending.Push($expected)
+        while($pending.Count){
+            $path=$pending.Pop()
+            $entry=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            $directory=[bool]$entry.PSIsContainer
+            $handle=[EsteriumFreshPgAclNative]::Open($path,$directory,$false)
+            try{
+                $identity=[EsteriumFreshPgAclNative]::Identity($handle,$directory)
+                if(-not $identities.Contains($identity) -or -not $seen.Add($identity)){throw 'Fixture tree changed during ACL normalization.'}
+            }finally{$handle.Dispose()}
+            if($directory){foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}}
+        }
+        if($seen.Count -ne $objects.Count){throw 'Fixture tree size changed during ACL normalization.'}
+        Assert-FreshPostgresParentBoundary $expected
+        Assert-FreshPostgresDataAcl $expected $ServiceSid
+        Write-Output ('PASS: fresh EDB cluster normalized through retained handles and validated objects='+$objects.Count)
+    } finally {
+        for($i=$locks.Count-1;$i -ge 0;$i--){$locks[$i].Dispose()}
+    }
+}
+function Assert-FreshPostgresDataAcl([string]$DataDir,[string]$ServiceSid) {
+    if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){throw 'PostgreSQL ACL gate requires a dedicated local service SID.'}
+    $root=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+    $cursor=$root
+    while($cursor){
+        $ancestor=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if(-not $ancestor.PSIsContainer -or ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'PostgreSQL ACL gate rejected a nonphysical directory.'}
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    $pending=[Collections.Generic.Stack[string]]::new()
+    $pending.Push($root)
+    $count=0
+    while($pending.Count -gt 0){
+        $path=$pending.Pop()
+        $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'PostgreSQL ACL gate rejected a reparse point.'}
+        $acl=Get-Acl -LiteralPath $path -ErrorAction Stop
+        $raw=[Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
+        $result=Test-PostgresDataDescriptor $raw $ServiceSid ([bool]$item.PSIsContainer) ($path -ieq $root)
+        if($result -ne 'pass'){throw ('PostgreSQL fresh data ACL rejected: '+$result+'. Service remains disabled; manual inspection required.')}
+        $count++
+        if($item.PSIsContainer){
+            foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}
+        }
+    }
+    Write-Output ('PASS: fresh PostgreSQL data ACL policy inspected '+$count+' objects.')
+}
+
 function Get-SafeFile([string]$value) {
     if (-not [IO.Path]::IsPathRooted($value) -or $value.StartsWith('\\')) {
         throw 'Somente caminhos absolutos em disco local são aceitos.'
@@ -381,6 +687,29 @@ if ((Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash -cne
     $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
     throw 'Wrapper de serviço foi alterado antes da instalação.'
 }
+$edbBoundaryLocks=[Collections.Generic.List[object]]::new()
+try {
+if(-not $PostgresBinaryZip){
+    Initialize-FreshPostgresAclNative
+    $ancestors=[Collections.Generic.Stack[string]]::new()
+    $cursor=Split-Path -Parent $pgData
+    while($cursor){
+        $ancestors.Push($cursor)
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    while($ancestors.Count){$edbBoundaryLocks.Add([EsteriumFreshPgAclNative]::Open($ancestors.Pop(),$true,$false))}
+    Assert-FreshPostgresParentBoundary $pgData
+    if((Test-Path -LiteralPath $pgData) -or (Test-Path -LiteralPath $pgDir) -or
+       (Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue) -or
+       @(Get-CimInstance Win32_UserAccount -Filter "Name='$PostgresServiceAccount' AND LocalAccount=TRUE" -ErrorAction Stop).Count -ne 0 -or
+       @(Get-NetTCPConnection -State Listen -LocalPort $PostgresPort -ErrorAction SilentlyContinue).Count){throw 'EDB fresh boundary changed; no vendor invocation.'}
+    $edbRootIdentity=New-PrivateFreshPostgresDirectory $pgData
+    $edbRootHandle=[EsteriumFreshPgAclNative]::Open($pgData,$true,$false)
+    $edbBoundaryLocks.Add($edbRootHandle)
+    if([EsteriumFreshPgAclNative]::Identity($edbRootHandle,$true) -cne $edbRootIdentity){throw 'EDB root identity changed before install.'}
+}
 Write-Output '1/3: instalando PostgreSQL 16 sem interface...'
 $proc=$null
 if(-not $PostgresBinaryZip){
@@ -615,17 +944,31 @@ $localAccounts=@($PostgresServiceAccount,('.\'+$PostgresServiceAccount),($env:CO
 if ($pgIdentity -notin $localAccounts) {
     throw 'Servico PostgreSQL nao pertence a conta Windows dedicada aprovada.'
 }
-if($PostgresBinaryZip){
-    $expectedServiceCommand='"'+(Join-Path $pgDir 'bin\pg_ctl.exe')+'" runservice -N "'+$PostgresServiceName+'" -D "'+$pgData+'" -w'
-    if($pgService[0].PathName -cne $expectedServiceCommand){
-        throw 'Serviço PostgreSQL ZIP não aponta exatamente aos binários e dados aprovados.'
-    }
+if(-not (Test-FreshPostgresServiceCommand ([string]$pgService[0].PathName) $pgDir $pgData $PostgresServiceName ([bool]$PostgresBinaryZip))){
+    throw 'PostgreSQL service command does not match the approved binaries, service and data directory.'
 }
+$null=Get-SafeFile (Join-Path $pgDir 'bin\pg_ctl.exe')
 # A listener should not survive shutdown; reject a port still occupied
 # instead of inferring that the new service is ready for production.
 if (@(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'A porta PostgreSQL ainda está ocupada após o desligamento: revisar identidade do processo.'
 }
+# EDB and ZIP must meet the same fresh-cluster ACL acceptance policy.
+$pgAccount=Get-LocalUser -Name $PostgresServiceAccount -ErrorAction Stop
+$pgServiceSid=[string]$pgAccount.SID.Value
+$pgAdminGroup=Get-LocalGroup -SID 'S-1-5-32-544' -ErrorAction Stop
+if(@(Get-LocalGroupMember -Group $pgAdminGroup.Name -ErrorAction Stop | Where-Object {$_.SID.Value -ceq $pgServiceSid}).Count){throw 'PostgreSQL ACL gate rejected an administrator service identity.'}
+if(-not $PostgresBinaryZip){
+    Assert-FreshPostgresParentBoundary $pgData
+    Normalize-FreshPostgresDataAcl $pgData $pgServiceSid $edbRootIdentity $edbRootHandle
+    $current=Get-CimInstance Win32_Service -Filter "Name='$PostgresServiceName'" -ErrorAction Stop
+    if($null -eq $current -or $current.State -cne 'Stopped' -or $current.StartMode -cne 'Disabled' -or [int]$current.ProcessId -ne 0 -or [string]$current.StartName -notin $localAccounts -or -not (Test-FreshPostgresServiceCommand ([string]$current.PathName) $pgDir $pgData $PostgresServiceName $false) -or @(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue).Count){throw 'EDB service binding/state changed during ACL normalization.'}
+}
+Assert-FreshPostgresDataAcl $pgData $pgServiceSid
+} finally {
+    for($i=$edbBoundaryLocks.Count-1;$i -ge 0;$i--){$edbBoundaryLocks[$i].Dispose()}
+}
+
 # Seal the new-cluster proof in the already protected install-options folder.
 # Never write a proof for existing services or before disabled/stopped SCM
 # identity, PG_VERSION and zero-listener guards have passed.

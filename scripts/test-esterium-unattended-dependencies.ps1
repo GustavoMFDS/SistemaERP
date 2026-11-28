@@ -16,6 +16,8 @@ if (@($parseErrors).Count -gt 0) {
     }) -join '; '
     throw ('Unattended install script PowerShell parser failed: '+$details)
 }
+& (Join-Path $PSScriptRoot 'test-esterium-postgres-data-acl-policy.ps1')
+& (Join-Path $PSScriptRoot 'test-esterium-postgres-data-acl-native-fixture.ps1')
 $implementation=[IO.File]::ReadAllText($tool)
 if (-not $implementation.Contains('Set-Service -Name $PostgresServiceName -StartupType Disabled') -or
     -not $implementation.Contains('Set-Service -Name $GarnetServiceName -StartupType Disabled') -or

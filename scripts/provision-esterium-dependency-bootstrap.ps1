@@ -100,6 +100,95 @@ function Write-Secret([string]$path,[string]$value,[bool]$networkRead,[bool]$loc
     } finally { [Array]::Clear($bytes,0,$bytes.Length) }
     Protect-Item $path $networkRead $localRead
 }
+function Test-FreshPostgresParentDescriptor {
+    param([Security.AccessControl.RawSecurityDescriptor]$Descriptor,[bool]$Immediate)
+    $trusted=@('S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+    if($null -eq $Descriptor.Owner -or $Descriptor.Owner.Value -notin $trusted){return 'parent-owner'}
+    if($null -eq $Descriptor.DiscretionaryAcl){return 'parent-null-dacl'}
+    # DELETE, WRITE_DAC, WRITE_OWNER, FILE_DELETE_CHILD, generic all/write.
+    $danger=0x500D0040
+    if($Immediate){$danger=$danger -bor 0x116} # add file/dir, write EA/attributes
+    foreach($ace in $Descriptor.DiscretionaryAcl){
+        if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback){return 'parent-unsupported-ace'}
+        if($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessDenied){continue}
+        if($ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed){return 'parent-unsupported-ace'}
+        if(([int]$ace.AceFlags -band 8) -ne 0){continue}
+        if($ace.SecurityIdentifier.Value -notin $trusted -and ($ace.AccessMask -band $danger) -ne 0){return 'parent-untrusted-write'}
+    }
+    return 'pass'
+}
+function Assert-FreshPostgresParentBoundary([string]$DataDir,[bool]$ImmediateParent=$true) {
+    $full=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+    $cursor=Split-Path -Parent $full
+    if([string]::IsNullOrWhiteSpace($cursor)){throw 'PostgreSQL parent boundary missing.'}
+    $immediate=$ImmediateParent
+    $count=0
+    while($cursor){
+        $entry=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if(-not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'PostgreSQL parent boundary is not physical.'}
+        $raw=[Security.AccessControl.RawSecurityDescriptor]::new((Get-Acl -LiteralPath $cursor -ErrorAction Stop).GetSecurityDescriptorBinaryForm(),0)
+        $result=Test-FreshPostgresParentDescriptor $raw $immediate
+        if($result -cne 'pass'){throw ('PostgreSQL parent boundary rejected: '+$result)}
+        $count++
+        $immediate=$false
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    Write-Output ('PASS: PostgreSQL parent boundary inspected '+$count+' directories.')
+}
+# Create the common application data root with a protected descriptor in
+# the same OS call, before signed bootstrap writes any credentials. Never
+# modify or adopt an untrusted pre-existing root.
+if(-not $UnsignedDisposableCIFixture){
+    if(-not (Test-Path -LiteralPath $root)){
+        Assert-FreshPostgresParentBoundary $root $false
+        if(-not ('EsteriumBootstrapRootNative' -as [type])){
+            Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class EsteriumBootstrapRootNative {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SecurityAttributes {
+        public int Length;
+        public IntPtr SecurityDescriptor;
+        [MarshalAs(UnmanagedType.Bool)] public bool InheritHandle;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateDirectoryW(string path, ref SecurityAttributes attributes);
+    public static void Create(string path, byte[] descriptor) {
+        GCHandle pin=GCHandle.Alloc(descriptor,GCHandleType.Pinned);
+        try {
+            SecurityAttributes a=new SecurityAttributes();
+            a.Length=Marshal.SizeOf(typeof(SecurityAttributes));
+            a.SecurityDescriptor=pin.AddrOfPinnedObject();
+            if(!CreateDirectoryW(path,ref a)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        } finally { pin.Free(); }
+    }
+}
+'@
+        }
+        $rootDescriptor=[Security.AccessControl.RawSecurityDescriptor]::new('O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+        $rootBytes=New-Object byte[] $rootDescriptor.BinaryLength
+        $rootDescriptor.GetBinaryForm($rootBytes,0)
+        [EsteriumBootstrapRootNative]::Create($root,$rootBytes)
+        $createdRoot=Get-Item -LiteralPath $root -Force -ErrorAction Stop
+        if(-not $createdRoot.PSIsContainer -or ($createdRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Bootstrap root is not a physical directory.'}
+        $actualRoot=[Security.AccessControl.RawSecurityDescriptor]::new((Get-Acl -LiteralPath $root).GetSecurityDescriptorBinaryForm(),0)
+        if($actualRoot.Owner.Value -cne 'S-1-5-32-544' -or -not ($actualRoot.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -or $actualRoot.DiscretionaryAcl.Count -ne 2){throw 'Bootstrap root descriptor differs from the protected policy.'}
+        $rootPrincipals=@{}
+        foreach($ace in $actualRoot.DiscretionaryAcl){
+            if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or $ace.SecurityIdentifier.Value -notin @('S-1-5-18','S-1-5-32-544') -or $ace.AccessMask -ne 0x1F01FF -or [int]$ace.AceFlags -ne 3){throw 'Bootstrap root ACL differs from the protected policy.'}
+            $rootPrincipals[$ace.SecurityIdentifier.Value]=$true
+        }
+        if($rootPrincipals.Count -ne 2){throw 'Bootstrap root identities differ from the protected policy.'}
+        Write-Output 'PASS: new protected Esterium root created atomically.'
+    }
+    Assert-FreshPostgresParentBoundary $target
+}
+
 [IO.Directory]::CreateDirectory($parent) | Out-Null
 $stage=Join-Path $parent ('.esterium-bootstrap-'+[Guid]::NewGuid().ToString('N'))
 $cert=$null
