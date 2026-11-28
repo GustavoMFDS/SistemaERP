@@ -20,6 +20,7 @@ param(
     [ValidateRange(1,65535)][int]$PostgresPort=5432,
     [ValidateRange(1,65535)][int]$GarnetPort=6379,
     [ValidateRange(10,90)][int]$ReadinessTimeoutSeconds=90,
+    [string]$NewTrustedRemoteAddress='',
     [switch]$Apply,
     [switch]$ConfirmMaintenance
 )
@@ -76,6 +77,24 @@ function Assert-ProtectedTLS([string]$Path,[bool]$ServiceRead) {
     if ($ServiceRead -and -not $hasReader) { throw 'LocalService requires TLS input read access.' }
     return $full
 }
+function Assert-PrivateScope([string]$Value) {
+    if ($Value -cnotmatch '^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/([0-9]{1,2})$') { throw 'Expected canonical private IPv4 CIDR.' }
+    $addressText=$Matches[1];$prefix=[int]$Matches[2]
+    $ip=$null
+    if (-not [Net.IPAddress]::TryParse($addressText,[ref]$ip) -or $ip.ToString() -cne $addressText -or $prefix -lt 16 -or $prefix -gt 32) { throw 'Expected canonical private IPv4 CIDR /16 through /32.' }
+    $v=$ip.GetAddressBytes()
+    if (-not (($v[0] -eq 10) -or ($v[0] -eq 172 -and $v[1] -ge 16 -and $v[1] -le 31) -or ($v[0] -eq 192 -and $v[1] -eq 168))) { throw 'Firewall scope must remain private RFC1918.' }
+    for ($bit=$prefix;$bit -lt 32;$bit++) {
+        if (($v[[int][Math]::Floor($bit/8)] -band (1 -shl (7-($bit%8)))) -ne 0) { throw 'Firewall scope must use canonical network address.' }
+    }
+    return $addressText+'/'+$prefix
+}
+function Set-OwnedScope([string]$Scope) {
+    $null=Assert-PrivateScope $Scope
+    $rules=@(Get-NetFirewallRule -Name 'EsteriumERP-HTTPS' -PolicyStore PersistentStore -ErrorAction Stop)
+    if ($rules.Count -ne 1) { throw 'Expected exactly one persistent owned HTTPS rule.' }
+    $rules[0] | Get-NetFirewallAddressFilter | Set-NetFirewallAddressFilter -RemoteAddress $Scope -ErrorAction Stop | Out-Null
+}
 function Read-ManagedEnvironment {
     $result=@{}
     foreach ($entry in @((Get-ItemProperty -LiteralPath $registry -Name Environment).Environment)) {
@@ -112,7 +131,7 @@ function Replace-Bytes([string]$Path,[byte[]]$Bytes) {
     $temp=Join-Path (Split-Path -Parent $Path) ('.esterium-rotation-'+[Guid]::NewGuid().ToString('N')+'.tmp')
     try {
         Write-DurableNew $temp $Bytes
-        [IO.File]::Replace($temp,$Path,$null)
+        [IO.File]::Replace($temp,$Path,[NullString]::Value)
     } finally {
         if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
     }
@@ -161,6 +180,8 @@ if (-not [Uri]::TryCreate($NewOrigin,[UriKind]::Absolute,[ref]$newUri) -or
     $newUri.Port -ne $baseline.httpsPort -or $newUri.Port -in @(80,8080,5432,6379) -or
     ($newUri.Port -lt 1024 -and $newUri.Port -ne 443)) { throw 'Use a real LAN DNS origin on the existing HTTPS port.' }
 $authority=$newUri.GetLeftPart([UriPartial]::Authority)
+$oldScope=Assert-PrivateScope ([string]$baseline.trustedRemoteAddress)
+$newScope=if ($NewTrustedRemoteAddress) { Assert-PrivateScope $NewTrustedRemoteAddress } else { $oldScope }
 $cert=Assert-ProtectedTLS $NewCertificateFile $true
 $key=Assert-ProtectedTLS $NewKeyFile $true
 $root=Assert-ProtectedTLS $ApprovedRootFile $false
@@ -208,6 +229,7 @@ try {
     $record=[ordered]@{
         kind='ESTERIUM_LAN_ROTATION_PENDING';schemaVersion=1;manifestSHA256=$ApprovedManifestSHA256.ToUpperInvariant()
         oldOrigin=$oldOrigin;newOrigin=$authority;oldValues=$old;newValues=$next
+        oldScope=$oldScope;newScope=$newScope
         receiptBase64=[Convert]::ToBase64String($receiptBefore)
         shortcutBase64=[Convert]::ToBase64String($shortcutBefore)
         createdUtc=[DateTime]::UtcNow.ToString('o')
@@ -219,6 +241,8 @@ try {
     try {
         Stop-ERP
         Set-ManagedEnvironment $next
+        if ($newScope -cne $oldScope) { Set-OwnedScope $newScope }
+        $receipt.trustedRemoteAddress=$newScope
         $receipt.allowedOrigin=$authority
         $receipt.checkedUtc=[DateTime]::UtcNow.ToString('o')
         Replace-Bytes $shortcut ($utf8.GetBytes("[InternetShortcut]"+[Environment]::NewLine+'URL='+$authority+[Environment]::NewLine))
@@ -234,6 +258,7 @@ try {
         try {
             Stop-ERP
             Set-ManagedEnvironment $old
+            if ($newScope -cne $oldScope) { Set-OwnedScope $oldScope }
             Replace-Bytes $shortcut $shortcutBefore
             Replace-Bytes $receiptFile $receiptBefore
             Start-ERP

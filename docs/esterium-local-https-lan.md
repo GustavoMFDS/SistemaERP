@@ -119,3 +119,10 @@ PLAN e a falha de uma troca com certificado sintético não confiável no
 Windows, seguido de rollback e login original. A rotina aceita portas de
 dependência explícitas (padrões 5432/6379). O resultado ainda depende do CI;
 nenhuma raiz de confiança é instalada para a identidade de falha.
+
+A manutenção agora admite alteração explícita do CIDR da regra existente
+(`NewTrustedRemoteAddress`), limitada a um único CIDR RFC1918 canônico
+/16 a /32. O escopo anterior consta do journal e é restaurado em falha.
+A porta permanece fixa. Não criar regra adicional nem liberar perfil público.
+O teste real ainda não passou; a causa anterior ficou oculta pelo assertion,
+agora corrigido para diagnóstico no laboratório sintético.

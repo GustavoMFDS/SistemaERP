@@ -646,7 +646,10 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
         (Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash -ne $beforeShortcut) { throw 'Rotation PLAN changed installation metadata.' }
     $recovered=$false
     try { & $rotate @rotationArgs -Apply -ConfirmMaintenance | Out-Null }
-    catch { $recovered=$_.Exception.Message -ceq 'Rotation refused; original HTTPS configuration restored and ready.' }
+    catch {
+        $recovered=$_.Exception.Message -ceq 'Rotation refused; original HTTPS configuration restored and ready.'
+        if (-not $recovered) { throw ('Rotation fixture failed at line '+$_.InvocationInfo.ScriptLineNumber+'; '+$_.Exception.GetType().Name+'; '+$_.Exception.Message) }
+    }
     if (-not $recovered) { throw 'Expected real failed TLS rotation to restore the original configuration.' }
     if ((Get-FileHash -LiteralPath $activationReceiptPath -Algorithm SHA256).Hash -ne $beforeReceipt -or
         (Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash -ne $beforeShortcut -or
