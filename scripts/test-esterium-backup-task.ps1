@@ -14,6 +14,39 @@ $local = Join-Path $root 'archives'
 $runner = Join-Path $PSScriptRoot 'run-esterium-scheduled-backup.ps1'
 $registration = Join-Path $PSScriptRoot 'register-esterium-backup-task.ps1'
 try {
+    $planner = Join-Path $PSScriptRoot 'plan-esterium-backup-config.ps1'
+    $proposalArgs = @{
+        PasswordFile=$passPath; RootCertificate=$cert; PostgresBin=$bin
+        BackupDir=$local; ExternalBackupDir='\\other-computer\protected-backups'
+    }
+    $proposal = & $planner @proposalArgs | ConvertFrom-Json
+    if ($proposal.PGUSER -cne 'esterium_backup' -or $proposal.PGDATABASE -cne 'esterium' -or
+        $proposal.PGHOST -cne 'localhost' -or $proposal.PGPORT -cne '5432' -or
+        $proposal.PGPASSFILE -ne $passPath -or $proposal.PGSSLROOTCERT -ne $cert -or
+        $proposal.BackupDir -ne $local -or $proposal.ExternalBackupDir -ne $proposalArgs.ExternalBackupDir -or
+        $proposal.PostgresBin -ne $bin -or $proposal.RetentionDays -ne 14 -or
+        @($proposal.PSObject.Properties).Count -ne 10 -or (Test-Path -LiteralPath $root)) {
+        throw 'Backup proposal did not preserve exact settings or wrote to disk.'
+    }
+    foreach ($bad in @(
+        @{PasswordFile='relative.secret'},
+        @{PasswordFile='\\other-computer\protected-backups\pgpass.secret'},
+        @{PasswordFile=(Join-Path $local 'pgpass.secret')},
+        @{RootCertificate=$passPath},
+        @{BackupDir=$env:ProgramFiles},
+        @{ExternalBackupDir='\\localhost\protected-backups'},
+        @{ExternalBackupDir='\\127.0.0.2\protected-backups'},
+        @{ExternalBackupDir='\\other-computer\protected-backups\..'},
+        @{ExternalBackupDir=$local}
+    )) {
+        $candidate = $proposalArgs.Clone()
+        foreach ($key in $bad.Keys) { $candidate[$key] = $bad[$key] }
+        $denied = $false
+        try { & $planner @candidate | Out-Null } catch { $denied = $true }
+        if (-not $denied -or (Test-Path -LiteralPath $root)) {
+            throw 'Backup proposal accepted unsafe inputs or wrote files.'
+        }
+    }
     [IO.Directory]::CreateDirectory($bin) | Out-Null
     [IO.Directory]::CreateDirectory($local) | Out-Null
     foreach ($name in @('pg_dump.exe', 'pg_restore.exe', 'psql.exe')) {
