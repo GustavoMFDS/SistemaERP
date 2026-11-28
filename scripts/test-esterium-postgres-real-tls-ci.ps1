@@ -444,7 +444,7 @@ FROM product;
     # against the migrated, TLS-only disposable database. Only this CI
     # cluster uses the generated fixture credential.
     $runtimeText=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'run-esterium-scheduled-backup.ps1'))
-    $queryMatch=[regex]::Match($runtimeText,"(?ms)^\x24identityCheck = & \x24psql [^\r\n]*\r?\n(.*?)\r?\n'@$")
+    $queryMatch=[regex]::Match($runtimeText,"(?ms)^\x24identityCheck = & \x24psql [^\r\n]*\r?\n(.*?)\r?\n'@\r?$")
     if (-not $queryMatch.Success) { throw 'Cannot locate exact scheduled backup identity query.' }
     $backupProbe=$queryMatch.Groups[1].Value
     $backupPassFile=Join-Path $root 'ci-backup.pgpass'
