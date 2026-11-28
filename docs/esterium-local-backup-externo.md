@@ -145,3 +145,22 @@ A fixture `scripts/ci-esterium-backup-role.sh` exercita staging,
 recusas, rollback, privilégios efetivos, objetos futuros e pg_dump com
 SET ROLE em PostgreSQL descartável do job integration. Não é prova de
 autenticação real da conta ou backup externo na instalação Windows.
+
+
+### Proposta de configuração sem escrita
+
+O novo `scripts/plan-esterium-backup-config.ps1` produz somente o JSON
+de configuração (dez campos, sem valores de senha), com identidade e
+banco dedicados e caminhos locais separados dos arquivos de backup.
+Requer caminhos explícitos para PGPASSFILE, CA e destino SMB, sem ler os
+arquivos ou contactar a rede. Rejeita destinos evidentemente locais,
+caminhos relativos e arquivos secretos dentro do diretório de arquivos
+de backup. Não comprova que um nome SMB corresponde a outro equipamento.
+
+O planejador é um componente de desenvolvimento, ainda não distribuído
+no bundle assinado. Sua saída não é um arquivo protegido: não redirecionar
+para um diretório público ou substituir configuração existente. O passo
+seguinte é o provisionador local assinado com ACLs e verificação
+`-CheckOnly` do executor. O planejador não cria senha, habilita LOGIN,
+instala tarefas ou valida autenticação real. Os testes exercitam a
+proposta antes de criar o diretório sintético do runner.
