@@ -108,3 +108,36 @@ O teste **não prova** que um compartilhamento SMB é outro equipamento, nem aut
 - Configurar alertas quando a cópia externa falhar ou quando a última restauração ensaiada ficar antiga.
 - Ensaiar reinício do serviço e queda de energia durante backup e durante transações simultâneas de PDV.
 - Nenhuma liberação de emissão SEFAZ antes de credenciamento, homologação e protocolo genuíno.
+
+
+### Provisionamento da identidade PostgreSQL (etapa de staging, #239)
+
+O arquivo `scripts/stage-esterium-postgres-backup-role.sql` prepara somente
+a identidade PostgreSQL `esterium_backup`, inicialmente **NOLOGIN**, sem
+senha. Não é migração do ERP nem deve ser executado automaticamente durante
+instalação. Exige revisão/aprovação do arquivo pelo responsável técnico e
+sessão PostgreSQL administrativa local com TLS `verify-full`. Executar
+com psql em modo `-X -v ON_ERROR_STOP=1` e a base `esterium`, somente após
+conferir a identidade do servidor e o estado da instalação.
+
+A transação recusa base ou proprietário inesperados, migração suja, conta
+preexistente, RLS e privilégios efetivos excessivos no schema public;
+concede SELECT nas tabelas/sequências atuais e privilégios padrão SELECT
+para objetos futuros do proprietário da aplicação e do administrador
+executor. Não altera contas existentes nem retira permissões de PUBLIC.
+A configuração de transação read-only é defesa adicional, não substitui
+as permissões. Outros schemas, extensões, funções executáveis e mudanças
+posteriores de privilégios exigem revisão de cobertura antes do piloto.
+
+**Ainda não habilita login, não provisiona senha/PGPASSFILE ou ACL Windows,
+não registra tarefa e não comprova acesso SMB como NetworkService.**
+A ativação exige procedimento local aprovado, credencial própria e
+verificação de acesso efetivo; não reutilizar credencial da aplicação.
+Em workgroup, uma sessão SMB interativa não prova a autorização da
+identidade de serviço. Não habilitar o agendamento até teste nessa
+identidade e restauração comprovada.
+
+A fixture `scripts/ci-esterium-backup-role.sh` exercita staging,
+recusas, rollback, privilégios efetivos, objetos futuros e pg_dump com
+SET ROLE em PostgreSQL descartável do job integration. Não é prova de
+autenticação real da conta ou backup externo na instalação Windows.
