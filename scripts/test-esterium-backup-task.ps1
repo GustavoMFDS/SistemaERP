@@ -47,6 +47,24 @@ try {
             throw 'Backup proposal accepted unsafe inputs or wrote files.'
         }
     }
+    $provisioner = Join-Path $PSScriptRoot 'provision-esterium-backup-config.ps1'
+    $originalProgramData = $env:ProgramData
+    try {
+        $env:ProgramData = Join-Path $root 'programdata'
+        $protectedPlan = @(& $provisioner @proposalArgs) -join ' '
+        if ($protectedPlan -notmatch 'PLAN: no files, credentials, database, SMB or scheduled task changed' -or
+            (Test-Path -LiteralPath $root)) {
+            throw 'Protected configuration PLAN wrote files or did not report its boundary.'
+        }
+        $approvalDenied = $false
+        try { & $provisioner @proposalArgs -Apply | Out-Null }
+        catch { $approvalDenied = $_.Exception.Message -match 'independent release and publisher approval' }
+        if (-not $approvalDenied -or (Test-Path -LiteralPath $root)) {
+            throw 'Protected configuration Apply did not reject missing approval without writing.'
+        }
+    } finally {
+        $env:ProgramData = $originalProgramData
+    }
     [IO.Directory]::CreateDirectory($bin) | Out-Null
     [IO.Directory]::CreateDirectory($local) | Out-Null
     foreach ($name in @('pg_dump.exe', 'pg_restore.exe', 'psql.exe')) {
