@@ -492,6 +492,8 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
+      - name: Verify staged Esterium backup role with least privilege
+        run: bash scripts/ci-esterium-backup-role.sh
       - name: Prove complete PostgreSQL restore in a second disposable CI database
         run: bash scripts/ci-postgres-disposable-restore.sh
       - name: Prove archive restores on a separate isolated PostgreSQL server
