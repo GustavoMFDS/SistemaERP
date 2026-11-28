@@ -92,3 +92,24 @@ exporta chave, não instala CA, nem comprova revogação ou readiness.
 O adaptador de manutenção ainda deve verificar ACL, caminhos físicos e
 assinaturas antes de invocar o executável, além de executar a transação
 com recuperação. A integração de distribuição ainda aguarda CI.
+
+
+### Primeira implementação Windows (em revisão)
+
+`rotate-esterium-lan-https.ps1` implementa uma troca assistida na mesma
+porta e escopo de firewall, usando arquivos PEM novos e protegidos,
+raízes e folha pinadas, DNS privado real apontado exclusivamente para
+o servidor, aprovação de assinatura e manutenção exclusiva. Mantém
+os arquivos TLS anteriores. Registra um journal protegido antes de
+alterar os quatro campos SCM gerenciados, atalho e recibo; valida
+readiness e o verificador de terminal local. Em falha tenta repor
+o estado anterior e verificar readiness. Não toca firewall, banco,
+cache, fiscal ou confiança dos terminais. Exige baseline já confiável.
+
+O journal pendente bloqueia nova tentativa após interrupção; a
+recuperação após interrupção ainda exige procedimento administrativo
+revisado. O código ainda não integra o manifesto (nem deve ser executado
+na instalação atual) e requer testes de Apply/rollback Windows.
+Mudança de porta/CIDR está fora desta primeira implementação.
+A coordenação Go anterior é referência/teste de contrato, não é
+executada diretamente por este script PowerShell.
