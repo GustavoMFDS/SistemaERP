@@ -157,8 +157,8 @@ arquivos ou contactar a rede. Rejeita destinos evidentemente locais,
 caminhos relativos e arquivos secretos dentro do diretório de arquivos
 de backup. Não comprova que um nome SMB corresponde a outro equipamento.
 
-O planejador é um componente de desenvolvimento, ainda não distribuído
-no bundle assinado. Sua saída não é um arquivo protegido: não redirecionar
+O planejador integra a lista de ferramentas do próximo bundle Windows;
+a distribuição assinada ainda depende da validação e aprovação da release. Sua saída não é um arquivo protegido: não redirecionar
 para um diretório público ou substituir configuração existente. O passo
 seguinte é o provisionador local assinado com ACLs e verificação
 `-CheckOnly` do executor. O planejador não cria senha, habilita LOGIN,
@@ -183,7 +183,6 @@ não é criada por este componente.
 
 O código e os testes de PLAN/recusa sem aprovação estão em revisão; o
 Apply assinado ainda exige ensaio próprio. O provisionador e planejador
-não estão ainda na lista permitida do manifesto/bundle, portanto não
-usar na instalação atual. Integrar empacotamento e fixtures do manifesto
-antes de emitir candidato assinado. Não alterar a política de confiança
+integram as listas do manifesto, empacotamento e fixtures. Não usar na
+instalação atual; aguardar um candidato assinado e aprovado. Não alterar a política de confiança
 para executar esse código em laboratório.

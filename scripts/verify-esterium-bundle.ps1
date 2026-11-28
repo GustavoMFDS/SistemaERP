@@ -35,6 +35,8 @@ $requiredTools = @(
     'tools/check-esterium-backup-integrity.ps1',
     'tools/run-esterium-scheduled-backup.ps1',
     'tools/register-esterium-backup-task.ps1',
+    'tools/plan-esterium-backup-config.ps1',
+    'tools/provision-esterium-backup-config.ps1',
     'tools/check-esterium-windows-host.ps1',
     'tools/unregister-esterium-windows-service.ps1',
     'tools/check-esterium-local-dependencies.ps1',
