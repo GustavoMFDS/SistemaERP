@@ -116,6 +116,7 @@ function Normalize-DisposableEdbAcl([string]$DataDir,[string]$ServiceSid,[string
             if($directory){foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}}
         }
         if($seen.Count -ne $objects.Count){throw 'Fixture tree size changed during ACL normalization.'}
+        Assert-FreshPostgresParentBoundary $expected
         Assert-FreshPostgresDataAcl $expected $ServiceSid
         Write-Output ('PASS: disposable EDB cluster normalized through retained handles and validated objects='+$objects.Count)
     } finally {
@@ -177,7 +178,7 @@ try {
     $aclTokens=$null;$aclErrors=$null
     $aclAst=[Management.Automation.Language.Parser]::ParseFile($candidateInstaller,[ref]$aclTokens,[ref]$aclErrors)
     if($aclErrors.Count){throw 'Candidate ACL validator syntax invalid.'}
-    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Initialize-FreshPostgresAclNative','New-PrivateFreshPostgresDirectory','Assert-FreshPostgresDataAcl')){
+    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Initialize-FreshPostgresAclNative','New-PrivateFreshPostgresDirectory','Test-FreshPostgresParentDescriptor','Assert-FreshPostgresParentBoundary','Assert-FreshPostgresDataAcl')){
         $defs=@($aclAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName},$true))
         if($defs.Count -ne 1){throw 'Candidate ACL function absent or ambiguous.'}
         . ([scriptblock]::Create($defs[0].Extent.Text))
@@ -196,6 +197,7 @@ try {
         $cursor=$parent
     }
     while($ancestorStack.Count){$preinstallLocks.Add([EsteriumFreshPgAclNative]::Open($ancestorStack.Pop(),$true,$false))}
+    Assert-FreshPostgresParentBoundary $dataDir
     $freshIdentity=New-PrivateFreshPostgresDirectory $dataDir
     $freshRootHandle=[EsteriumFreshPgAclNative]::Open($dataDir,$true,$false)
     $preinstallLocks.Add($freshRootHandle)
@@ -245,6 +247,7 @@ try {
         if([EsteriumFreshPgAclNative]::Identity($verifyRoot,$true) -cne $freshIdentity -or [EsteriumFreshPgAclNative]::Identity($freshRootHandle,$true) -cne $freshIdentity){throw 'EDB did not preserve the pre-created directory identity.'}
     }finally{$verifyRoot.Dispose()}
     Write-Output 'PASS: EDB preserved the protected directory physical identity.'
+    Assert-FreshPostgresParentBoundary $dataDir
     $bindingOk=Test-FreshPostgresServiceCommand ([string]$scm[0].PathName) $installDir $dataDir $svc $false
     Write-Output ('EDB actual service binding accepted='+$bindingOk)
     $aclOk=$false

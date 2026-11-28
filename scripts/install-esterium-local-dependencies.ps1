@@ -221,6 +221,49 @@ function New-PrivateFreshPostgresDirectory([string]$Path) {
     }finally{$handle.Dispose()}
 }
 
+# The immediate PGDATA parent is part of the trust boundary. A non-admin
+# owner can change its ACL even if all explicit ACEs are read-only.
+# Higher system ancestors may permit creation of unrelated siblings, but
+# must not allow deletion of children or alteration of their own ACL.
+function Test-FreshPostgresParentDescriptor {
+    param([Security.AccessControl.RawSecurityDescriptor]$Descriptor,[bool]$Immediate)
+    $trusted=@('S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+    if($null -eq $Descriptor.Owner -or $Descriptor.Owner.Value -notin $trusted){return 'parent-owner'}
+    if($null -eq $Descriptor.DiscretionaryAcl){return 'parent-null-dacl'}
+    # DELETE, WRITE_DAC, WRITE_OWNER, FILE_DELETE_CHILD, generic all/write.
+    $danger=0x500D0040
+    if($Immediate){$danger=$danger -bor 0x116} # add file/dir, write EA/attributes
+    foreach($ace in $Descriptor.DiscretionaryAcl){
+        if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback){return 'parent-unsupported-ace'}
+        if($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessDenied){continue}
+        if($ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed){return 'parent-unsupported-ace'}
+        if(([int]$ace.AceFlags -band 8) -ne 0){continue}
+        if($ace.SecurityIdentifier.Value -notin $trusted -and ($ace.AccessMask -band $danger) -ne 0){return 'parent-untrusted-write'}
+    }
+    return 'pass'
+}
+
+# Read-only parent attestation. No ownership or ACL repair of existing folders.
+function Assert-FreshPostgresParentBoundary([string]$DataDir) {
+    $full=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+    $cursor=Split-Path -Parent $full
+    if([string]::IsNullOrWhiteSpace($cursor)){throw 'PostgreSQL parent boundary missing.'}
+    $immediate=$true
+    $count=0
+    while($cursor){
+        $entry=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if(-not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'PostgreSQL parent boundary is not physical.'}
+        $raw=[Security.AccessControl.RawSecurityDescriptor]::new((Get-Acl -LiteralPath $cursor -ErrorAction Stop).GetSecurityDescriptorBinaryForm(),0)
+        $result=Test-FreshPostgresParentDescriptor $raw $immediate
+        if($result -cne 'pass'){throw ('PostgreSQL parent boundary rejected: '+$result)}
+        $count++
+        $immediate=$false
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    Write-Output ('PASS: PostgreSQL parent boundary inspected '+$count+' directories.')
+}
 function Assert-FreshPostgresDataAcl([string]$DataDir,[string]$ServiceSid) {
     if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){throw 'PostgreSQL ACL gate requires a dedicated local service SID.'}
     $root=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')

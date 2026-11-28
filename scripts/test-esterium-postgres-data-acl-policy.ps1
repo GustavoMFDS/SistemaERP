@@ -151,3 +151,32 @@ foreach($b in $bindings){
  Write-Output ('PASS service-binding '+$b.name)
 }
 Write-Output 'TOTAL 40 passed; synthetic binding, descriptors and mock tree only.'
+# Parent trust boundary: no filesystem mutations.
+$parentDefs=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-FreshPostgresParentDescriptor'},$true))
+if($parentDefs.Count -ne 1){throw 'Missing parent descriptor validator.'}
+$parentValidator=$parentDefs[0].Body.GetScriptBlock()
+$parentBase='O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
+$parentCases=@(
+ @{name='private-parent';sddl=$parentBase;immediate=$true;want='pass'},
+ @{name='shared-read-parent';sddl=$parentBase+'(A;;FR;;;BU)';immediate=$true;want='pass'},
+ @{name='operator-owner';sddl="O:${operator}D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";immediate=$true;want='parent-owner'},
+ @{name='null-dacl';sddl='O:BA';immediate=$true;want='parent-null-dacl'},
+ @{name='delete-child';sddl=$parentBase+'(A;;0x40;;;BU)';immediate=$false;want='parent-untrusted-write'},
+ @{name='delete-parent';sddl=$parentBase+'(A;;SD;;;BU)';immediate=$false;want='parent-untrusted-write'},
+ @{name='write-dacl';sddl=$parentBase+'(A;;WD;;;BU)';immediate=$false;want='parent-untrusted-write'},
+ @{name='write-owner';sddl=$parentBase+'(A;;WO;;;BU)';immediate=$false;want='parent-untrusted-write'},
+ @{name='generic-write';sddl=$parentBase+'(A;;GW;;;BU)';immediate=$true;want='parent-untrusted-write'},
+ @{name='generic-all';sddl=$parentBase+'(A;;GA;;;BU)';immediate=$false;want='parent-untrusted-write'},
+ @{name='higher-create-sibling';sddl=$parentBase+'(A;;0x4;;;BU)';immediate=$false;want='pass'},
+ @{name='immediate-create-sibling';sddl=$parentBase+'(A;;0x4;;;BU)';immediate=$true;want='parent-untrusted-write'},
+ @{name='immediate-write-attributes';sddl=$parentBase+'(A;;0x100;;;BU)';immediate=$true;want='parent-untrusted-write'},
+ @{name='inherit-only-creator';sddl=$parentBase+'(A;OICIIO;FA;;;CO)';immediate=$false;want='pass'},
+ @{name='conservative-deny';sddl=$parentBase+'(D;;WD;;;BU)(A;;WD;;;BU)';immediate=$false;want='parent-untrusted-write'}
+)
+foreach($case in $parentCases){
+    $raw=[Security.AccessControl.RawSecurityDescriptor]::new($case.sddl)
+    $actual=& $parentValidator $raw $case.immediate
+    if($actual -cne $case.want){throw ('Parent case '+$case.name+' expected '+$case.want+' got '+$actual)}
+    Write-Output ('PASS parent '+$case.name)
+}
+Write-Output 'TOTAL 55 passed; synthetic policy, service binding, parent descriptors and mocked tree only.'
