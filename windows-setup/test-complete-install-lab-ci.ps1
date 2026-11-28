@@ -209,7 +209,7 @@ try {
 
     Write-Output 'Creating a runner-local, non-release Authenticode identity for the signed path.'
     $signedTargets = @(Get-ChildItem -LiteralPath (Join-Path $bundle 'tools') -Filter '*.ps1' -File | ForEach-Object { $_.FullName })
-    $signedTargets += @((Join-Path $bundle 'esterium-server.exe'), (Join-Path $bundle 'tools\esterium-migrate.exe'), (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe'), (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe'))
+    $signedTargets += @((Join-Path $bundle 'esterium-server.exe'), (Join-Path $bundle 'tools\esterium-migrate.exe'), (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe'), (Join-Path $bundle 'tools\esterium-lan-tls-preflight.exe'), (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe'))
     foreach ($path in $signedTargets) {
         $signature = Set-AuthenticodeSignature -LiteralPath $path -Certificate $signer -HashAlgorithm SHA256
         if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or $null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $signerThumbprint) {

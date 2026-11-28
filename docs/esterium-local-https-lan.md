@@ -108,8 +108,8 @@ cache, fiscal ou confiança dos terminais. Exige baseline já confiável.
 
 O journal pendente bloqueia nova tentativa após interrupção; a
 recuperação após interrupção ainda exige procedimento administrativo
-revisado. O código ainda não integra o manifesto (nem deve ser executado
-na instalação atual) e requer testes de Apply/rollback Windows.
+revisado. O código integra as listas do manifesto e empacotamento, mas não deve
+ser executado na instalação atual; requer testes de Apply/rollback Windows.
 Mudança de porta/CIDR está fora desta primeira implementação.
 A coordenação Go anterior é referência/teste de contrato, não é
 executada diretamente por este script PowerShell.

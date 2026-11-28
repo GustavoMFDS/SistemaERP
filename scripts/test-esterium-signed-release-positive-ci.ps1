@@ -54,6 +54,8 @@ try {
         'check-esterium-backup-integrity.ps1',
         'run-esterium-scheduled-backup.ps1',
         'register-esterium-backup-task.ps1',
+        'check-esterium-lan-rotation-baseline.ps1',
+        'rotate-esterium-lan-https.ps1',
         'check-esterium-windows-host.ps1',
         'unregister-esterium-windows-service.ps1',
         'check-esterium-local-dependencies.ps1',
