@@ -56,6 +56,7 @@ try {
     [IO.Directory]::CreateDirectory((Join-Path $bundle 'tools')) | Out-Null
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-pg-tls-certgen.exe'), 'synthetic-CLI-never-executed')
+    [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-lan-tls-preflight.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $bundle 'tools\\esterium-bootstrap-admin.exe'), 'synthetic-CLI-never-executed')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $bundle 'tools\\seed.prod.sql')
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), 'synthetic-html')

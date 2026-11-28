@@ -108,6 +108,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar bootstrap seguro do primeiro administrador.' }
         & go build -trimpath -o (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe') ./cmd/pg-tls-certgen
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar gerador TLS PostgreSQL.' }
+        & go build -trimpath -o (Join-Path $toolsDir 'esterium-lan-tls-preflight.exe') ./cmd/lan-tls-preflight
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar preflight TLS LAN.' }
     } finally {
         Pop-Location
     }

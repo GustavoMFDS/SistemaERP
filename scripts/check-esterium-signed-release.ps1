@@ -44,7 +44,8 @@ foreach ($relative in $requiredDotnetFiles) {
 $targets = @(
     (Join-Path $bundle 'esterium-server.exe'),
     (Join-Path $bundle 'tools\esterium-migrate.exe'),
-    (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe')
+    (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe'),
+    (Join-Path $bundle 'tools\esterium-lan-tls-preflight.exe')
 )
 if (Test-Path -LiteralPath (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe') -PathType Leaf) {
     $targets += (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe')

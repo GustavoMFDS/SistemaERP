@@ -80,3 +80,15 @@ ler conteúdo da chave. Não é snapshot durável e não prova readiness,
 revogação, ACL efetiva dos inputs TLS ou autenticação dos terminais.
 Ainda requer testes Windows e integração ao adaptador assinado; não usar
 como autorização de Apply.
+
+### Executável de pré-validação
+
+O próximo bundle inclui `tools/esterium-lan-tls-preflight.exe`, exigido
+pelo manifesto e pelo gate Authenticode. A ferramenta verifica localmente
+a proposta de origem, porta, arquivos PEM e hashes independentes do
+certificado folha (DER) e do arquivo PEM das raízes aprovadas. Retorna
+somente PASS/REFUSED e código de saída; não modifica configuração, não
+exporta chave, não instala CA, nem comprova revogação ou readiness.
+O adaptador de manutenção ainda deve verificar ACL, caminhos físicos e
+assinaturas antes de invocar o executável, além de executar a transação
+com recuperação. A integração de distribuição ainda aguarda CI.

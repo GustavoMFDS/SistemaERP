@@ -63,6 +63,7 @@ $requiredTools = @(
     'tools/esterium-bootstrap-admin.exe',
     'tools/esterium-migrate.exe',
     'tools/esterium-pg-tls-certgen.exe',
+    'tools/esterium-lan-tls-preflight.exe',
     'README_LOCAL.md'
 )
 # A rollback helper is optional so older approved bundles remain verifiable.
