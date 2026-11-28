@@ -500,6 +500,7 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
         throw 'The first install did not create its expected all-users HTTPS shortcut.'
     }
     Write-Output ('PASS: signed coordinator installed '+$(if($PostgresBinaryZip){'official ZIP PostgreSQL'}else{'EDB PostgreSQL'})+', protected DB secrets, Garnet TLS/ACL/AOF, schema, first admin, ERP, HTTPS, scoped firewall, and shortcut.')
+    & (Join-Path $repo 'scripts\test-esterium-lan-certificate-native-ci.ps1') -ToolPath (Join-Path $bundle 'tools\check-esterium-lan-terminal.ps1') -PrivateAddress $privateAddress -Port $httpsPort -ExpectedSHA256 (Get-FileHash -LiteralPath $httpsCertPath -Algorithm SHA256).Hash
 
     Write-Output 'Installing Playwright browsers and exercising real installed services over trusted HTTPS.'
     Push-Location (Join-Path $repo 'web')
