@@ -164,3 +164,26 @@ seguinte é o provisionador local assinado com ACLs e verificação
 `-CheckOnly` do executor. O planejador não cria senha, habilita LOGIN,
 instala tarefas ou valida autenticação real. Os testes exercitam a
 proposta antes de criar o diretório sintético do runner.
+
+
+### Staging protegido da configuração (implementação em revisão)
+
+`scripts/provision-esterium-backup-config.ps1` usa o planejador e, em
+PLAN, não grava arquivos. O Apply exige administrador, execução no
+diretório de ferramentas instalado, editor e manifesto aprovados
+independentemente e todos os auxiliares assinados. Exige pasta Esterium
+já existente com proprietário e permissões de escrita restritos.
+Prepara uma pasta temporária protegida, cria JSON com ACL de leitura
+NetworkService e controle administrativo, executa o CheckOnly existente
+e publica a pasta nova `ProgramData\Esterium\BackupConfig` sem
+sobrescrever configuração anterior. A credencial e CA precisam existir
+por procedimento independente; o script não lê o conteúdo da senha,
+não habilita LOGIN e não toca no Agendador. A pasta de arquivos de backup
+não é criada por este componente.
+
+O código e os testes de PLAN/recusa sem aprovação estão em revisão; o
+Apply assinado ainda exige ensaio próprio. O provisionador e planejador
+não estão ainda na lista permitida do manifesto/bundle, portanto não
+usar na instalação atual. Integrar empacotamento e fixtures do manifesto
+antes de emitir candidato assinado. Não alterar a política de confiança
+para executar esse código em laboratório.
