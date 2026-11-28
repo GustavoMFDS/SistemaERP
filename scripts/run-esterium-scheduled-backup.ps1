@@ -112,6 +112,12 @@ foreach ($field in @('PGUSER', 'PGDATABASE')) {
         throw "Backup PostgreSQL field is invalid: $field"
     }
 }
+# The installed local ERP has a fixed database and dedicated backup identity.
+# Never allow a valid-looking config to select the application or admin role.
+if ([string]$config.PGUSER -cne 'esterium_backup' -or
+    [string]$config.PGDATABASE -cne 'esterium') {
+    throw 'Backup requires the dedicated esterium_backup identity and esterium database.'
+}
 if ([string]$config.RetentionDays -notmatch '^[0-9]{1,4}$' -or
     [int]$config.RetentionDays -lt 7 -or [int]$config.RetentionDays -gt 3650) {
     throw 'Backup retention must be 7 to 3650 days.'
