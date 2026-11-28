@@ -41,6 +41,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not build synthetic Windows server fixture.' }
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-migrate.exe')
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe')
+    Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-lan-tls-preflight.exe')
     Copy-Item -LiteralPath $server -Destination (Join-Path $toolsDir 'esterium-bootstrap-admin.exe')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $toolsDir 'seed.prod.sql')
     # Match the manifest's exhaustive curator, but never copy package secrets.
@@ -53,6 +54,8 @@ try {
         'check-esterium-backup-integrity.ps1',
         'run-esterium-scheduled-backup.ps1',
         'register-esterium-backup-task.ps1',
+        'check-esterium-lan-rotation-baseline.ps1',
+        'rotate-esterium-lan-https.ps1',
         'check-esterium-windows-host.ps1',
         'unregister-esterium-windows-service.ps1',
         'check-esterium-local-dependencies.ps1',
@@ -130,7 +133,7 @@ try {
     # reject this fixture. Only approved publisher certificates may pass it.
     Write-Output 'STEP: ephemeral self-signed identity ready; system trust remains unchanged.'
     Write-Output 'STEP: signing disposable executables and all packaged scripts.'
-    $signTargets=@($server,(Join-Path $toolsDir 'esterium-migrate.exe'),(Join-Path $toolsDir 'esterium-pg-tls-certgen.exe'))
+    $signTargets=@($server,(Join-Path $toolsDir 'esterium-migrate.exe'),(Join-Path $toolsDir 'esterium-pg-tls-certgen.exe'),(Join-Path $toolsDir 'esterium-lan-tls-preflight.exe'))
     $signTargets+=@(Get-ChildItem -LiteralPath $toolsDir -File -Filter '*.ps1' | ForEach-Object { $_.FullName })
     foreach ($path in $signTargets) {
         Write-Output ('STEP: signing synthetic file ' + [IO.Path]::GetFileName($path))

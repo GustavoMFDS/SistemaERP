@@ -308,6 +308,8 @@ jobs:
           cp "$build_dir/bin/windows_amd64/migrate.exe" dist/esterium-local-win-x64/tools/esterium-migrate.exe
           (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe ./cmd/pg-tls-certgen)
           test -s dist/esterium-local-win-x64/tools/esterium-pg-tls-certgen.exe
+          (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-lan-tls-preflight.exe ./cmd/lan-tls-preflight)
+          test -s dist/esterium-local-win-x64/tools/esterium-lan-tls-preflight.exe
           (cd backend && GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/esterium-local-win-x64/tools/esterium-bootstrap-admin.exe ./cmd/esterium-bootstrap-admin)
           test -s dist/esterium-local-win-x64/tools/esterium-bootstrap-admin.exe
       - name: Add curated Windows setup and backup tools
@@ -323,6 +325,8 @@ jobs:
             scripts/check-esterium-backup-integrity.ps1 \
             scripts/run-esterium-scheduled-backup.ps1 \
             scripts/register-esterium-backup-task.ps1 \
+            scripts/check-esterium-lan-rotation-baseline.ps1 \
+            scripts/rotate-esterium-lan-https.ps1 \
             scripts/check-esterium-windows-host.ps1 \
             scripts/unregister-esterium-windows-service.ps1 \
             scripts/check-esterium-local-dependencies.ps1 \

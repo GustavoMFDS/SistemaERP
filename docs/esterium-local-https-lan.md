@@ -26,3 +26,103 @@ Sem certificado, a SPA só pode ser iniciada em `localhost`, `127.0.0.1` ou `::1
 6. Fiscal: autorização NF-e/NFC-e SEFAZ continua bloqueada, independentemente do HTTPS interno.
 
 **Não é um instalador completo:** provisionamento PostgreSQL/Redis, geração/instalação de confiança TLS e backup externo restaurado permanecem gates de produção.
+
+
+## Renovação de identidade HTTPS (#240) — componente preliminar
+
+O pacote Go interno `backend/internal/lanrotation` valida uma proposta de
+identidade antes de qualquer manutenção: origem HTTPS com hostname DNS
+canônico, porta correspondente, par PEM, SHA-256 do certificado folha
+aprovado por canal independente e cadeia/validade/hostname/EKU a partir
+de raízes explicitamente aprovadas. Não instala raízes, não exporta
+chaves nem altera estado. Os testes usam certificados sintéticos.
+A verificação local não comprova revogação, resolução DNS privada,
+alcance externo ou confiança dos navegadores; manter o verificador de
+terminal existente e o aceite físico.
+
+A próxima etapa deve coordenar a alteração em SCM (APP_PUBLIC_URL,
+CORS_ALLOWED_ORIGINS e caminhos TLS), firewall gerenciado, atalho e
+recibo protegido de ativação. O reparador atual exige concordância
+entre esses elementos; editar apenas o registro não é manutenção
+suportada. Preservar configuração anterior e arquivos protegidos,
+verificar autorização, identidade/ACL do serviço, dependências e
+assinatura do pacote, e testar rollback e readiness sem alterar dados
+ou flags fiscais. O componente interno ainda não é ferramenta
+distribuída nem habilita Apply. Não declarar renovação homologada
+até teste real da transação e dos terminais.
+
+
+### Coordenador de mudança e recuperação (componente interno)
+
+`Rotate` define a ordem de manutenção: preparar e preservar snapshot
+durável, parar ERP, atualizar SCM, firewall, atalho e recibo, iniciar ERP,
+verificar readiness e somente então confirmar. Uma falha inclusive
+parcial ou durante a confirmação exige restaurar o estado anterior e
+verificar seu HTTPS original. Falha na restauração ou readiness anterior
+retorna recovery-required, nunca sucesso. O contexto de recuperação é
+separado do cancelamento da aplicação.
+
+O adaptador Windows ainda precisa implementar a captura protegida e
+durável, exclusão mútua, registro de intenção antes de cada mutação,
+restauração idempotente e recuperação após interrupção do processo.
+Os testes atuais simulam falhas; não alteram SCM real e não demonstram
+rollback físico, atomicidade em perda de energia ou liberação LAN.
+
+
+### Inspeção do estado Windows antes da manutenção
+
+O script de desenvolvimento `scripts/check-esterium-lan-rotation-baseline.ps1`
+é somente leitura. Confere o manifesto aprovado, recibo protegido, serviço
+LocalService, origem/listener e flags fiscais, existência física dos
+caminhos TLS, atalho e regra de firewall ativa. O relatório contém hashes
+do recibo/atalho e metadados não secretos, sem despejar o ambiente SCM ou
+ler conteúdo da chave. Não é snapshot durável e não prova readiness,
+revogação, ACL efetiva dos inputs TLS ou autenticação dos terminais.
+Ainda requer testes Windows e integração ao adaptador assinado; não usar
+como autorização de Apply.
+
+### Executável de pré-validação
+
+O próximo bundle inclui `tools/esterium-lan-tls-preflight.exe`, exigido
+pelo manifesto e pelo gate Authenticode. A ferramenta verifica localmente
+a proposta de origem, porta, arquivos PEM e hashes independentes do
+certificado folha (DER) e do arquivo PEM das raízes aprovadas. Retorna
+somente PASS/REFUSED e código de saída; não modifica configuração, não
+exporta chave, não instala CA, nem comprova revogação ou readiness.
+O adaptador de manutenção ainda deve verificar ACL, caminhos físicos e
+assinaturas antes de invocar o executável, além de executar a transação
+com recuperação. A integração de distribuição ainda aguarda CI.
+
+
+### Primeira implementação Windows (em revisão)
+
+`rotate-esterium-lan-https.ps1` implementa uma troca assistida na mesma
+porta e escopo de firewall, usando arquivos PEM novos e protegidos,
+raízes e folha pinadas, DNS privado real apontado exclusivamente para
+o servidor, aprovação de assinatura e manutenção exclusiva. Mantém
+os arquivos TLS anteriores. Registra um journal protegido antes de
+alterar os quatro campos SCM gerenciados, atalho e recibo; valida
+readiness e o verificador de terminal local. Em falha tenta repor
+o estado anterior e verificar readiness. Não toca firewall, banco,
+cache, fiscal ou confiança dos terminais. Exige baseline já confiável.
+
+O journal pendente bloqueia nova tentativa após interrupção; a
+recuperação após interrupção ainda exige procedimento administrativo
+revisado. O código integra as listas do manifesto e empacotamento, mas não deve
+ser executado na instalação atual; requer testes de Apply/rollback Windows.
+Mudança de porta/CIDR está fora desta primeira implementação.
+A coordenação Go anterior é referência/teste de contrato, não é
+executada diretamente por este script PowerShell.
+
+O laboratório de instalação completa reutiliza o serviço real para testar
+PLAN e a falha de uma troca com certificado sintético não confiável no
+Windows, seguido de rollback e login original. A rotina aceita portas de
+dependência explícitas (padrões 5432/6379). O resultado ainda depende do CI;
+nenhuma raiz de confiança é instalada para a identidade de falha.
+
+A manutenção agora admite alteração explícita do CIDR da regra existente
+(`NewTrustedRemoteAddress`), limitada a um único CIDR RFC1918 canônico
+/16 a /32. O escopo anterior consta do journal e é restaurado em falha.
+A porta permanece fixa. Não criar regra adicional nem liberar perfil público.
+O teste real ainda não passou; a causa anterior ficou oculta pelo assertion,
+agora corrigido para diagnóstico no laboratório sintético.

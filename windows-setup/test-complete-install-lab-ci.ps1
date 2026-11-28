@@ -209,7 +209,7 @@ try {
 
     Write-Output 'Creating a runner-local, non-release Authenticode identity for the signed path.'
     $signedTargets = @(Get-ChildItem -LiteralPath (Join-Path $bundle 'tools') -Filter '*.ps1' -File | ForEach-Object { $_.FullName })
-    $signedTargets += @((Join-Path $bundle 'esterium-server.exe'), (Join-Path $bundle 'tools\esterium-migrate.exe'), (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe'), (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe'))
+    $signedTargets += @((Join-Path $bundle 'esterium-server.exe'), (Join-Path $bundle 'tools\esterium-migrate.exe'), (Join-Path $bundle 'tools\esterium-pg-tls-certgen.exe'), (Join-Path $bundle 'tools\esterium-lan-tls-preflight.exe'), (Join-Path $bundle 'tools\esterium-bootstrap-admin.exe'))
     foreach ($path in $signedTargets) {
         $signature = Set-AuthenticodeSignature -LiteralPath $path -Certificate $signer -HashAlgorithm SHA256
         if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or $null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $signerThumbprint) {
@@ -593,6 +593,73 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
     Assert-AdminLogin $origin
     Write-Output 'PASS: signed assisted repair restored only the missing owned HTTPS rule and shortcut.'
 
+    # Signed real Windows rollback exercise, on the existing disposable lab.
+    # Use a fresh ephemeral key for a second DNS identity, not an installed key.
+    # The new certificate is deliberately NOT added to the Windows trust store.
+    $rotationHost='esterium-rotation.home.arpa'
+    $rotationOrigin='https://'+$rotationHost+':'+$httpsPort
+    $extra=[Text.UTF8Encoding]::new($false).GetBytes([Environment]::NewLine+$privateAddress+' '+$rotationHost+[Environment]::NewLine)
+    $hostStream=[IO.File]::Open($hostFile,[IO.FileMode]::Append,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+    try { $hostStream.Write($extra,0,$extra.Length);$hostStream.Flush($true) } finally { $hostStream.Dispose() }
+    $rotationDir=Join-Path $env:ProgramData 'Esterium\Secrets\RotationCI'
+    [IO.Directory]::CreateDirectory($rotationDir) | Out-Null
+    & icacls.exe $rotationDir '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not protect synthetic rotation directory.' }
+    $rotationCertFile=Join-Path $rotationDir 'new-cert.pem'
+    $rotationKeyFile=Join-Path $rotationDir 'new-key.pem'
+    $rotationRootFile=Join-Path $rotationDir 'approved-root.pem'
+    $rotationKey=[Security.Cryptography.RSA]::Create(2048)
+    $rotationCert=$null
+    try {
+        $request=[Security.Cryptography.X509Certificates.CertificateRequest]::new(
+            ('CN='+$rotationHost),$rotationKey,[Security.Cryptography.HashAlgorithmName]::SHA256,
+            [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $san=[Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder]::new()
+        $san.AddDnsName($rotationHost)
+        $request.CertificateExtensions.Add($san.Build())
+        $rotationCert=$request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddMinutes(-5),[DateTimeOffset]::UtcNow.AddDays(1))
+        $pem=ConvertTo-Pem 'CERTIFICATE' $rotationCert.RawData
+        [IO.File]::WriteAllText($rotationCertFile,$pem,[Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($rotationRootFile,$pem,[Text.UTF8Encoding]::new($false))
+        $ephemeralKey=$rotationKey.ExportPkcs8PrivateKey()
+        try { [IO.File]::WriteAllText($rotationKeyFile,(ConvertTo-Pem 'PRIVATE KEY' $ephemeralKey),[Text.UTF8Encoding]::new($false)) }
+        finally { [Array]::Clear($ephemeralKey,0,$ephemeralKey.Length) }
+        $leafPin=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($rotationCert.RawData))
+    } finally {
+        if ($null -ne $rotationCert) { $rotationCert.Dispose() }
+        $rotationKey.Dispose()
+    }
+    $installedTools=Join-Path $env:ProgramFiles 'EsteriumERP\tools'
+    $rotate=Join-Path $installedTools 'rotate-esterium-lan-https.ps1'
+    $rotationArgs=@{
+        NewOrigin=$rotationOrigin;NewCertificateFile=$rotationCertFile;NewKeyFile=$rotationKeyFile
+        ApprovedRootFile=$rotationRootFile;NewLeafSHA256=$leafPin
+        ApprovedRootFileSHA256=(Get-FileHash -LiteralPath $rotationRootFile -Algorithm SHA256).Hash
+        ApprovedManifestSHA256=$manifestSHA256;TrustedPublisherThumbprint=$signerThumbprint
+        PostgresPort=$postgresPort;GarnetPort=$garnetPort;ReadinessTimeoutSeconds=10
+    }
+    $beforeReceipt=(Get-FileHash -LiteralPath $activationReceiptPath -Algorithm SHA256).Hash
+    $beforeShortcut=(Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash
+    $rotationPlan=@(& $rotate @rotationArgs) -join ' '
+    if ($rotationPlan -notmatch 'PLAN: same-port rotation preflight passed') { throw 'Signed rotation PLAN did not pass.' }
+    if ((Get-FileHash -LiteralPath $activationReceiptPath -Algorithm SHA256).Hash -ne $beforeReceipt -or
+        (Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash -ne $beforeShortcut) { throw 'Rotation PLAN changed installation metadata.' }
+    $recovered=$false
+    try { & $rotate @rotationArgs -Apply -ConfirmMaintenance | Out-Null }
+    catch {
+        $recovered=$_.Exception.Message -ceq 'Rotation refused; original HTTPS configuration restored and ready.'
+        if (-not $recovered) { throw ('Rotation fixture failed at line '+$_.InvocationInfo.ScriptLineNumber+'; '+$_.Exception.GetType().Name+'; '+$_.Exception.Message) }
+    }
+    if (-not $recovered) { throw 'Expected real failed TLS rotation to restore the original configuration.' }
+    if ((Get-FileHash -LiteralPath $activationReceiptPath -Algorithm SHA256).Hash -ne $beforeReceipt -or
+        (Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash -ne $beforeShortcut -or
+        (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $activationReceiptPath) 'lan-rotation-pending.json'))) {
+        throw 'Rollback failed exact metadata or journal reconciliation.'
+    }
+    Assert-FirewallRule $httpsPort $remoteScope
+    Wait-ERPReady $httpsPort 60
+    Assert-AdminLogin $origin
+    Write-Output 'PASS: signed rotation refused untrusted new TLS identity, restored exact receipt/shortcut, original login and firewall.'
     Write-Output 'Testing conservative app uninstall while retaining synthetic dependency data.'
     Stop-Service -Name 'EsteriumERP' -Force -ErrorAction Stop
     (Get-Service -Name 'EsteriumERP').WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(45))

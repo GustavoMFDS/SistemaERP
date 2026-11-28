@@ -108,6 +108,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar bootstrap seguro do primeiro administrador.' }
         & go build -trimpath -o (Join-Path $toolsDir 'esterium-pg-tls-certgen.exe') ./cmd/pg-tls-certgen
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar gerador TLS PostgreSQL.' }
+        & go build -trimpath -o (Join-Path $toolsDir 'esterium-lan-tls-preflight.exe') ./cmd/lan-tls-preflight
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar preflight TLS LAN.' }
     } finally {
         Pop-Location
     }
@@ -148,6 +150,8 @@ foreach ($tool in @(
     'check-esterium-backup-integrity.ps1',
     'run-esterium-scheduled-backup.ps1',
     'register-esterium-backup-task.ps1',
+    'check-esterium-lan-rotation-baseline.ps1',
+    'rotate-esterium-lan-https.ps1',
     'check-esterium-windows-host.ps1',
     'unregister-esterium-windows-service.ps1',
     'check-esterium-local-dependencies.ps1',
