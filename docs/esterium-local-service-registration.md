@@ -315,3 +315,23 @@ aprovação da CI do pacote **não comprova confiança HTTPS nos computadores da
 loja**. Não habilite vendas antes de registrar resultados de ambos os
 terminais, backup restaurado em outro computador e os demais gates de
 aceitação do checklist #151.
+
+## Manutenção da fonte de diagnóstico em atualizações existentes
+
+A atualização somente de arquivos não cria fontes de eventos no Registro.
+Para candidatos que incluem o diagnóstico persistente, o novo pacote inclui
+opcionalmente `tools/provision-esterium-startup-event-source.ps1`.
+O responsável deve validar a assinatura do lançador antes de executá-lo,
+obter o hash do manifesto e o thumbprint por canal independente e realizar
+o plano elevado com o serviço EsteriumERP parado, sem alterar a identidade
+LocalService ou a configuração do SCM.
+
+O plano não escreve no Registro. A execução exige explicitamente
+`-Apply -ConfirmEventSource` e só cria a fonte fixa EsteriumERPStartup
+no log Application quando ausente. Fontes válidas são preservadas;
+conflitos de recurso, log ou tipo devem ser investigados, não sobrescritos.
+Em falha parcial, preserve o Registro e o histórico e interrompa a atualização.
+Não remova a fonte durante rollback de arquivos; não apague registros.
+A ferramenta não inicia nem para serviços, não troca binários e não modifica
+certificados ou banco. Antes do aceite de atualização, verificar a emissão
+real sob a identidade do serviço. A existência da fonte não prova emissão.

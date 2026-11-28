@@ -24,6 +24,7 @@ function Require-Rejection([string]$url,[string]$hash,[string]$expected) {
     }
 }
 & (Join-Path $PSScriptRoot 'test-esterium-lan-certificate-policy.ps1')
+& (Join-Path $PSScriptRoot 'test-esterium-startup-event-source-policy.ps1')
 $approved='a'*64
 Require-Rejection 'http://erp.loja.local:8443/' $approved 'exige URL HTTPS'
 Require-Rejection 'https://localhost:8443/' $approved 'exige URL HTTPS'

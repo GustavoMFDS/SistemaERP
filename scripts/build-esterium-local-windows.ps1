@@ -140,6 +140,7 @@ try {
 }
 foreach ($tool in @(
     'register-esterium-windows-service.ps1',
+    'provision-esterium-startup-event-source.ps1',
         'provision-esterium-app-secrets.ps1',
     'verify-esterium-bundle.ps1',
     'postgres-daily-backup.ps1',

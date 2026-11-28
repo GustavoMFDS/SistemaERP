@@ -554,6 +554,21 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
     Write-Output 'Restarting real dependencies and ERP to verify persisted first-install readiness.'
     Stop-Service -Name 'EsteriumERP' -Force -ErrorAction Stop
     (Get-Service -Name 'EsteriumERP').WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(45))
+    # Signed standalone maintenance is idempotent on the registered source.
+    # Do not delete a valid source to simulate a legacy installation.
+    $sourceTool=Join-Path $bundle 'tools\provision-esterium-startup-event-source.ps1'
+    $sourceArgs=@{ApprovedManifestSHA256=$manifestSHA256;TrustedPublisherThumbprint=$signerThumbprint}
+    $sourceKey='HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\EsteriumERPStartup'
+    $sourceBefore=Get-ItemProperty -LiteralPath $sourceKey -ErrorAction Stop
+    $sourcePlan=@(& $sourceTool @sourceArgs) -join ' '
+    if($sourcePlan -notmatch 'PLAN: startup event source pass; no changes made'){throw 'Signed event-source maintenance plan failed.'}
+    $noConfirm=$false
+    try{& $sourceTool @sourceArgs -Apply | Out-Null}catch{$noConfirm=$_.Exception.Message -match 'Explicit event-source maintenance confirmation required'}
+    if(-not $noConfirm){throw 'Event-source maintenance did not require explicit confirmation.'}
+    $sourceApply=@(& $sourceTool @sourceArgs -Apply -ConfirmEventSource) -join ' '
+    $sourceAfter=Get-ItemProperty -LiteralPath $sourceKey -ErrorAction Stop
+    if($sourceApply -notmatch 'existing approved startup event source preserved' -or $sourceBefore.EventMessageFile -cne $sourceAfter.EventMessageFile -or $sourceBefore.TypesSupported -ne $sourceAfter.TypesSupported -or (Get-Service EsteriumERP).Status -ne 'Stopped'){throw 'Signed maintenance did not preserve existing event source and stopped service.'}
+    Write-Output 'PASS: signed event-source maintenance plan, explicit approval guard, and native idempotence.'
     Restart-Service -Name 'EsteriumPostgreSQL16' -Force -ErrorAction Stop
     (Get-Service -Name 'EsteriumPostgreSQL16').WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(90))
     Restart-Service -Name 'EsteriumGarnet' -Force -ErrorAction Stop
