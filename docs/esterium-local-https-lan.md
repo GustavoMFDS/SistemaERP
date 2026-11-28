@@ -26,3 +26,27 @@ Sem certificado, a SPA só pode ser iniciada em `localhost`, `127.0.0.1` ou `::1
 6. Fiscal: autorização NF-e/NFC-e SEFAZ continua bloqueada, independentemente do HTTPS interno.
 
 **Não é um instalador completo:** provisionamento PostgreSQL/Redis, geração/instalação de confiança TLS e backup externo restaurado permanecem gates de produção.
+
+
+## Renovação de identidade HTTPS (#240) — componente preliminar
+
+O pacote Go interno `backend/internal/lanrotation` valida uma proposta de
+identidade antes de qualquer manutenção: origem HTTPS com hostname DNS
+canônico, porta correspondente, par PEM, SHA-256 do certificado folha
+aprovado por canal independente e cadeia/validade/hostname/EKU a partir
+de raízes explicitamente aprovadas. Não instala raízes, não exporta
+chaves nem altera estado. Os testes usam certificados sintéticos.
+A verificação local não comprova revogação, resolução DNS privada,
+alcance externo ou confiança dos navegadores; manter o verificador de
+terminal existente e o aceite físico.
+
+A próxima etapa deve coordenar a alteração em SCM (APP_PUBLIC_URL,
+CORS_ALLOWED_ORIGINS e caminhos TLS), firewall gerenciado, atalho e
+recibo protegido de ativação. O reparador atual exige concordância
+entre esses elementos; editar apenas o registro não é manutenção
+suportada. Preservar configuração anterior e arquivos protegidos,
+verificar autorização, identidade/ACL do serviço, dependências e
+assinatura do pacote, e testar rollback e readiness sem alterar dados
+ou flags fiscais. O componente interno ainda não é ferramenta
+distribuída nem habilita Apply. Não declarar renovação homologada
+até teste real da transação e dos terminais.
