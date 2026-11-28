@@ -108,6 +108,76 @@ function Test-FreshPostgresServiceCommand([string]$Command,[string]$InstallDir,[
         [string]::Equals($Command,($expected+' -w'),[StringComparison]::Ordinal))
 }
 
+# Native handle-bound ACL mutation primitive. Used only by the disposable
+# CI experiment until fresh-install boundary and rollback are approved.
+function Initialize-FreshPostgresAclNative {
+    if('EsteriumFreshPgAclNative' -as [type]){return}
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class EsteriumFreshPgAclNative {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Info {
+        public uint Attributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME Creation, Access, Write;
+        public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    private static extern SafeFileHandle CreateFileW(string path, uint access, uint share,
+        IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out Info info);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    private static extern bool GetSecurityDescriptorOwner(IntPtr descriptor, out IntPtr owner, out bool defaulted);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    private static extern bool GetSecurityDescriptorDacl(IntPtr descriptor, out bool present, out IntPtr dacl, out bool defaulted);
+    [DllImport("advapi32.dll")]
+    private static extern uint SetSecurityInfo(SafeFileHandle handle, uint objectType, uint securityInfo,
+        IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+    private static Info Check(SafeFileHandle handle, bool directory) {
+        Info info;
+        if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if ((info.Attributes & 0x400U) != 0 || ((info.Attributes & 0x10U) != 0) != directory)
+            throw new InvalidOperationException("Unexpected physical object type.");
+        if (!directory && info.Links != 1) throw new InvalidOperationException("Non-single-link file.");
+        return info;
+    }
+    public static SafeFileHandle Open(string path, bool directory, bool mutate) {
+        // OPEN_REPARSE_POINT, BACKUP_SEMANTICS, OPEN_EXISTING.
+        // No share-delete; for target files no share-write either.
+        uint access = mutate ? 0x000E0080U : 0x80U;
+        uint share = mutate && !directory ? 1U : 3U;
+        SafeFileHandle handle = CreateFileW(path, access, share, IntPtr.Zero, 3, 0x02200000U, IntPtr.Zero);
+        if (handle.IsInvalid) { int error=Marshal.GetLastWin32Error(); handle.Dispose(); throw new Win32Exception(error); }
+        try { Check(handle,directory); return handle; } catch { handle.Dispose(); throw; }
+    }
+    public static string Identity(SafeFileHandle handle, bool directory) {
+        Info info=Check(handle,directory);
+        return info.Volume.ToString("X8")+":"+info.IndexHigh.ToString("X8")+info.IndexLow.ToString("X8");
+    }
+    public static void Apply(SafeFileHandle handle, bool directory, byte[] descriptor) {
+        Check(handle,directory);
+        GCHandle pin=GCHandle.Alloc(descriptor,GCHandleType.Pinned);
+        try {
+            IntPtr owner,dacl;
+            bool ownerDefaulted,present,daclDefaulted;
+            if (!GetSecurityDescriptorOwner(pin.AddrOfPinnedObject(),out owner,out ownerDefaulted) || owner==IntPtr.Zero ||
+                !GetSecurityDescriptorDacl(pin.AddrOfPinnedObject(),out present,out dacl,out daclDefaulted) || !present || dacl==IntPtr.Zero)
+                throw new InvalidOperationException("Invalid normalization descriptor.");
+            // OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+            // PROTECTED_DACL_SECURITY_INFORMATION, SE_FILE_OBJECT.
+            uint result=SetSecurityInfo(handle,1,0x80000005U,owner,IntPtr.Zero,dacl,IntPtr.Zero);
+            if(result!=0) throw new Win32Exception((int)result);
+            Check(handle,directory);
+        } finally { pin.Free(); }
+    }
+}
+'@
+}
+
 function Assert-FreshPostgresDataAcl([string]$DataDir,[string]$ServiceSid) {
     if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){throw 'PostgreSQL ACL gate requires a dedicated local service SID.'}
     $root=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')

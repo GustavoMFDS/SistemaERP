@@ -57,45 +57,70 @@ function Normalize-DisposableEdbAcl([string]$DataDir,[string]$ServiceSid,[string
     if($null -eq $service -or $service.State -cne 'Stopped' -or $service.StartMode -cne 'Disabled' -or [int]$service.ProcessId -ne 0){throw 'Fixture service must remain stopped and disabled.'}
     $expectedSid=[string](Get-LocalUser -Name ('estpg'+$FixtureId) -ErrorAction Stop).SID.Value
     if($expectedSid -cne $ServiceSid){throw 'Fixture service SID mismatch.'}
-    $cursor=$expected
-    while($cursor){
-        $entry=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
-        if(-not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Fixture ancestor must be physical.'}
-        $parent=Split-Path -Parent $cursor
-        if($parent -eq $cursor){break}
-        $cursor=$parent
-    }
-    # This is a private, single-purpose runner. Reject links before any writes.
-    # fsutil reports one name per hard link for ordinary files. A query failure
-    # is an error, not permission to proceed.
-    $pending=[Collections.Generic.Stack[string]]::new()
-    $pending.Push($expected)
+    Initialize-FreshPostgresAclNative
+    $locks=[Collections.Generic.List[object]]::new()
     $objects=[Collections.Generic.List[object]]::new()
-    while($pending.Count){
-        $path=$pending.Pop()
-        $entry=Get-Item -LiteralPath $path -Force -ErrorAction Stop
-        if($entry.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Fixture reparse point rejected.'}
-        if(-not $entry.PSIsContainer){
-            $links=@(& (Join-Path $env:SystemRoot 'System32\fsutil.exe') hardlink list $path 2>&1)
-            if($LASTEXITCODE -ne 0 -or $links.Count -ne 1){throw 'Fixture file link count could not be established as one.'}
+    $identities=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    try {
+        # Hold each physical ancestor from volume root down. No share-delete.
+        $ancestors=[Collections.Generic.Stack[string]]::new()
+        $cursor=Split-Path -Parent $expected
+        while($cursor){
+            $ancestors.Push($cursor)
+            $parent=Split-Path -Parent $cursor
+            if($parent -eq $cursor){break}
+            $cursor=$parent
         }
-        $objects.Add([pscustomobject]@{Path=$path;Directory=[bool]$entry.PSIsContainer})
-        if($entry.PSIsContainer){foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}}
+        while($ancestors.Count){
+            $handle=[EsteriumFreshPgAclNative]::Open($ancestors.Pop(),$true,$false)
+            $locks.Add($handle)
+        }
+        $pending=[Collections.Generic.Stack[string]]::new()
+        $pending.Push($expected)
+        $rootVolume=''
+        while($pending.Count){
+            $path=$pending.Pop()
+            $entry=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            $directory=[bool]$entry.PSIsContainer
+            $handle=[EsteriumFreshPgAclNative]::Open($path,$directory,$true)
+            $locks.Add($handle)
+            $identity=[EsteriumFreshPgAclNative]::Identity($handle,$directory)
+            if($path -ceq $expected){$rootVolume=$identity.Split(':')[0]}
+            if($identity.Split(':')[0] -cne $rootVolume -or -not $identities.Add($identity)){throw 'Unexpected fixture volume or repeated identity.'}
+            $objects.Add([pscustomobject]@{Path=$path;Directory=$directory;Handle=$handle;Identity=$identity})
+            if($directory){
+                foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}
+            }
+        }
+        # No writes until every object has a validated, retained handle.
+        # Apply to those handles, never reopen an untrusted path for mutation.
+        foreach($object in $objects){
+            if([EsteriumFreshPgAclNative]::Identity($object.Handle,$object.Directory) -cne $object.Identity){throw 'Fixture identity changed.'}
+            $raw=New-FreshPostgresDataDescriptor $ServiceSid $object.Directory
+            $bytes=New-Object byte[] $raw.BinaryLength
+            $raw.GetBinaryForm($bytes,0)
+            [EsteriumFreshPgAclNative]::Apply($object.Handle,$object.Directory,$bytes)
+        }
+        # Re-enumerate while handles remain held; reject added/missing objects.
+        $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $pending.Push($expected)
+        while($pending.Count){
+            $path=$pending.Pop()
+            $entry=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            $directory=[bool]$entry.PSIsContainer
+            $handle=[EsteriumFreshPgAclNative]::Open($path,$directory,$false)
+            try{
+                $identity=[EsteriumFreshPgAclNative]::Identity($handle,$directory)
+                if(-not $identities.Contains($identity) -or -not $seen.Add($identity)){throw 'Fixture tree changed during ACL normalization.'}
+            }finally{$handle.Dispose()}
+            if($directory){foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}}
+        }
+        if($seen.Count -ne $objects.Count){throw 'Fixture tree size changed during ACL normalization.'}
+        Assert-FreshPostgresDataAcl $expected $ServiceSid
+        Write-Output ('PASS: disposable EDB cluster normalized through retained handles and validated objects='+$objects.Count)
+    } finally {
+        for($i=$locks.Count-1;$i -ge 0;$i--){$locks[$i].Dispose()}
     }
-    # Parent first, exact protected DACL and approved owner on every object.
-    # No recovery of an existing cluster is authorized by this experiment.
-    foreach($object in $objects){
-        $entry=Get-Item -LiteralPath $object.Path -Force -ErrorAction Stop
-        if([bool]$entry.PSIsContainer -ne $object.Directory -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Fixture object changed before normalization.'}
-        $raw=New-FreshPostgresDataDescriptor $ServiceSid $object.Directory
-        $bytes=New-Object byte[] $raw.BinaryLength
-        $raw.GetBinaryForm($bytes,0)
-        $acl=Get-Acl -LiteralPath $object.Path -ErrorAction Stop
-        $acl.SetSecurityDescriptorBinaryForm($bytes,([Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access))
-        Set-Acl -LiteralPath $object.Path -AclObject $acl -ErrorAction Stop
-    }
-    Assert-FreshPostgresDataAcl $expected $ServiceSid
-    Write-Output ('PASS: disposable EDB cluster normalized and validated objects='+$objects.Count)
 }
 
 $installed=$false
@@ -188,7 +213,7 @@ try {
     $aclTokens=$null;$aclErrors=$null
     $aclAst=[Management.Automation.Language.Parser]::ParseFile($candidateInstaller,[ref]$aclTokens,[ref]$aclErrors)
     if($aclErrors.Count){throw 'Candidate ACL validator syntax invalid.'}
-    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Assert-FreshPostgresDataAcl')){
+    foreach($functionName in @('Test-FreshPostgresServiceCommand','Test-PostgresDataDescriptor','New-FreshPostgresDataDescriptor','Initialize-FreshPostgresAclNative','Assert-FreshPostgresDataAcl')){
         $defs=@($aclAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName},$true))
         if($defs.Count -ne 1){throw 'Candidate ACL function absent or ambiguous.'}
         . ([scriptblock]::Create($defs[0].Extent.Text))
