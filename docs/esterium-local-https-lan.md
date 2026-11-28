@@ -50,3 +50,20 @@ assinatura do pacote, e testar rollback e readiness sem alterar dados
 ou flags fiscais. O componente interno ainda não é ferramenta
 distribuída nem habilita Apply. Não declarar renovação homologada
 até teste real da transação e dos terminais.
+
+
+### Coordenador de mudança e recuperação (componente interno)
+
+`Rotate` define a ordem de manutenção: preparar e preservar snapshot
+durável, parar ERP, atualizar SCM, firewall, atalho e recibo, iniciar ERP,
+verificar readiness e somente então confirmar. Uma falha inclusive
+parcial ou durante a confirmação exige restaurar o estado anterior e
+verificar seu HTTPS original. Falha na restauração ou readiness anterior
+retorna recovery-required, nunca sucesso. O contexto de recuperação é
+separado do cancelamento da aplicação.
+
+O adaptador Windows ainda precisa implementar a captura protegida e
+durável, exclusão mútua, registro de intenção antes de cada mutação,
+restauração idempotente e recuperação após interrupção do processo.
+Os testes atuais simulam falhas; não alteram SCM real e não demonstram
+rollback físico, atomicidade em perda de energia ou liberação LAN.
