@@ -646,7 +646,18 @@ Antes de executar, confira EsteriumERP-Setup-VM-LAB.sha256.txt e valide a assina
         (Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash -ne $beforeShortcut) { throw 'Rotation PLAN changed installation metadata.' }
     $recovered=$false
     try { & $rotate @rotationArgs -Apply -ConfirmMaintenance | Out-Null }
-    catch { $recovered=$_.Exception.Message -match '^Rotation refused; original HTTPS configuration restored and ready\.
+    catch { $recovered=$_.Exception.Message -ceq 'Rotation refused; original HTTPS configuration restored and ready.' }
+    if (-not $recovered) { throw 'Expected real failed TLS rotation to restore the original configuration.' }
+    if ((Get-FileHash -LiteralPath $activationReceiptPath -Algorithm SHA256).Hash -ne $beforeReceipt -or
+        (Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash -ne $beforeShortcut -or
+        (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $activationReceiptPath) 'lan-rotation-pending.json'))) {
+        throw 'Rollback failed exact metadata or journal reconciliation.'
+    }
+    Assert-FirewallRule $httpsPort $remoteScope
+    Wait-ERPReady $httpsPort 60
+    Assert-AdminLogin $origin
+    Write-Output 'PASS: signed rotation refused untrusted new TLS identity, restored exact receipt/shortcut, original login and firewall.'
+    Write-Output 'Testing conservative app uninstall while retaining synthetic dependency data.'
     Stop-Service -Name 'EsteriumERP' -Force -ErrorAction Stop
     (Get-Service -Name 'EsteriumERP').WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(45))
     $uninstall = Join-Path $env:ProgramFiles 'EsteriumERP\tools\uninstall-esterium-local-app.ps1'
