@@ -223,3 +223,12 @@ libpq herdadas que poderiam redirecionar autenticação ou sessão são
 removidas; psql e pg_dump não solicitam senha interativamente. O fixture
 CI também verifica a recusa do usuário administrativo pelo SQL exato
 do executor. O teste positivo de login TLS na VM permanece pendente.
+
+
+O teste Windows PostgreSQL TLS existente passa a preparar a conta de
+backup na base integralmente migrada, ativar uma credencial exclusivamente
+sintética, verificar a consulta de identidade do executor em conexão
+SCRAM/TLS real e criar o arquivo de recuperação com a conta dedicada.
+A restauração integral já existente usa esse mesmo arquivo, mantendo a
+comparação de migração, dados e bytes de imagens. A prova ainda depende
+de execução CI e não substitui o ensaio SMB/NetworkService na VM.
