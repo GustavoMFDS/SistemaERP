@@ -17,6 +17,9 @@ param(
     [string]$TrustedPublisherThumbprint='',
     [string]$InstallDir=(Join-Path $env:ProgramFiles 'EsteriumERP'),
     [string]$PostgresBin=(Join-Path $env:ProgramFiles 'PostgreSQL\16\bin'),
+    [ValidateRange(1,65535)][int]$PostgresPort=5432,
+    [ValidateRange(1,65535)][int]$GarnetPort=6379,
+    [ValidateRange(10,90)][int]$ReadinessTimeoutSeconds=90,
     [switch]$Apply,
     [switch]$ConfirmMaintenance
 )
@@ -115,7 +118,7 @@ function Replace-Bytes([string]$Path,[byte[]]$Bytes) {
     }
 }
 function Wait-Ready([string]$Origin) {
-    $until=[DateTime]::UtcNow.AddSeconds(90)
+    $until=[DateTime]::UtcNow.AddSeconds($ReadinessTimeoutSeconds)
     do {
         try {
             $health=Invoke-RestMethod -Uri ($Origin+'/health/ready') -Method Get -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 5
@@ -130,7 +133,7 @@ function Stop-ERP {
     (Get-Service EsteriumERP).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45))
 }
 function Start-ERP {
-    & $dependencyCheck -PostgresServiceName 'EsteriumPostgreSQL16' -RedisServiceName 'EsteriumGarnet' -PostgresBin $PostgresBin -RequireServiceOwnership | Out-Null
+    & $dependencyCheck -PostgresServiceName 'EsteriumPostgreSQL16' -RedisServiceName 'EsteriumGarnet' -PostgresBin $PostgresBin -PostgresPort $PostgresPort -RedisPort $GarnetPort -RequireServiceOwnership | Out-Null
     Start-Service EsteriumERP -ErrorAction Stop
     (Get-Service EsteriumERP).WaitForStatus('Running',[TimeSpan]::FromSeconds(45))
 }
@@ -211,6 +214,8 @@ try {
     }
     $utf8=[Text.UTF8Encoding]::new($false)
     Write-DurableNew $journal ($utf8.GetBytes(($record | ConvertTo-Json -Depth 5)))
+    & icacls.exe $journal '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not explicitly protect pending journal; reconcile before retry.' }
     try {
         Stop-ERP
         Set-ManagedEnvironment $next
@@ -233,7 +238,10 @@ try {
             Replace-Bytes $receiptFile $receiptBefore
             Start-ERP
             Wait-Ready $oldOrigin
-            & $baselineScript -InstallDir $install -ReceiptDir $receiptDir -ApprovedManifestSHA256 $ApprovedManifestSHA256 | Out-Null
+            $restored=(& $baselineScript -InstallDir $install -ReceiptDir $receiptDir -ApprovedManifestSHA256 $ApprovedManifestSHA256) | ConvertFrom-Json
+            if ($restored.receiptSHA256 -ne $fresh.receiptSHA256 -or $restored.shortcutSHA256 -ne $fresh.shortcutSHA256) { throw 'Restored receipt or shortcut differs from baseline.' }
+            $actual=Read-ManagedEnvironment
+            foreach ($name in $managed) { if ($actual[$name] -cne $old[$name]) { throw 'Restored managed environment differs.' } }
             [IO.File]::Move($journal,(Join-Path $receiptDir ('lan-rotation-restored-'+[Guid]::NewGuid().ToString('N')+'.json')))
         } catch {
             throw 'RECOVERY_REQUIRED: retain pending journal and reconcile original configuration with authorized administrator.'

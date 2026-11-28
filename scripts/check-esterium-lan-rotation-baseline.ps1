@@ -104,7 +104,7 @@ $scopeMatches=$actualScope.Count -eq 1 -and
 $profiles=([string]$rule[0].Profile -split ',') | ForEach-Object { $_.Trim() }
 if ($rule[0].Enabled -ne 'True' -or $rule[0].Direction -ne 'Inbound' -or $rule[0].Action -ne 'Allow' -or
     @($profiles).Count -ne 2 -or 'Domain' -notin $profiles -or 'Private' -notin $profiles -or
-    [string]$port.Protocol -ne 'TCP' -or [string]$port.LocalPort -ne [string]$r.httpsPort -or
+    [string]$port.Protocol -notin @('TCP','6') -or [string]$port.LocalPort -ne [string]$r.httpsPort -or
     [string]$app.Program -ne $binary -or -not $scopeMatches) { throw 'Managed HTTPS firewall rule differs from receipt.' }
 [ordered]@{
     kind='ESTERIUM_LAN_ROTATION_BASELINE_REPORT'

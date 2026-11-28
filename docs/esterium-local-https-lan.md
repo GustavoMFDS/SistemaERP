@@ -113,3 +113,9 @@ ser executado na instalação atual; requer testes de Apply/rollback Windows.
 Mudança de porta/CIDR está fora desta primeira implementação.
 A coordenação Go anterior é referência/teste de contrato, não é
 executada diretamente por este script PowerShell.
+
+O laboratório de instalação completa reutiliza o serviço real para testar
+PLAN e a falha de uma troca com certificado sintético não confiável no
+Windows, seguido de rollback e login original. A rotina aceita portas de
+dependência explícitas (padrões 5432/6379). O resultado ainda depende do CI;
+nenhuma raiz de confiança é instalada para a identidade de falha.
