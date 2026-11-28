@@ -60,7 +60,7 @@ if (@(Get-CimInstance -ClassName Win32_UserAccount -Filter "Name='$PostgresServi
 foreach ($digest in @($ExpectedPostgresSHA256,$ExpectedGarnetSHA256,$ExpectedServiceWrapperSHA256)) {
     if ($digest -cnotmatch '^[a-fA-F0-9]{64}$') { throw 'SHA-256 aprovado é obrigatório para cada pacote.' }
 }
-# Fresh-cluster acceptance only: never change ACLs or adopt an existing cluster.
+# Fresh-cluster acceptance only: never adopt or repair an existing cluster.
 # Validate every object before the fresh-cluster marker can be published.
 function Test-PostgresDataDescriptor {
     param([Security.AccessControl.RawSecurityDescriptor]$Descriptor,[string]$ServiceSid,[bool]$Directory,[bool]$Root)
@@ -108,8 +108,7 @@ function Test-FreshPostgresServiceCommand([string]$Command,[string]$InstallDir,[
         [string]::Equals($Command,($expected+' -w'),[StringComparison]::Ordinal))
 }
 
-# Native handle-bound ACL mutation primitive. Used only by the disposable
-# CI experiment until fresh-install boundary and rollback are approved.
+# Native handle-bound ACL primitive for the signed fresh-install path.
 function Initialize-FreshPostgresAclNative {
     if('EsteriumFreshPgAclNative' -as [type]){return}
     Add-Type -TypeDefinition @'
@@ -263,6 +262,79 @@ function Assert-FreshPostgresParentBoundary([string]$DataDir) {
         $cursor=$parent
     }
     Write-Output ('PASS: PostgreSQL parent boundary inspected '+$count+' directories.')
+}
+# Normalize only a fresh data root whose physical identity is retained by
+# the caller across the vendor invocation. Never use this for repair.
+function Normalize-FreshPostgresDataAcl([string]$DataDir,[string]$ServiceSid,[string]$RootIdentity,[Microsoft.Win32.SafeHandles.SafeFileHandle]$RootHandle) {
+    $expected=[IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+    if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$' -or -not $expected.StartsWith((Join-Path $env:ProgramData 'Esterium')+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Fresh normalization scope rejected.'}
+    Assert-FreshPostgresParentBoundary $expected
+    if($RootHandle.IsClosed -or $RootHandle.IsInvalid -or [EsteriumFreshPgAclNative]::Identity($RootHandle,$true) -cne $RootIdentity){throw 'Fresh root handle identity rejected.'}
+    Initialize-FreshPostgresAclNative
+    $locks=[Collections.Generic.List[object]]::new()
+    $objects=[Collections.Generic.List[object]]::new()
+    $identities=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    try {
+        # Hold each physical ancestor from volume root down. No share-delete.
+        $ancestors=[Collections.Generic.Stack[string]]::new()
+        $cursor=Split-Path -Parent $expected
+        while($cursor){
+            $ancestors.Push($cursor)
+            $parent=Split-Path -Parent $cursor
+            if($parent -eq $cursor){break}
+            $cursor=$parent
+        }
+        while($ancestors.Count){
+            $handle=[EsteriumFreshPgAclNative]::Open($ancestors.Pop(),$true,$false)
+            $locks.Add($handle)
+        }
+        $pending=[Collections.Generic.Stack[string]]::new()
+        $pending.Push($expected)
+        $rootVolume=''
+        while($pending.Count){
+            $path=$pending.Pop()
+            $entry=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            $directory=[bool]$entry.PSIsContainer
+            $handle=[EsteriumFreshPgAclNative]::Open($path,$directory,$true)
+            $locks.Add($handle)
+            $identity=[EsteriumFreshPgAclNative]::Identity($handle,$directory)
+            if($path -ceq $expected){if($identity -cne $RootIdentity){throw 'Fresh data root identity changed.'};$rootVolume=$identity.Split(':')[0]}
+            if($identity.Split(':')[0] -cne $rootVolume -or -not $identities.Add($identity)){throw 'Unexpected fixture volume or repeated identity.'}
+            $objects.Add([pscustomobject]@{Path=$path;Directory=$directory;Handle=$handle;Identity=$identity})
+            if($directory){
+                foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}
+            }
+        }
+        # No writes until every object has a validated, retained handle.
+        # Apply to those handles, never reopen an untrusted path for mutation.
+        foreach($object in $objects){
+            if([EsteriumFreshPgAclNative]::Identity($object.Handle,$object.Directory) -cne $object.Identity){throw 'Fixture identity changed.'}
+            $raw=New-FreshPostgresDataDescriptor $ServiceSid $object.Directory
+            $bytes=New-Object byte[] $raw.BinaryLength
+            $raw.GetBinaryForm($bytes,0)
+            [EsteriumFreshPgAclNative]::Apply($object.Handle,$object.Directory,$bytes)
+        }
+        # Re-enumerate while handles remain held; reject added/missing objects.
+        $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $pending.Push($expected)
+        while($pending.Count){
+            $path=$pending.Pop()
+            $entry=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            $directory=[bool]$entry.PSIsContainer
+            $handle=[EsteriumFreshPgAclNative]::Open($path,$directory,$false)
+            try{
+                $identity=[EsteriumFreshPgAclNative]::Identity($handle,$directory)
+                if(-not $identities.Contains($identity) -or -not $seen.Add($identity)){throw 'Fixture tree changed during ACL normalization.'}
+            }finally{$handle.Dispose()}
+            if($directory){foreach($child in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop)){$pending.Push($child.FullName)}}
+        }
+        if($seen.Count -ne $objects.Count){throw 'Fixture tree size changed during ACL normalization.'}
+        Assert-FreshPostgresParentBoundary $expected
+        Assert-FreshPostgresDataAcl $expected $ServiceSid
+        Write-Output ('PASS: fresh EDB cluster normalized through retained handles and validated objects='+$objects.Count)
+    } finally {
+        for($i=$locks.Count-1;$i -ge 0;$i--){$locks[$i].Dispose()}
+    }
 }
 function Assert-FreshPostgresDataAcl([string]$DataDir,[string]$ServiceSid) {
     if($ServiceSid -cnotmatch '^S-1-5-21-(\d+-){3}\d+$'){throw 'PostgreSQL ACL gate requires a dedicated local service SID.'}
@@ -615,6 +687,29 @@ if ((Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash -cne
     $ExpectedServiceWrapperSHA256.ToUpperInvariant()) {
     throw 'Wrapper de serviço foi alterado antes da instalação.'
 }
+$edbBoundaryLocks=[Collections.Generic.List[object]]::new()
+try {
+if(-not $PostgresBinaryZip){
+    Initialize-FreshPostgresAclNative
+    $ancestors=[Collections.Generic.Stack[string]]::new()
+    $cursor=Split-Path -Parent $pgData
+    while($cursor){
+        $ancestors.Push($cursor)
+        $parent=Split-Path -Parent $cursor
+        if($parent -eq $cursor){break}
+        $cursor=$parent
+    }
+    while($ancestors.Count){$edbBoundaryLocks.Add([EsteriumFreshPgAclNative]::Open($ancestors.Pop(),$true,$false))}
+    Assert-FreshPostgresParentBoundary $pgData
+    if((Test-Path -LiteralPath $pgData) -or (Test-Path -LiteralPath $pgDir) -or
+       (Get-Service -Name $PostgresServiceName -ErrorAction SilentlyContinue) -or
+       @(Get-CimInstance Win32_UserAccount -Filter "Name='$PostgresServiceAccount' AND LocalAccount=TRUE" -ErrorAction Stop).Count -ne 0 -or
+       @(Get-NetTCPConnection -State Listen -LocalPort $PostgresPort -ErrorAction SilentlyContinue).Count){throw 'EDB fresh boundary changed; no vendor invocation.'}
+    $edbRootIdentity=New-PrivateFreshPostgresDirectory $pgData
+    $edbRootHandle=[EsteriumFreshPgAclNative]::Open($pgData,$true,$false)
+    $edbBoundaryLocks.Add($edbRootHandle)
+    if([EsteriumFreshPgAclNative]::Identity($edbRootHandle,$true) -cne $edbRootIdentity){throw 'EDB root identity changed before install.'}
+}
 Write-Output '1/3: instalando PostgreSQL 16 sem interface...'
 $proc=$null
 if(-not $PostgresBinaryZip){
@@ -863,7 +958,16 @@ $pgAccount=Get-LocalUser -Name $PostgresServiceAccount -ErrorAction Stop
 $pgServiceSid=[string]$pgAccount.SID.Value
 $pgAdminGroup=Get-LocalGroup -SID 'S-1-5-32-544' -ErrorAction Stop
 if(@(Get-LocalGroupMember -Group $pgAdminGroup.Name -ErrorAction Stop | Where-Object {$_.SID.Value -ceq $pgServiceSid}).Count){throw 'PostgreSQL ACL gate rejected an administrator service identity.'}
+if(-not $PostgresBinaryZip){
+    Assert-FreshPostgresParentBoundary $pgData
+    Normalize-FreshPostgresDataAcl $pgData $pgServiceSid $edbRootIdentity $edbRootHandle
+    $current=Get-CimInstance Win32_Service -Filter "Name='$PostgresServiceName'" -ErrorAction Stop
+    if($null -eq $current -or $current.State -cne 'Stopped' -or $current.StartMode -cne 'Disabled' -or [int]$current.ProcessId -ne 0 -or [string]$current.StartName -notin $localAccounts -or -not (Test-FreshPostgresServiceCommand ([string]$current.PathName) $pgDir $pgData $PostgresServiceName $false) -or @(Get-NetTCPConnection -LocalPort $PostgresPort -State Listen -ErrorAction SilentlyContinue).Count){throw 'EDB service binding/state changed during ACL normalization.'}
+}
 Assert-FreshPostgresDataAcl $pgData $pgServiceSid
+} finally {
+    for($i=$edbBoundaryLocks.Count-1;$i -ge 0;$i--){$edbBoundaryLocks[$i].Dispose()}
+}
 
 # Seal the new-cluster proof in the already protected install-options folder.
 # Never write a proof for existing services or before disabled/stopped SCM

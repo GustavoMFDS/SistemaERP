@@ -180,3 +180,27 @@ foreach($case in $parentCases){
     Write-Output ('PASS parent '+$case.name)
 }
 Write-Output 'TOTAL 55 passed; synthetic policy, service binding, parent descriptors and mocked tree only.'
+# Signed integration ordering: fresh root before vendor invocation,
+# mutation after stopped service verification, proof after the final gate.
+$applyStart=$source.IndexOf('$edbBoundaryLocks=[Collections.Generic.List[object]]::new()')
+$create=$source.IndexOf('$edbRootIdentity=New-PrivateFreshPostgresDirectory $pgData')
+$vendor=$source.IndexOf('$proc=Start-Process -FilePath $pg')
+$normalize=$source.IndexOf('Normalize-FreshPostgresDataAcl $pgData $pgServiceSid $edbRootIdentity $edbRootHandle')
+$gate=$source.IndexOf('Assert-FreshPostgresDataAcl $pgData $pgServiceSid')
+$proof=$source.IndexOf('# Seal the new-cluster proof')
+if($applyStart -lt 0 -or $create -le $applyStart -or $vendor -le $create -or $normalize -le $vendor -or $gate -le $normalize -or $proof -le $gate){throw 'Signed EDB normalization order invalid.'}
+if($source.IndexOf('if (-not $Apply) {') -lt 0 -or $source.IndexOf('# Revalidate trusted third-party artifacts immediately before execution.') -gt $applyStart){throw 'Signed Apply guard order invalid.'}
+Write-Output 'PASS signed EDB fresh-create, vendor, normalize, gate and proof ordering'
+$bootstrap=Join-Path $PSScriptRoot 'provision-esterium-dependency-bootstrap.ps1'
+$bt=$null;$be=$null
+$ba=[Management.Automation.Language.Parser]::ParseFile($bootstrap,[ref]$bt,[ref]$be)
+if($be.Count){throw 'Bootstrap syntax invalid.'}
+$bd=@($ba.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-FreshPostgresParentDescriptor'},$true))
+if($bd.Count -ne 1 -or $bd[0].Extent.Text.Replace([string][char]13,'') -cne $parentDefs[0].Extent.Text.Replace([string][char]13,'')){throw 'Bootstrap parent policy drift.'}
+$bootstrapSource=[IO.File]::ReadAllText($bootstrap)
+$rootCreate=$bootstrapSource.IndexOf('[EsteriumBootstrapRootNative]::Create($root,$rootBytes)')
+$rootGate=$bootstrapSource.IndexOf('Assert-FreshPostgresParentBoundary $target')
+$stageCreate=$bootstrapSource.IndexOf('[IO.Directory]::CreateDirectory($parent) | Out-Null')
+if($rootCreate -lt 0 -or $rootGate -le $rootCreate -or $stageCreate -le $rootGate){throw 'Bootstrap root safety ordering invalid.'}
+Write-Output 'PASS bootstrap parent policy parity and protected root precede credential staging'
+Write-Output 'TOTAL 57 passed; synthetic policy and static integration only.'
