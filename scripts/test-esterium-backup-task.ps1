@@ -14,6 +14,57 @@ $local = Join-Path $root 'archives'
 $runner = Join-Path $PSScriptRoot 'run-esterium-scheduled-backup.ps1'
 $registration = Join-Path $PSScriptRoot 'register-esterium-backup-task.ps1'
 try {
+    $planner = Join-Path $PSScriptRoot 'plan-esterium-backup-config.ps1'
+    $proposalArgs = @{
+        PasswordFile=$passPath; RootCertificate=$cert; PostgresBin=$bin
+        BackupDir=$local; ExternalBackupDir='\\other-computer\protected-backups'
+    }
+    $proposal = & $planner @proposalArgs | ConvertFrom-Json
+    if ($proposal.PGUSER -cne 'esterium_backup' -or $proposal.PGDATABASE -cne 'esterium' -or
+        $proposal.PGHOST -cne 'localhost' -or $proposal.PGPORT -cne '5432' -or
+        $proposal.PGPASSFILE -ne $passPath -or $proposal.PGSSLROOTCERT -ne $cert -or
+        $proposal.BackupDir -ne $local -or $proposal.ExternalBackupDir -ne $proposalArgs.ExternalBackupDir -or
+        $proposal.PostgresBin -ne $bin -or $proposal.RetentionDays -ne 14 -or
+        @($proposal.PSObject.Properties).Count -ne 10 -or (Test-Path -LiteralPath $root)) {
+        throw 'Backup proposal did not preserve exact settings or wrote to disk.'
+    }
+    foreach ($bad in @(
+        @{PasswordFile='relative.secret'},
+        @{PasswordFile='\\other-computer\protected-backups\pgpass.secret'},
+        @{PasswordFile=(Join-Path $local 'pgpass.secret')},
+        @{RootCertificate=$passPath},
+        @{BackupDir=$env:ProgramFiles},
+        @{ExternalBackupDir='\\localhost\protected-backups'},
+        @{ExternalBackupDir='\\127.0.0.2\protected-backups'},
+        @{ExternalBackupDir='\\other-computer\protected-backups\..'},
+        @{ExternalBackupDir=$local}
+    )) {
+        $candidate = $proposalArgs.Clone()
+        foreach ($key in $bad.Keys) { $candidate[$key] = $bad[$key] }
+        $denied = $false
+        try { & $planner @candidate | Out-Null } catch { $denied = $true }
+        if (-not $denied -or (Test-Path -LiteralPath $root)) {
+            throw 'Backup proposal accepted unsafe inputs or wrote files.'
+        }
+    }
+    $provisioner = Join-Path $PSScriptRoot 'provision-esterium-backup-config.ps1'
+    $originalProgramData = $env:ProgramData
+    try {
+        $env:ProgramData = Join-Path $root 'programdata'
+        $protectedPlan = @(& $provisioner @proposalArgs) -join ' '
+        if ($protectedPlan -notmatch 'PLAN: no files, credentials, database, SMB or scheduled task changed' -or
+            (Test-Path -LiteralPath $root)) {
+            throw 'Protected configuration PLAN wrote files or did not report its boundary.'
+        }
+        $approvalDenied = $false
+        try { & $provisioner @proposalArgs -Apply | Out-Null }
+        catch { $approvalDenied = $_.Exception.Message -match 'independent release and publisher approval' }
+        if (-not $approvalDenied -or (Test-Path -LiteralPath $root)) {
+            throw 'Protected configuration Apply did not reject missing approval without writing.'
+        }
+    } finally {
+        $env:ProgramData = $originalProgramData
+    }
     [IO.Directory]::CreateDirectory($bin) | Out-Null
     [IO.Directory]::CreateDirectory($local) | Out-Null
     foreach ($name in @('pg_dump.exe', 'pg_restore.exe', 'psql.exe')) {
@@ -92,6 +143,16 @@ try {
         catch { $rejected = $true }
         if (-not $rejected) { throw "Backup preflight accepted $reason" }
     }
+    foreach ($unsafeIdentity in @('postgres', 'esterium_app', 'ESTERIUM_BACKUP')) {
+        $config.PGUSER = $unsafeIdentity
+        Write-Config
+        Assert-Reject 'an identity other than the dedicated backup role'
+    }
+    $config.PGUSER = 'esterium_backup'
+    $config.PGDATABASE = 'postgres'
+    Write-Config
+    Assert-Reject 'a database other than the installed ERP database'
+    $config.PGDATABASE = 'esterium'
     $config['PGPASSWORD'] = 'this-is-not-a-real-secret'
     Write-Config
     Assert-Reject 'an inline password property'

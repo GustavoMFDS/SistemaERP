@@ -440,7 +440,46 @@ FROM product;
     if (-not (Test-Path -LiteralPath $pgDump) -or -not (Test-Path -LiteralPath $pgRestore)) {
         throw 'Vendor PostgreSQL 16 package lacks pg_dump or pg_restore.'
     }
-    & $pgDump '--format=custom' '--no-owner' '--no-privileges' ('--file='+$recoveryArchive)
+    # Exercise the exact production identity query using a real SCRAM login
+    # against the migrated, TLS-only disposable database. Only this CI
+    # cluster uses the generated fixture credential.
+    $runtimeText=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'run-esterium-scheduled-backup.ps1'))
+    $queryMatch=[regex]::Match($runtimeText,"(?ms)^\x24identityCheck = & \x24psql [^\r\n]*\r?\n(.*?)\r?\n'@\r?$")
+    if (-not $queryMatch.Success) { throw 'Cannot locate exact scheduled backup identity query.' }
+    $backupProbe=$queryMatch.Groups[1].Value
+    $backupPassFile=Join-Path $root 'ci-backup.pgpass'
+    $fixturePassword='ci-backup-'+[Guid]::NewGuid().ToString('N')
+    $savedBackupEnv=@{}
+    foreach ($name in @('PGUSER','PGPASSWORD','PGPASSFILE')) {
+        $savedBackupEnv[$name]=[Environment]::GetEnvironmentVariable($name,'Process')
+    }
+    try {
+        $env:PGUSER='postgres'
+        $env:PGPASSWORD=$pass
+        if ((Run-Psql $backupProbe) -cne 'REFUSED') { throw 'Administrative identity passed backup probe.' }
+        & $psql '-X' '-w' '-q' '-v' 'ON_ERROR_STOP=1' '-f' (Join-Path $PSScriptRoot 'stage-esterium-postgres-backup-role.sql') | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Backup role staging failed on migrated Windows CI database.' }
+        # Feed the disposable credential through stdin, never a process argument.
+        "ALTER ROLE esterium_backup LOGIN PASSWORD '$fixturePassword';" |
+            & $psql '-X' '-w' '-q' '-v' 'ON_ERROR_STOP=1' 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Disposable backup identity activation failed.' }
+        [IO.File]::WriteAllText($backupPassFile,("localhost:{0}:esterium:esterium_backup:{1}" -f $port,$fixturePassword)+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+        & icacls.exe $backupPassFile '/inheritance:r' '/grant:r' ('*'+$runnerSID+':R') '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict synthetic backup password file.' }
+        $env:PGUSER='esterium_backup'
+        Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        $env:PGPASSFILE=$backupPassFile
+        if ((Run-Psql $backupProbe) -cne 'PASS') { throw 'Dedicated TLS login failed runtime backup identity probe.' }
+        & $pgDump '--no-password' '--format=custom' '--no-owner' '--no-privileges' ('--file='+$recoveryArchive)
+        if ($LASTEXITCODE -ne 0) { throw 'Dedicated TLS backup role could not create full archive.' }
+        Write-Output 'PASS: dedicated backup login authenticated over TLS, runtime identity probe passed, full archive created.'
+    } finally {
+        foreach ($name in $savedBackupEnv.Keys) {
+            [Environment]::SetEnvironmentVariable($name,$savedBackupEnv[$name],'Process')
+        }
+        $fixturePassword=$null
+        if (Test-Path -LiteralPath $backupPassFile) { Remove-Item -LiteralPath $backupPassFile -Force }
+    }
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $recoveryArchive)) {
         throw 'Disposable Windows PostgreSQL recovery archive creation failed.'
     }

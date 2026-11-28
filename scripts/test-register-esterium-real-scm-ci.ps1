@@ -43,6 +43,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-migrate.exe'), 'synthetic-CLI-never-executed')
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-pg-tls-certgen.exe'), 'synthetic-signer-never-executed')
     [IO.File]::WriteAllText((Join-Path $tools 'esterium-bootstrap-admin.exe'), 'synthetic-CLI-never-executed')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stage-esterium-postgres-backup-role.sql') -Destination (Join-Path $tools 'stage-esterium-postgres-backup-role.sql')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $tools 'seed.prod.sql')
     foreach ($name in @(
         'register-esterium-windows-service.ps1',
@@ -53,6 +54,8 @@ try {
     'check-esterium-backup-integrity.ps1',
     'run-esterium-scheduled-backup.ps1',
     'register-esterium-backup-task.ps1',
+    'plan-esterium-backup-config.ps1',
+    'provision-esterium-backup-config.ps1',
     'check-esterium-windows-host.ps1',
     'unregister-esterium-windows-service.ps1',
     'check-esterium-local-dependencies.ps1',
@@ -276,6 +279,8 @@ try {
         'tools\check-esterium-backup-integrity.ps1',
         'tools\run-esterium-scheduled-backup.ps1',
         'tools\register-esterium-backup-task.ps1',
+        'tools\plan-esterium-backup-config.ps1',
+        'tools\provision-esterium-backup-config.ps1',
         'tools\check-esterium-windows-host.ps1',
         'tools\unregister-esterium-windows-service.ps1',
         'tools\check-esterium-local-dependencies.ps1',

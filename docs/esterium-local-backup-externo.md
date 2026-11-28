@@ -108,3 +108,127 @@ O teste **não prova** que um compartilhamento SMB é outro equipamento, nem aut
 - Configurar alertas quando a cópia externa falhar ou quando a última restauração ensaiada ficar antiga.
 - Ensaiar reinício do serviço e queda de energia durante backup e durante transações simultâneas de PDV.
 - Nenhuma liberação de emissão SEFAZ antes de credenciamento, homologação e protocolo genuíno.
+
+
+### Provisionamento da identidade PostgreSQL (etapa de staging, #239)
+
+O arquivo `scripts/stage-esterium-postgres-backup-role.sql` prepara somente
+a identidade PostgreSQL `esterium_backup`, inicialmente **NOLOGIN**, sem
+senha. Não é migração do ERP nem deve ser executado automaticamente durante
+instalação. Exige revisão/aprovação do arquivo pelo responsável técnico e
+sessão PostgreSQL administrativa local com TLS `verify-full`. Executar
+com psql em modo `-X -v ON_ERROR_STOP=1` e a base `esterium`, somente após
+conferir a identidade do servidor e o estado da instalação.
+
+A transação recusa base ou proprietário inesperados, migração suja, conta
+preexistente, RLS e privilégios efetivos excessivos no schema public;
+concede SELECT nas tabelas/sequências atuais e privilégios padrão SELECT
+para objetos futuros do proprietário da aplicação e do administrador
+executor. Não altera contas existentes nem retira permissões de PUBLIC.
+O executor agendado exige exatamente `PGUSER=esterium_backup` e
+`PGDATABASE=esterium`, recusando o uso acidental de contas administrativas
+ou da aplicação. A validação do nome não comprova, sozinha, os privilégios
+reais do papel na base.
+A configuração de transação read-only é defesa adicional, não substitui
+as permissões. Outros schemas, extensões, funções executáveis e mudanças
+posteriores de privilégios exigem revisão de cobertura antes do piloto.
+
+**Ainda não habilita login, não provisiona senha/PGPASSFILE ou ACL Windows,
+não registra tarefa e não comprova acesso SMB como NetworkService.**
+A ativação exige procedimento local aprovado, credencial própria e
+verificação de acesso efetivo; não reutilizar credencial da aplicação.
+Em workgroup, uma sessão SMB interativa não prova a autorização da
+identidade de serviço. Não habilitar o agendamento até teste nessa
+identidade e restauração comprovada.
+
+A fixture `scripts/ci-esterium-backup-role.sh` exercita staging,
+recusas, rollback, privilégios efetivos, objetos futuros e pg_dump com
+SET ROLE em PostgreSQL descartável do job integration. Não é prova de
+autenticação real da conta ou backup externo na instalação Windows.
+
+
+### Proposta de configuração sem escrita
+
+O novo `scripts/plan-esterium-backup-config.ps1` produz somente o JSON
+de configuração (dez campos, sem valores de senha), com identidade e
+banco dedicados e caminhos locais separados dos arquivos de backup.
+Requer caminhos explícitos para PGPASSFILE, CA e destino SMB, sem ler os
+arquivos ou contactar a rede. Rejeita destinos evidentemente locais,
+caminhos relativos e arquivos secretos dentro do diretório de arquivos
+de backup. Não comprova que um nome SMB corresponde a outro equipamento.
+
+O planejador integra a lista de ferramentas do próximo bundle Windows;
+a distribuição assinada ainda depende da validação e aprovação da release. Sua saída não é um arquivo protegido: não redirecionar
+para um diretório público ou substituir configuração existente. O passo
+seguinte é o provisionador local assinado com ACLs e verificação
+`-CheckOnly` do executor. O planejador não cria senha, habilita LOGIN,
+instala tarefas ou valida autenticação real. Os testes exercitam a
+proposta antes de criar o diretório sintético do runner.
+
+
+### Staging protegido da configuração (implementação em revisão)
+
+`scripts/provision-esterium-backup-config.ps1` usa o planejador e, em
+PLAN, não grava arquivos. O Apply exige administrador, execução no
+diretório de ferramentas instalado, editor e manifesto aprovados
+independentemente e todos os auxiliares assinados. Exige pasta Esterium
+já existente com proprietário e permissões de escrita restritos.
+Prepara uma pasta temporária protegida, cria JSON com ACL de leitura
+NetworkService e controle administrativo, executa o CheckOnly existente
+e publica a pasta nova `ProgramData\Esterium\BackupConfig` sem
+sobrescrever configuração anterior. A credencial e CA precisam existir
+por procedimento independente; o script não lê o conteúdo da senha,
+não habilita LOGIN e não toca no Agendador. A pasta de arquivos de backup
+não é criada por este componente.
+
+O código e os testes de PLAN/recusa sem aprovação estão em revisão; o
+Apply assinado ainda exige ensaio próprio. O provisionador e planejador
+integram as listas do manifesto, empacotamento e fixtures. Não usar na
+instalação atual; aguardar um candidato assinado e aprovado. Não alterar a política de confiança
+para executar esse código em laboratório.
+
+
+### Preparação local da conta de backup a partir do pacote aprovado
+
+O SQL de staging passa a integrar `tools/stage-esterium-postgres-backup-role.sql`
+no manifesto SHA-256 obrigatório. Como SQL não é um executável Authenticode,
+sua integridade depende do manifesto aprovado por canal independente,
+validado juntamente com a assinatura de todos os executáveis e scripts.
+Não executar SQL recebido avulsamente ou de uma branch sem aprovação.
+
+No computador servidor, um administrador PostgreSQL autorizado deve abrir
+uma sessão local autenticada pelo procedimento de TI, com TLS verify-full
+e a base esterium, e executar o SQL aprovado. O resultado esperado é
+uma conta NOLOGIN, sem senha e com permissões limitadas. Se ela já existir,
+parar e revisar, sem sobrescrever a identidade. A ativação posterior exige
+uma credencial própria configurada pelo operador local sem compartilhá-la
+por chat, argumentos ou logs, e uma prova de conexão e dump com o papel
+dedicado. Não usar o papel administrativo para produzir o backup. O
+provisionador de configuração utiliza um arquivo pgpass previamente
+aprovado e protegido; não cria a senha nem altera o papel no banco.
+
+A autorização do compartilhamento externo deve ser comprovada para a
+identidade efetiva da tarefa, antes de habilitar o agendamento. Em
+workgroup, a sessão SMB do usuário interativo não é evidência disso.
+
+### Verificação da identidade na execução real
+
+Antes do dump, o executor agendado verifica em sessão PostgreSQL real a
+identidade de login dedicada, base, TLS, estado read-only padrão, ausência
+de memberships e privilégios excessivos, cobertura de leitura no schema
+public e ausência de RLS/funções SECURITY DEFINER executáveis. Recusa
+qualquer divergência sem iniciar dump. A verificação não substitui revisão
+de outros schemas, grants futuros ou teste de restauração. Configurações
+libpq herdadas que poderiam redirecionar autenticação ou sessão são
+removidas; psql e pg_dump não solicitam senha interativamente. O fixture
+CI também verifica a recusa do usuário administrativo pelo SQL exato
+do executor. O teste positivo de login TLS na VM permanece pendente.
+
+
+O teste Windows PostgreSQL TLS existente passa a preparar a conta de
+backup na base integralmente migrada, ativar uma credencial exclusivamente
+sintética, verificar a consulta de identidade do executor em conexão
+SCRAM/TLS real e criar o arquivo de recuperação com a conta dedicada.
+A restauração integral já existente usa esse mesmo arquivo, mantendo a
+comparação de migração, dados e bytes de imagens. A prova ainda depende
+de execução CI e não substitui o ensaio SMB/NetworkService na VM.

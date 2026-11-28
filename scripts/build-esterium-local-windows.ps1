@@ -148,6 +148,8 @@ foreach ($tool in @(
     'check-esterium-backup-integrity.ps1',
     'run-esterium-scheduled-backup.ps1',
     'register-esterium-backup-task.ps1',
+    'plan-esterium-backup-config.ps1',
+    'provision-esterium-backup-config.ps1',
     'check-esterium-windows-host.ps1',
     'unregister-esterium-windows-service.ps1',
     'check-esterium-local-dependencies.ps1',
@@ -183,6 +185,7 @@ foreach ($tool in @(
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination (Join-Path $toolsDir $tool) -ErrorAction Stop
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'bootstrap-esterium-first-admin.ps1') -Destination (Join-Path $toolsDir 'bootstrap-esterium-first-admin.ps1') -ErrorAction Stop
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stage-esterium-postgres-backup-role.sql') -Destination (Join-Path $toolsDir 'stage-esterium-postgres-backup-role.sql') -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $Root 'backend/seed/seed.prod.sql') -Destination (Join-Path $toolsDir 'seed.prod.sql') -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $Root 'backend/migrations') -Destination (Join-Path $OutputDir 'migrations') -Recurse -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $Root 'docs/esterium-local-service-registration.md') -Destination (Join-Path $OutputDir 'README_LOCAL.md') -ErrorAction Stop

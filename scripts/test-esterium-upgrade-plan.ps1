@@ -51,6 +51,8 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
         'check-esterium-backup-integrity.ps1',
         'run-esterium-scheduled-backup.ps1',
         'register-esterium-backup-task.ps1',
+        'plan-esterium-backup-config.ps1',
+        'provision-esterium-backup-config.ps1',
         'check-esterium-windows-host.ps1',
         'unregister-esterium-windows-service.ps1',
         'check-esterium-local-dependencies.ps1',
@@ -88,6 +90,7 @@ function Write-FixtureBundle([string]$path, [int]$migrationCount, [string]$serve
     [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-migrate.exe'), 'synthetic migrate stub never executed')
     [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-pg-tls-certgen.exe'), 'synthetic migrate stub never executed')
     [IO.File]::WriteAllText((Join-Path $path 'tools\esterium-bootstrap-admin.exe'), 'synthetic admin bootstrap stub never executed')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stage-esterium-postgres-backup-role.sql') -Destination (Join-Path $path 'tools\stage-esterium-postgres-backup-role.sql')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../backend/seed/seed.prod.sql') -Destination (Join-Path $path 'tools\seed.prod.sql')
     for ($i = 1; $i -le $migrationCount; $i++) {
         $prefix = '{0:d4}_ci_fixture' -f $i

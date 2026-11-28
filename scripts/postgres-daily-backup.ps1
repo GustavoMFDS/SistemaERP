@@ -56,7 +56,7 @@ try {
     $pgDump = Join-Path $PostgresBin 'pg_dump.exe'
     $pgRestore = Join-Path $PostgresBin 'pg_restore.exe'
 
-    $tables = & $psql -v ON_ERROR_STOP=1 -At -c @'
+    $tables = & $psql -X -w -v ON_ERROR_STOP=1 -At -c @'
 SELECT count(*) FROM information_schema.tables
 WHERE table_schema='public' AND table_name IN
 ('companies','users','products','sales','sale_items','payments','audit_logs',
@@ -65,7 +65,7 @@ WHERE table_schema='public' AND table_name IN
     if ($LASTEXITCODE -ne 0 -or [string]$tables -ne '11') {
         throw 'Critical ERP tables are missing.'
     }
-    $migrationState = & $psql -v ON_ERROR_STOP=1 -At -c 'SELECT count(*) FROM schema_migrations WHERE version > 0 AND dirty = false;'
+    $migrationState = & $psql -X -w -v ON_ERROR_STOP=1 -At -c 'SELECT count(*) FROM schema_migrations WHERE version > 0 AND dirty = false;'
     if ($LASTEXITCODE -ne 0 -or [string]$migrationState -ne '1') {
         throw 'Database migration state is missing or dirty; refusing backup.'
     }
@@ -76,7 +76,7 @@ WHERE table_schema='public' AND table_name IN
     $tmp = Join-Path $full ".$unique.tmp"
     $final = Join-Path $full $name
 
-    & $pgDump --format=custom --compress=6 --no-owner --no-privileges "--file=$tmp"
+    & $pgDump --no-password --format=custom --compress=6 --no-owner --no-privileges "--file=$tmp"
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmp) -or (Get-Item $tmp).Length -eq 0) {
         throw 'pg_dump failed or produced an empty file.'
     }

@@ -323,6 +323,8 @@ jobs:
             scripts/check-esterium-backup-integrity.ps1 \
             scripts/run-esterium-scheduled-backup.ps1 \
             scripts/register-esterium-backup-task.ps1 \
+            scripts/plan-esterium-backup-config.ps1 \
+            scripts/provision-esterium-backup-config.ps1 \
             scripts/check-esterium-windows-host.ps1 \
             scripts/unregister-esterium-windows-service.ps1 \
             scripts/check-esterium-local-dependencies.ps1 \
@@ -355,6 +357,7 @@ jobs:
             scripts/finish-esterium-local-first-install.ps1 \
             scripts/install-esterium-local-complete.ps1 \
             scripts/bootstrap-esterium-first-admin.ps1 \
+            scripts/stage-esterium-postgres-backup-role.sql \
             backend/seed/seed.prod.sql \
             dist/esterium-local-win-x64/tools/
           cp docs/esterium-local-service-registration.md \
@@ -492,6 +495,8 @@ jobs:
         run: docker compose ps --all
       - name: Seed integration data
         run: docker compose run --rm seed
+      - name: Verify staged Esterium backup role with least privilege
+        run: bash scripts/ci-esterium-backup-role.sh
       - name: Prove complete PostgreSQL restore in a second disposable CI database
         run: bash scripts/ci-postgres-disposable-restore.sh
       - name: Prove archive restores on a separate isolated PostgreSQL server
